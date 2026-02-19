@@ -166,6 +166,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let streamError: Error | null = null
 
   const processBlock = (rawBlock: string) => {
     const parsed = parseSseBlock(rawBlock)
@@ -187,6 +188,11 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       if (parsed.event === 'done') {
         const payload = JSON.parse(parsed.data) as StoryStreamDonePayload
         options.onDone?.(payload)
+        return
+      }
+      if (parsed.event === 'error') {
+        const payload = JSON.parse(parsed.data) as { detail?: string }
+        streamError = new Error(payload.detail || 'Text generation failed')
       }
     } catch {
       // Ignore malformed stream payloads.
@@ -212,5 +218,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   buffer += decoder.decode()
   if (buffer.trim()) {
     processBlock(buffer)
+  }
+
+  if (streamError) {
+    throw streamError
   }
 }

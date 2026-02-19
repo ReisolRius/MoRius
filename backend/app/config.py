@@ -54,6 +54,13 @@ class Settings:
     yookassa_secret_key: str
     yookassa_api_url: str
     payments_return_url: str
+    story_llm_provider: str
+    gigachat_authorization_key: str
+    gigachat_scope: str
+    gigachat_oauth_url: str
+    gigachat_chat_url: str
+    gigachat_model: str
+    gigachat_verify_ssl: bool
 
 
 settings = Settings(
@@ -87,4 +94,11 @@ settings = Settings(
     yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", "").strip(),
     yookassa_api_url=os.getenv("YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
     payments_return_url=os.getenv("PAYMENTS_RETURN_URL", "http://localhost:5173/home").strip(),
+    story_llm_provider=os.getenv("STORY_LLM_PROVIDER", "mock").strip().lower(),
+    gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
+    gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),
+    gigachat_oauth_url=os.getenv("GIGACHAT_OAUTH_URL", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth").strip(),
+    gigachat_chat_url=os.getenv("GIGACHAT_CHAT_URL", "https://gigachat.devices.sberbank.ru/api/v1/chat/completions").strip(),
+    gigachat_model=os.getenv("GIGACHAT_MODEL", "GigaChat-2-Lite").strip(),
+    gigachat_verify_ssl=_to_bool(os.getenv("GIGACHAT_VERIFY_SSL"), default=True),
 )

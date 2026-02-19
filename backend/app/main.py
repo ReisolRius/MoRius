@@ -12,6 +12,7 @@ from email.message import EmailMessage
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -81,6 +82,8 @@ COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
+GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
+GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -599,6 +602,25 @@ def _list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
     ).all()
 
 
+def _validate_story_provider_config() -> None:
+    provider = settings.story_llm_provider
+    if provider == "mock":
+        return
+
+    if provider == "gigachat":
+        if settings.gigachat_authorization_key:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="GigaChat provider is not configured: set GIGACHAT_AUTHORIZATION_KEY",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Unsupported STORY_LLM_PROVIDER: {provider}",
+    )
+
+
 def _build_mock_story_response(prompt: str, turn_index: int) -> str:
     prompt_reference = " ".join(prompt.split())
     if len(prompt_reference) > 240:
@@ -638,19 +660,196 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
 
 
+def _normalize_basic_auth_header(raw_value: str) -> str:
+    normalized = raw_value.strip()
+    if not normalized:
+        raise RuntimeError("GIGACHAT_AUTHORIZATION_KEY is missing")
+    if normalized.lower().startswith("basic "):
+        return normalized
+    return f"Basic {normalized}"
+
+
+def _get_gigachat_access_token() -> str:
+    now = _utcnow()
+    with GIGACHAT_TOKEN_CACHE_LOCK:
+        cached_token = GIGACHAT_TOKEN_CACHE.get("access_token")
+        cached_expires_at = GIGACHAT_TOKEN_CACHE.get("expires_at")
+
+    if isinstance(cached_token, str) and cached_token and isinstance(cached_expires_at, datetime):
+        if cached_expires_at > now + timedelta(seconds=30):
+            return cached_token
+
+    headers = {
+        "Authorization": _normalize_basic_auth_header(settings.gigachat_authorization_key),
+        "RqUID": str(uuid4()),
+        "Accept": "application/json",
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    data = {"scope": settings.gigachat_scope}
+
+    try:
+        response = requests.post(
+            settings.gigachat_oauth_url,
+            headers=headers,
+            data=data,
+            timeout=20,
+            verify=settings.gigachat_verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach GigaChat OAuth endpoint") from exc
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if response.status_code >= 400:
+        detail = ""
+        if isinstance(payload, dict):
+            detail = str(payload.get("error_description") or payload.get("message") or payload.get("error") or "").strip()
+        if detail:
+            raise RuntimeError(f"GigaChat OAuth error ({response.status_code}): {detail}")
+        raise RuntimeError(f"GigaChat OAuth error ({response.status_code})")
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("GigaChat OAuth returned invalid payload")
+
+    access_token = str(payload.get("access_token", "")).strip()
+    if not access_token:
+        raise RuntimeError("GigaChat OAuth response does not contain access_token")
+
+    expires_at_value = payload.get("expires_at")
+    expires_at = now + timedelta(minutes=25)
+    if isinstance(expires_at_value, int):
+        expires_at = datetime.fromtimestamp(expires_at_value / 1000, tz=timezone.utc)
+    elif isinstance(expires_at_value, str) and expires_at_value.isdigit():
+        expires_at = datetime.fromtimestamp(int(expires_at_value) / 1000, tz=timezone.utc)
+
+    with GIGACHAT_TOKEN_CACHE_LOCK:
+        GIGACHAT_TOKEN_CACHE["access_token"] = access_token
+        GIGACHAT_TOKEN_CACHE["expires_at"] = expires_at
+
+    return access_token
+
+
+def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
+    access_token = _get_gigachat_access_token()
+    messages_payload = [
+        {"role": message.role, "content": message.content}
+        for message in context_messages
+        if message.content.strip()
+    ]
+    if not messages_payload:
+        raise RuntimeError("No messages to send to GigaChat")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "text/event-stream",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": settings.gigachat_model,
+        "messages": messages_payload,
+        "stream": True,
+    }
+
+    try:
+        response = requests.post(
+            settings.gigachat_chat_url,
+            headers=headers,
+            json=payload,
+            timeout=(20, 120),
+            stream=True,
+            verify=settings.gigachat_verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach GigaChat chat endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = {}
+
+        if isinstance(error_payload, dict):
+            detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+
+        if detail:
+            raise RuntimeError(f"GigaChat chat error ({response.status_code}): {detail}")
+        raise RuntimeError(f"GigaChat chat error ({response.status_code})")
+
+    emitted_delta = False
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if raw_line is None:
+            continue
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+
+        raw_data = line[len("data:") :].strip()
+        if raw_data == "[DONE]":
+            break
+
+        try:
+            chunk_payload = json.loads(raw_data)
+        except json.JSONDecodeError:
+            continue
+
+        choices = chunk_payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        delta_value = choice.get("delta")
+        if isinstance(delta_value, dict):
+            content_delta = delta_value.get("content")
+            if isinstance(content_delta, str) and content_delta:
+                emitted_delta = True
+                yield content_delta
+                continue
+
+        if emitted_delta:
+            continue
+
+        message_value = choice.get("message")
+        if isinstance(message_value, dict):
+            content_value = message_value.get("content")
+            if isinstance(content_value, str) and content_value:
+                for chunk in _iter_story_stream_chunks(content_value):
+                    yield chunk
+                break
+
+
+def _iter_story_provider_stream_chunks(
+    *,
+    prompt: str,
+    turn_index: int,
+    context_messages: list[StoryMessage],
+):
+    if settings.story_llm_provider == "gigachat":
+        yield from _iter_gigachat_story_stream_chunks(context_messages)
+        return
+
+    response_text = _build_mock_story_response(prompt, turn_index)
+    for chunk in _iter_story_stream_chunks(response_text):
+        yield chunk
+        time.sleep(0.05)
+
+
 def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-def _stream_mock_story_response(
+def _stream_story_response(
     *,
     db: Session,
     game: StoryGame,
     source_user_message: StoryMessage | None,
     prompt: str,
     turn_index: int,
+    context_messages: list[StoryMessage],
 ):
-    response_text = _build_mock_story_response(prompt, turn_index)
     assistant_message = StoryMessage(
         game_id=game.id,
         role=STORY_ASSISTANT_ROLE,
@@ -671,21 +870,29 @@ def _stream_mock_story_response(
 
     produced = ""
     aborted = False
+    stream_error: str | None = None
     try:
-        for chunk in _iter_story_stream_chunks(response_text):
+        for chunk in _iter_story_provider_stream_chunks(
+            prompt=prompt,
+            turn_index=turn_index,
+            context_messages=context_messages,
+        ):
             produced += chunk
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
-            time.sleep(0.05)
     except GeneratorExit:
         aborted = True
         raise
+    except Exception as exc:
+        stream_error = str(exc)
+        error_detail = stream_error if settings.debug else "Text generation failed"
+        yield _sse_event("error", {"detail": error_detail})
     finally:
         assistant_message.content = produced
         _touch_story_game(game)
         db.commit()
         db.refresh(assistant_message)
 
-    if not aborted:
+    if not aborted and stream_error is None:
         yield _sse_event(
             "done",
             {
@@ -1019,6 +1226,7 @@ def generate_story_response(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
+    _validate_story_provider_config()
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
@@ -1056,15 +1264,17 @@ def generate_story_response(
         db.commit()
         db.refresh(source_user_message)
 
+    context_messages = _list_story_messages(db, game.id)
     assistant_turn_index = (
-        len([message for message in _list_story_messages(db, game.id) if message.role == STORY_ASSISTANT_ROLE]) + 1
+        len([message for message in context_messages if message.role == STORY_ASSISTANT_ROLE]) + 1
     )
-    stream = _stream_mock_story_response(
+    stream = _stream_story_response(
         db=db,
         game=game,
         source_user_message=source_user_message,
         prompt=prompt_text,
         turn_index=assistant_turn_index,
+        context_messages=context_messages,
     )
     return StreamingResponse(
         stream,
