@@ -123,6 +123,18 @@ function App() {
     }
   }, [authToken, authUser, isHydratingSession, path])
 
+  useEffect(() => {
+    const isAuthenticated = Boolean(authToken && authUser)
+    if (isHydratingSession || isAuthenticated) {
+      return
+    }
+
+    if (AUTHENTICATED_PATHS.has(path)) {
+      window.history.replaceState({}, '', '/')
+      setPath('/')
+    }
+  }, [authToken, authUser, isHydratingSession, path])
+
   const handleAuthSuccess = useCallback(
     (payload: AuthResponse) => {
       persistAuthSession(payload)
