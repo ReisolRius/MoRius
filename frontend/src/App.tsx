@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import PublicLandingPage from './pages/PublicLandingPage'
 import AuthenticatedHomePage from './pages/AuthenticatedHomePage'
+import StoryGamePage from './pages/StoryGamePage'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
 import type { AuthResponse, AuthUser } from './types/auth'
 
-const AUTHENTICATED_PATHS = new Set(['/home', '/dashboard'])
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
 const MIN_BOOT_SPLASH_MS = 650
@@ -19,6 +19,10 @@ type AuthSession = {
 function normalizePath(pathname: string): string {
   const normalized = pathname.replace(/\/+$/, '').toLowerCase()
   return normalized || '/'
+}
+
+function isAuthenticatedPath(pathname: string): boolean {
+  return pathname === '/home' || pathname.startsWith('/home/') || pathname === '/dashboard'
 }
 
 function loadAuthSession(): AuthSession {
@@ -96,7 +100,7 @@ function App() {
           return
         }
         resetSession()
-        if (AUTHENTICATED_PATHS.has(path)) {
+        if (isAuthenticatedPath(path)) {
           window.history.replaceState({}, '', '/')
           setPath('/')
         }
@@ -117,7 +121,7 @@ function App() {
       return
     }
 
-    if (!AUTHENTICATED_PATHS.has(path)) {
+    if (!isAuthenticatedPath(path)) {
       window.history.replaceState({}, '', '/home')
       setPath('/home')
     }
@@ -129,7 +133,7 @@ function App() {
       return
     }
 
-    if (AUTHENTICATED_PATHS.has(path)) {
+    if (isAuthenticatedPath(path)) {
       window.history.replaceState({}, '', '/')
       setPath('/')
     }
@@ -157,7 +161,8 @@ function App() {
   }, [])
 
   const isAuthenticated = Boolean(authToken && authUser)
-  const shouldShowAuthenticatedHome = isAuthenticated
+  const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
+  const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
   if (shouldShowBootScreen) {
@@ -216,7 +221,13 @@ function App() {
     )
   }
 
-  if (shouldShowAuthenticatedHome && authUser) {
+  if (shouldShowStoryGamePage && authUser) {
+    return (
+      <StoryGamePage user={authUser} authToken={authToken!} onNavigate={navigate} onLogout={handleLogout} />
+    )
+  }
+
+  if (shouldShowDashboardPage && authUser) {
     return (
       <AuthenticatedHomePage
         user={authUser}

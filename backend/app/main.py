@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import math
 import secrets
 import smtplib
+import time
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -14,6 +16,7 @@ from typing import Any
 import requests
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import and_, inspect, or_, select, text
@@ -21,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.models import CoinPurchase, EmailVerification, User
+from app.models import CoinPurchase, EmailVerification, StoryGame, StoryMessage, User
 from app.schemas import (
     AvatarUpdateRequest,
     AuthResponse,
@@ -35,6 +38,12 @@ from app.schemas import (
     MessageResponse,
     RegisterRequest,
     RegisterVerifyRequest,
+    StoryGameCreateRequest,
+    StoryGameOut,
+    StoryGameSummaryOut,
+    StoryGenerateRequest,
+    StoryMessageOut,
+    StoryMessageUpdateRequest,
     UserOut,
 )
 from app.security import create_access_token, hash_password, safe_decode_access_token, verify_password
@@ -69,6 +78,9 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
+STORY_DEFAULT_TITLE = "Новая игра"
+STORY_USER_ROLE = "user"
+STORY_ASSISTANT_ROLE = "assistant"
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -549,6 +561,146 @@ def _get_current_user(
     return user
 
 
+def _normalize_story_text(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Story text cannot be empty")
+    return normalized
+
+
+def _derive_story_title(prompt: str) -> str:
+    collapsed = " ".join(prompt.split()).strip()
+    if not collapsed:
+        return STORY_DEFAULT_TITLE
+    if len(collapsed) <= 60:
+        return collapsed
+    return f"{collapsed[:57].rstrip()}..."
+
+
+def _touch_story_game(game: StoryGame) -> None:
+    game.last_activity_at = _utcnow()
+
+
+def _get_user_story_game_or_404(db: Session, user_id: int, game_id: int) -> StoryGame:
+    game = db.scalar(
+        select(StoryGame).where(
+            StoryGame.id == game_id,
+            StoryGame.user_id == user_id,
+        )
+    )
+    if game:
+        return game
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+
+
+def _list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
+    return db.scalars(
+        select(StoryMessage).where(StoryMessage.game_id == game_id).order_by(StoryMessage.id.asc())
+    ).all()
+
+
+def _build_mock_story_response(prompt: str, turn_index: int) -> str:
+    prompt_reference = " ".join(prompt.split())
+    if len(prompt_reference) > 240:
+        prompt_reference = f"{prompt_reference[:237]}..."
+
+    openings = (
+        f"Вы делаете шаг: {prompt_reference}. Мир откликается сразу, будто давно ждал именно этого решения.",
+        f"Ваше действие звучит уверенно: {prompt_reference}. Несколько фигур в тени одновременно поворачиваются к вам.",
+        f"После ваших слов ({prompt_reference}) в зале на миг становится тише, и даже огонь в лампах будто тускнеет.",
+    )
+    complications = (
+        "Слева слышится короткий металлический звон, а впереди кто-то закрывает путь, прищурившись и ожидая вашего следующего шага.",
+        "Старый трактирщик быстро уводит взгляд, но едва заметно показывает на узкий проход за стойкой, где обычно никого не бывает.",
+        "Из дальнего угла доносится шепот о цене вашей смелости, и становится ясно: назад дорога будет уже не такой простой.",
+    )
+    outcomes = (
+        "У вас появляется шанс выиграть время и подготовить почву для более рискованного хода.",
+        "Обстановка сгущается, но инициатива все еще у вас, если действовать точно и без паузы.",
+        "Ситуация накаляется, однако именно это может дать вам редкую возможность перехватить контроль.",
+    )
+    prompts = (
+        "Что вы сделаете в первую очередь?",
+        "Какой ход выберете дальше?",
+        "Каким будет ваш следующий шаг?",
+    )
+
+    opening = openings[(turn_index - 1) % len(openings)]
+    complication = complications[(len(prompt_reference) + turn_index) % len(complications)]
+    outcome = outcomes[(turn_index + len(prompt_reference) * 2) % len(outcomes)]
+    follow_up = prompts[(turn_index + len(prompt_reference) * 3) % len(prompts)]
+
+    paragraphs = [opening, complication, outcome, follow_up]
+    return "\n\n".join(paragraphs)
+
+
+def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str]:
+    return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
+
+
+def _sse_event(event: str, payload: dict[str, Any]) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _stream_mock_story_response(
+    *,
+    db: Session,
+    game: StoryGame,
+    source_user_message: StoryMessage | None,
+    prompt: str,
+    turn_index: int,
+):
+    response_text = _build_mock_story_response(prompt, turn_index)
+    assistant_message = StoryMessage(
+        game_id=game.id,
+        role=STORY_ASSISTANT_ROLE,
+        content="",
+    )
+    db.add(assistant_message)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(assistant_message)
+
+    yield _sse_event(
+        "start",
+        {
+            "assistant_message_id": assistant_message.id,
+            "user_message_id": source_user_message.id if source_user_message else None,
+        },
+    )
+
+    produced = ""
+    aborted = False
+    try:
+        for chunk in _iter_story_stream_chunks(response_text):
+            produced += chunk
+            yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
+            time.sleep(0.05)
+    except GeneratorExit:
+        aborted = True
+        raise
+    finally:
+        assistant_message.content = produced
+        _touch_story_game(game)
+        db.commit()
+        db.refresh(assistant_message)
+
+    if not aborted:
+        yield _sse_event(
+            "done",
+            {
+                "message": {
+                    "id": assistant_message.id,
+                    "game_id": assistant_message.game_id,
+                    "role": assistant_message.role,
+                    "content": assistant_message.content,
+                    "created_at": assistant_message.created_at.isoformat(),
+                    "updated_at": assistant_message.updated_at.isoformat(),
+                }
+            },
+        )
+
+
 @app.get("/api/health", response_model=MessageResponse)
 def health_check() -> MessageResponse:
     return MessageResponse(message="ok")
@@ -779,6 +931,150 @@ def update_avatar(
     db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@app.get("/api/story/games", response_model=list[StoryGameSummaryOut])
+def list_story_games(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryGameSummaryOut]:
+    user = _get_current_user(db, authorization)
+    games = db.scalars(
+        select(StoryGame)
+        .where(StoryGame.user_id == user.id)
+        .order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
+    ).all()
+    return [StoryGameSummaryOut.model_validate(game) for game in games]
+
+
+@app.post("/api/story/games", response_model=StoryGameSummaryOut)
+def create_story_game(
+    payload: StoryGameCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryGameSummaryOut:
+    user = _get_current_user(db, authorization)
+    title = payload.title.strip() if payload.title else STORY_DEFAULT_TITLE
+    if not title:
+        title = STORY_DEFAULT_TITLE
+
+    game = StoryGame(
+        user_id=user.id,
+        title=title,
+        last_activity_at=_utcnow(),
+    )
+    db.add(game)
+    db.commit()
+    db.refresh(game)
+    return StoryGameSummaryOut.model_validate(game)
+
+
+@app.get("/api/story/games/{game_id}", response_model=StoryGameOut)
+def get_story_game(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryGameOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    messages = _list_story_messages(db, game.id)
+    return StoryGameOut(
+        game=StoryGameSummaryOut.model_validate(game),
+        messages=[StoryMessageOut.model_validate(message) for message in messages],
+    )
+
+
+@app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
+def update_story_message(
+    game_id: int,
+    message_id: int,
+    payload: StoryMessageUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryMessageOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    message = db.scalar(
+        select(StoryMessage).where(
+            StoryMessage.id == message_id,
+            StoryMessage.game_id == game.id,
+        )
+    )
+    if message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+    if message.role != STORY_ASSISTANT_ROLE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only AI messages can be edited")
+
+    message.content = _normalize_story_text(payload.content)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(message)
+    return StoryMessageOut.model_validate(message)
+
+
+@app.post("/api/story/games/{game_id}/generate")
+def generate_story_response(
+    game_id: int,
+    payload: StoryGenerateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    messages = _list_story_messages(db, game.id)
+    source_user_message: StoryMessage | None = None
+
+    if payload.reroll_last_response:
+        if not messages:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to reroll")
+
+        last_message = messages[-1]
+        if last_message.role != STORY_ASSISTANT_ROLE:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Last message is not AI-generated")
+
+        source_user_message = next((message for message in reversed(messages[:-1]) if message.role == STORY_USER_ROLE), None)
+        if source_user_message is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
+
+        db.delete(last_message)
+        _touch_story_game(game)
+        db.commit()
+        prompt_text = source_user_message.content
+    else:
+        if payload.prompt is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
+        prompt_text = _normalize_story_text(payload.prompt)
+        source_user_message = StoryMessage(
+            game_id=game.id,
+            role=STORY_USER_ROLE,
+            content=prompt_text,
+        )
+        db.add(source_user_message)
+        if game.title == STORY_DEFAULT_TITLE:
+            game.title = _derive_story_title(prompt_text)
+        _touch_story_game(game)
+        db.commit()
+        db.refresh(source_user_message)
+
+    assistant_turn_index = (
+        len([message for message in _list_story_messages(db, game.id) if message.role == STORY_ASSISTANT_ROLE]) + 1
+    )
+    stream = _stream_mock_story_response(
+        db=db,
+        game=game,
+        source_user_message=source_user_message,
+        prompt=prompt_text,
+        turn_index=assistant_turn_index,
+    )
+    return StreamingResponse(
+        stream,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/api/payments/plans", response_model=CoinPlanListResponse)

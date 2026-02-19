@@ -77,3 +77,42 @@ class CoinTopUpSyncResponse(BaseModel):
     status: str
     coins: int
     user: UserOut
+
+
+class StoryGameCreateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+
+
+class StoryGenerateRequest(BaseModel):
+    prompt: str | None = Field(default=None, min_length=1, max_length=8_000)
+    reroll_last_response: bool = False
+
+
+class StoryMessageUpdateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=20_000)
+
+
+class StoryMessageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    role: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryGameSummaryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    last_activity_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryGameOut(BaseModel):
+    game: StoryGameSummaryOut
+    messages: list[StoryMessageOut]
