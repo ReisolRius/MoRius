@@ -1,0 +1,32 @@
+# OS / editor
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/.env
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+frontend/dist/
+coverage/
+
+# Python cache / virtualenv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local databases
+*.db
+backend/data/*.db
