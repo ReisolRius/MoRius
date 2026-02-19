@@ -9,6 +9,7 @@ import './index.css'
 import App from './App.tsx'
 import { GOOGLE_CLIENT_ID, IS_GOOGLE_AUTH_CONFIGURED } from './config/env'
 
+
 const theme = createTheme({
   palette: {
     mode: 'dark',
@@ -61,7 +62,7 @@ const appNode = (
     <App />
   </ThemeProvider>
 )
-
+console.log("VITE_GOOGLE_CLIENT_ID:", import.meta.env.VITE_GOOGLE_CLIENT_ID)
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     {IS_GOOGLE_AUTH_CONFIGURED && GOOGLE_CLIENT_ID ? (
