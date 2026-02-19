@@ -38,6 +38,9 @@ class Settings:
     email_verification_code_ttl_minutes: int
     email_verification_max_attempts: int
     email_verification_resend_cooldown_seconds: int
+    resend_api_key: str
+    resend_from_email: str
+    resend_api_url: str
     smtp_host: str
     smtp_port: int
     smtp_user: str
@@ -68,6 +71,9 @@ settings = Settings(
     email_verification_resend_cooldown_seconds=int(
         os.getenv("EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS", "60")
     ),
+    resend_api_key=os.getenv("RESEND_API_KEY", "").strip(),
+    resend_from_email=os.getenv("RESEND_FROM_EMAIL", "").strip(),
+    resend_api_url=os.getenv("RESEND_API_URL", "https://api.resend.com/emails").strip(),
     smtp_host=os.getenv("SMTP_HOST", "").strip(),
     smtp_port=int(os.getenv("SMTP_PORT", "587")),
     smtp_user=os.getenv("SMTP_USER", "").strip(),

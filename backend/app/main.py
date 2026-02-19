@@ -189,10 +189,57 @@ def _clear_verification_code_cooldown(email: str) -> None:
         EMAIL_RESEND_TRACKER.pop(email, None)
 
 
-def _build_mail_from_header() -> str:
+def _build_mail_from_header_for_email(from_email: str) -> str:
     if settings.smtp_from_name:
-        return f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-    return settings.smtp_from_email
+        return f"{settings.smtp_from_name} <{from_email}>"
+    return from_email
+
+
+def _build_mail_from_header() -> str:
+    return _build_mail_from_header_for_email(settings.smtp_from_email)
+
+
+def _send_email_verification_code_via_resend(
+    *,
+    recipient_email: str,
+    from_header: str,
+    subject: str,
+    text_body: str,
+) -> None:
+    headers = {
+        "Authorization": f"Bearer {settings.resend_api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "from": from_header,
+        "to": [recipient_email],
+        "subject": subject,
+        "text": text_body,
+    }
+
+    try:
+        response = requests.post(
+            settings.resend_api_url,
+            json=payload,
+            headers=headers,
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach Resend API") from exc
+
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = None
+
+        if isinstance(error_payload, dict):
+            detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+
+        if detail:
+            raise RuntimeError(f"Resend API error ({response.status_code}): {detail}")
+        raise RuntimeError(f"Resend API error ({response.status_code})")
 
 
 def _send_email_verification_code(recipient_email: str, verification_code: str) -> None:
@@ -208,10 +255,22 @@ def _send_email_verification_code(recipient_email: str, verification_code: str) 
         "Если вы не запрашивали код, просто проигнорируйте это письмо."
     )
 
+    if settings.resend_api_key:
+        if not settings.resend_from_email:
+            raise RuntimeError("RESEND_FROM_EMAIL is required when RESEND_API_KEY is set")
+
+        _send_email_verification_code_via_resend(
+            recipient_email=recipient_email,
+            from_header=_build_mail_from_header_for_email(settings.resend_from_email),
+            subject=str(message["Subject"]),
+            text_body=message.get_content(),
+        )
+        return
+
     if not settings.smtp_host:
         raise RuntimeError(
-            "SMTP is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, "
-            "SMTP_FROM_EMAIL and SMTP_FROM_NAME."
+            "Email provider is not configured. Set RESEND_API_KEY + RESEND_FROM_EMAIL, "
+            "or configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM_EMAIL and SMTP_FROM_NAME."
         )
 
     if settings.smtp_use_ssl:
