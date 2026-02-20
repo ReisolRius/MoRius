@@ -1548,13 +1548,13 @@ def update_story_instruction_card(
     return StoryInstructionCardOut.model_validate(instruction_card)
 
 
-@app.delete("/api/story/games/{game_id}/instructions/{instruction_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/api/story/games/{game_id}/instructions/{instruction_id}", response_model=MessageResponse)
 def delete_story_instruction_card(
     game_id: int,
     instruction_id: int,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
-) -> None:
+) -> MessageResponse:
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
     instruction_card = db.scalar(
@@ -1569,6 +1569,7 @@ def delete_story_instruction_card(
     db.delete(instruction_card)
     _touch_story_game(game)
     db.commit()
+    return MessageResponse(message="Instruction card deleted")
 
 
 @app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
