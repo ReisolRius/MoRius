@@ -638,7 +638,7 @@ def _sync_user_pending_purchases(db: Session, user: User) -> None:
 
 
 def _issue_auth_response(user: User) -> AuthResponse:
-    token = create_access_token(subject=str(user.id))
+    token = create_access_token(subject=str(user.id), claims={"email": user.email})
     return AuthResponse(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -649,6 +649,25 @@ def _extract_bearer_token(authorization: str | None) -> str | None:
     if not authorization.lower().startswith(token_prefix):
         return None
     return authorization[len(token_prefix) :].strip()
+
+
+def _parse_token_issued_at(raw_value: Any) -> datetime:
+    if isinstance(raw_value, datetime):
+        return _to_utc(raw_value)
+
+    if isinstance(raw_value, (int, float)):
+        return datetime.fromtimestamp(float(raw_value), tz=timezone.utc)
+
+    if isinstance(raw_value, str):
+        cleaned = raw_value.strip()
+        if not cleaned:
+            raise ValueError("Token iat claim is empty")
+        try:
+            return datetime.fromtimestamp(float(cleaned), tz=timezone.utc)
+        except ValueError as exc:
+            raise ValueError("Token iat claim is invalid") from exc
+
+    raise ValueError("Token iat claim is missing")
 
 
 def _get_current_user(
@@ -664,12 +683,30 @@ def _get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
     subject = payload.get("sub")
-    if not subject:
+    if subject is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+    try:
+        user_id = int(str(subject))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload") from exc
 
-    user = db.get(User, int(subject))
+    token_email = _normalize_email(str(payload.get("email", "")))
+    if not token_email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+    try:
+        token_issued_at = _parse_token_issued_at(payload.get("iat"))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload") from exc
+
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    if _normalize_email(user.email) != token_email:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token does not match user identity")
+
+    user_created_at = _to_utc(user.created_at)
+    if token_issued_at < user_created_at - timedelta(minutes=2):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is no longer valid")
 
     return user
 

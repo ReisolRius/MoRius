@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import bcrypt
 from jose import JWTError, jwt
@@ -36,11 +37,17 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
-    expire_at = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=settings.access_token_ttl_minutes)
-    )
-    payload = {"sub": subject, "exp": expire_at}
+def create_access_token(
+    subject: str,
+    *,
+    claims: dict[str, Any] | None = None,
+    expires_delta: timedelta | None = None,
+) -> str:
+    issued_at = datetime.now(timezone.utc)
+    expire_at = issued_at + (expires_delta or timedelta(minutes=settings.access_token_ttl_minutes))
+    payload: dict[str, Any] = {"sub": subject, "iat": issued_at, "exp": expire_at}
+    if claims:
+        payload.update(claims)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

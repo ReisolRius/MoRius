@@ -19,6 +19,23 @@ def _parse_origins(value: str) -> list[str]:
     return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
+def _is_render_environment() -> bool:
+    return _to_bool(os.getenv("RENDER"), default=False) or bool(os.getenv("RENDER_SERVICE_ID"))
+
+
+def _default_database_url() -> str:
+    explicit_database_url = os.getenv("DATABASE_URL")
+    if explicit_database_url and explicit_database_url.strip():
+        return explicit_database_url.strip()
+
+    if _is_render_environment():
+        render_disk_path = os.getenv("RENDER_DISK_PATH", "/var/data").strip() or "/var/data"
+        sqlite_path = Path(render_disk_path) / "morius.db"
+        return f"sqlite:///{sqlite_path.as_posix()}"
+
+    return "sqlite:///./data/morius.db"
+
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_FILE_PATH)
@@ -77,7 +94,7 @@ class Settings:
 settings = Settings(
     app_name=os.getenv("APP_NAME", "MoRius API"),
     debug=_to_bool(os.getenv("DEBUG"), default=True),
-    database_url=os.getenv("DATABASE_URL", "sqlite:///./data/morius.db"),
+    database_url=_default_database_url(),
     jwt_secret_key=os.getenv("JWT_SECRET_KEY", "replace_me_in_production"),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     access_token_ttl_minutes=int(os.getenv("ACCESS_TOKEN_TTL_MINUTES", "10080")),
