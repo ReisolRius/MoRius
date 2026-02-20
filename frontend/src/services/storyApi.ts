@@ -7,6 +7,7 @@ import type {
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
   StoryStreamStartPayload,
+  StoryWorldCard,
 } from '../types/story'
 
 type RequestOptions = RequestInit & {
@@ -33,6 +34,12 @@ export type StoryGenerationStreamOptions = {
 export type StoryInstructionCardInput = {
   title: string
   content: string
+}
+
+export type StoryWorldCardInput = {
+  title: string
+  content: string
+  triggers: string[]
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -288,6 +295,83 @@ export async function deleteStoryInstructionCard(payload: {
   instructionId: number
 }): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
+  }
+}
+
+export async function listStoryWorldCards(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryWorldCard[]> {
+  return request<StoryWorldCard[]>(`/api/story/games/${payload.gameId}/world-cards`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function createStoryWorldCard(payload: {
+  token: string
+  gameId: number
+  title: string
+  content: string
+  triggers: string[]
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+      triggers: payload.triggers,
+    }),
+  })
+}
+
+export async function updateStoryWorldCard(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  title: string
+  content: string
+  triggers: string[]
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+      triggers: payload.triggers,
+    }),
+  })
+}
+
+export async function deleteStoryWorldCard(payload: {
+  token: string
+  gameId: number
+  cardId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,

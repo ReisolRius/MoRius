@@ -5,6 +5,7 @@ import binascii
 import json
 import logging
 import math
+import re
 import secrets
 import smtplib
 import time
@@ -26,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.models import CoinPurchase, EmailVerification, StoryGame, StoryInstructionCard, StoryMessage, User
+from app.models import CoinPurchase, EmailVerification, StoryGame, StoryInstructionCard, StoryMessage, StoryWorldCard, User
 from app.schemas import (
     AvatarUpdateRequest,
     AuthResponse,
@@ -50,6 +51,9 @@ from app.schemas import (
     StoryInstructionCardUpdateRequest,
     StoryMessageOut,
     StoryMessageUpdateRequest,
+    StoryWorldCardCreateRequest,
+    StoryWorldCardOut,
+    StoryWorldCardUpdateRequest,
     UserOut,
 )
 from app.security import create_access_token, hash_password, safe_decode_access_token, verify_password
@@ -87,6 +91,9 @@ COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
+STORY_WORLD_CARD_SOURCE_USER = "user"
+STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -613,6 +620,139 @@ def _normalize_story_generation_instructions(
     return normalized_cards
 
 
+def _normalize_story_world_card_title(value: str) -> str:
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="World card title cannot be empty")
+    return normalized
+
+
+def _normalize_story_world_card_content(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="World card text cannot be empty")
+    return normalized
+
+
+def _normalize_story_world_card_trigger(value: str) -> str:
+    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) > 80:
+        return normalized[:80].rstrip()
+    return normalized
+
+
+def _normalize_story_world_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        trigger = _normalize_story_world_card_trigger(raw_value)
+        if not trigger:
+            continue
+        trigger_key = trigger.casefold()
+        if trigger_key in seen:
+            continue
+        seen.add(trigger_key)
+        normalized.append(trigger)
+
+    fallback_trigger = _normalize_story_world_card_trigger(fallback_title)
+    if fallback_trigger:
+        fallback_key = fallback_trigger.casefold()
+        if fallback_key not in seen:
+            normalized.insert(0, fallback_trigger)
+
+    return normalized[:40]
+
+
+def _serialize_story_world_card_triggers(values: list[str]) -> str:
+    return json.dumps(values, ensure_ascii=False)
+
+
+def _deserialize_story_world_card_triggers(raw_value: str) -> list[str]:
+    raw = raw_value.strip()
+    if not raw:
+        return []
+
+    parsed: Any
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = [part.strip() for part in raw.split(",")]
+
+    if not isinstance(parsed, list):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        trigger = _normalize_story_world_card_trigger(item)
+        if not trigger:
+            continue
+        trigger_key = trigger.casefold()
+        if trigger_key in seen:
+            continue
+        seen.add(trigger_key)
+        normalized.append(trigger)
+
+    return normalized[:40]
+
+
+def _normalize_story_world_card_source(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized == STORY_WORLD_CARD_SOURCE_AI:
+        return STORY_WORLD_CARD_SOURCE_AI
+    return STORY_WORLD_CARD_SOURCE_USER
+
+
+def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
+    return StoryWorldCardOut(
+        id=card.id,
+        game_id=card.game_id,
+        title=card.title,
+        content=card.content,
+        triggers=_deserialize_story_world_card_triggers(card.triggers),
+        source=_normalize_story_world_card_source(card.source),
+        created_at=card.created_at,
+        updated_at=card.updated_at,
+    )
+
+
+def _normalize_story_match_tokens(value: str) -> list[str]:
+    normalized_source = value.lower().replace("ё", "е")
+    return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
+
+
+def _is_story_trigger_match(trigger: str, prompt_tokens: list[str]) -> bool:
+    trigger_tokens = _normalize_story_match_tokens(trigger)
+    if not trigger_tokens:
+        return False
+
+    if len(trigger_tokens) == 1:
+        trigger_token = trigger_tokens[0]
+        if len(trigger_token) < 2:
+            return False
+        for token in prompt_tokens:
+            if token == trigger_token or token.startswith(trigger_token):
+                return True
+            if len(token) >= 4 and trigger_token.startswith(token):
+                return True
+        return False
+
+    for trigger_token in trigger_tokens:
+        is_token_matched = any(
+            token == trigger_token
+            or token.startswith(trigger_token)
+            or (len(token) >= 4 and trigger_token.startswith(token))
+            for token in prompt_tokens
+        )
+        if not is_token_matched:
+            return False
+    return True
+
+
 def _derive_story_title(prompt: str) -> str:
     collapsed = " ".join(prompt.split()).strip()
     if not collapsed:
@@ -652,20 +792,78 @@ def _list_story_instruction_cards(db: Session, game_id: int) -> list[StoryInstru
     ).all()
 
 
-def _build_story_system_prompt(instruction_cards: list[dict[str, str]]) -> str:
-    if not instruction_cards:
+def _list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
+    return db.scalars(
+        select(StoryWorldCard)
+        .where(StoryWorldCard.game_id == game_id)
+        .order_by(StoryWorldCard.id.asc())
+    ).all()
+
+
+def _select_story_world_cards_for_prompt(
+    prompt: str,
+    world_cards: list[StoryWorldCard],
+) -> list[dict[str, Any]]:
+    prompt_tokens = _normalize_story_match_tokens(prompt)
+    selected_cards: list[dict[str, Any]] = []
+
+    for card in world_cards:
+        title = " ".join(card.title.split()).strip()
+        content = card.content.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+
+        triggers = _deserialize_story_world_card_triggers(card.triggers)
+        if not triggers:
+            triggers = _normalize_story_world_card_triggers([], fallback_title=title)
+
+        if prompt_tokens:
+            is_relevant = any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers)
+            if not is_relevant:
+                continue
+
+        selected_cards.append(
+            {
+                "id": card.id,
+                "title": title,
+                "content": content,
+                "triggers": triggers,
+                "source": _normalize_story_world_card_source(card.source),
+            }
+        )
+        if len(selected_cards) >= 10:
+            break
+
+    return selected_cards
+
+
+def _build_story_system_prompt(
+    instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+) -> str:
+    if not instruction_cards and not world_cards:
         return STORY_SYSTEM_PROMPT
 
-    lines = [STORY_SYSTEM_PROMPT, "", "Пользовательские инструкции для текущей игры:"]
-    for index, card in enumerate(instruction_cards, start=1):
-        lines.append(f"{index}. {card['title']}: {card['content']}")
+    lines = [STORY_SYSTEM_PROMPT]
+
+    if instruction_cards:
+        lines.extend(["", "Пользовательские инструкции для текущей игры:"])
+        for index, card in enumerate(instruction_cards, start=1):
+            lines.append(f"{index}. {card['title']}: {card['content']}")
+
+    if world_cards:
+        lines.extend(["", "Карточки мира, релевантные текущему действию игрока:"])
+        for index, card in enumerate(world_cards, start=1):
+            lines.append(f"{index}. {card['title']}: {card['content']}")
+            trigger_line = ", ".join(card["triggers"]) if card["triggers"] else "нет"
+            lines.append(f"Триггеры: {trigger_line}")
 
     lines.extend(
         [
             "",
-            "Следуй этим инструкциям молча.",
-            "Не перечисляй и не комментируй инструкции в ответе.",
-            "Просто продолжай историю в заданной манере.",
+            "Следуй инструкциям и карточкам мира молча.",
+            "Не перечисляй и не комментируй их в ответе.",
+            "Просто продолжай историю в нужной манере.",
         ]
     )
     return "\n".join(lines)
@@ -745,6 +943,7 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     history = [
         {"role": message.role, "content": message.content.strip()}
@@ -754,7 +953,7 @@ def _build_story_provider_messages(
     if len(history) > 24:
         history = history[-24:]
 
-    return [{"role": "system", "content": _build_story_system_prompt(instruction_cards)}, *history]
+    return [{"role": "system", "content": _build_story_system_prompt(instruction_cards, world_cards)}, *history]
 
 
 def _extract_text_from_model_content(value: Any) -> str:
@@ -784,6 +983,325 @@ def _extract_text_from_model_content(value: Any) -> str:
         return "".join(parts)
 
     return ""
+
+
+def _extract_json_array_from_text(raw_value: str) -> Any:
+    normalized = raw_value.strip()
+    if not normalized:
+        return []
+
+    try:
+        return json.loads(normalized)
+    except json.JSONDecodeError:
+        pass
+
+    start_index = normalized.find("[")
+    end_index = normalized.rfind("]")
+    if start_index >= 0 and end_index > start_index:
+        fragment = normalized[start_index : end_index + 1]
+        try:
+            return json.loads(fragment)
+        except json.JSONDecodeError:
+            return []
+
+    return []
+
+
+def _build_story_world_card_extraction_messages(
+    prompt: str,
+    assistant_text: str,
+    existing_cards: list[StoryWorldCard],
+) -> list[dict[str, str]]:
+    existing_titles = [card.title.strip() for card in existing_cards if card.title.strip()]
+    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "нет"
+    prompt_preview = prompt.strip()
+    assistant_preview = assistant_text.strip()
+    if len(prompt_preview) > 1200:
+        prompt_preview = f"{prompt_preview[:1197].rstrip()}..."
+    if len(assistant_preview) > 5000:
+        assistant_preview = f"{assistant_preview[:4997].rstrip()}..."
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Ты извлекаешь важные сущности мира из художественного фрагмента. "
+                "Верни строго JSON-массив без markdown. "
+                "Формат элемента: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
+                "Добавляй только новые и действительно важные сущности (персонажи, предметы, места, организации). "
+                "Максимум 3 элемента. Если добавлять нечего, верни []"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Последний ход игрока:\n{prompt_preview}\n\n"
+                f"Ответ мастера:\n{assistant_preview}\n\n"
+                f"Уже существующие карточки: {existing_titles_preview}\n\n"
+                "Верни только JSON-массив."
+            ),
+        },
+    ]
+
+
+def _normalize_story_world_card_candidates(
+    raw_candidates: Any,
+    existing_title_keys: set[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_candidates, list):
+        return []
+
+    normalized_cards: list[dict[str, Any]] = []
+    seen_title_keys = set(existing_title_keys)
+
+    for raw_item in raw_candidates:
+        if not isinstance(raw_item, dict):
+            continue
+
+        title_value = raw_item.get("title")
+        content_value = raw_item.get("content")
+        if not isinstance(title_value, str) or not isinstance(content_value, str):
+            continue
+
+        title = " ".join(title_value.split()).strip()
+        content = content_value.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+        if len(title) > 120:
+            title = title[:120].rstrip()
+        if len(content) > 8_000:
+            content = content[:8_000].rstrip()
+        if not title or not content:
+            continue
+
+        title_key = title.casefold()
+        if title_key in seen_title_keys:
+            continue
+
+        raw_triggers = raw_item.get("triggers")
+        trigger_values: list[str] = []
+        if isinstance(raw_triggers, list):
+            trigger_values = [value for value in raw_triggers if isinstance(value, str)]
+
+        triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+        normalized_cards.append(
+            {
+                "title": title,
+                "content": content,
+                "triggers": triggers,
+                "source": STORY_WORLD_CARD_SOURCE_AI,
+            }
+        )
+        seen_title_keys.add(title_key)
+        if len(normalized_cards) >= 3:
+            break
+
+    return normalized_cards
+
+
+def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    if settings.openrouter_site_url:
+        headers["HTTP-Referer"] = settings.openrouter_site_url
+    if settings.openrouter_app_name:
+        headers["X-Title"] = settings.openrouter_app_name
+
+    candidate_models = [settings.openrouter_model]
+    if settings.openrouter_model != "openrouter/free":
+        candidate_models.append("openrouter/free")
+
+    last_error: RuntimeError | None = None
+
+    for model_name in candidate_models:
+        payload = {
+            "model": model_name,
+            "messages": messages_payload,
+            "stream": False,
+            "temperature": 0.1,
+        }
+        try:
+            response = requests.post(
+                settings.openrouter_chat_url,
+                headers=headers,
+                json=payload,
+                timeout=(20, 60),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to reach OpenRouter extraction endpoint") from exc
+
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+
+            if isinstance(error_payload, dict):
+                error_value = error_payload.get("error")
+                if isinstance(error_value, dict):
+                    detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+                elif isinstance(error_value, str):
+                    detail = error_value.strip()
+                if not detail:
+                    detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+
+            error_text = f"OpenRouter extraction error ({response.status_code})"
+            if detail:
+                error_text = f"{error_text}: {detail}"
+
+            if response.status_code in {402, 404, 429, 503} and model_name != candidate_models[-1]:
+                last_error = RuntimeError(error_text)
+                continue
+            raise RuntimeError(error_text)
+
+        try:
+            payload_value = response.json()
+        except ValueError as exc:
+            raise RuntimeError("OpenRouter extraction returned invalid payload") from exc
+
+        if not isinstance(payload_value, dict):
+            return []
+        choices = payload_value.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return []
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        message_value = choice.get("message")
+        if not isinstance(message_value, dict):
+            return []
+        raw_content = _extract_text_from_model_content(message_value.get("content"))
+        return _extract_json_array_from_text(raw_content)
+
+    if last_error is not None:
+        raise last_error
+
+    return []
+
+
+def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
+    access_token = _get_gigachat_access_token()
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": settings.gigachat_model,
+        "messages": messages_payload,
+        "stream": False,
+        "temperature": 0.1,
+    }
+
+    try:
+        response = requests.post(
+            settings.gigachat_chat_url,
+            headers=headers,
+            json=payload,
+            timeout=(20, 60),
+            verify=settings.gigachat_verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach GigaChat extraction endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = {}
+
+        if isinstance(error_payload, dict):
+            detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+
+        error_text = f"GigaChat extraction error ({response.status_code})"
+        if detail:
+            error_text = f"{error_text}: {detail}"
+        raise RuntimeError(error_text)
+
+    try:
+        payload_value = response.json()
+    except ValueError as exc:
+        raise RuntimeError("GigaChat extraction returned invalid payload") from exc
+
+    if not isinstance(payload_value, dict):
+        return []
+    choices = payload_value.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return []
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message_value = choice.get("message")
+    if not isinstance(message_value, dict):
+        return []
+    content_value = _extract_text_from_model_content(message_value.get("content"))
+    if not content_value:
+        return []
+    return _extract_json_array_from_text(content_value)
+
+
+def _generate_story_world_card_candidates(
+    prompt: str,
+    assistant_text: str,
+    existing_cards: list[StoryWorldCard],
+) -> list[dict[str, Any]]:
+    if not assistant_text.strip() or len(assistant_text.strip()) < 80:
+        return []
+    if len(existing_cards) >= 120:
+        return []
+
+    existing_title_keys = {
+        " ".join(card.title.split()).strip().casefold()
+        for card in existing_cards
+        if " ".join(card.title.split()).strip()
+    }
+    messages_payload = _build_story_world_card_extraction_messages(prompt, assistant_text, existing_cards)
+
+    raw_candidates: Any = []
+    if settings.story_llm_provider == "openrouter":
+        raw_candidates = _request_openrouter_world_card_candidates(messages_payload)
+    elif settings.story_llm_provider == "gigachat":
+        raw_candidates = _request_gigachat_world_card_candidates(messages_payload)
+    else:
+        return []
+
+    return _normalize_story_world_card_candidates(raw_candidates, existing_title_keys)
+
+
+def _persist_generated_story_world_cards(
+    db: Session,
+    game: StoryGame,
+    prompt: str,
+    assistant_text: str,
+) -> None:
+    existing_cards = _list_story_world_cards(db, game.id)
+    try:
+        candidates = _generate_story_world_card_candidates(
+            prompt=prompt,
+            assistant_text=assistant_text,
+            existing_cards=existing_cards,
+        )
+    except Exception as exc:
+        logger.warning("World card extraction failed: %s", exc)
+        return
+
+    if not candidates:
+        return
+
+    for candidate in candidates:
+        db.add(
+            StoryWorldCard(
+                game_id=game.id,
+                title=candidate["title"],
+                content=candidate["content"],
+                triggers=_serialize_story_world_card_triggers(candidate["triggers"]),
+                source=STORY_WORLD_CARD_SOURCE_AI,
+            )
+        )
+
+    _touch_story_game(game)
+    db.commit()
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -861,9 +1379,10 @@ def _get_gigachat_access_token() -> str:
 def _iter_gigachat_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
 ):
     access_token = _get_gigachat_access_token()
-    messages_payload = _build_story_provider_messages(context_messages, instruction_cards)
+    messages_payload = _build_story_provider_messages(context_messages, instruction_cards, world_cards)
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
 
@@ -954,8 +1473,9 @@ def _iter_gigachat_story_stream_chunks(
 def _iter_openrouter_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
 ):
-    messages_payload = _build_story_provider_messages(context_messages, instruction_cards)
+    messages_payload = _build_story_provider_messages(context_messages, instruction_cards, world_cards)
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
 
@@ -1100,12 +1620,13 @@ def _iter_story_provider_stream_chunks(
     turn_index: int,
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
 ):
     if settings.story_llm_provider == "gigachat":
-        yield from _iter_gigachat_story_stream_chunks(context_messages, instruction_cards)
+        yield from _iter_gigachat_story_stream_chunks(context_messages, instruction_cards, world_cards)
         return
     if settings.story_llm_provider == "openrouter":
-        yield from _iter_openrouter_story_stream_chunks(context_messages, instruction_cards)
+        yield from _iter_openrouter_story_stream_chunks(context_messages, instruction_cards, world_cards)
         return
 
     response_text = _build_mock_story_response(prompt, turn_index)
@@ -1134,6 +1655,7 @@ def _stream_story_response(
     turn_index: int,
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
 ):
     assistant_message = StoryMessage(
         game_id=game.id,
@@ -1164,6 +1686,7 @@ def _stream_story_response(
             turn_index=turn_index,
             context_messages=context_messages,
             instruction_cards=instruction_cards,
+            world_cards=world_cards,
         ):
             produced += chunk
             if len(produced) - persisted_length >= persist_interval:
@@ -1188,6 +1711,15 @@ def _stream_story_response(
         db.refresh(assistant_message)
 
     if not aborted and stream_error is None:
+        try:
+            _persist_generated_story_world_cards(
+                db=db,
+                game=game,
+                prompt=prompt,
+                assistant_text=assistant_message.content,
+            )
+        except Exception:
+            logger.exception("Failed to persist generated world cards")
         yield _sse_event(
             "done",
             {
@@ -1481,10 +2013,12 @@ def get_story_game(
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
     instruction_cards = _list_story_instruction_cards(db, game.id)
+    world_cards = _list_story_world_cards(db, game.id)
     return StoryGameOut(
         game=StoryGameSummaryOut.model_validate(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
+        world_cards=[_story_world_card_to_out(card) for card in world_cards],
     )
 
 
@@ -1572,6 +2106,101 @@ def delete_story_instruction_card(
     return MessageResponse(message="Instruction card deleted")
 
 
+@app.get("/api/story/games/{game_id}/world-cards", response_model=list[StoryWorldCardOut])
+def list_story_world_cards(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryWorldCardOut]:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    cards = _list_story_world_cards(db, game.id)
+    return [_story_world_card_to_out(card) for card in cards]
+
+
+@app.post("/api/story/games/{game_id}/world-cards", response_model=StoryWorldCardOut)
+def create_story_world_card(
+    game_id: int,
+    payload: StoryWorldCardCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    normalized_title = _normalize_story_world_card_title(payload.title)
+    normalized_content = _normalize_story_world_card_content(payload.content)
+    normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
+
+    world_card = StoryWorldCard(
+        game_id=game.id,
+        title=normalized_title,
+        content=normalized_content,
+        triggers=_serialize_story_world_card_triggers(normalized_triggers),
+        source=STORY_WORLD_CARD_SOURCE_USER,
+    )
+    db.add(world_card)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(world_card)
+    return _story_world_card_to_out(world_card)
+
+
+@app.patch("/api/story/games/{game_id}/world-cards/{card_id}", response_model=StoryWorldCardOut)
+def update_story_world_card(
+    game_id: int,
+    card_id: int,
+    payload: StoryWorldCardUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    world_card = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.id == card_id,
+            StoryWorldCard.game_id == game.id,
+        )
+    )
+    if world_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+
+    normalized_title = _normalize_story_world_card_title(payload.title)
+    normalized_content = _normalize_story_world_card_content(payload.content)
+    normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
+
+    world_card.title = normalized_title
+    world_card.content = normalized_content
+    world_card.triggers = _serialize_story_world_card_triggers(normalized_triggers)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(world_card)
+    return _story_world_card_to_out(world_card)
+
+
+@app.delete("/api/story/games/{game_id}/world-cards/{card_id}", response_model=MessageResponse)
+def delete_story_world_card(
+    game_id: int,
+    card_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    world_card = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.id == card_id,
+            StoryWorldCard.game_id == game.id,
+        )
+    )
+    if world_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+
+    db.delete(world_card)
+    _touch_story_game(game)
+    db.commit()
+    return MessageResponse(message="World card deleted")
+
+
 @app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
 def update_story_message(
     game_id: int,
@@ -1612,6 +2241,7 @@ def generate_story_response(
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
     instruction_cards = _normalize_story_generation_instructions(payload.instructions)
+    world_cards = _list_story_world_cards(db, game.id)
     source_user_message: StoryMessage | None = None
 
     if payload.reroll_last_response:
@@ -1646,6 +2276,7 @@ def generate_story_response(
         db.commit()
         db.refresh(source_user_message)
 
+    active_world_cards = _select_story_world_cards_for_prompt(prompt_text, world_cards)
     context_messages = _list_story_messages(db, game.id)
     assistant_turn_index = (
         len([message for message in context_messages if message.role == STORY_ASSISTANT_ROLE]) + 1
@@ -1658,6 +2289,7 @@ def generate_story_response(
         turn_index=assistant_turn_index,
         context_messages=context_messages,
         instruction_cards=instruction_cards,
+        world_cards=active_world_cards,
     )
     return StreamingResponse(
         stream,

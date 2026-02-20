@@ -26,10 +26,24 @@ export type StoryInstructionCard = {
   updated_at: string
 }
 
+export type StoryWorldCardSource = 'user' | 'ai'
+
+export type StoryWorldCard = {
+  id: number
+  game_id: number
+  title: string
+  content: string
+  triggers: string[]
+  source: StoryWorldCardSource
+  created_at: string
+  updated_at: string
+}
+
 export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
   instruction_cards: StoryInstructionCard[]
+  world_cards: StoryWorldCard[]
 }
 
 export type StoryStreamStartPayload = {

@@ -104,6 +104,18 @@ class StoryInstructionCardUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8_000)
 
 
+class StoryWorldCardCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+
+
+class StoryWorldCardUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+
+
 class StoryMessageUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
 
@@ -130,6 +142,17 @@ class StoryInstructionCardOut(BaseModel):
     updated_at: datetime
 
 
+class StoryWorldCardOut(BaseModel):
+    id: int
+    game_id: int
+    title: str
+    content: str
+    triggers: list[str]
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class StoryGameSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -144,3 +167,4 @@ class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
     instruction_cards: list[StoryInstructionCardOut]
+    world_cards: list[StoryWorldCardOut]
