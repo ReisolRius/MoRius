@@ -38,6 +38,7 @@ import type { AuthUser } from '../types/auth'
 type AuthenticatedHomePageProps = {
   user: AuthUser
   authToken: string
+  onNavigate: (path: string) => void
   onUserUpdate: (user: AuthUser) => void
   onLogout: () => void
 }
@@ -166,7 +167,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function AuthenticatedHomePage({ user, authToken, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
+function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [headerPanelOpen, setHeaderPanelOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
@@ -489,6 +490,7 @@ function AuthenticatedHomePage({ user, authToken, onUserUpdate, onLogout }: Auth
 
               <Button
                 variant="contained"
+                onClick={() => onNavigate('/home')}
                 sx={{
                   mt: 2.2,
                   minHeight: 46,

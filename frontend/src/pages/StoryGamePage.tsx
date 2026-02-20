@@ -1,13 +1,32 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material'
-import { brandLogo, icons } from '../assets'
+﻿import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactElement,
+  type Ref,
+} from 'react'
 import {
-  createStoryGame,
-  generateStoryResponseStream,
-  getStoryGame,
-  listStoryGames,
-  updateStoryMessage,
-} from '../services/storyApi'
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grow,
+  IconButton,
+  Stack,
+  Typography,
+  type GrowProps,
+} from '@mui/material'
+import { brandLogo, icons } from '../assets'
+import { updateCurrentUserAvatar } from '../services/authApi'
+import { createStoryGame, generateStoryResponseStream, getStoryGame, listStoryGames } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
 import type { StoryGameSummary, StoryMessage } from '../types/story'
 
@@ -16,10 +35,24 @@ type StoryGamePageProps = {
   authToken: string
   onNavigate: (path: string) => void
   onLogout: () => void
+  onUserUpdate: (user: AuthUser) => void
 }
 
-const INITIAL_STORY_PLACEHOLDER = 'Начните свою истори...'
-const INITIAL_INPUT_PLACEHOLDER = 'Как же всё началось?'
+type MenuSection = 'home' | 'my' | 'all'
+
+type AvatarPlaceholderProps = {
+  fallbackLabel: string
+  size?: number
+}
+
+type UserAvatarProps = {
+  user: AuthUser
+  size?: number
+}
+
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const INITIAL_STORY_PLACEHOLDER = 'Здесь пока пусто. Начни историю и сделай первый ход.'
+const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
 
 function splitAssistantParagraphs(content: string): string[] {
@@ -38,27 +71,131 @@ function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   )
 }
 
-function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageProps) {
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Некорректный формат файла'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
+}
+
+const DialogTransition = forwardRef(function DialogTransition(
+  props: GrowProps & {
+    children: ReactElement
+  },
+  ref: Ref<unknown>,
+) {
+  return <Grow ref={ref} {...props} timeout={{ enter: 320, exit: 190 }} />
+})
+
+function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps) {
+  const headSize = Math.max(12, Math.round(size * 0.27))
+  const bodyWidth = Math.max(18, Math.round(size * 0.42))
+  const bodyHeight = Math.max(10, Math.round(size * 0.21))
+
+  return (
+    <Box
+      aria-label="Нет аватарки"
+      title={fallbackLabel}
+      sx={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        border: '1px solid rgba(186, 202, 214, 0.28)',
+        background: 'linear-gradient(180deg, rgba(38, 45, 57, 0.9), rgba(18, 22, 30, 0.96))',
+        display: 'grid',
+        placeItems: 'center',
+      }}
+    >
+      <Stack alignItems="center" spacing={0.4}>
+        <Box
+          sx={{
+            width: headSize,
+            height: headSize,
+            borderRadius: '50%',
+            backgroundColor: 'rgba(196, 208, 224, 0.92)',
+          }}
+        />
+        <Box
+          sx={{
+            width: bodyWidth,
+            height: bodyHeight,
+            borderRadius: '10px 10px 7px 7px',
+            backgroundColor: 'rgba(196, 208, 224, 0.92)',
+          }}
+        />
+      </Stack>
+    </Box>
+  )
+}
+
+function UserAvatar({ user, size = 44 }: UserAvatarProps) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
+  const fallbackLabel = user.display_name || user.email
+
+  if (user.avatar_url && user.avatar_url !== failedImageUrl) {
+    return (
+      <Box
+        component="img"
+        src={user.avatar_url}
+        alt={fallbackLabel}
+        onError={() => setFailedImageUrl(user.avatar_url)}
+        sx={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          border: '1px solid rgba(186, 202, 214, 0.28)',
+          objectFit: 'cover',
+          backgroundColor: 'rgba(18, 22, 29, 0.7)',
+        }}
+      />
+    )
+  }
+
+  return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
+}
+
+function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const [games, setGames] = useState<StoryGameSummary[]>([])
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [messages, setMessages] = useState<StoryMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [isLoadingGames, setIsLoadingGames] = useState(true)
   const [isLoadingGameMessages, setIsLoadingGameMessages] = useState(false)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
-  const [savingMessageIds, setSavingMessageIds] = useState<number[]>([])
+  const [activeMenuSection, setActiveMenuSection] = useState<MenuSection>('home')
+  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
+  const [isAvatarSaving, setIsAvatarSaving] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
   const generationAbortRef = useRef<AbortController | null>(null)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const activeGame = useMemo(
     () => games.find((game) => game.id === activeGameId) ?? null,
     [activeGameId, games],
   )
+
+  const visibleGames = useMemo(() => {
+    if (activeMenuSection === 'home') {
+      return []
+    }
+    return games
+  }, [activeMenuSection, games])
 
   const hasMessages = messages.length > 0
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
@@ -75,7 +212,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
     }
 
     node.style.height = '0px'
-    const maxHeight = Math.floor(window.innerHeight * 0.45)
+    const maxHeight = Math.floor(window.innerHeight * 0.34)
     const nextHeight = Math.min(node.scrollHeight, maxHeight)
     node.style.height = `${nextHeight}px`
     node.style.overflowY = node.scrollHeight > maxHeight ? 'auto' : 'hidden'
@@ -181,6 +318,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
       setActiveGameId(game.id)
       setMessages([])
       setInputValue('')
+      setActiveMenuSection('my')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
       setErrorMessage(detail)
@@ -199,53 +337,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
       await loadGameById(gameId)
     },
     [activeGameId, isGenerating, loadGameById],
-  )
-
-  const persistAssistantEdits = useCallback(
-    async (messageId: number, container: HTMLElement) => {
-      if (!activeGameId) {
-        return
-      }
-
-      const paragraphNodes = Array.from(container.querySelectorAll<HTMLElement>('[data-ai-paragraph="true"]'))
-      const nextContent = paragraphNodes
-        .map((node) => (node.textContent ?? '').replace(/\u00a0/g, ' ').trimEnd())
-        .join('\n\n')
-        .trim()
-
-      if (!nextContent) {
-        return
-      }
-
-      const currentMessage = messages.find((message) => message.id === messageId)
-      if (!currentMessage || currentMessage.content.trim() === nextContent) {
-        return
-      }
-
-      setSavingMessageIds((previous) => (previous.includes(messageId) ? previous : [...previous, messageId]))
-      setMessages((previousMessages) =>
-        previousMessages.map((message) => (message.id === messageId ? { ...message, content: nextContent } : message)),
-      )
-
-      try {
-        const updatedMessage = await updateStoryMessage({
-          token: authToken,
-          gameId: activeGameId,
-          messageId,
-          content: nextContent,
-        })
-        setMessages((previousMessages) =>
-          previousMessages.map((message) => (message.id === updatedMessage.id ? updatedMessage : message)),
-        )
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось сохранить правку ответа'
-        setErrorMessage(detail)
-        void loadGameById(activeGameId, { silent: true })
-      } finally {
-        setSavingMessageIds((previous) => previous.filter((id) => id !== messageId))
-      }
-    },
-    [activeGameId, authToken, loadGameById, messages],
   )
 
   const runStoryGeneration = useCallback(
@@ -420,52 +511,247 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
     })
   }, [activeGameId, canReroll, runStoryGeneration])
 
-  const avatarInitial = (user.display_name || user.email || '?').trim().charAt(0).toUpperCase()
+  const handleMenuSectionClick = (section: MenuSection) => {
+    if (section === 'home') {
+      onNavigate('/dashboard')
+      setIsPageMenuOpen(false)
+      return
+    }
+    setActiveMenuSection(section)
+  }
+
+  const handleCloseProfileDialog = () => {
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setAvatarError('')
+  }
+
+  const handleChooseAvatar = () => {
+    if (isAvatarSaving) {
+      return
+    }
+    avatarInputRef.current?.click()
+  }
+
+  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setAvatarError('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+
+    if (selectedFile.size > AVATAR_MAX_BYTES) {
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: dataUrl,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (isAvatarSaving) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: null,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleConfirmLogout = () => {
+    setConfirmLogoutOpen(false)
+    setProfileDialogOpen(false)
+    onLogout()
+  }
+
+  const menuItemSx = {
+    width: '100%',
+    justifyContent: 'flex-start',
+    borderRadius: '14px',
+    minHeight: 52,
+    px: 1.8,
+    color: '#d8dee9',
+    textTransform: 'none',
+    fontWeight: 600,
+    fontSize: '1.02rem',
+    border: '1px solid rgba(186, 202, 214, 0.12)',
+    background: 'linear-gradient(90deg, rgba(54, 57, 62, 0.58), rgba(31, 34, 40, 0.52))',
+    '&:hover': {
+      background: 'linear-gradient(90deg, rgba(68, 71, 77, 0.62), rgba(38, 42, 49, 0.58))',
+    },
+  }
 
   return (
     <Box
       sx={{
         minHeight: '100svh',
-        color: '#e4e7ee',
+        color: '#d6dbe4',
         background:
-          'radial-gradient(circle at 75% -10%, rgba(84, 103, 148, 0.14), transparent 45%), linear-gradient(180deg, #030509 0%, #06080d 100%)',
+          'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
+        position: 'relative',
+        overflow: 'hidden',
       }}
     >
       <Box
         sx={{
-          px: { xs: 1.2, md: 2.4 },
-          py: { xs: 1.2, md: 1.8 },
+          position: 'fixed',
+          top: 20,
+          left: 20,
+          zIndex: 35,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between',
-          borderBottom: '1px solid rgba(168, 179, 201, 0.12)',
-          backdropFilter: 'blur(4px)',
+          gap: 1.2,
         }}
       >
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Box component="img" src={brandLogo} alt="MoRius" sx={{ width: 88, opacity: 0.94 }} />
+        <Box component="img" src={brandLogo} alt="Morius" sx={{ width: 76, opacity: 0.96 }} />
+        <IconButton
+          aria-label={isPageMenuOpen ? 'Свернуть меню страниц' : 'Открыть меню страниц'}
+          onClick={() => setIsPageMenuOpen((previous) => !previous)}
+          sx={{
+            width: 44,
+            height: 44,
+            borderRadius: '14px',
+            border: '1px solid rgba(186, 202, 214, 0.14)',
+            backgroundColor: 'rgba(16, 20, 27, 0.82)',
+          }}
+        >
+          <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+        </IconButton>
+      </Box>
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 92,
+          left: 20,
+          zIndex: 30,
+          width: { xs: 252, md: 276 },
+          borderRadius: '14px',
+          border: '1px solid rgba(186, 202, 214, 0.12)',
+          background:
+            'linear-gradient(180deg, rgba(17, 21, 29, 0.86) 0%, rgba(13, 16, 22, 0.93) 100%), radial-gradient(circle at 40% 0%, rgba(186, 202, 214, 0.06), transparent 60%)',
+          p: 1.3,
+          boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
+          transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
+          opacity: isPageMenuOpen ? 1 : 0,
+          pointerEvents: isPageMenuOpen ? 'auto' : 'none',
+          transition: 'transform 260ms ease, opacity 220ms ease',
+        }}
+      >
+        <Stack spacing={1.1}>
+          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('home')}>
+            Главная
+          </Button>
+          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('my')}>
+            Мои игры
+          </Button>
+          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('all')}>
+            Все игры
+          </Button>
+        </Stack>
+
+        {activeMenuSection !== 'home' ? (
+          <Box sx={{ mt: 1.2 }}>
+            {isLoadingGames ? (
+              <Stack alignItems="center" justifyContent="center" sx={{ py: 1.5 }}>
+                <CircularProgress size={18} />
+              </Stack>
+            ) : visibleGames.length === 0 ? (
+              <Button
+                fullWidth
+                onClick={() => void handleCreateGame()}
+                disabled={isCreatingGame || isGenerating}
+                sx={{
+                  borderRadius: '12px',
+                  minHeight: 44,
+                  color: '#dbe1eb',
+                  textTransform: 'none',
+                  border: '1px dashed rgba(186, 202, 214, 0.28)',
+                  backgroundColor: 'rgba(18, 22, 29, 0.5)',
+                }}
+              >
+                {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#dbe1eb' }} /> : 'Добавить первую игру'}
+              </Button>
+            ) : (
+              <Stack spacing={0.8}>
+                {visibleGames.slice(0, 4).map((game) => (
+                  <Button
+                    key={game.id}
+                    fullWidth
+                    onClick={() => void handleSelectGame(game.id)}
+                    disabled={isGenerating}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                      textTransform: 'none',
+                      borderRadius: '12px',
+                      minHeight: 46,
+                      px: 1.2,
+                      color: game.id === activeGameId ? '#f4f7fd' : 'rgba(215, 222, 234, 0.82)',
+                      border: '1px solid rgba(186, 202, 214, 0.16)',
+                      background:
+                        game.id === activeGameId
+                          ? 'linear-gradient(90deg, rgba(186, 202, 214, 0.22), rgba(186, 202, 214, 0.1))'
+                          : 'rgba(16, 20, 27, 0.58)',
+                    }}
+                  >
+                    {game.title}
+                  </Button>
+                ))}
+              </Stack>
+            )}
+          </Box>
+        ) : null}
+      </Box>
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 20,
+          right: 20,
+          zIndex: 45,
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1.2}>
           <IconButton
-            aria-label="Перейти к главной"
-            onClick={() => onNavigate('/dashboard')}
+            aria-label={isRightPanelOpen ? 'Свернуть правую панель' : 'Развернуть правую панель'}
+            onClick={() => setIsRightPanelOpen((previous) => !previous)}
             sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '12px',
-              border: '1px solid rgba(168, 179, 201, 0.22)',
-              backgroundColor: 'rgba(13, 16, 22, 0.82)',
-            }}
-          >
-            <Box component="img" src={icons.home} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
-          </IconButton>
-          <IconButton
-            aria-label={isSidebarOpen ? 'Свернуть панель игр' : 'Развернуть панель игр'}
-            onClick={() => setIsSidebarOpen((previous) => !previous)}
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '12px',
-              border: '1px solid rgba(168, 179, 201, 0.22)',
-              backgroundColor: 'rgba(13, 16, 22, 0.82)',
+              width: 44,
+              height: 44,
+              borderRadius: '14px',
+              border: '1px solid rgba(186, 202, 214, 0.14)',
+              backgroundColor: 'rgba(16, 20, 27, 0.82)',
             }}
           >
             <Box
@@ -473,178 +759,143 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
               src={icons.arrowback}
               alt=""
               sx={{
-                width: 18,
-                height: 18,
-                opacity: 0.92,
-                transform: isSidebarOpen ? 'rotate(180deg)' : 'none',
-                transition: 'transform 200ms ease',
+                width: 20,
+                height: 20,
+                opacity: 0.9,
+                transform: isRightPanelOpen ? 'none' : 'rotate(180deg)',
+                transition: 'transform 220ms ease',
               }}
             />
           </IconButton>
-        </Stack>
 
-        <Stack direction="row" spacing={1} alignItems="center">
-          <IconButton
+          <Stack
+            direction="row"
+            spacing={1.2}
             sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '12px',
-              border: '1px solid rgba(168, 179, 201, 0.22)',
-              backgroundColor: 'rgba(13, 16, 22, 0.82)',
+              opacity: isRightPanelOpen ? 1 : 0,
+              transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(10px)',
+              pointerEvents: isRightPanelOpen ? 'auto' : 'none',
+              transition: 'opacity 220ms ease, transform 220ms ease',
             }}
           >
-            <Box component="img" src={icons.ai} alt="" sx={{ width: 18, height: 18, opacity: 0.88 }} />
-          </IconButton>
-          <IconButton
-            sx={{
-              width: 40,
-              height: 40,
-              borderRadius: '12px',
-              border: '1px solid rgba(168, 179, 201, 0.22)',
-              backgroundColor: 'rgba(13, 16, 22, 0.82)',
-            }}
-          >
-            <Box component="img" src={icons.world} alt="" sx={{ width: 18, height: 18, opacity: 0.88 }} />
-          </IconButton>
-          <Button
-            onClick={onLogout}
-            sx={{
-              minWidth: 0,
-              px: 0.9,
-              py: 0.35,
-              borderRadius: '999px',
-              border: '1px solid rgba(168, 179, 201, 0.22)',
-              color: 'rgba(225, 232, 245, 0.86)',
-              textTransform: 'none',
-              fontWeight: 700,
-              backgroundColor: 'rgba(13, 16, 22, 0.82)',
-            }}
-          >
-            {user.avatar_url ? (
-              <Box
-                component="img"
-                src={user.avatar_url}
-                alt={user.display_name || user.email}
-                sx={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover' }}
-              />
-            ) : (
-              <Box
-                sx={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                  display: 'grid',
-                  placeItems: 'center',
-                  backgroundColor: 'rgba(172, 190, 219, 0.24)',
-                  color: '#d9e4f2',
-                  fontSize: '0.88rem',
-                  fontWeight: 800,
-                }}
-              >
-                {avatarInitial}
-              </Box>
-            )}
-          </Button>
+            <IconButton
+              aria-label="Миры"
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border: '1px solid rgba(186, 202, 214, 0.14)',
+                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+              }}
+            >
+              <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <IconButton
+              aria-label="ИИ"
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border: '1px solid rgba(186, 202, 214, 0.14)',
+                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+              }}
+            >
+              <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <Button
+              variant="text"
+              onClick={() => setProfileDialogOpen(true)}
+              sx={{
+                minWidth: 0,
+                width: 44,
+                height: 44,
+                p: 0,
+                borderRadius: '50%',
+              }}
+            >
+              <UserAvatar user={user} />
+            </Button>
+          </Stack>
         </Stack>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'stretch', minHeight: 'calc(100svh - 74px)' }}>
-        {isSidebarOpen ? (
-          <Box
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 90,
+          right: 18,
+          bottom: 20,
+          width: 278,
+          zIndex: 25,
+          borderRadius: '14px',
+          border: '1px solid rgba(186, 202, 214, 0.14)',
+          background: 'linear-gradient(180deg, rgba(18, 22, 30, 0.9), rgba(13, 16, 22, 0.95))',
+          transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
+          opacity: isRightPanelOpen ? 1 : 0,
+          pointerEvents: isRightPanelOpen ? 'auto' : 'none',
+          transition: 'transform 260ms ease, opacity 220ms ease',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        <Box sx={{ px: 1.2, pt: 1.2, borderBottom: '1px solid rgba(186, 202, 214, 0.14)' }}>
+          <Stack direction="row" spacing={2.6}>
+            <Typography sx={{ color: '#d9dee8', fontSize: '1rem', lineHeight: 1.1 }}>Инструкции</Typography>
+            <Typography sx={{ color: 'rgba(186, 202, 214, 0.7)', fontSize: '1rem', lineHeight: 1.1 }}>
+              Настройки
+            </Typography>
+          </Stack>
+          <Box sx={{ mt: 0.9, width: 130, height: 2, backgroundColor: 'rgba(205, 216, 233, 0.75)' }} />
+        </Box>
+        <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2 }}>
+          <Button
+            onClick={() => void handleCreateGame()}
+            disabled={isCreatingGame || isGenerating}
             sx={{
-              width: { xs: 235, md: 280 },
-              borderRight: '1px solid rgba(168, 179, 201, 0.12)',
-              background:
-                'linear-gradient(180deg, rgba(15, 18, 25, 0.8) 0%, rgba(8, 10, 15, 0.88) 100%), radial-gradient(circle at 20% 0%, rgba(164, 188, 226, 0.08), transparent 42%)',
-              p: 1.4,
+              minHeight: 44,
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: '#d9dee8',
+              border: '1px dashed rgba(186, 202, 214, 0.28)',
+              backgroundColor: 'rgba(20, 24, 32, 0.66)',
             }}
           >
-            <Button
-              fullWidth
-              onClick={() => void handleCreateGame()}
-              disabled={isCreatingGame || isGenerating}
-              sx={{
-                borderRadius: '12px',
-                minHeight: 44,
-                color: '#f0f4fb',
-                fontWeight: 700,
-                textTransform: 'none',
-                backgroundColor: 'rgba(182, 199, 224, 0.16)',
-                border: '1px solid rgba(168, 179, 201, 0.28)',
-                '&:hover': {
-                  backgroundColor: 'rgba(182, 199, 224, 0.24)',
-                },
-              }}
-            >
-              {isCreatingGame ? <CircularProgress size={18} sx={{ color: '#d9e4f2' }} /> : 'Новая игра'}
-            </Button>
+            {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую карточку'}
+          </Button>
+          <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
+            Пока пусто. Здесь появится ваш контекст игры.
+          </Typography>
+        </Box>
+      </Box>
 
-            <Stack spacing={0.8} sx={{ mt: 1.2, maxHeight: 'calc(100svh - 190px)', overflowY: 'auto', pr: 0.3 }}>
-              {games.map((game) => (
-                <Button
-                  key={game.id}
-                  fullWidth
-                  disabled={isGenerating}
-                  onClick={() => void handleSelectGame(game.id)}
-                  sx={{
-                    justifyContent: 'flex-start',
-                    textAlign: 'left',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(168, 179, 201, 0.16)',
-                    minHeight: 50,
-                    px: 1.3,
-                    py: 1,
-                    color: game.id === activeGameId ? '#f5f7fd' : 'rgba(210, 219, 234, 0.82)',
-                    background:
-                      game.id === activeGameId
-                        ? 'linear-gradient(90deg, rgba(185, 201, 225, 0.24), rgba(185, 201, 225, 0.09))'
-                        : 'rgba(16, 20, 27, 0.58)',
-                    textTransform: 'none',
-                  }}
-                >
-                  <Stack spacing={0.18} alignItems="flex-start">
-                    <Typography sx={{ fontSize: '0.92rem', fontWeight: 700, lineHeight: 1.2 }}>{game.title}</Typography>
-                    <Typography sx={{ fontSize: '0.72rem', opacity: 0.72, lineHeight: 1.2 }}>
-                      {new Date(game.last_activity_at).toLocaleString('ru-RU', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </Typography>
-                  </Stack>
-                </Button>
-              ))}
-              {!isLoadingGames && games.length === 0 ? (
-                <Typography sx={{ px: 0.6, py: 0.8, color: 'rgba(210, 219, 234, 0.62)', fontSize: '0.88rem' }}>
-                  Пока нет созданных игр.
-                </Typography>
-              ) : null}
-            </Stack>
-          </Box>
-        ) : null}
-
+      <Box
+        sx={{
+          minHeight: '100svh',
+          pt: { xs: 110, md: 180 },
+          pb: { xs: 16, md: 18 },
+          px: { xs: 1.4, md: 3 },
+          display: 'flex',
+          justifyContent: 'center',
+        }}
+      >
         <Box
           sx={{
-            flex: 1,
-            px: { xs: 1.2, md: 3 },
-            py: { xs: 1.3, md: 2.2 },
+            width: '100%',
+            maxWidth: 980,
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
+            minHeight: 'calc(100svh - 220px)',
+            pl: { xs: 0, md: isPageMenuOpen ? '120px' : 0 },
+            pr: { xs: 0, md: isRightPanelOpen ? '312px' : 0 },
+            transition: 'padding 260ms ease',
           }}
         >
-          <Box sx={{ width: '100%', maxWidth: 920, mb: 1.2 }}>
-            <Typography sx={{ color: 'rgba(215, 224, 239, 0.72)', fontSize: '0.9rem', px: 0.3 }}>
-              {activeGame ? activeGame.title : 'Новая история'}
-            </Typography>
-          </Box>
-
           {errorMessage ? (
             <Alert
               severity="error"
               onClose={() => setErrorMessage('')}
-              sx={{ width: '100%', maxWidth: 920, mb: 1.2, borderRadius: '12px' }}
+              sx={{ width: '100%', mb: 1.2, borderRadius: '12px' }}
             >
               {errorMessage}
             </Alert>
@@ -653,123 +904,94 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
           <Box
             ref={messagesViewportRef}
             sx={{
-              width: '100%',
-              maxWidth: 920,
               flex: 1,
               minHeight: 0,
-              maxHeight: 'calc(100svh - 300px)',
+              maxHeight: 'calc(100svh - 320px)',
               overflowY: 'auto',
-              pr: { xs: 0.4, md: 1.2 },
-              pb: 1.8,
+              px: { xs: 0.3, md: 0.8 },
+              pb: 1.6,
             }}
           >
             {isLoadingGameMessages ? (
-              <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 240 }}>
+              <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 220 }}>
                 <CircularProgress size={28} />
               </Stack>
             ) : null}
 
             {!isLoadingGameMessages && messages.length === 0 ? (
-              <Box
-                sx={{
-                  borderRadius: '16px',
-                  border: '1px dashed rgba(168, 179, 201, 0.28)',
-                  minHeight: 220,
-                  display: 'grid',
-                  placeItems: 'center',
-                  px: 2,
-                  color: 'rgba(210, 219, 234, 0.58)',
-                  fontSize: { xs: '1.05rem', md: '1.22rem' },
-                  textAlign: 'center',
-                }}
-              >
-                {INITIAL_STORY_PLACEHOLDER}
-              </Box>
+              <Stack spacing={2.2} sx={{ color: 'rgba(210, 219, 234, 0.78)', mt: { xs: 12, md: 20 }, maxWidth: 820 }}>
+                <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
+                  {INITIAL_STORY_PLACEHOLDER}
+                </Typography>
+                <Button
+                  onClick={() => void handleCreateGame()}
+                  disabled={isCreatingGame || isGenerating}
+                  sx={{
+                    alignSelf: 'flex-start',
+                    minHeight: 42,
+                    borderRadius: '12px',
+                    px: 2.2,
+                    textTransform: 'none',
+                    color: '#d9dee8',
+                    border: '1px dashed rgba(186, 202, 214, 0.28)',
+                    backgroundColor: 'rgba(20, 24, 32, 0.52)',
+                  }}
+                >
+                  {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую игру'}
+                </Button>
+              </Stack>
             ) : null}
 
             {!isLoadingGameMessages
               ? messages.map((message) => {
                   if (message.role === 'assistant') {
                     const paragraphs = splitAssistantParagraphs(message.content)
-                    const isSaving = savingMessageIds.includes(message.id)
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
-
                     return (
-                      <Box
-                        key={message.id}
-                        data-assistant-message-container="true"
-                        sx={{
-                          mb: 2.05,
-                          borderRadius: '12px',
-                          border: '1px solid rgba(168, 179, 201, 0.08)',
-                          background: 'rgba(13, 15, 21, 0.52)',
-                          px: { xs: 1.2, md: 1.5 },
-                          py: { xs: 1, md: 1.25 },
-                          boxShadow: isStreaming ? '0 0 0 1px rgba(190, 211, 243, 0.35) inset' : 'none',
-                        }}
-                      >
-                        <Stack spacing={1.15}>
+                      <Box key={message.id} sx={{ mb: 2.4 }}>
+                        <Stack spacing={1.5}>
                           {paragraphs.map((paragraph, index) => (
-                            <Box
+                            <Typography
                               key={`${message.id}-${index}`}
-                              className="ui-answer"
-                              data-ai-paragraph="true"
-                              contentEditable
-                              suppressContentEditableWarning
-                              onBlur={(event) => {
-                                const container = event.currentTarget.closest<HTMLElement>(
-                                  '[data-assistant-message-container="true"]',
-                                )
-                                if (!container) {
-                                  return
-                                }
-                                void persistAssistantEdits(message.id, container)
-                              }}
                               sx={{
-                                color: '#f2f4fb',
-                                lineHeight: 1.64,
+                                color: '#d8dde7',
+                                lineHeight: 1.58,
                                 fontSize: { xs: '1.02rem', md: '1.12rem' },
                                 whiteSpace: 'pre-wrap',
-                                outline: 'none',
-                                borderRadius: '8px',
-                                px: 0.6,
-                                py: 0.24,
-                                '&:focus-visible': {
-                                  boxShadow: '0 0 0 1px rgba(190, 211, 243, 0.35) inset',
-                                },
                               }}
                             >
                               {paragraph}
-                            </Box>
+                            </Typography>
                           ))}
+                          {isStreaming ? (
+                            <Box
+                              sx={{
+                                width: 34,
+                                height: 4,
+                                borderRadius: '999px',
+                                backgroundColor: 'rgba(195, 209, 228, 0.72)',
+                              }}
+                            />
+                          ) : null}
                         </Stack>
-                        {isSaving ? (
-                          <Typography sx={{ mt: 0.8, fontSize: '0.75rem', color: 'rgba(205, 220, 245, 0.72)' }}>
-                            Сохраняем правки...
-                          </Typography>
-                        ) : null}
                       </Box>
                     )
                   }
 
                   return (
-                    <Box
+                    <Typography
                       key={message.id}
                       sx={{
-                        mb: 2.05,
-                        borderRadius: '12px',
-                        border: '1px solid rgba(168, 179, 201, 0.08)',
-                        backgroundColor: 'rgba(88, 96, 110, 0.22)',
-                        color: '#cfd6e5',
-                        px: { xs: 1.2, md: 1.5 },
-                        py: { xs: 1, md: 1.2 },
-                        lineHeight: 1.62,
+                        mb: 2.4,
+                        color: 'rgba(198, 207, 222, 0.92)',
+                        lineHeight: 1.58,
                         whiteSpace: 'pre-wrap',
-                        fontSize: { xs: '1rem', md: '1.07rem' },
+                        fontSize: { xs: '1rem', md: '1.08rem' },
                       }}
                     >
+                      {'> '}
                       {message.content}
-                    </Box>
+                    </Typography>
                   )
                 })
               : null}
@@ -778,14 +1000,14 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
           <Box
             sx={{
               width: '100%',
-              maxWidth: 920,
-              borderRadius: '14px',
-              border: '1px solid rgba(168, 179, 201, 0.16)',
-              background: 'linear-gradient(180deg, rgba(20, 23, 30, 0.86), rgba(13, 16, 22, 0.94))',
-              boxShadow: '0 20px 40px rgba(0, 0, 0, 0.28)',
+              borderRadius: '16px',
+              border: '1px solid rgba(186, 202, 214, 0.16)',
+              background: 'linear-gradient(180deg, rgba(19, 23, 31, 0.9), rgba(13, 16, 22, 0.95))',
+              boxShadow: '0 14px 30px rgba(0, 0, 0, 0.28)',
+              overflow: 'hidden',
             }}
           >
-            <Box sx={{ px: 1.2, pt: 1, pb: 0.7 }}>
+            <Box sx={{ px: 1.4, pt: 1.1, pb: 0.7 }}>
               <Box
                 component="textarea"
                 ref={textAreaRef}
@@ -802,17 +1024,17 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
                 sx={{
                   width: '100%',
                   minHeight: 42,
-                  maxHeight: '45vh',
+                  maxHeight: '34vh',
                   resize: 'none',
                   border: 'none',
                   outline: 'none',
                   background: 'transparent',
-                  color: '#f0f4fb',
-                  fontSize: { xs: '1rem', md: '1.08rem' },
-                  lineHeight: 1.45,
+                  color: '#e6ebf4',
+                  fontSize: { xs: '0.98rem', md: '1.05rem' },
+                  lineHeight: 1.42,
                   fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
                   '&::placeholder': {
-                    color: 'rgba(210, 219, 234, 0.62)',
+                    color: 'rgba(205, 214, 228, 0.56)',
                   },
                 }}
               />
@@ -823,25 +1045,31 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
               alignItems="center"
               justifyContent="space-between"
               sx={{
-                borderTop: '1px solid rgba(168, 179, 201, 0.14)',
+                borderTop: '1px solid rgba(186, 202, 214, 0.14)',
                 px: 1,
-                py: 0.7,
+                py: 0.55,
               }}
             >
-              <Stack direction="row" spacing={0.4} alignItems="center">
+              <Stack direction="row" spacing={0.25} alignItems="center">
+                <Stack direction="row" spacing={0.35} alignItems="center" sx={{ pl: 0.45, pr: 0.52 }}>
+                  <Box component="img" src={icons.tabcoin} alt="" sx={{ width: 13, height: 13 }} />
+                  <Typography sx={{ color: 'rgba(209, 218, 232, 0.9)', fontSize: '1.42rem', lineHeight: 1 }}>
+                    {user.coins}
+                  </Typography>
+                </Stack>
+                <IconButton aria-label="Назад" onClick={(event) => event.preventDefault()} sx={{ width: 32, height: 32 }}>
+                  <Box component="img" src={icons.back} alt="" sx={{ width: 16, height: 16, opacity: 0.9 }} />
+                </IconButton>
+                <IconButton aria-label="Отменить" onClick={(event) => event.preventDefault()} sx={{ width: 32, height: 32 }}>
+                  <Box component="img" src={icons.undo} alt="" sx={{ width: 16, height: 16, opacity: 0.9 }} />
+                </IconButton>
                 <IconButton
-                  aria-label="Перегенерировать последний ответ"
+                  aria-label="Перегенерировать"
                   onClick={() => void handleRerollLastResponse()}
                   disabled={!canReroll}
-                  sx={{
-                    width: 33,
-                    height: 33,
-                    borderRadius: '10px',
-                    border: '1px solid rgba(168, 179, 201, 0.18)',
-                    opacity: canReroll ? 1 : 0.45,
-                  }}
+                  sx={{ width: 32, height: 32, opacity: canReroll ? 1 : 0.45 }}
                 >
-                  <Box component="img" src={icons.reload} alt="" sx={{ width: 17, height: 17, opacity: 0.88 }} />
+                  <Box component="img" src={icons.reload} alt="" sx={{ width: 16, height: 16, opacity: 0.9 }} />
                 </IconButton>
               </Stack>
 
@@ -856,14 +1084,14 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
                 }}
                 disabled={isCreatingGame || (!isGenerating && !inputValue.trim())}
                 sx={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: '12px',
-                  border: '1px solid rgba(168, 179, 201, 0.26)',
+                  width: 38,
+                  height: 38,
+                  borderRadius: '13px',
                   backgroundColor: '#c8d4e3',
+                  border: '1px solid rgba(186, 202, 214, 0.3)',
                   color: '#11151d',
                   '&:disabled': {
-                    opacity: 0.48,
+                    opacity: 0.5,
                     backgroundColor: '#8796a9',
                   },
                 }}
@@ -883,10 +1111,179 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
               </IconButton>
             </Stack>
           </Box>
+
+          <Typography sx={{ mt: 0.9, color: 'rgba(186, 202, 214, 0.58)', fontSize: '0.84rem', px: 0.3 }}>
+            {activeGame ? activeGame.title : 'Новая история'}
+          </Typography>
         </Box>
       </Box>
+
+      <Dialog
+        open={profileDialogOpen}
+        onClose={handleCloseProfileDialog}
+        maxWidth="xs"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: '1px solid rgba(186, 202, 214, 0.16)',
+            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1.4 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.6rem' }}>Профиль</Typography>
+        </DialogTitle>
+
+        <DialogContent sx={{ pt: 0.2 }}>
+          <Stack spacing={2.2}>
+            <Stack direction="row" spacing={1.8} alignItems="center">
+              <UserAvatar user={user} size={84} />
+              <Stack spacing={0.3} sx={{ minWidth: 0 }}>
+                <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{user.display_name || 'Игрок'}</Typography>
+                <Typography
+                  sx={{
+                    color: 'text.secondary',
+                    fontSize: '0.94rem',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {user.email}
+                </Typography>
+              </Stack>
+            </Stack>
+
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={handleAvatarChange}
+              style={{ display: 'none' }}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={handleChooseAvatar}
+                disabled={isAvatarSaving}
+                sx={{
+                  minHeight: 40,
+                  borderColor: 'rgba(186, 202, 214, 0.28)',
+                  color: 'rgba(223, 229, 239, 0.9)',
+                }}
+              >
+                {isAvatarSaving ? <CircularProgress size={16} sx={{ color: 'rgba(223, 229, 239, 0.9)' }} /> : 'Изменить аватар'}
+              </Button>
+              <Button
+                variant="text"
+                onClick={handleRemoveAvatar}
+                disabled={isAvatarSaving || !user.avatar_url}
+                sx={{ minHeight: 40, color: 'rgba(223, 229, 239, 0.78)' }}
+              >
+                Удалить
+              </Button>
+            </Stack>
+
+            {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
+
+            <Box
+              sx={{
+                borderRadius: '12px',
+                border: '1px solid rgba(186, 202, 214, 0.16)',
+                backgroundColor: 'rgba(12, 16, 22, 0.62)',
+                px: 1.5,
+                py: 1.2,
+              }}
+            >
+              <Stack direction="row" spacing={1.1} alignItems="center">
+                <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
+                <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
+                  Монеты: {user.coins.toLocaleString('ru-RU')}
+                </Typography>
+              </Stack>
+            </Box>
+
+            <Button
+              variant="outlined"
+              onClick={() => setConfirmLogoutOpen(true)}
+              sx={{
+                minHeight: 42,
+                borderColor: 'rgba(228, 120, 120, 0.44)',
+                color: 'rgba(251, 190, 190, 0.92)',
+                '&:hover': {
+                  borderColor: 'rgba(238, 148, 148, 0.72)',
+                  backgroundColor: 'rgba(214, 86, 86, 0.14)',
+                },
+              }}
+            >
+              Выйти из аккаунта
+            </Button>
+          </Stack>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 2.4, pt: 0.6 }}>
+          <Button
+            onClick={handleCloseProfileDialog}
+            sx={{
+              color: 'text.secondary',
+            }}
+          >
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={confirmLogoutOpen}
+        onClose={() => setConfirmLogoutOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        PaperProps={{
+          sx: {
+            borderRadius: '16px',
+            border: '1px solid rgba(186, 202, 214, 0.16)',
+            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.98) 0%, rgba(10, 12, 18, 0.99) 100%)',
+            animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Подтвердите выход</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'text.secondary' }}>
+            Вы точно хотите выйти из аккаунта? После выхода вы вернетесь на страницу превью.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setConfirmLogoutOpen(false)} sx={{ color: 'text.secondary' }}>
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleConfirmLogout}
+            sx={{
+              backgroundColor: '#d9e4f2',
+              color: '#171716',
+              '&:hover': { backgroundColor: '#edf4fc' },
+            }}
+          >
+            Выйти
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }
 
 export default StoryGamePage
+

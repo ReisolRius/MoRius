@@ -280,17 +280,29 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           sx={{
             position: 'absolute',
             left: '50%',
-            bottom: { xs: -118, sm: -136, md: -168, lg: -188 },
+            bottom: { xs: -68, sm: -74, md: -86, lg: -98 },
             transform: 'translateX(-50%)',
-            width: { xs: '265%', sm: '215%', md: '176%', lg: '154%' },
-            height: { xs: 338, sm: 388, md: 468, lg: 520 },
+            width: { xs: '284%', sm: '236%', md: '192%', lg: '172%' },
+            height: { xs: 314, sm: 344, md: 404, lg: 438 },
             overflow: 'hidden',
             zIndex: 3,
             pointerEvents: 'none',
             WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.4) 10%, #000 34%, #000 70%, rgba(0, 0, 0, 0.4) 90%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.26) 8%, #000 28%, #000 72%, rgba(0, 0, 0, 0.34) 92%, transparent 100%)',
             maskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.4) 10%, #000 34%, #000 70%, rgba(0, 0, 0, 0.4) 90%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.26) 8%, #000 28%, #000 72%, rgba(0, 0, 0, 0.34) 92%, transparent 100%)',
+            '&::before': {
+              content: '""',
+              position: 'absolute',
+              left: '-4%',
+              right: '-4%',
+              top: { xs: '44%', md: '46%' },
+              height: { xs: 34, md: 50 },
+              background:
+                'linear-gradient(90deg, transparent 0%, rgba(214, 224, 238, 0.2) 14%, rgba(214, 224, 238, 0.34) 50%, rgba(214, 224, 238, 0.2) 86%, transparent 100%)',
+              filter: 'blur(10px)',
+              mixBlendMode: 'screen',
+            },
           }}
         >
           <Box
@@ -303,9 +315,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 49%',
-              opacity: 0.96,
-              filter: 'grayscale(1) brightness(0.82) contrast(1.3) saturate(0.7)',
+              objectPosition: '50% 50%',
+              opacity: 0.98,
+              filter: 'grayscale(1) brightness(0.93) contrast(1.28) saturate(0.72)',
             }}
           />
           <Box
@@ -318,10 +330,10 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 64%',
-              opacity: 0.86,
+              objectPosition: '50% 66%',
+              opacity: 0.92,
               mixBlendMode: 'screen',
-              filter: 'grayscale(1) blur(2.8px) brightness(1.16) contrast(1.22)',
+              filter: 'grayscale(1) blur(4.4px) brightness(1.3) contrast(1.22)',
             }}
           />
           <Box
@@ -334,10 +346,10 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 74%',
-              opacity: 0.58,
+              objectPosition: '50% 76%',
+              opacity: 0.42,
               mixBlendMode: 'screen',
-              filter: 'grayscale(1) blur(9px) brightness(1.24)',
+              filter: 'grayscale(1) blur(12px) brightness(1.45)',
             }}
           />
         </Box>
@@ -350,27 +362,27 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           minHeight: '100svh',
           position: 'relative',
           zIndex: 1,
-          mt: { xs: -128, sm: -150, md: -182 },
+          mt: { xs: -94, sm: -108, md: -132 },
           display: 'flex',
           alignItems: 'center',
-          pt: { xs: 28, sm: 30, md: 34 },
+          pt: { xs: 24, sm: 26, md: 30 },
           pb: { xs: 10, md: 12 },
           background:
-            'linear-gradient(180deg, rgba(2, 4, 8, 0.96) 0%, #02040a 28%, #02040a 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.009) 0, rgba(255,255,255,0.009) 1px, transparent 1px, transparent 30px)',
+            'linear-gradient(180deg, rgba(7, 10, 15, 0.88) 0%, #02040a 30%, #02040a 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.009) 0, rgba(255,255,255,0.009) 1px, transparent 1px, transparent 30px)',
           '&::before': {
             content: '""',
             position: 'absolute',
             left: '50%',
-            top: { xs: -104, md: -142 },
+            top: { xs: -88, md: -106 },
             transform: 'translateX(-50%)',
-            width: { xs: '250%', sm: '205%', md: '165%', lg: '148%' },
-            height: { xs: 260, sm: 300, md: 360 },
+            width: { xs: '282%', sm: '230%', md: '186%', lg: '164%' },
+            height: { xs: 238, sm: 280, md: 332 },
             backgroundImage: `url(${heroClouds})`,
             backgroundRepeat: 'no-repeat',
             backgroundSize: 'cover',
-            backgroundPosition: '50% 58%',
-            opacity: 0.44,
-            filter: 'grayscale(1) blur(10px) brightness(1.06)',
+            backgroundPosition: '50% 62%',
+            opacity: 0.56,
+            filter: 'grayscale(1) blur(12px) brightness(1.18)',
             mixBlendMode: 'screen',
             pointerEvents: 'none',
           },
@@ -380,8 +392,8 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             left: 0,
             right: 0,
             top: 0,
-            height: { xs: 220, md: 280 },
-            background: 'linear-gradient(180deg, rgba(6, 8, 12, 0) 0%, rgba(2, 4, 8, 0.68) 36%, #02040a 100%)',
+            height: { xs: 210, md: 250 },
+            background: 'linear-gradient(180deg, rgba(214, 224, 238, 0.18) 0%, rgba(6, 9, 14, 0.72) 26%, #02040a 100%)',
             pointerEvents: 'none',
           },
         }}

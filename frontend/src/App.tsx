@@ -223,7 +223,13 @@ function App() {
 
   if (shouldShowStoryGamePage && authUser) {
     return (
-      <StoryGamePage user={authUser} authToken={authToken!} onNavigate={navigate} onLogout={handleLogout} />
+      <StoryGamePage
+        user={authUser}
+        authToken={authToken!}
+        onNavigate={navigate}
+        onLogout={handleLogout}
+        onUserUpdate={handleUserUpdate}
+      />
     )
   }
 
@@ -232,6 +238,7 @@ function App() {
       <AuthenticatedHomePage
         user={authUser}
         authToken={authToken!}
+        onNavigate={navigate}
         onUserUpdate={handleUserUpdate}
         onLogout={handleLogout}
       />
