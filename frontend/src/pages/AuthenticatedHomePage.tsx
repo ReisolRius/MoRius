@@ -371,7 +371,20 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         color: 'text.primary',
       }}
     >
-      <Box component="header" sx={{ position: 'relative', px: { xs: 2, md: 3 }, pt: { xs: 2, md: 2.6 } }}>
+      <Box
+        component="header"
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+          px: { xs: 2, md: 3 },
+          pt: { xs: 1.2, md: 1.6 },
+          pb: { xs: 1, md: 1.4 },
+          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          backdropFilter: 'blur(8px)',
+          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+        }}
+      >
         <Box component="img" src={brandLogo} alt="Morius" sx={{ width: { xs: 90, md: 102 } }} />
 
         <Box sx={{ position: 'absolute', right: { xs: 10, md: 18 }, top: { xs: 10, md: 14 }, zIndex: 2 }}>
@@ -443,7 +456,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         </Box>
       </Box>
 
-      <Container maxWidth="xl" sx={{ pt: { xs: 8, md: 11 }, pb: { xs: 6, md: 10 } }}>
+      <Container maxWidth="xl" sx={{ pt: { xs: 3, md: 4 }, pb: { xs: 6, md: 10 } }}>
         {paymentNotice ? (
           <Alert
             severity={paymentNotice.severity}

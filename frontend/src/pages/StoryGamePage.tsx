@@ -185,11 +185,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
-  const activeGame = useMemo(
-    () => games.find((game) => game.id === activeGameId) ?? null,
-    [activeGameId, games],
-  )
-
   const visibleGames = useMemo(() => {
     if (activeMenuSection === 'home') {
       return []
@@ -619,7 +614,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
         background:
           'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
         position: 'relative',
-        overflow: 'hidden',
+        overflowX: 'hidden',
       }}
     >
       <Box
@@ -871,9 +866,8 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
 
       <Box
         sx={{
-          minHeight: '100svh',
-          pt: { xs: 110, md: 180 },
-          pb: { xs: 16, md: 18 },
+          pt: { xs: 80, md: 92 },
+          pb: { xs: 2, md: 3 },
           px: { xs: 1.4, md: 3 },
           display: 'flex',
           justifyContent: 'center',
@@ -883,12 +877,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
           sx={{
             width: '100%',
             maxWidth: 980,
-            display: 'flex',
-            flexDirection: 'column',
-            minHeight: 'calc(100svh - 220px)',
-            pl: { xs: 0, md: isPageMenuOpen ? '120px' : 0 },
-            pr: { xs: 0, md: isRightPanelOpen ? '312px' : 0 },
-            transition: 'padding 260ms ease',
           }}
         >
           {errorMessage ? (
@@ -904,12 +892,8 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
           <Box
             ref={messagesViewportRef}
             sx={{
-              flex: 1,
-              minHeight: 0,
-              maxHeight: 'calc(100svh - 320px)',
-              overflowY: 'auto',
               px: { xs: 0.3, md: 0.8 },
-              pb: 1.6,
+              pb: { xs: 18, md: 20 },
             }}
           >
             {isLoadingGameMessages ? (
@@ -919,7 +903,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
             ) : null}
 
             {!isLoadingGameMessages && messages.length === 0 ? (
-              <Stack spacing={2.2} sx={{ color: 'rgba(210, 219, 234, 0.78)', mt: { xs: 12, md: 20 }, maxWidth: 820 }}>
+              <Stack spacing={2.2} sx={{ color: 'rgba(210, 219, 234, 0.78)', mt: { xs: 4, md: 6 }, maxWidth: 820 }}>
                 <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
                   {INITIAL_STORY_PLACEHOLDER}
                 </Typography>
@@ -996,7 +980,19 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
                 })
               : null}
           </Box>
+        </Box>
+      </Box>
 
+      <Box
+        sx={{
+          position: 'fixed',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          bottom: { xs: 10, md: 18 },
+          width: 'min(980px, calc(100% - 22px))',
+          zIndex: 20,
+        }}
+      >
           <Box
             sx={{
               width: '100%',
@@ -1111,11 +1107,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
               </IconButton>
             </Stack>
           </Box>
-
-          <Typography sx={{ mt: 0.9, color: 'rgba(186, 202, 214, 0.58)', fontSize: '0.84rem', px: 0.3 }}>
-            {activeGame ? activeGame.title : 'Новая история'}
-          </Typography>
-        </Box>
       </Box>
 
       <Dialog
