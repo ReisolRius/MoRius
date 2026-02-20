@@ -55,8 +55,8 @@ const scenarios = [
 ]
 
 const headerButtonSx = {
-  width: 48,
-  height: 48,
+  width: 44,
+  height: 44,
   borderRadius: '14px',
   border: '1px solid rgba(186, 202, 214, 0.12)',
   backgroundColor: 'rgba(18, 22, 29, 0.52)',
@@ -97,7 +97,7 @@ type AvatarPlaceholderProps = {
   size?: number
 }
 
-function AvatarPlaceholder({ fallbackLabel, size = 48 }: AvatarPlaceholderProps) {
+function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps) {
   const headSize = Math.max(13, Math.round(size * 0.27))
   const bodyWidth = Math.max(20, Math.round(size * 0.42))
   const bodyHeight = Math.max(10, Math.round(size * 0.21))
@@ -143,7 +143,7 @@ type UserAvatarProps = {
   size?: number
 }
 
-function UserAvatar({ user, size = 48 }: UserAvatarProps) {
+function UserAvatar({ user, size = 44 }: UserAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const fallbackLabel = user.display_name || user.email
 
@@ -420,8 +420,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             aria-label="Открыть профиль"
             sx={{
               minWidth: 0,
-              width: 48,
-              height: 48,
+              width: 44,
+              height: 44,
               p: 0,
               borderRadius: '50%',
             }}

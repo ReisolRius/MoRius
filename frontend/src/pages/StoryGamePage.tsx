@@ -26,7 +26,21 @@ import {
 } from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import { updateCurrentUserAvatar } from '../services/authApi'
-import { createStoryGame, generateStoryResponseStream, getStoryGame, listStoryGames } from '../services/storyApi'
+import {
+  createStoryGame,
+  generateStoryResponseStream,
+  getStoryGame,
+  listStoryGames,
+  updateStoryMessage,
+} from '../services/storyApi'
+import {
+  DEFAULT_STORY_TITLE,
+  getDisplayStoryTitle,
+  loadStoryTitleMap,
+  persistStoryTitleMap,
+  setStoryTitle,
+  type StoryTitleMap,
+} from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
 import type { StoryGameSummary, StoryMessage } from '../types/story'
 
@@ -53,6 +67,7 @@ const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
+const HEADER_AVATAR_SIZE = 44
 
 function splitAssistantParagraphs(content: string): string[] {
   const paragraphs = content
@@ -177,14 +192,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
+  const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(DEFAULT_STORY_TITLE)
+  const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
+  const [messageDraft, setMessageDraft] = useState('')
+  const [isSavingMessage, setIsSavingMessage] = useState(false)
   const generationAbortRef = useRef<AbortController | null>(null)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
-  const activeGame = useMemo(() => games.find((game) => game.id === activeGameId) ?? null, [activeGameId, games])
+  const activeDisplayTitle = useMemo(
+    () => getDisplayStoryTitle(activeGameId, customTitleMap),
+    [activeGameId, customTitleMap],
+  )
 
   const hasMessages = messages.length > 0
+  const hasSavedGames = games.length > 0
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
   const canReroll =
     !isGenerating &&
@@ -271,6 +296,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [authToken, initialGameId, loadGameById])
 
   useEffect(() => {
+    setCustomTitleMap(loadStoryTitleMap())
+  }, [])
+
+  useEffect(() => {
+    if (isEditingTitle) {
+      return
+    }
+    setTitleDraft(activeDisplayTitle)
+  }, [activeDisplayTitle, isEditingTitle])
+
+  useEffect(() => {
     adjustInputHeight()
   }, [adjustInputHeight, inputValue])
 
@@ -309,6 +345,99 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsCreatingGame(false)
     }
   }, [authToken, isCreatingGame, isGenerating, onNavigate])
+
+  const applyCustomTitle = useCallback((gameId: number, nextTitle: string) => {
+    setCustomTitleMap((previousMap) => {
+      const nextMap = setStoryTitle(previousMap, gameId, nextTitle)
+      persistStoryTitleMap(nextMap)
+      return nextMap
+    })
+  }, [])
+
+  const handleStartTitleEdit = () => {
+    if (!activeGameId || isGenerating) {
+      return
+    }
+    setTitleDraft(activeDisplayTitle)
+    setIsEditingTitle(true)
+  }
+
+  const handleSaveTitle = () => {
+    if (!activeGameId) {
+      setIsEditingTitle(false)
+      return
+    }
+    const normalized = titleDraft.trim() || DEFAULT_STORY_TITLE
+    applyCustomTitle(activeGameId, normalized)
+    setTitleDraft(normalized)
+    setIsEditingTitle(false)
+  }
+
+  const handleCancelTitleEdit = () => {
+    setTitleDraft(activeDisplayTitle)
+    setIsEditingTitle(false)
+  }
+
+  const handleStartMessageEdit = (message: StoryMessage) => {
+    if (isGenerating) {
+      return
+    }
+    setEditingMessageId(message.id)
+    setMessageDraft(message.content)
+  }
+
+  const handleCancelMessageEdit = () => {
+    setEditingMessageId(null)
+    setMessageDraft('')
+    setIsSavingMessage(false)
+  }
+
+  const handleSaveEditedMessage = useCallback(async () => {
+    if (editingMessageId === null || isSavingMessage) {
+      return
+    }
+    const currentMessage = messages.find((message) => message.id === editingMessageId)
+    if (!currentMessage || !activeGameId) {
+      setEditingMessageId(null)
+      setMessageDraft('')
+      setIsSavingMessage(false)
+      return
+    }
+
+    const normalized = messageDraft.trim()
+    if (!normalized) {
+      setErrorMessage('Текст сообщения не может быть пустым')
+      return
+    }
+
+    if (normalized === currentMessage.content.trim()) {
+      setEditingMessageId(null)
+      setMessageDraft('')
+      setIsSavingMessage(false)
+      return
+    }
+
+    setIsSavingMessage(true)
+    setErrorMessage('')
+    try {
+      const updatedMessage = await updateStoryMessage({
+        token: authToken,
+        gameId: activeGameId,
+        messageId: currentMessage.id,
+        content: normalized,
+      })
+      setMessages((previousMessages) =>
+        previousMessages.map((message) => (message.id === updatedMessage.id ? updatedMessage : message)),
+      )
+      setEditingMessageId(null)
+      setMessageDraft('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить изменения сообщения'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingMessage(false)
+    }
+  }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages])
 
   const runStoryGeneration = useCallback(
     async (options: { gameId: number; prompt?: string; rerollLastResponse?: boolean }) => {
@@ -732,13 +861,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onClick={() => setProfileDialogOpen(true)}
               sx={{
                 minWidth: 0,
-                width: 44,
-                height: 44,
+                width: HEADER_AVATAR_SIZE,
+                height: HEADER_AVATAR_SIZE,
                 p: 0,
                 borderRadius: '50%',
               }}
             >
-              <UserAvatar user={user} />
+              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
             </Button>
           </Stack>
         </Stack>
@@ -820,16 +949,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую карточку'}
           </Button>
           <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
-            Пока пусто. Здесь появится ваш контекст игры.
+            {hasSavedGames ? 'Контекст игры появится после добавления карточек.' : 'Пока пусто. Здесь появится ваш контекст игры.'}
           </Typography>
         </Box>
       </Box>
 
       <Box
         sx={{
-          height: '100%',
-          pt: { xs: 82, md: 84 },
-          pb: { xs: 18, md: 20 },
+          position: 'absolute',
+          top: 74,
+          left: 0,
+          right: 0,
+          bottom: { xs: 112, md: 128 },
           px: { xs: 1.4, md: 3 },
           display: 'flex',
           justifyContent: 'center',
@@ -842,6 +973,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
+            pt: { xs: 0.9, md: 1.1 },
           }}
         >
           {errorMessage ? (
@@ -854,27 +986,91 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Alert>
           ) : null}
 
-          <Typography
-            sx={{
-              px: { xs: 0.3, md: 0.8 },
-              mb: 1.1,
-              color: '#e0e7f4',
-              fontWeight: 700,
-              fontSize: { xs: '1.18rem', md: '1.42rem' },
-              lineHeight: 1.25,
-            }}
-          >
-            {activeGame?.title ?? 'Новая игра'}
-          </Typography>
+          {isEditingTitle ? (
+            <Box sx={{ px: { xs: 0.3, md: 0.8 }, mb: 1.1 }}>
+              <Box
+                component="input"
+                value={titleDraft}
+                autoFocus
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setTitleDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    handleSaveTitle()
+                  }
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    handleCancelTitleEdit()
+                  }
+                }}
+                sx={{
+                  width: '100%',
+                  minHeight: 44,
+                  borderRadius: '12px',
+                  border: '1px solid rgba(188, 202, 220, 0.28)',
+                  backgroundColor: 'rgba(18, 22, 30, 0.76)',
+                  color: '#e3e9f4',
+                  fontSize: { xs: '1.12rem', md: '1.3rem' },
+                  fontWeight: 700,
+                  px: 1.2,
+                  outline: 'none',
+                }}
+              />
+              <Stack direction="row" spacing={0.7} sx={{ mt: 0.7 }}>
+                <Button
+                  onClick={handleSaveTitle}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    textTransform: 'none',
+                    color: '#e2e9f5',
+                    border: '1px solid rgba(188, 202, 220, 0.26)',
+                    backgroundColor: 'rgba(24, 29, 39, 0.8)',
+                  }}
+                >
+                  Сохранить
+                </Button>
+                <Button
+                  onClick={handleCancelTitleEdit}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    textTransform: 'none',
+                    color: 'rgba(196, 208, 223, 0.88)',
+                  }}
+                >
+                  Отмена
+                </Button>
+              </Stack>
+            </Box>
+          ) : (
+            <Typography
+              onClick={handleStartTitleEdit}
+              title="Нажмите, чтобы изменить заголовок"
+              sx={{
+                px: { xs: 0.3, md: 0.8 },
+                mb: 1.1,
+                color: '#e0e7f4',
+                fontWeight: 700,
+                fontSize: { xs: '1.18rem', md: '1.42rem' },
+                lineHeight: 1.25,
+                cursor: isGenerating ? 'default' : 'text',
+              }}
+            >
+              {activeDisplayTitle}
+            </Typography>
+          )}
 
           <Box
             ref={messagesViewportRef}
+            className="morius-scrollbar"
             sx={{
               flex: 1,
               minHeight: 0,
               px: { xs: 0.3, md: 0.8 },
-              pb: { xs: 2, md: 2.2 },
+              pb: { xs: 1.5, md: 1.8 },
               overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
             {isLoadingGameMessages ? (
@@ -893,11 +1089,97 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
             {!isLoadingGameMessages
               ? messages.map((message) => {
+                  if (editingMessageId === message.id) {
+                    return (
+                      <Box
+                        key={message.id}
+                        sx={{
+                          mb: 2.2,
+                          borderRadius: '12px',
+                          border: '1px solid rgba(186, 202, 214, 0.22)',
+                          backgroundColor: 'rgba(13, 17, 24, 0.66)',
+                          p: 1.1,
+                        }}
+                      >
+                        <Box
+                          component="textarea"
+                          value={messageDraft}
+                          autoFocus
+                          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setMessageDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              handleCancelMessageEdit()
+                            }
+                            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                              event.preventDefault()
+                              void handleSaveEditedMessage()
+                            }
+                          }}
+                          sx={{
+                            width: '100%',
+                            minHeight: 108,
+                            resize: 'vertical',
+                            border: 'none',
+                            outline: 'none',
+                            background: 'transparent',
+                            color: '#dbe2ee',
+                            lineHeight: 1.58,
+                            fontSize: { xs: '1rem', md: '1.07rem' },
+                            fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                          }}
+                        />
+                        <Stack direction="row" spacing={0.7} justifyContent="flex-end" sx={{ mt: 0.7 }}>
+                          <Button
+                            onClick={() => void handleSaveEditedMessage()}
+                            disabled={isSavingMessage}
+                            sx={{
+                              minHeight: 34,
+                              borderRadius: '10px',
+                              textTransform: 'none',
+                              color: '#dce4f1',
+                              border: '1px solid rgba(186, 202, 214, 0.24)',
+                              backgroundColor: 'rgba(23, 28, 38, 0.84)',
+                              minWidth: 100,
+                            }}
+                          >
+                            {isSavingMessage ? <CircularProgress size={16} sx={{ color: '#dce4f1' }} /> : 'Сохранить'}
+                          </Button>
+                          <Button
+                            onClick={handleCancelMessageEdit}
+                            disabled={isSavingMessage}
+                            sx={{
+                              minHeight: 34,
+                              borderRadius: '10px',
+                              textTransform: 'none',
+                              color: 'rgba(193, 205, 221, 0.88)',
+                            }}
+                          >
+                            Отмена
+                          </Button>
+                        </Stack>
+                      </Box>
+                    )
+                  }
+
                   if (message.role === 'assistant') {
                     const paragraphs = splitAssistantParagraphs(message.content)
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
                     return (
-                      <Box key={message.id} sx={{ mb: 2.4 }}>
+                      <Box
+                        key={message.id}
+                        onClick={() => handleStartMessageEdit(message)}
+                        title="Нажмите, чтобы изменить текст"
+                        sx={{
+                          mb: 2.4,
+                          cursor: isGenerating ? 'default' : 'text',
+                          borderRadius: '10px',
+                          px: 0.42,
+                          py: 0.3,
+                          transition: 'background-color 180ms ease',
+                          '&:hover': isGenerating ? {} : { backgroundColor: 'rgba(186, 202, 214, 0.06)' },
+                        }}
+                      >
                         <Stack spacing={1.5}>
                           {paragraphs.map((paragraph, index) => (
                             <Typography
@@ -930,12 +1212,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   return (
                     <Typography
                       key={message.id}
+                      onClick={() => handleStartMessageEdit(message)}
+                      title="Нажмите, чтобы изменить текст"
                       sx={{
                         mb: 2.4,
                         color: 'rgba(198, 207, 222, 0.92)',
                         lineHeight: 1.58,
                         whiteSpace: 'pre-wrap',
                         fontSize: { xs: '1rem', md: '1.08rem' },
+                        cursor: isGenerating ? 'default' : 'text',
+                        borderRadius: '10px',
+                        px: 0.42,
+                        py: 0.3,
+                        transition: 'background-color 180ms ease',
+                        '&:hover': isGenerating ? {} : { backgroundColor: 'rgba(186, 202, 214, 0.06)' },
                       }}
                     >
                       {'> '}

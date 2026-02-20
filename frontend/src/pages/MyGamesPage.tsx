@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useState, type ReactElement, type Ref } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement, type Ref } from 'react'
 import {
   Alert,
   Box,
@@ -16,6 +16,7 @@ import {
 } from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import { createStoryGame, getStoryGame, listStoryGames } from '../services/storyApi'
+import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
 import type { StoryGameSummary, StoryMessage } from '../types/story'
 
@@ -37,11 +38,41 @@ type UserAvatarProps = {
   size?: number
 }
 
+type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
+
+const HEADER_AVATAR_SIZE = 44
+const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
+const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
+
+const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
+  { value: 'updated_desc', label: 'Упорядочить по дате: новые' },
+  { value: 'updated_asc', label: 'Упорядочить по дате: старые' },
+  { value: 'created_desc', label: 'Сначала новые игры' },
+  { value: 'created_asc', label: 'Сначала старые игры' },
+]
+
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
     (left, right) =>
       new Date(right.last_activity_at).getTime() - new Date(left.last_activity_at).getTime() || right.id - left.id,
   )
+}
+
+function sortGames(games: StoryGameSummary[], mode: GamesSortMode): StoryGameSummary[] {
+  const sorted = [...games]
+  sorted.sort((left, right) => {
+    if (mode === 'updated_desc') {
+      return new Date(right.last_activity_at).getTime() - new Date(left.last_activity_at).getTime()
+    }
+    if (mode === 'updated_asc') {
+      return new Date(left.last_activity_at).getTime() - new Date(right.last_activity_at).getTime()
+    }
+    if (mode === 'created_desc') {
+      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+    }
+    return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+  })
+  return sorted
 }
 
 function normalizePreview(messages: StoryMessage[]): string {
@@ -50,26 +81,51 @@ function normalizePreview(messages: StoryMessage[]): string {
     .find((message) => message.content.replace(/\s+/g, ' ').trim().length > 0)
 
   if (!source) {
-    return 'История еще не началась.'
+    return EMPTY_PREVIEW_TEXT
   }
 
   const compact = source.content.replace(/\s+/g, ' ').trim()
-  if (compact.length <= 180) {
+  if (compact.length <= 145) {
     return compact
   }
-  return `${compact.slice(0, 177)}...`
+  return `${compact.slice(0, 142)}...`
 }
 
 function buildCardArtwork(gameId: number): string {
   const hue = (gameId * 53) % 360
   const accentHue = (hue + 72) % 360
   const shadowHue = (hue + 210) % 360
+  const variant = gameId % 4
+
+  if (variant === 0) {
+    return [
+      `repeating-radial-gradient(circle at 0 0, hsla(${accentHue}, 50%, 58%, 0.42) 0 4px, transparent 4px 18px)`,
+      `radial-gradient(circle at 78% 16%, hsla(${shadowHue}, 74%, 58%, 0.38), transparent 40%)`,
+      `linear-gradient(145deg, hsla(${hue}, 62%, 24%, 0.98) 0%, hsla(${shadowHue}, 60%, 15%, 0.98) 100%)`,
+    ].join(', ')
+  }
+
+  if (variant === 1) {
+    return [
+      `repeating-linear-gradient(28deg, hsla(${accentHue}, 56%, 62%, 0.3) 0 10px, transparent 10px 22px)`,
+      `repeating-linear-gradient(118deg, hsla(${shadowHue}, 54%, 54%, 0.25) 0 12px, transparent 12px 24px)`,
+      `linear-gradient(160deg, hsla(${hue}, 54%, 26%, 0.98) 0%, hsla(${accentHue}, 46%, 20%, 0.95) 100%)`,
+    ].join(', ')
+  }
+
+  if (variant === 2) {
+    return [
+      `repeating-conic-gradient(from 0deg at 84% 14%, hsla(${accentHue}, 64%, 56%, 0.26) 0deg 24deg, transparent 24deg 48deg)`,
+      `radial-gradient(circle at 12% 82%, hsla(${shadowHue}, 74%, 56%, 0.3), transparent 46%)`,
+      `linear-gradient(155deg, hsla(${hue}, 62%, 23%, 0.96) 0%, hsla(${shadowHue}, 58%, 14%, 0.98) 100%)`,
+    ].join(', ')
+  }
 
   return [
-    `radial-gradient(circle at 18% 15%, hsla(${accentHue}, 74%, 62%, 0.42), transparent 46%)`,
-    `radial-gradient(circle at 86% 28%, hsla(${shadowHue}, 66%, 56%, 0.34), transparent 42%)`,
-    `repeating-linear-gradient(132deg, hsla(${hue}, 44%, 58%, 0.24) 0 9px, transparent 9px 20px)`,
-    `linear-gradient(160deg, hsla(${hue}, 62%, 24%, 0.96) 0%, hsla(${shadowHue}, 58%, 13%, 0.97) 100%)`,
+    `repeating-linear-gradient(90deg, hsla(${accentHue}, 52%, 58%, 0.27) 0 2px, transparent 2px 14px)`,
+    `repeating-linear-gradient(0deg, hsla(${shadowHue}, 48%, 50%, 0.18) 0 16px, transparent 16px 30px)`,
+    `radial-gradient(circle at 70% 18%, hsla(${accentHue}, 64%, 62%, 0.28), transparent 44%)`,
+    `linear-gradient(165deg, hsla(${hue}, 60%, 24%, 0.98) 0%, hsla(${shadowHue}, 62%, 14%, 0.98) 100%)`,
   ].join(', ')
 }
 
@@ -82,7 +138,7 @@ const DialogTransition = forwardRef(function DialogTransition(
   return <Grow ref={ref} {...props} timeout={{ enter: 320, exit: 190 }} />
 })
 
-function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps) {
+function AvatarPlaceholder({ fallbackLabel, size = HEADER_AVATAR_SIZE }: AvatarPlaceholderProps) {
   const headSize = Math.max(12, Math.round(size * 0.27))
   const bodyWidth = Math.max(18, Math.round(size * 0.42))
   const bodyHeight = Math.max(10, Math.round(size * 0.21))
@@ -123,7 +179,7 @@ function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps)
   )
 }
 
-function UserAvatar({ user, size = 44 }: UserAvatarProps) {
+function UserAvatar({ user, size = HEADER_AVATAR_SIZE }: UserAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const fallbackLabel = user.display_name || user.email
 
@@ -158,6 +214,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [sortMode, setSortMode] = useState<GamesSortMode>('updated_desc')
+  const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
+
+  useEffect(() => {
+    setCustomTitleMap(loadStoryTitleMap())
+  }, [])
 
   const loadGames = useCallback(async () => {
     setErrorMessage('')
@@ -173,7 +236,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             const payload = await getStoryGame({ token: authToken, gameId: game.id })
             return [game.id, normalizePreview(payload.messages)] as const
           } catch {
-            return [game.id, 'Не удалось загрузить превью этой истории.'] as const
+            return [game.id, PREVIEW_ERROR_TEXT] as const
           }
         }),
       )
@@ -220,6 +283,24 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
     setProfileDialogOpen(false)
     onLogout()
   }
+
+  const resolveDisplayTitle = useCallback(
+    (gameId: number) => getDisplayStoryTitle(gameId, customTitleMap),
+    [customTitleMap],
+  )
+
+  const visibleGames = useMemo(() => {
+    const normalizedSearch = searchQuery.trim().toLowerCase()
+    const filtered = normalizedSearch
+      ? games.filter((game) => {
+          const title = resolveDisplayTitle(game.id).toLowerCase()
+          const preview = (gamePreviews[game.id] ?? '').toLowerCase()
+          return title.includes(normalizedSearch) || preview.includes(normalizedSearch)
+        })
+      : games
+
+    return sortGames(filtered, sortMode)
+  }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
 
   const pageTitle = mode === 'all' ? 'Все игры' : 'Мои игры'
   const pageDescription =
@@ -345,70 +426,113 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           aria-label="Открыть профиль"
           sx={{
             minWidth: 0,
-            width: 44,
-            height: 44,
+            width: HEADER_AVATAR_SIZE,
+            height: HEADER_AVATAR_SIZE,
             p: 0,
             borderRadius: '50%',
           }}
         >
-          <UserAvatar user={user} />
+          <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
         </Button>
       </Box>
 
       <Box
         sx={{
-          pt: { xs: 82, md: 84 },
-          pb: { xs: 5, md: 7 },
+          pt: { xs: 82, md: 88 },
+          pb: { xs: 5, md: 6 },
           px: { xs: 2, md: 3.2 },
-          display: 'flex',
-          justifyContent: 'center',
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1120 }}>
+        <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
           {errorMessage ? (
             <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 2.2, borderRadius: '12px' }}>
               {errorMessage}
             </Alert>
           ) : null}
 
-          <Stack spacing={0.6} sx={{ mb: 2.2 }}>
+          <Stack spacing={0.5} sx={{ mb: 2 }}>
             <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: '#e4ebf7' }}>
               {pageTitle}
             </Typography>
             <Typography sx={{ color: 'rgba(191, 202, 220, 0.78)', fontSize: '1.02rem' }}>{pageDescription}</Typography>
           </Stack>
 
-          <Button
-            onClick={() => void handleCreateGame()}
-            disabled={isCreatingGame}
+          <Box
             sx={{
-              width: '100%',
-              mb: 2.2,
-              borderRadius: '16px',
-              minHeight: 84,
-              justifyContent: 'flex-start',
-              textTransform: 'none',
-              px: 2.2,
-              border: '1px dashed rgba(192, 205, 223, 0.36)',
-              background: 'linear-gradient(90deg, rgba(19, 24, 33, 0.72), rgba(13, 17, 24, 0.82))',
-              color: '#dfe7f6',
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 260px 170px' },
+              gap: 1.2,
+              mb: 2,
             }}
           >
-            <Stack spacing={0.3} alignItems="flex-start">
-              <Typography sx={{ fontSize: '1.08rem', fontWeight: 700 }}>
-                {isCreatingGame ? 'Создаём новую игру...' : '+ Создать новую игру'}
-              </Typography>
-              <Typography sx={{ fontSize: '0.94rem', color: 'rgba(186, 200, 219, 0.76)' }}>
-                Откройте новый мир одним кликом.
-              </Typography>
-            </Stack>
-          </Button>
+            <Box
+              component="input"
+              value={searchQuery}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
+              placeholder="Введите название игры для поиска..."
+              sx={{
+                width: '100%',
+                minHeight: 54,
+                borderRadius: '14px',
+                border: '1px solid rgba(186, 202, 214, 0.14)',
+                backgroundColor: 'rgba(23, 34, 52, 0.72)',
+                color: '#dce3ef',
+                px: 1.4,
+                outline: 'none',
+                fontSize: '1.02rem',
+                '&::placeholder': {
+                  color: 'rgba(188, 200, 218, 0.62)',
+                },
+              }}
+            />
+
+            <Box
+              component="select"
+              value={sortMode}
+              onChange={(event: ChangeEvent<HTMLSelectElement>) => setSortMode(event.target.value as GamesSortMode)}
+              sx={{
+                width: '100%',
+                minHeight: 54,
+                borderRadius: '14px',
+                border: '1px solid rgba(186, 202, 214, 0.14)',
+                backgroundColor: 'rgba(24, 35, 53, 0.72)',
+                color: '#dce4f2',
+                px: 1.2,
+                outline: 'none',
+                fontSize: '1rem',
+                cursor: 'pointer',
+              }}
+            >
+              {SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Box>
+
+            <Button
+              onClick={() => void handleCreateGame()}
+              disabled={isCreatingGame}
+              sx={{
+                minHeight: 54,
+                borderRadius: '14px',
+                textTransform: 'none',
+                color: '#e4ebf8',
+                border: '1px solid rgba(186, 202, 214, 0.2)',
+                background: 'linear-gradient(90deg, rgba(30, 41, 61, 0.92), rgba(26, 34, 49, 0.9))',
+                fontWeight: 700,
+                fontSize: '1.02rem',
+              }}
+            >
+              {isCreatingGame ? <CircularProgress size={18} sx={{ color: '#e4ebf8' }} /> : '+ Создать игру'}
+            </Button>
+          </Box>
 
           {isLoadingGames ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 8 }}>
               <CircularProgress size={34} />
             </Stack>
-          ) : games.length === 0 ? (
+          ) : visibleGames.length === 0 ? (
             <Box
               sx={{
                 borderRadius: '16px',
@@ -418,24 +542,31 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
               }}
             >
               <Typography sx={{ color: 'rgba(196, 206, 223, 0.72)', fontSize: '1rem' }}>
-                Здесь пока нет карточек. Создайте первую игру и начните историю.
+                {searchQuery.trim()
+                  ? 'По вашему запросу игры не найдены.'
+                  : 'Здесь пока нет карточек. Создайте первую игру и начните историю.'}
               </Typography>
             </Box>
           ) : (
             <Box
               sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1.4,
+                display: 'grid',
+                gap: 1.3,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  md: 'repeat(3, minmax(0, 1fr))',
+                  xl: 'repeat(4, minmax(0, 1fr))',
+                },
               }}
             >
-              {games.map((game) => (
+              {visibleGames.map((game) => (
                 <Button
                   key={game.id}
                   onClick={() => onNavigate(`/home/${game.id}`)}
                   sx={{
                     borderRadius: '16px',
-                    minHeight: { xs: 220, md: 246 },
+                    minHeight: { xs: 184, md: 212 },
                     p: 0,
                     display: 'flex',
                     flexDirection: 'column',
@@ -448,9 +579,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
                     color: '#dfe7f5',
+                    transition: 'transform 180ms ease, border-color 180ms ease',
                     '&:hover': {
                       borderColor: 'rgba(203, 216, 234, 0.38)',
-                      transform: 'translateY(-1px)',
+                      transform: 'translateY(-2px)',
                     },
                   }}
                 >
@@ -458,38 +590,42 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     sx={{
                       mt: 'auto',
                       width: '100%',
-                      px: { xs: 1.4, md: 1.7 },
-                      py: { xs: 1.3, md: 1.5 },
+                      px: { xs: 1.2, md: 1.35 },
+                      py: { xs: 1.05, md: 1.2 },
                       background:
-                        'linear-gradient(180deg, rgba(6, 9, 14, 0.1) 0%, rgba(6, 9, 14, 0.86) 42%, rgba(6, 9, 14, 0.94) 100%)',
+                        'linear-gradient(180deg, rgba(6, 9, 14, 0.14) 0%, rgba(6, 9, 14, 0.9) 44%, rgba(6, 9, 14, 0.96) 100%)',
                     }}
                   >
                     <Typography
                       sx={{
-                        fontSize: { xs: '1.14rem', md: '1.22rem' },
+                        fontSize: { xs: '1.12rem', md: '1.16rem' },
                         fontWeight: 800,
                         lineHeight: 1.2,
                         color: '#eef3fb',
-                        mb: 0.8,
+                        mb: 0.62,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
                       }}
                     >
-                      {game.title}
+                      {resolveDisplayTitle(game.id)}
                     </Typography>
                     <Typography
                       sx={{
                         color: 'rgba(210, 222, 239, 0.9)',
-                        fontSize: { xs: '0.96rem', md: '1rem' },
-                        lineHeight: 1.48,
-                        mb: 1,
+                        fontSize: { xs: '0.92rem', md: '0.95rem' },
+                        lineHeight: 1.4,
+                        mb: 0.85,
                         display: '-webkit-box',
-                        WebkitLineClamp: 3,
+                        WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical',
                         overflow: 'hidden',
                       }}
                     >
                       {gamePreviews[game.id] ?? 'Загружаем превью...'}
                     </Typography>
-                    <Typography sx={{ color: 'rgba(176, 188, 206, 0.78)', fontSize: '0.84rem' }}>
+                    <Typography sx={{ color: 'rgba(176, 188, 206, 0.78)', fontSize: '0.8rem' }}>
                       Обновлено {new Date(game.last_activity_at).toLocaleString('ru-RU')}
                     </Typography>
                   </Box>
