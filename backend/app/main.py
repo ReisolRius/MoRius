@@ -114,19 +114,18 @@ STORY_WORLD_CARD_EVENT_ACTIONS = {
 STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 1_000
 STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
-STORY_WORLD_CARD_SIGNIFICANT_IMPORTANCE = {"high", "critical"}
-STORY_WORLD_CARD_ALLOWED_KINDS = {
-    "character",
-    "npc",
-    "item",
-    "artifact",
-    "action",
-    "event",
-    "place",
-    "location",
-    "faction",
-    "organization",
-    "quest",
+STORY_WORLD_CARD_LOW_IMPORTANCE = {"low", "minor", "trivial"}
+STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
+    "food",
+    "drink",
+    "beverage",
+    "meal",
+    "furniture",
+    "time",
+    "time_of_day",
+    "weather",
+    "ambient",
+    "sound",
 }
 STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
     "кофе",
@@ -771,8 +770,12 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
 
 def _normalize_story_world_card_event_action(value: str) -> str:
     normalized = value.strip().lower()
-    if normalized in STORY_WORLD_CARD_EVENT_ACTIONS:
-        return normalized
+    if normalized in {STORY_WORLD_CARD_EVENT_ADDED, "add", "create", "created", "new"}:
+        return STORY_WORLD_CARD_EVENT_ADDED
+    if normalized in {STORY_WORLD_CARD_EVENT_UPDATED, "update", "edit", "edited", "modify", "modified"}:
+        return STORY_WORLD_CARD_EVENT_UPDATED
+    if normalized in {STORY_WORLD_CARD_EVENT_DELETED, "delete", "remove", "removed"}:
+        return STORY_WORLD_CARD_EVENT_DELETED
     return ""
 
 
@@ -1383,7 +1386,14 @@ def _normalize_story_world_card_change_operations(
         raw_nested_operations = raw_operations.get("changes")
         if not isinstance(raw_nested_operations, list):
             raw_nested_operations = raw_operations.get("operations")
-        raw_operations = raw_nested_operations
+        if isinstance(raw_nested_operations, list):
+            raw_operations = raw_nested_operations
+        elif isinstance(raw_operations.get("action"), str) or (
+            isinstance(raw_operations.get("title"), str) and isinstance(raw_operations.get("content"), str)
+        ):
+            raw_operations = [raw_operations]
+        else:
+            raw_operations = []
     if not isinstance(raw_operations, list):
         return []
 
@@ -1404,14 +1414,18 @@ def _normalize_story_world_card_change_operations(
 
         action = _normalize_story_world_card_event_action(str(raw_item.get("action", "")))
         if not action:
-            continue
+            has_legacy_candidate = isinstance(raw_item.get("title"), str) and isinstance(raw_item.get("content"), str)
+            if has_legacy_candidate:
+                action = STORY_WORLD_CARD_EVENT_ADDED
+            else:
+                continue
 
         importance = str(raw_item.get("importance", "high")).strip().lower()
-        if importance and importance not in STORY_WORLD_CARD_SIGNIFICANT_IMPORTANCE:
+        if importance in STORY_WORLD_CARD_LOW_IMPORTANCE:
             continue
 
         kind = str(raw_item.get("kind", "")).strip().lower()
-        if kind and kind not in STORY_WORLD_CARD_ALLOWED_KINDS:
+        if kind in STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS and importance != "critical":
             continue
 
         target_card = _extract_story_world_card_operation_target(raw_item, existing_by_id, existing_by_title)
