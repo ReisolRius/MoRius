@@ -68,6 +68,7 @@ const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
 const HEADER_AVATAR_SIZE = 44
+const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
 
 function splitAssistantParagraphs(content: string): string[] {
   const paragraphs = content
@@ -298,6 +299,32 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
   }, [])
+
+  useEffect(() => {
+    if (!activeGameId || isLoadingGameMessages || messages.length > 0 || inputValue.trim().length > 0) {
+      return
+    }
+
+    const rawPayload = localStorage.getItem(QUICK_START_WORLD_STORAGE_KEY)
+    if (!rawPayload) {
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(rawPayload) as { gameId?: unknown; prompt?: unknown }
+      if (parsed.gameId !== activeGameId || typeof parsed.prompt !== 'string') {
+        return
+      }
+
+      const normalizedPrompt = parsed.prompt.trim()
+      if (normalizedPrompt.length > 0) {
+        setInputValue(normalizedPrompt)
+      }
+      localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
+    } catch {
+      localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
+    }
+  }, [activeGameId, inputValue, isLoadingGameMessages, messages.length])
 
   useEffect(() => {
     if (isEditingTitle) {
