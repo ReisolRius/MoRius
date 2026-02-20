@@ -39,6 +39,28 @@ export type StoryPlotCard = {
   updated_at: string
 }
 
+export type StoryPlotCardEventAction = 'added' | 'updated' | 'deleted'
+
+export type StoryPlotCardSnapshot = {
+  id: number | null
+  title: string
+  content: string
+  source: StoryPlotCardSource
+}
+
+export type StoryPlotCardEvent = {
+  id: number
+  game_id: number
+  assistant_message_id: number
+  plot_card_id: number | null
+  action: StoryPlotCardEventAction
+  title: string
+  changed_text: string
+  before_snapshot: StoryPlotCardSnapshot | null
+  after_snapshot: StoryPlotCardSnapshot | null
+  created_at: string
+}
+
 export type StoryWorldCardSource = 'user' | 'ai'
 
 export type StoryWorldCard = {
@@ -80,6 +102,7 @@ export type StoryGamePayload = {
   messages: StoryMessage[]
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
+  plot_card_events: StoryPlotCardEvent[]
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
 }
@@ -97,5 +120,6 @@ export type StoryStreamChunkPayload = {
 export type StoryStreamDonePayload = {
   message: StoryMessage
   world_card_events?: StoryWorldCardEvent[]
+  plot_card_events?: StoryPlotCardEvent[]
   plot_card_created?: boolean
 }

@@ -40,6 +40,7 @@ import {
   listStoryGames,
   updateStoryGameSettings,
   updateStoryPlotCard,
+  undoStoryPlotCardEvent,
   undoStoryWorldCardEvent,
   updateStoryInstructionCard,
   updateStoryWorldCard,
@@ -59,6 +60,7 @@ import type {
   StoryInstructionCard,
   StoryMessage,
   StoryPlotCard,
+  StoryPlotCardEvent,
   StoryWorldCard,
   StoryWorldCardEvent,
 } from '../types/story'
@@ -298,6 +300,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [plotCardContentDraft, setPlotCardContentDraft] = useState('')
   const [isSavingPlotCard, setIsSavingPlotCard] = useState(false)
   const [deletingPlotCardId, setDeletingPlotCardId] = useState<number | null>(null)
+  const [plotCardEvents, setPlotCardEvents] = useState<StoryPlotCardEvent[]>([])
+  const [dismissedPlotCardEventIds, setDismissedPlotCardEventIds] = useState<number[]>([])
+  const [expandedPlotCardEventIds, setExpandedPlotCardEventIds] = useState<number[]>([])
+  const [undoingPlotCardEventIds, setUndoingPlotCardEventIds] = useState<number[]>([])
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
   const [dismissedWorldCardEventIds, setDismissedWorldCardEventIds] = useState<number[]>([])
@@ -341,6 +347,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => worldCardEvents.filter((event) => !dismissedWorldCardEventIds.includes(event.id)),
     [dismissedWorldCardEventIds, worldCardEvents],
   )
+  const visiblePlotCardEvents = useMemo(
+    () => plotCardEvents.filter((event) => !dismissedPlotCardEventIds.includes(event.id)),
+    [dismissedPlotCardEventIds, plotCardEvents],
+  )
   const worldCardEventsByAssistantId = useMemo(() => {
     const nextMap = new Map<number, StoryWorldCardEvent[]>()
     visibleWorldCardEvents.forEach((event) => {
@@ -350,6 +360,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return nextMap
   }, [visibleWorldCardEvents])
+  const plotCardEventsByAssistantId = useMemo(() => {
+    const nextMap = new Map<number, StoryPlotCardEvent[]>()
+    visiblePlotCardEvents.forEach((event) => {
+      const currentItems = nextMap.get(event.assistant_message_id) ?? []
+      currentItems.push(event)
+      nextMap.set(event.assistant_message_id, currentItems)
+    })
+    return nextMap
+  }, [visiblePlotCardEvents])
   const normalizedInstructionCardsForContext = useMemo(
     () =>
       instructionCards
@@ -397,6 +416,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const payload = normalizedPlotCardsForContext.map((card, index) => `${index + 1}. ${card.title}: ${card.content}`).join('\n')
     return estimateTextTokens(payload)
   }, [normalizedPlotCardsForContext])
+  const historyContextTokensUsed = useMemo(() => {
+    const normalizedHistory = messages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({
+        role: message.role,
+        content: message.content.replace(/\r\n/g, '\n').trim(),
+      }))
+      .filter((message) => message.content.length > 0)
+    if (normalizedHistory.length === 0) {
+      return 0
+    }
+
+    const activeHistory = normalizedHistory.length > 80 ? normalizedHistory.slice(-80) : normalizedHistory
+    const payload = activeHistory
+      .map((message) => `${message.role === 'user' ? 'Игрок' : 'ИИ'}: ${message.content}`)
+      .join('\n')
+    return estimateTextTokens(payload)
+  }, [messages])
   const worldContextTokensUsed = useMemo(() => {
     if (normalizedWorldCardsForContext.length === 0) {
       return 0
@@ -408,7 +445,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return estimateTextTokens(lines.join('\n'))
   }, [normalizedWorldCardsForContext])
-  const cardsContextCharsUsed = instructionContextTokensUsed + plotContextTokensUsed + worldContextTokensUsed
+  const isPlotMemoryActive = normalizedPlotCardsForContext.length > 0
+  const storyMemoryTokensUsed = isPlotMemoryActive ? plotContextTokensUsed : historyContextTokensUsed
+  const storyMemoryLabel = isPlotMemoryActive ? 'Карточки сюжета' : 'История сообщений'
+  const storyMemoryHint = isPlotMemoryActive
+    ? `Учитываются карточки сюжета: ${normalizedPlotCardsForContext.length}.`
+    : 'Карточек сюжета нет, учитывается история диалога.'
+  const cardsContextCharsUsed = instructionContextTokensUsed + storyMemoryTokensUsed + worldContextTokensUsed
   const freeContextChars = Math.max(contextLimitChars - cardsContextCharsUsed, 0)
   const cardsContextOverflowChars = Math.max(cardsContextCharsUsed - contextLimitChars, 0)
   const cardsContextUsagePercent =
@@ -434,6 +477,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setExpandedWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setUndoingWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
   }, [])
+  const applyPlotCardEvents = useCallback((nextEvents: StoryPlotCardEvent[]) => {
+    setPlotCardEvents(nextEvents)
+    const eventIds = new Set(nextEvents.map((event) => event.id))
+    setDismissedPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+    setExpandedPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+    setUndoingPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+  }, [])
 
   const loadGameById = useCallback(
     async (gameId: number, options?: { silent?: boolean }) => {
@@ -446,6 +496,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
         setPlotCards(payload.plot_cards ?? [])
+        applyPlotCardEvents(payload.plot_card_events ?? [])
         setWorldCards(payload.world_cards)
         const normalizedContextLimit = clampStoryContextLimit(payload.game.context_limit_chars)
         setContextLimitChars(normalizedContextLimit)
@@ -467,7 +518,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [applyWorldCardEvents, authToken],
+    [applyPlotCardEvents, applyWorldCardEvents, authToken],
   )
 
   useEffect(() => {
@@ -494,6 +545,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCards([])
           setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
           setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
+          applyPlotCardEvents([])
           applyWorldCardEvents([])
         }
       } catch (error) {
@@ -511,7 +563,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isActive = false
       generationAbortRef.current?.abort()
     }
-  }, [applyWorldCardEvents, authToken, initialGameId, loadGameById])
+  }, [applyPlotCardEvents, applyWorldCardEvents, authToken, initialGameId, loadGameById])
 
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
@@ -797,6 +849,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
+        applyPlotCardEvents([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
@@ -848,6 +901,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isCreatingGame,
     isSavingInstruction,
     onNavigate,
+    applyPlotCardEvents,
     applyWorldCardEvents,
   ])
 
@@ -950,6 +1004,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
+        applyPlotCardEvents([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
@@ -997,6 +1052,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isCreatingGame,
     isSavingPlotCard,
     onNavigate,
+    applyPlotCardEvents,
     applyWorldCardEvents,
     plotCardContentDraft,
     plotCardTitleDraft,
@@ -1105,6 +1161,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
+        applyPlotCardEvents([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
@@ -1155,6 +1212,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isCreatingGame,
     isSavingWorldCard,
     onNavigate,
+    applyPlotCardEvents,
     applyWorldCardEvents,
     worldCardContentDraft,
     worldCardTitleDraft,
@@ -1230,6 +1288,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     },
     [activeGameId, authToken, loadGameById, undoingWorldCardEventIds],
+  )
+
+  const handleDismissPlotCardEvent = useCallback((eventId: number) => {
+    setDismissedPlotCardEventIds((previousIds) => (previousIds.includes(eventId) ? previousIds : [...previousIds, eventId]))
+  }, [])
+
+  const handleTogglePlotCardEventExpanded = useCallback((eventId: number) => {
+    setExpandedPlotCardEventIds((previousIds) =>
+      previousIds.includes(eventId)
+        ? previousIds.filter((value) => value !== eventId)
+        : [...previousIds, eventId],
+    )
+  }, [])
+
+  const handleUndoPlotCardEvent = useCallback(
+    async (eventId: number) => {
+      if (!activeGameId || undoingPlotCardEventIds.includes(eventId)) {
+        return
+      }
+
+      setErrorMessage('')
+      setUndoingPlotCardEventIds((previousIds) =>
+        previousIds.includes(eventId) ? previousIds : [...previousIds, eventId],
+      )
+      try {
+        await undoStoryPlotCardEvent({
+          token: authToken,
+          gameId: activeGameId,
+          eventId,
+        })
+        await loadGameById(activeGameId, { silent: true })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось откатить изменение карточки сюжета'
+        setErrorMessage(detail)
+      } finally {
+        setUndoingPlotCardEventIds((previousIds) => previousIds.filter((value) => value !== eventId))
+      }
+    },
+    [activeGameId, authToken, loadGameById, undoingPlotCardEventIds],
   )
 
   const persistContextLimit = useCallback(
@@ -1439,6 +1536,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
+        applyPlotCardEvents([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
@@ -1475,7 +1573,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyWorldCardEvents, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
 
   const handleStopGeneration = useCallback(() => {
     generationAbortRef.current?.abort()
@@ -2125,10 +2223,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Stack>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>
-                          Карточки сюжета
+                          {storyMemoryLabel}
                         </Typography>
                         <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
-                          {formatContextChars(plotContextTokensUsed)}
+                          {formatContextChars(storyMemoryTokensUsed)}
                         </Typography>
                       </Stack>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -2154,8 +2252,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Stack>
 
                     <Typography sx={{ mt: 0.72, color: 'rgba(176, 190, 211, 0.66)', fontSize: '0.73rem', lineHeight: 1.36 }}>
-                      Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length}, сюжет{' '}
-                      {normalizedPlotCardsForContext.length}, мир {normalizedWorldCardsForContext.length}.
+                      {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length},
+                      сюжет {normalizedPlotCardsForContext.length}, мир {normalizedWorldCardsForContext.length}.
                     </Typography>
 
                     {cardsContextOverflowChars > 0 ? (
@@ -2691,6 +2789,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   if (message.role === 'assistant') {
                     const paragraphs = splitAssistantParagraphs(message.content)
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
+                    const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
                     return (
                       <Box
@@ -2731,8 +2830,133 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               }}
                             />
                           ) : null}
-                          {messageWorldCardEvents.length > 0 ? (
+                          {messagePlotCardEvents.length > 0 || messageWorldCardEvents.length > 0 ? (
                             <Stack spacing={0.75}>
+                              {messagePlotCardEvents.map((plotCardEvent) => {
+                                const isExpanded = expandedPlotCardEventIds.includes(plotCardEvent.id)
+                                const isUndoing = undoingPlotCardEventIds.includes(plotCardEvent.id)
+                                const statusLabel = WORLD_CARD_EVENT_STATUS_LABEL[plotCardEvent.action]
+                                const statusColor =
+                                  plotCardEvent.action === 'added'
+                                    ? 'rgba(118, 232, 177, 0.94)'
+                                    : plotCardEvent.action === 'deleted'
+                                      ? 'rgba(249, 160, 160, 0.92)'
+                                      : 'rgba(112, 195, 248, 0.94)'
+                                const statusBackground =
+                                  plotCardEvent.action === 'added'
+                                    ? 'rgba(51, 104, 81, 0.46)'
+                                    : plotCardEvent.action === 'deleted'
+                                      ? 'rgba(112, 55, 61, 0.46)'
+                                      : 'rgba(44, 89, 126, 0.46)'
+
+                                return (
+                                  <Box
+                                    key={`plot-event-${plotCardEvent.id}`}
+                                    onClick={(event) => event.stopPropagation()}
+                                    sx={{
+                                      borderRadius: '12px',
+                                      border: '1px solid rgba(186, 202, 214, 0.2)',
+                                      backgroundColor: 'rgba(26, 37, 56, 0.58)',
+                                      px: 0.95,
+                                      py: 0.62,
+                                    }}
+                                  >
+                                    <Stack direction="row" alignItems="center" spacing={0.55}>
+                                      <Box
+                                        sx={{
+                                          borderRadius: '999px',
+                                          px: 0.65,
+                                          py: 0.08,
+                                          fontSize: '0.67rem',
+                                          lineHeight: 1.2,
+                                          textTransform: 'uppercase',
+                                          letterSpacing: 0.2,
+                                          color: statusColor,
+                                          backgroundColor: statusBackground,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {statusLabel}
+                                      </Box>
+                                      <Typography
+                                        sx={{
+                                          color: 'rgba(226, 235, 248, 0.94)',
+                                          fontSize: '0.88rem',
+                                          lineHeight: 1.25,
+                                          fontWeight: 600,
+                                          flex: 1,
+                                          minWidth: 0,
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                        }}
+                                      >
+                                        {plotCardEvent.title}
+                                      </Typography>
+                                      <IconButton
+                                        aria-label="Откатить изменение карточки сюжета"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          void handleUndoPlotCardEvent(plotCardEvent.id)
+                                        }}
+                                        disabled={isUndoing}
+                                        sx={{ width: 28, height: 28 }}
+                                      >
+                                        {isUndoing ? (
+                                          <CircularProgress size={14} sx={{ color: 'rgba(208, 220, 237, 0.86)' }} />
+                                        ) : (
+                                          <Box component="img" src={icons.undo} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
+                                        )}
+                                      </IconButton>
+                                      <IconButton
+                                        aria-label="Скрыть блок"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleDismissPlotCardEvent(plotCardEvent.id)
+                                        }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          color: 'rgba(198, 210, 228, 0.86)',
+                                          fontSize: '1.05rem',
+                                          lineHeight: 1,
+                                        }}
+                                      >
+                                        ×
+                                      </IconButton>
+                                      <IconButton
+                                        aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleTogglePlotCardEventExpanded(plotCardEvent.id)
+                                        }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          color: 'rgba(198, 210, 228, 0.86)',
+                                          fontSize: '0.98rem',
+                                          lineHeight: 1,
+                                        }}
+                                      >
+                                        {isExpanded ? '˄' : '˅'}
+                                      </IconButton>
+                                    </Stack>
+                                    {isExpanded ? (
+                                      <Typography
+                                        sx={{
+                                          mt: 0.55,
+                                          color: 'rgba(202, 214, 232, 0.88)',
+                                          fontSize: '0.82rem',
+                                          lineHeight: 1.36,
+                                          whiteSpace: 'pre-wrap',
+                                        }}
+                                      >
+                                        {plotCardEvent.changed_text}
+                                      </Typography>
+                                    ) : null}
+                                  </Box>
+                                )
+                              })}
                               {messageWorldCardEvents.map((worldCardEvent) => {
                                 const isExpanded = expandedWorldCardEventIds.includes(worldCardEvent.id)
                                 const isUndoing = undoingWorldCardEventIds.includes(worldCardEvent.id)

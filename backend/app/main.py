@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import base64
 import binascii
 import json
@@ -34,6 +35,7 @@ from app.models import (
     StoryInstructionCard,
     StoryMessage,
     StoryPlotCard,
+    StoryPlotCardChangeEvent,
     StoryWorldCard,
     StoryWorldCardChangeEvent,
     User,
@@ -63,6 +65,7 @@ from app.schemas import (
     StoryMessageOut,
     StoryMessageUpdateRequest,
     StoryPlotCardCreateRequest,
+    StoryPlotCardChangeEventOut,
     StoryPlotCardOut,
     StoryPlotCardUpdateRequest,
     StoryWorldCardCreateRequest,
@@ -125,6 +128,7 @@ STORY_WORLD_CARD_EVENT_ACTIONS = {
 }
 STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 1_000
 STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
+STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
 STORY_WORLD_CARD_LOW_IMPORTANCE = {"low", "minor", "trivial"}
 STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
@@ -151,6 +155,12 @@ STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
     "утро",
     "окно",
 }
+STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
+    "обновлены важные детали",
+    "updated important details",
+    "карточка удалена как неактуальная",
+    "deleted as irrelevant",
+)
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
@@ -892,6 +902,68 @@ def _normalize_story_world_card_changed_text(value: str, *, fallback: str) -> st
     return normalized
 
 
+def _normalize_story_plot_card_changed_text(value: str, *, fallback: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        normalized = fallback.strip()
+    if len(normalized) > STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH:
+        normalized = normalized[:STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH].rstrip()
+    return normalized
+
+
+def _is_story_generic_changed_text(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+    return any(fragment in normalized for fragment in STORY_GENERIC_CHANGED_TEXT_FRAGMENTS)
+
+
+def _extract_story_updated_fragment(previous: str, current: str) -> str:
+    previous_value = previous.replace("\r\n", "\n").strip()
+    current_value = current.replace("\r\n", "\n").strip()
+    if not current_value:
+        return ""
+    if not previous_value or previous_value == current_value:
+        return current_value
+
+    prefix_length = 0
+    max_prefix = min(len(previous_value), len(current_value))
+    while prefix_length < max_prefix and previous_value[prefix_length] == current_value[prefix_length]:
+        prefix_length += 1
+
+    suffix_length = 0
+    max_suffix = min(len(previous_value) - prefix_length, len(current_value) - prefix_length)
+    while (
+        suffix_length < max_suffix
+        and previous_value[-(suffix_length + 1)] == current_value[-(suffix_length + 1)]
+    ):
+        suffix_length += 1
+
+    end_index = len(current_value) - suffix_length if suffix_length > 0 else len(current_value)
+    fragment = current_value[prefix_length:end_index].strip()
+    if fragment and len(fragment) >= 6:
+        return fragment
+    return current_value
+
+
+def _derive_story_changed_text_from_snapshots(
+    *,
+    action: str,
+    before_snapshot: dict[str, Any] | None,
+    after_snapshot: dict[str, Any] | None,
+) -> str:
+    before_content = str(before_snapshot.get("content", "")).replace("\r\n", "\n").strip() if before_snapshot else ""
+    after_content = str(after_snapshot.get("content", "")).replace("\r\n", "\n").strip() if after_snapshot else ""
+
+    if action == STORY_WORLD_CARD_EVENT_ADDED:
+        return after_content
+    if action == STORY_WORLD_CARD_EVENT_UPDATED:
+        return _extract_story_updated_fragment(before_content, after_content)
+    if action == STORY_WORLD_CARD_EVENT_DELETED:
+        return before_content or after_content
+    return after_content or before_content
+
+
 def _is_story_world_card_title_mundane(value: str) -> bool:
     tokens = _normalize_story_match_tokens(value)
     if not tokens:
@@ -986,6 +1058,82 @@ def _story_world_card_change_event_to_out(event: StoryWorldCardChangeEvent) -> S
     )
 
 
+def _story_plot_card_snapshot_from_card(card: StoryPlotCard) -> dict[str, Any]:
+    return {
+        "id": card.id,
+        "title": card.title,
+        "content": card.content,
+        "source": _normalize_story_plot_card_source(card.source),
+    }
+
+
+def _serialize_story_plot_card_snapshot(value: dict[str, Any] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _deserialize_story_plot_card_snapshot(raw_value: str | None) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    normalized_raw = raw_value.strip()
+    if not normalized_raw:
+        return None
+
+    try:
+        parsed = json.loads(normalized_raw)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    title_value = " ".join(str(parsed.get("title", "")).split()).strip()
+    content_value = str(parsed.get("content", "")).replace("\r\n", "\n").strip()
+    if not title_value or not content_value:
+        return None
+
+    if len(title_value) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+        title_value = title_value[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+    if len(content_value) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
+        content_value = content_value[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
+    if not title_value or not content_value:
+        return None
+
+    source_value = _normalize_story_plot_card_source(str(parsed.get("source", "")))
+
+    card_id: int | None = None
+    raw_id = parsed.get("id")
+    if isinstance(raw_id, int) and raw_id > 0:
+        card_id = raw_id
+    elif isinstance(raw_id, str) and raw_id.strip().isdigit():
+        parsed_id = int(raw_id.strip())
+        if parsed_id > 0:
+            card_id = parsed_id
+
+    return {
+        "id": card_id,
+        "title": title_value,
+        "content": content_value,
+        "source": source_value,
+    }
+
+
+def _story_plot_card_change_event_to_out(event: StoryPlotCardChangeEvent) -> StoryPlotCardChangeEventOut:
+    return StoryPlotCardChangeEventOut(
+        id=event.id,
+        game_id=event.game_id,
+        assistant_message_id=event.assistant_message_id,
+        plot_card_id=event.plot_card_id,
+        action=_normalize_story_world_card_event_action(event.action) or STORY_WORLD_CARD_EVENT_UPDATED,
+        title=event.title,
+        changed_text=event.changed_text,
+        before_snapshot=_deserialize_story_plot_card_snapshot(event.before_snapshot),
+        after_snapshot=_deserialize_story_plot_card_snapshot(event.after_snapshot),
+        created_at=event.created_at,
+    )
+
+
 def _normalize_story_match_tokens(value: str) -> list[str]:
     normalized_source = value.lower().replace("ё", "е")
     return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
@@ -1072,6 +1220,22 @@ def _list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
         .where(StoryWorldCard.game_id == game_id)
         .order_by(StoryWorldCard.id.asc())
     ).all()
+
+
+def _list_story_plot_card_events(
+    db: Session,
+    game_id: int,
+    *,
+    assistant_message_id: int | None = None,
+    include_undone: bool = False,
+) -> list[StoryPlotCardChangeEvent]:
+    query = select(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id)
+    if assistant_message_id is not None:
+        query = query.where(StoryPlotCardChangeEvent.assistant_message_id == assistant_message_id)
+    if not include_undone:
+        query = query.where(StoryPlotCardChangeEvent.undone_at.is_(None))
+    query = query.order_by(StoryPlotCardChangeEvent.id.asc())
+    return db.scalars(query).all()
 
 
 def _list_story_world_card_events(
@@ -1499,7 +1663,12 @@ def _extract_json_array_from_text(raw_value: str) -> Any:
     try:
         return json.loads(normalized)
     except json.JSONDecodeError:
-        pass
+        try:
+            parsed_literal = ast.literal_eval(normalized)
+        except (ValueError, SyntaxError):
+            parsed_literal = None
+        if isinstance(parsed_literal, list):
+            return parsed_literal
 
     start_index = normalized.find("[")
     end_index = normalized.rfind("]")
@@ -1508,6 +1677,12 @@ def _extract_json_array_from_text(raw_value: str) -> Any:
         try:
             return json.loads(fragment)
         except json.JSONDecodeError:
+            try:
+                parsed_literal = ast.literal_eval(fragment)
+            except (ValueError, SyntaxError):
+                parsed_literal = None
+            if isinstance(parsed_literal, list):
+                return parsed_literal
             return []
 
     return []
@@ -1523,7 +1698,12 @@ def _extract_json_object_from_text(raw_value: str) -> Any:
         if isinstance(parsed, dict):
             return parsed
     except json.JSONDecodeError:
-        pass
+        try:
+            parsed_literal = ast.literal_eval(normalized)
+        except (ValueError, SyntaxError):
+            parsed_literal = None
+        if isinstance(parsed_literal, dict):
+            return parsed_literal
 
     start_index = normalized.find("{")
     end_index = normalized.rfind("}")
@@ -1532,6 +1712,12 @@ def _extract_json_object_from_text(raw_value: str) -> Any:
         try:
             parsed = json.loads(fragment)
         except json.JSONDecodeError:
+            try:
+                parsed_literal = ast.literal_eval(fragment)
+            except (ValueError, SyntaxError):
+                return {}
+            if isinstance(parsed_literal, dict):
+                return parsed_literal
             return {}
         if isinstance(parsed, dict):
             return parsed
@@ -1858,7 +2044,7 @@ def _normalize_story_world_card_change_operations(
 
             changed_text = _normalize_story_world_card_changed_text(
                 changed_text_source,
-                fallback=f"Обновлены важные детали: {title}",
+                fallback=content,
             )
             normalized_operations.append(
                 {
@@ -1884,7 +2070,7 @@ def _normalize_story_world_card_change_operations(
                 continue
             changed_text = _normalize_story_world_card_changed_text(
                 changed_text_source,
-                fallback=f"Карточка удалена как неактуальная: {target_card.title}",
+                fallback=target_card.content,
             )
             normalized_operations.append(
                 {
@@ -2114,10 +2300,17 @@ def _apply_story_world_card_change_operations(
             db.flush()
 
             card_snapshot = _story_world_card_snapshot_from_card(card)
+            changed_text_fallback = _derive_story_changed_text_from_snapshots(
+                action=STORY_WORLD_CARD_EVENT_ADDED,
+                before_snapshot=None,
+                after_snapshot=card_snapshot,
+            )
             changed_text = _normalize_story_world_card_changed_text(
                 str(operation.get("changed_text", "")),
-                fallback=card.content,
+                fallback=changed_text_fallback,
             )
+            if _is_story_generic_changed_text(changed_text):
+                changed_text = _normalize_story_world_card_changed_text("", fallback=changed_text_fallback)
             event = StoryWorldCardChangeEvent(
                 game_id=game.id,
                 assistant_message_id=assistant_message.id,
@@ -2165,10 +2358,17 @@ def _apply_story_world_card_change_operations(
             if before_snapshot == after_snapshot:
                 continue
 
+            changed_text_fallback = _derive_story_changed_text_from_snapshots(
+                action=STORY_WORLD_CARD_EVENT_UPDATED,
+                before_snapshot=before_snapshot,
+                after_snapshot=after_snapshot,
+            )
             changed_text = _normalize_story_world_card_changed_text(
                 str(operation.get("changed_text", "")),
-                fallback=f"Обновлены важные детали: {card.title}",
+                fallback=changed_text_fallback,
             )
+            if _is_story_generic_changed_text(changed_text):
+                changed_text = _normalize_story_world_card_changed_text("", fallback=changed_text_fallback)
             event = StoryWorldCardChangeEvent(
                 game_id=game.id,
                 assistant_message_id=assistant_message.id,
@@ -2187,10 +2387,17 @@ def _apply_story_world_card_change_operations(
 
         if action == STORY_WORLD_CARD_EVENT_DELETED:
             before_snapshot = _story_world_card_snapshot_from_card(card)
+            changed_text_fallback = _derive_story_changed_text_from_snapshots(
+                action=STORY_WORLD_CARD_EVENT_DELETED,
+                before_snapshot=before_snapshot,
+                after_snapshot=None,
+            )
             changed_text = _normalize_story_world_card_changed_text(
                 str(operation.get("changed_text", "")),
-                fallback=f"Карточка удалена как неактуальная: {card.title}",
+                fallback=changed_text_fallback,
             )
+            if _is_story_generic_changed_text(changed_text):
+                changed_text = _normalize_story_world_card_changed_text("", fallback=changed_text_fallback)
             event = StoryWorldCardChangeEvent(
                 game_id=game.id,
                 assistant_message_id=assistant_message.id,
@@ -2297,9 +2504,22 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
     if not isinstance(raw_payload, dict):
         return None
 
-    raw_title = raw_payload.get("title")
-    raw_content = raw_payload.get("content")
+    raw_title = (
+        raw_payload.get("title")
+        or raw_payload.get("name")
+        or raw_payload.get("heading")
+        or raw_payload.get("заголовок")
+    )
+    raw_content = (
+        raw_payload.get("content")
+        or raw_payload.get("summary")
+        or raw_payload.get("text")
+        or raw_payload.get("текст")
+    )
     if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+        nested_card = raw_payload.get("card")
+        if isinstance(nested_card, dict):
+            return _normalize_story_plot_card_ai_payload(nested_card)
         return None
 
     title = " ".join(raw_title.split()).strip()
@@ -2317,17 +2537,48 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
     return (title, content)
 
 
+def _build_story_plot_card_fallback_payload(
+    *,
+    existing_card: StoryPlotCard | None,
+    assistant_messages: list[StoryMessage],
+) -> tuple[str, str] | None:
+    history_parts: list[str] = []
+    for message in assistant_messages[-8:]:
+        content = message.content.replace("\r\n", "\n").strip()
+        if not content:
+            continue
+        if len(content) > 420:
+            content = f"{content[:417].rstrip()}..."
+        history_parts.append(content)
+
+    if not history_parts:
+        return None
+
+    fallback_title = existing_card.title.strip() if existing_card is not None else ""
+    if not fallback_title:
+        fallback_title = "Сюжетная сводка"
+
+    combined_content = "\n\n".join(history_parts[-4:])
+    if len(combined_content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
+        combined_content = combined_content[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
+
+    return (
+        _normalize_story_plot_card_title(fallback_title),
+        _normalize_story_plot_card_content(combined_content),
+    )
+
+
 def _upsert_story_plot_memory_card(
     *,
     db: Session,
     game: StoryGame,
-) -> bool:
+) -> tuple[bool, list[StoryPlotCardChangeEvent]]:
     if not settings.openrouter_api_key:
-        return False
+        return (False, [])
 
     model_name = (settings.openrouter_plot_card_model or settings.openrouter_translation_model).strip()
     if not model_name:
-        return False
+        return (False, [])
 
     assistant_messages = db.scalars(
         select(StoryMessage)
@@ -2338,22 +2589,39 @@ def _upsert_story_plot_memory_card(
         .order_by(StoryMessage.id.asc())
     ).all()
     if not assistant_messages:
-        return False
+        return (False, [])
 
     existing_cards = _list_story_plot_cards(db, game.id)
-    ai_card = next((card for card in existing_cards if _normalize_story_plot_card_source(card.source) == STORY_PLOT_CARD_SOURCE_AI), None)
+    ai_card = next(
+        (
+            card
+            for card in existing_cards
+            if _normalize_story_plot_card_source(card.source) == STORY_PLOT_CARD_SOURCE_AI
+        ),
+        None,
+    )
     messages_payload = _build_story_plot_card_memory_messages(existing_card=ai_card, assistant_messages=assistant_messages)
 
-    raw_response = _request_openrouter_story_text(
-        messages_payload,
-        model_name=model_name,
-        allow_free_fallback=False,
-        temperature=0.1,
-    )
-    parsed_payload = _extract_json_object_from_text(raw_response)
-    normalized_payload = _normalize_story_plot_card_ai_payload(parsed_payload)
+    normalized_payload: tuple[str, str] | None = None
+    try:
+        raw_response = _request_openrouter_story_text(
+            messages_payload,
+            model_name=model_name,
+            allow_free_fallback=False,
+            temperature=0.1,
+        )
+        parsed_payload = _extract_json_object_from_text(raw_response)
+        normalized_payload = _normalize_story_plot_card_ai_payload(parsed_payload)
+    except Exception as exc:
+        logger.warning("Plot card memory generation failed, fallback will be used: %s", exc)
+
     if normalized_payload is None:
-        return False
+        normalized_payload = _build_story_plot_card_fallback_payload(
+            existing_card=ai_card,
+            assistant_messages=assistant_messages,
+        )
+    if normalized_payload is None:
+        return (False, [])
     title, content = normalized_payload
 
     if ai_card is None:
@@ -2364,19 +2632,60 @@ def _upsert_story_plot_memory_card(
             source=STORY_PLOT_CARD_SOURCE_AI,
         )
         db.add(new_card)
+        db.flush()
+        after_snapshot = _story_plot_card_snapshot_from_card(new_card)
+        changed_text_fallback = _derive_story_changed_text_from_snapshots(
+            action=STORY_WORLD_CARD_EVENT_ADDED,
+            before_snapshot=None,
+            after_snapshot=after_snapshot,
+        )
+        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
+        event = StoryPlotCardChangeEvent(
+            game_id=game.id,
+            assistant_message_id=assistant_messages[-1].id,
+            plot_card_id=new_card.id,
+            action=STORY_WORLD_CARD_EVENT_ADDED,
+            title=new_card.title,
+            changed_text=changed_text,
+            before_snapshot=None,
+            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
+        )
+        db.add(event)
         _touch_story_game(game)
         db.commit()
-        return True
+        db.refresh(event)
+        return (True, [event])
 
     if ai_card.title == title and ai_card.content == content:
-        return False
+        return (False, [])
 
+    before_snapshot = _story_plot_card_snapshot_from_card(ai_card)
     ai_card.title = title
     ai_card.content = content
     ai_card.source = STORY_PLOT_CARD_SOURCE_AI
+    db.flush()
+    after_snapshot = _story_plot_card_snapshot_from_card(ai_card)
+    changed_text_fallback = _derive_story_changed_text_from_snapshots(
+        action=STORY_WORLD_CARD_EVENT_UPDATED,
+        before_snapshot=before_snapshot,
+        after_snapshot=after_snapshot,
+    )
+    changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
+    event = StoryPlotCardChangeEvent(
+        game_id=game.id,
+        assistant_message_id=assistant_messages[-1].id,
+        plot_card_id=ai_card.id,
+        action=STORY_WORLD_CARD_EVENT_UPDATED,
+        title=ai_card.title,
+        changed_text=changed_text,
+        before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
+        after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
+    )
+    db.add(event)
     _touch_story_game(game)
     db.commit()
-    return False
+    db.refresh(event)
+    return (False, [event])
 
 
 def _restore_story_world_card_from_snapshot(
@@ -2480,6 +2789,144 @@ def _undo_story_world_card_change_event(
     _touch_story_game(game)
     db.commit()
     db.refresh(event)
+
+
+def _restore_story_plot_card_from_snapshot(
+    db: Session,
+    game_id: int,
+    snapshot: dict[str, Any] | None,
+) -> StoryPlotCard | None:
+    if snapshot is None:
+        return None
+
+    title = str(snapshot.get("title", "")).strip()
+    content = str(snapshot.get("content", "")).strip()
+    if not title or not content:
+        return None
+
+    source = _normalize_story_plot_card_source(str(snapshot.get("source", "")))
+
+    card_id: int | None = None
+    raw_card_id = snapshot.get("id")
+    if isinstance(raw_card_id, int) and raw_card_id > 0:
+        card_id = raw_card_id
+
+    plot_card: StoryPlotCard | None = None
+    if card_id is not None:
+        plot_card = db.scalar(
+            select(StoryPlotCard).where(
+                StoryPlotCard.id == card_id,
+                StoryPlotCard.game_id == game_id,
+            )
+        )
+
+    if plot_card is None:
+        plot_card = StoryPlotCard(
+            game_id=game_id,
+            title=_normalize_story_plot_card_title(title),
+            content=_normalize_story_plot_card_content(content),
+            source=source,
+        )
+        db.add(plot_card)
+        db.flush()
+        return plot_card
+
+    plot_card.title = _normalize_story_plot_card_title(title)
+    plot_card.content = _normalize_story_plot_card_content(content)
+    plot_card.source = source
+    db.flush()
+    return plot_card
+
+
+def _undo_story_plot_card_change_event(
+    db: Session,
+    game: StoryGame,
+    event: StoryPlotCardChangeEvent,
+) -> None:
+    if event.undone_at is not None:
+        return
+
+    action = _normalize_story_world_card_event_action(event.action)
+    if not action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
+
+    before_snapshot = _deserialize_story_plot_card_snapshot(event.before_snapshot)
+    after_snapshot = _deserialize_story_plot_card_snapshot(event.after_snapshot)
+
+    if action == STORY_WORLD_CARD_EVENT_ADDED:
+        target_card_id = event.plot_card_id
+        if target_card_id is None and after_snapshot is not None:
+            raw_snapshot_id = after_snapshot.get("id")
+            if isinstance(raw_snapshot_id, int) and raw_snapshot_id > 0:
+                target_card_id = raw_snapshot_id
+
+        if target_card_id is not None:
+            plot_card = db.scalar(
+                select(StoryPlotCard).where(
+                    StoryPlotCard.id == target_card_id,
+                    StoryPlotCard.game_id == game.id,
+                )
+            )
+            if plot_card is not None:
+                db.delete(plot_card)
+                db.flush()
+    elif action in {STORY_WORLD_CARD_EVENT_UPDATED, STORY_WORLD_CARD_EVENT_DELETED}:
+        restored_card = _restore_story_plot_card_from_snapshot(db, game.id, before_snapshot)
+        if restored_card is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot restore plot card state for this event",
+            )
+        event.plot_card_id = restored_card.id
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
+
+    event.undone_at = _utcnow()
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(event)
+
+
+def _rollback_story_card_events_for_assistant_message(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message_id: int,
+) -> None:
+    world_events = _list_story_world_card_events(
+        db,
+        game.id,
+        assistant_message_id=assistant_message_id,
+        include_undone=False,
+    )
+    for event in reversed(world_events):
+        _undo_story_world_card_change_event(db, game, event)
+
+    plot_events = _list_story_plot_card_events(
+        db,
+        game.id,
+        assistant_message_id=assistant_message_id,
+        include_undone=False,
+    )
+    for event in reversed(plot_events):
+        _undo_story_plot_card_change_event(db, game, event)
+
+    for event in _list_story_world_card_events(
+        db,
+        game.id,
+        assistant_message_id=assistant_message_id,
+        include_undone=True,
+    ):
+        db.delete(event)
+    for event in _list_story_plot_card_events(
+        db,
+        game.id,
+        assistant_message_id=assistant_message_id,
+        include_undone=True,
+    ):
+        db.delete(event)
+    _touch_story_game(game)
+    db.commit()
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -3116,6 +3563,7 @@ def _stream_story_response(
 
     if not aborted and stream_error is None:
         persisted_world_card_events: list[StoryWorldCardChangeEventOut] = []
+        persisted_plot_card_events: list[StoryPlotCardChangeEventOut] = []
         plot_card_created = False
         try:
             generated_events = _persist_generated_story_world_cards(
@@ -3131,7 +3579,10 @@ def _stream_story_response(
         except Exception:
             logger.exception("Failed to persist generated world cards")
         try:
-            plot_card_created = _upsert_story_plot_memory_card(db=db, game=game)
+            plot_card_created, generated_plot_events = _upsert_story_plot_memory_card(db=db, game=game)
+            persisted_plot_card_events = [
+                _story_plot_card_change_event_to_out(event) for event in generated_plot_events if event.undone_at is None
+            ]
         except Exception:
             logger.exception("Failed to update story plot memory card")
         yield _sse_event(
@@ -3146,6 +3597,7 @@ def _stream_story_response(
                     "updated_at": assistant_message.updated_at.isoformat(),
                 },
                 "world_card_events": [event.model_dump(mode="json") for event in persisted_world_card_events],
+                "plot_card_events": [event.model_dump(mode="json") for event in persisted_plot_card_events],
                 "plot_card_created": plot_card_created,
             },
         )
@@ -3432,6 +3884,7 @@ def get_story_game(
     messages = _list_story_messages(db, game.id)
     instruction_cards = _list_story_instruction_cards(db, game.id)
     plot_cards = _list_story_plot_cards(db, game.id)
+    plot_card_events = _list_story_plot_card_events(db, game.id)
     world_cards = _list_story_world_cards(db, game.id)
     world_card_events = _list_story_world_card_events(db, game.id)
     return StoryGameOut(
@@ -3439,6 +3892,7 @@ def get_story_game(
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[_story_plot_card_to_out(card) for card in plot_cards],
+        plot_card_events=[_story_plot_card_change_event_to_out(event) for event in plot_card_events],
         world_cards=[_story_world_card_to_out(card) for card in world_cards],
         world_card_events=[_story_world_card_change_event_to_out(event) for event in world_card_events],
     )
@@ -3746,6 +4200,28 @@ def undo_story_world_card_event(
     return MessageResponse(message="World card change reverted")
 
 
+@app.post("/api/story/games/{game_id}/plot-card-events/{event_id}/undo", response_model=MessageResponse)
+def undo_story_plot_card_event(
+    game_id: int,
+    event_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    event = db.scalar(
+        select(StoryPlotCardChangeEvent).where(
+            StoryPlotCardChangeEvent.id == event_id,
+            StoryPlotCardChangeEvent.game_id == game.id,
+        )
+    )
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card event not found")
+
+    _undo_story_plot_card_change_event(db, game, event)
+    return MessageResponse(message="Plot card change reverted")
+
+
 @app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
 def update_story_message(
     game_id: int,
@@ -3786,8 +4262,6 @@ def generate_story_response(
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
     instruction_cards = _normalize_story_generation_instructions(payload.instructions)
-    plot_cards = _list_story_plot_cards(db, game.id)
-    world_cards = _list_story_world_cards(db, game.id)
     source_user_message: StoryMessage | None = None
 
     if payload.reroll_last_response:
@@ -3802,6 +4276,11 @@ def generate_story_response(
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
+        _rollback_story_card_events_for_assistant_message(
+            db=db,
+            game=game,
+            assistant_message_id=last_message.id,
+        )
         db.delete(last_message)
         _touch_story_game(game)
         db.commit()
@@ -3822,6 +4301,8 @@ def generate_story_response(
         db.commit()
         db.refresh(source_user_message)
 
+    plot_cards = _list_story_plot_cards(db, game.id)
+    world_cards = _list_story_world_cards(db, game.id)
     active_world_cards = _select_story_world_cards_for_prompt(prompt_text, world_cards)
     active_plot_cards = [
         {

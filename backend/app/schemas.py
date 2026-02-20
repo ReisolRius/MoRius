@@ -180,6 +180,26 @@ class StoryPlotCardOut(BaseModel):
     updated_at: datetime
 
 
+class StoryPlotCardSnapshotOut(BaseModel):
+    id: int | None
+    title: str
+    content: str
+    source: str
+
+
+class StoryPlotCardChangeEventOut(BaseModel):
+    id: int
+    game_id: int
+    assistant_message_id: int
+    plot_card_id: int | None
+    action: str
+    title: str
+    changed_text: str
+    before_snapshot: StoryPlotCardSnapshotOut | None
+    after_snapshot: StoryPlotCardSnapshotOut | None
+    created_at: datetime
+
+
 class StoryWorldCardSnapshotOut(BaseModel):
     id: int | None
     title: str
@@ -217,5 +237,6 @@ class StoryGameOut(BaseModel):
     messages: list[StoryMessageOut]
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]
+    plot_card_events: list[StoryPlotCardChangeEventOut]
     world_cards: list[StoryWorldCardOut]
     world_card_events: list[StoryWorldCardChangeEventOut]
