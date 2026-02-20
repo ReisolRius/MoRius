@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -107,6 +107,24 @@ class StoryInstructionCard(Base):
     )
 
 
+class StoryCharacter(Base):
+    __tablename__ = "story_characters"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StoryWorldCard(Base):
     __tablename__ = "story_world_cards"
 
@@ -115,6 +133,10 @@ class StoryWorldCard(Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="world", server_default="world")
+    avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

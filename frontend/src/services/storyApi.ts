@@ -1,5 +1,6 @@
 import { API_BASE_URL } from '../config/env'
 import type {
+  StoryCharacter,
   StoryGamePayload,
   StoryGameSummary,
   StoryInstructionCard,
@@ -41,6 +42,13 @@ export type StoryWorldCardInput = {
   title: string
   content: string
   triggers: string[]
+}
+
+export type StoryCharacterInput = {
+  name: string
+  description: string
+  triggers: string[]
+  avatar_url: string | null
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -105,6 +113,64 @@ export async function listStoryGames(token: string): Promise<StoryGameSummary[]>
       Authorization: `Bearer ${token}`,
     },
   })
+}
+
+export async function listStoryCharacters(token: string): Promise<StoryCharacter[]> {
+  return request<StoryCharacter[]>('/api/story/characters', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
+export async function createStoryCharacter(payload: {
+  token: string
+  input: StoryCharacterInput
+}): Promise<StoryCharacter> {
+  return request<StoryCharacter>('/api/story/characters', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify(payload.input),
+  })
+}
+
+export async function updateStoryCharacter(payload: {
+  token: string
+  characterId: number
+  input: StoryCharacterInput
+}): Promise<StoryCharacter> {
+  return request<StoryCharacter>(`/api/story/characters/${payload.characterId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify(payload.input),
+  })
+}
+
+export async function deleteStoryCharacter(payload: {
+  token: string
+  characterId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/characters/${payload.characterId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
+  }
 }
 
 export async function createStoryGame(payload: {
@@ -431,6 +497,55 @@ export async function createStoryWorldCard(payload: {
       title: payload.title,
       content: payload.content,
       triggers: payload.triggers,
+    }),
+  })
+}
+
+export async function selectStoryMainHero(payload: {
+  token: string
+  gameId: number
+  characterId: number
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/main-hero`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      character_id: payload.characterId,
+    }),
+  })
+}
+
+export async function createStoryNpcFromCharacter(payload: {
+  token: string
+  gameId: number
+  characterId: number
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/npc-from-character`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      character_id: payload.characterId,
+    }),
+  })
+}
+
+export async function updateStoryWorldCardAvatar(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  avatar_url: string | null
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/avatar`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      avatar_url: payload.avatar_url,
     }),
   })
 }

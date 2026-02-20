@@ -113,12 +113,37 @@ class StoryWorldCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    kind: str | None = Field(default=None, max_length=16)
+    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    character_id: int | None = Field(default=None, ge=1)
 
 
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+
+
+class StoryWorldCardAvatarUpdateRequest(BaseModel):
+    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+
+
+class StoryCharacterCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=4_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+
+
+class StoryCharacterUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=4_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+
+
+class StoryCharacterAssignRequest(BaseModel):
+    character_id: int = Field(ge=1)
 
 
 class StoryPlotCardCreateRequest(BaseModel):
@@ -163,6 +188,22 @@ class StoryWorldCardOut(BaseModel):
     title: str
     content: str
     triggers: list[str]
+    kind: str
+    avatar_url: str | None
+    character_id: int | None
+    is_locked: bool
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryCharacterOut(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    description: str
+    triggers: list[str]
+    avatar_url: str | None
     source: str
     created_at: datetime
     updated_at: datetime
@@ -205,6 +246,10 @@ class StoryWorldCardSnapshotOut(BaseModel):
     title: str
     content: str
     triggers: list[str]
+    kind: str
+    avatar_url: str | None
+    character_id: int | None
+    is_locked: bool
     source: str
 
 

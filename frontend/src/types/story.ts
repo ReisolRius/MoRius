@@ -62,6 +62,7 @@ export type StoryPlotCardEvent = {
 }
 
 export type StoryWorldCardSource = 'user' | 'ai'
+export type StoryWorldCardKind = 'world' | 'npc' | 'main_hero'
 
 export type StoryWorldCard = {
   id: number
@@ -69,6 +70,10 @@ export type StoryWorldCard = {
   title: string
   content: string
   triggers: string[]
+  kind: StoryWorldCardKind
+  avatar_url: string | null
+  character_id: number | null
+  is_locked: boolean
   source: StoryWorldCardSource
   created_at: string
   updated_at: string
@@ -81,6 +86,10 @@ export type StoryWorldCardSnapshot = {
   title: string
   content: string
   triggers: string[]
+  kind: StoryWorldCardKind
+  avatar_url: string | null
+  character_id: number | null
+  is_locked: boolean
   source: StoryWorldCardSource
 }
 
@@ -95,6 +104,20 @@ export type StoryWorldCardEvent = {
   before_snapshot: StoryWorldCardSnapshot | null
   after_snapshot: StoryWorldCardSnapshot | null
   created_at: string
+}
+
+export type StoryCharacterSource = 'user' | 'ai'
+
+export type StoryCharacter = {
+  id: number
+  user_id: number
+  name: string
+  description: string
+  triggers: string[]
+  avatar_url: string | null
+  source: StoryCharacterSource
+  created_at: string
+  updated_at: string
 }
 
 export type StoryGamePayload = {

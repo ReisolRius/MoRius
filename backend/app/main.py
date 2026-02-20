@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import ast
 import base64
@@ -31,6 +31,7 @@ from app.database import Base, engine, get_db
 from app.models import (
     CoinPurchase,
     EmailVerification,
+    StoryCharacter,
     StoryGame,
     StoryInstructionCard,
     StoryMessage,
@@ -57,6 +58,10 @@ from app.schemas import (
     StoryGameSettingsUpdateRequest,
     StoryGameOut,
     StoryGameSummaryOut,
+    StoryCharacterAssignRequest,
+    StoryCharacterCreateRequest,
+    StoryCharacterOut,
+    StoryCharacterUpdateRequest,
     StoryGenerateRequest,
     StoryInstructionCardCreateRequest,
     StoryInstructionCardInput,
@@ -71,6 +76,7 @@ from app.schemas import (
     StoryWorldCardCreateRequest,
     StoryWorldCardChangeEventOut,
     StoryWorldCardOut,
+    StoryWorldCardAvatarUpdateRequest,
     StoryWorldCardUpdateRequest,
     UserOut,
 )
@@ -85,28 +91,28 @@ FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
 COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
-        "title": "Стандарт",
-        "description": "500 монет",
+        "title": "РЎС‚Р°РЅРґР°СЂС‚",
+        "description": "500 РјРѕРЅРµС‚",
         "price_rub": 50,
         "coins": 500,
     },
     {
         "id": "pro",
-        "title": "Про",
-        "description": "1500 монет",
+        "title": "РџСЂРѕ",
+        "description": "1500 РјРѕРЅРµС‚",
         "price_rub": 100,
         "coins": 1500,
     },
     {
         "id": "mega",
-        "title": "Мега",
-        "description": "5000 монет",
+        "title": "РњРµРіР°",
+        "description": "5000 РјРѕРЅРµС‚",
         "price_rub": 200,
         "coins": 5000,
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
-STORY_DEFAULT_TITLE = "Новая игра"
+STORY_DEFAULT_TITLE = "РќРѕРІР°СЏ РёРіСЂР°"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
@@ -114,8 +120,21 @@ STORY_CONTEXT_LIMIT_MAX_TOKENS = 5_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_WORLD_CARD_KIND_WORLD = "world"
+STORY_WORLD_CARD_KIND_NPC = "npc"
+STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
+STORY_WORLD_CARD_KINDS = {
+    STORY_WORLD_CARD_KIND_WORLD,
+    STORY_WORLD_CARD_KIND_NPC,
+    STORY_WORLD_CARD_KIND_MAIN_HERO,
+}
 STORY_PLOT_CARD_SOURCE_USER = "user"
 STORY_PLOT_CARD_SOURCE_AI = "ai"
+STORY_CHARACTER_SOURCE_USER = "user"
+STORY_CHARACTER_SOURCE_AI = "ai"
+STORY_CHARACTER_MAX_NAME_LENGTH = 120
+STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 4_000
+STORY_CHARACTER_MAX_TRIGGERS = 40
 STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 16_000
 STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
 STORY_WORLD_CARD_EVENT_ADDED = "added"
@@ -144,36 +163,36 @@ STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
     "sound",
 }
 STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
-    "кофе",
-    "чашка",
-    "кружка",
-    "чай",
-    "вода",
-    "стол",
-    "стул",
-    "завтрак",
-    "утро",
-    "окно",
+    "РєРѕС„Рµ",
+    "С‡Р°С€РєР°",
+    "РєСЂСѓР¶РєР°",
+    "С‡Р°Р№",
+    "РІРѕРґР°",
+    "СЃС‚РѕР»",
+    "СЃС‚СѓР»",
+    "Р·Р°РІС‚СЂР°Рє",
+    "СѓС‚СЂРѕ",
+    "РѕРєРЅРѕ",
 }
 STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
-    "обновлены важные детали",
+    "РѕР±РЅРѕРІР»РµРЅС‹ РІР°Р¶РЅС‹Рµ РґРµС‚Р°Р»Рё",
     "updated important details",
-    "карточка удалена как неактуальная",
+    "РєР°СЂС‚РѕС‡РєР° СѓРґР°Р»РµРЅР° РєР°Рє РЅРµР°РєС‚СѓР°Р»СЊРЅР°СЏ",
     "deleted as irrelevant",
 )
-STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
-STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
+STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+", re.IGNORECASE)
+STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+|[^\s]", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
 STORY_SYSTEM_PROMPT = (
-    "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
-    "Отвечай только на русском языке. "
-    "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
-    "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
-    "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
-    "Формат: 2-5 абзацев связного повествования. "
-    "В конце добавляй краткий крючок-вопрос: что игрок делает дальше."
+    "РўС‹ РјР°СЃС‚РµСЂ РёРЅС‚РµСЂР°РєС‚РёРІРЅРѕР№ С‚РµРєСЃС‚РѕРІРѕР№ RPG (GM/СЂР°СЃСЃРєР°Р·С‡РёРє). "
+    "РћС‚РІРµС‡Р°Р№ С‚РѕР»СЊРєРѕ РЅР° СЂСѓСЃСЃРєРѕРј СЏР·С‹РєРµ. "
+    "РџСЂРѕРґРѕР»Р¶Р°Р№ РёСЃС‚РѕСЂРёСЋ РїРѕ РґРµР№СЃС‚РІРёСЏРј РёРіСЂРѕРєР°, Р° РЅРµ РґР°РІР°Р№ СЃРѕРІРµС‚С‹ Рё РЅРµ РѕР±СЉСЏСЃРЅСЏР№ РїСЂР°РІРёР»Р°. "
+    "РџРёС€Рё С…СѓРґРѕР¶РµСЃС‚РІРµРЅРЅРѕ Рё Р°С‚РјРѕСЃС„РµСЂРЅРѕ, РѕС‚ РІС‚РѕСЂРѕРіРѕ Р»РёС†Р°, СЃ СѓС‡РµС‚РѕРј РїСЂРµРґС‹РґСѓС‰РёС… СЃРѕРѕР±С‰РµРЅРёР№. "
+    "РќРµ РІС‹С…РѕРґРё РёР· СЂРѕР»Рё, РЅРµ СѓРїРѕРјРёРЅР°Р№, С‡С‚Рѕ С‚С‹ РР, Р±РµР· РјРµС‚Р°-РєРѕРјРјРµРЅС‚Р°СЂРёРµРІ. "
+    "Р¤РѕСЂРјР°С‚: 2-5 Р°Р±Р·Р°С†РµРІ СЃРІСЏР·РЅРѕРіРѕ РїРѕРІРµСЃС‚РІРѕРІР°РЅРёСЏ. "
+    "Р’ РєРѕРЅС†Рµ РґРѕР±Р°РІР»СЏР№ РєСЂР°С‚РєРёР№ РєСЂСЋС‡РѕРє-РІРѕРїСЂРѕСЃ: С‡С‚Рѕ РёРіСЂРѕРє РґРµР»Р°РµС‚ РґР°Р»СЊС€Рµ."
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -219,6 +238,43 @@ def _ensure_story_game_context_limit_column_exists() -> None:
         )
 
 
+def _ensure_story_world_card_extended_columns_exist() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryWorldCard.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryWorldCard.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "kind" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            f"ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT '{STORY_WORLD_CARD_KIND_WORLD}'"
+        )
+    if "avatar_url" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN avatar_url VARCHAR(2048)"
+        )
+    if "character_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN character_id INTEGER"
+        )
+    if "is_locked" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            connection.execute(text(statement))
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     if settings.database_url.startswith("sqlite:///"):
@@ -230,6 +286,7 @@ def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_user_coins_column_exists()
     _ensure_story_game_context_limit_column_exists()
+    _ensure_story_world_card_extended_columns_exist()
 
 
 def _normalize_email(email: str) -> str:
@@ -370,14 +427,14 @@ def _send_email_verification_code_via_resend(
 def _send_email_verification_code(recipient_email: str, verification_code: str) -> None:
     ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
     message = EmailMessage()
-    message["Subject"] = "MoRius: код подтверждения email"
+    message["Subject"] = "MoRius: РєРѕРґ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ email"
     message["From"] = _build_mail_from_header()
     message["To"] = recipient_email
     message.set_content(
-        "Код подтверждения для регистрации в MoRius:\n"
+        "РљРѕРґ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РґР»СЏ СЂРµРіРёСЃС‚СЂР°С†РёРё РІ MoRius:\n"
         f"{verification_code}\n\n"
-        f"Код действует {ttl_minutes} минут.\n"
-        "Если вы не запрашивали код, просто проигнорируйте это письмо."
+        f"РљРѕРґ РґРµР№СЃС‚РІСѓРµС‚ {ttl_minutes} РјРёРЅСѓС‚.\n"
+        "Р•СЃР»Рё РІС‹ РЅРµ Р·Р°РїСЂР°С€РёРІР°Р»Рё РєРѕРґ, РїСЂРѕСЃС‚Рѕ РїСЂРѕРёРіРЅРѕСЂРёСЂСѓР№С‚Рµ СЌС‚Рѕ РїРёСЃСЊРјРѕ."
     )
 
     if settings.resend_api_key:
@@ -424,7 +481,7 @@ def _normalize_avatar_value(raw_value: str | None) -> str | None:
     return cleaned
 
 
-def _validate_avatar_url(avatar_url: str) -> str:
+def _validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str:
     if avatar_url.startswith(("https://", "http://")):
         if len(avatar_url) > 1024:
             raise HTTPException(
@@ -461,11 +518,17 @@ def _validate_avatar_url(avatar_url: str) -> str:
             detail="Avatar payload is not valid base64",
         ) from exc
 
-    if len(raw_bytes) > settings.avatar_max_bytes:
-        max_mb = settings.avatar_max_bytes / (1024 * 1024)
+    max_allowed_bytes = max(1, max_bytes if max_bytes is not None else settings.avatar_max_bytes)
+    if len(raw_bytes) > max_allowed_bytes:
+        if max_allowed_bytes < 1024 * 1024:
+            max_kb = max_allowed_bytes / 1024
+            detail = f"Avatar is too large. Max size is {max_kb:.0f} KB"
+        else:
+            max_mb = max_allowed_bytes / (1024 * 1024)
+            detail = f"Avatar is too large. Max size is {max_mb:.1f} MB"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Avatar is too large. Max size is {max_mb:.1f} MB",
+            detail=detail,
         )
 
     return avatar_url
@@ -486,7 +549,7 @@ def _raise_if_payments_not_configured() -> None:
         return
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Оплата пока не настроена на сервере",
+        detail="РћРїР»Р°С‚Р° РїРѕРєР° РЅРµ РЅР°СЃС‚СЂРѕРµРЅР° РЅР° СЃРµСЂРІРµСЂРµ",
     )
 
 
@@ -567,7 +630,7 @@ def _create_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, A
             "type": "redirect",
             "return_url": settings.payments_return_url,
         },
-        "description": f"Пополнение монет: {plan['title']} ({plan['coins']} монет)",
+        "description": f"РџРѕРїРѕР»РЅРµРЅРёРµ РјРѕРЅРµС‚: {plan['title']} ({plan['coins']} РјРѕРЅРµС‚)",
         "metadata": {
             "app": "morius",
             "user_id": str(user.id),
@@ -721,7 +784,7 @@ def _estimate_story_tokens(value: str) -> int:
     normalized = value.replace("\r\n", "\n").strip()
     if not normalized:
         return 0
-    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
+    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("С‘", "Рµ"))
     if matches:
         return len(matches)
     return max(1, math.ceil(len(normalized) / 4))
@@ -734,7 +797,7 @@ def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
     if token_limit <= 0:
         return ""
 
-    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("ё", "е")))
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("С‘", "Рµ")))
     if not matches:
         char_limit = max(token_limit * 4, 1)
         return normalized[-char_limit:]
@@ -776,17 +839,20 @@ def _normalize_story_plot_card_title(value: str) -> str:
     return normalized
 
 
-def _normalize_story_plot_card_content(value: str) -> str:
+def _normalize_story_plot_card_content(value: str, *, preserve_tail: bool = False) -> str:
     normalized = value.replace("\r\n", "\n").strip()
     if len(normalized) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
-        normalized = normalized[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
+        if preserve_tail:
+            normalized = normalized[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
+        else:
+            normalized = normalized[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plot card text cannot be empty")
     return normalized
 
 
-def _normalize_story_plot_card_source(value: str) -> str:
-    normalized = value.strip().lower()
+def _normalize_story_plot_card_source(value: str | None) -> str:
+    normalized = value.strip().lower() if isinstance(value, str) else ""
     if normalized == STORY_PLOT_CARD_SOURCE_AI:
         return STORY_PLOT_CARD_SOURCE_AI
     return STORY_PLOT_CARD_SOURCE_USER
@@ -887,11 +953,83 @@ def _deserialize_story_world_card_triggers(raw_value: str) -> list[str]:
     return normalized[:40]
 
 
-def _normalize_story_world_card_source(value: str) -> str:
-    normalized = value.strip().lower()
+def _normalize_story_world_card_source(value: str | None) -> str:
+    normalized = value.strip().lower() if isinstance(value, str) else ""
     if normalized == STORY_WORLD_CARD_SOURCE_AI:
         return STORY_WORLD_CARD_SOURCE_AI
     return STORY_WORLD_CARD_SOURCE_USER
+
+
+def _normalize_story_world_card_kind(value: str | None) -> str:
+    normalized = value.strip().lower() if isinstance(value, str) else ""
+    if normalized in STORY_WORLD_CARD_KINDS:
+        return normalized
+    return STORY_WORLD_CARD_KIND_WORLD
+
+
+def _map_story_world_card_ai_kind(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"character", "npc"}:
+        return STORY_WORLD_CARD_KIND_NPC
+    return STORY_WORLD_CARD_KIND_WORLD
+
+
+def _normalize_story_character_source(value: str | None) -> str:
+    normalized = value.strip().lower() if isinstance(value, str) else ""
+    if normalized == STORY_CHARACTER_SOURCE_AI:
+        return STORY_CHARACTER_SOURCE_AI
+    return STORY_CHARACTER_SOURCE_USER
+
+
+def _normalize_story_character_name(value: str) -> str:
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Character name cannot be empty")
+    if len(normalized) > STORY_CHARACTER_MAX_NAME_LENGTH:
+        normalized = normalized[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Character name cannot be empty")
+    return normalized
+
+
+def _normalize_story_character_description(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if len(normalized) > STORY_CHARACTER_MAX_DESCRIPTION_LENGTH:
+        normalized = normalized[:STORY_CHARACTER_MAX_DESCRIPTION_LENGTH].rstrip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Character description cannot be empty")
+    return normalized
+
+
+def _normalize_story_character_avatar_url(raw_value: str | None) -> str | None:
+    normalized = _normalize_avatar_value(raw_value)
+    if normalized is None:
+        return None
+    return _validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
+
+
+def _normalize_story_character_triggers(values: list[str], *, fallback_name: str) -> list[str]:
+    return _normalize_story_world_card_triggers(values, fallback_title=fallback_name)[:STORY_CHARACTER_MAX_TRIGGERS]
+
+
+def _is_story_world_card_user_character(card: StoryWorldCard) -> bool:
+    card_kind = _normalize_story_world_card_kind(card.kind)
+    card_source = _normalize_story_world_card_source(card.source)
+    return card_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC} and card_source != STORY_WORLD_CARD_SOURCE_AI
+
+
+def _story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
+    return StoryCharacterOut(
+        id=character.id,
+        user_id=character.user_id,
+        name=character.name,
+        description=character.description,
+        triggers=_deserialize_story_world_card_triggers(character.triggers),
+        avatar_url=character.avatar_url,
+        source=_normalize_story_character_source(character.source),
+        created_at=character.created_at,
+        updated_at=character.updated_at,
+    )
 
 
 def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
@@ -901,6 +1039,10 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         title=card.title,
         content=card.content,
         triggers=_deserialize_story_world_card_triggers(card.triggers),
+        kind=_normalize_story_world_card_kind(card.kind),
+        avatar_url=_normalize_avatar_value(card.avatar_url),
+        character_id=card.character_id,
+        is_locked=bool(card.is_locked),
         source=_normalize_story_world_card_source(card.source),
         created_at=card.created_at,
         updated_at=card.updated_at,
@@ -1018,6 +1160,10 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "title": card.title,
         "content": card.content,
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
+        "kind": _normalize_story_world_card_kind(card.kind),
+        "avatar_url": _normalize_avatar_value(card.avatar_url),
+        "character_id": card.character_id,
+        "is_locked": bool(card.is_locked),
         "source": _normalize_story_world_card_source(card.source),
     }
 
@@ -1061,6 +1207,18 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         trigger_values = [item for item in raw_triggers if isinstance(item, str)]
     triggers_value = _normalize_story_world_card_triggers(trigger_values, fallback_title=title_value)
     source_value = _normalize_story_world_card_source(str(parsed.get("source", "")))
+    kind_value = _normalize_story_world_card_kind(str(parsed.get("kind", "")))
+    raw_avatar_value = parsed.get("avatar_url")
+    avatar_value = _normalize_avatar_value(raw_avatar_value) if isinstance(raw_avatar_value, str) else None
+    raw_is_locked = parsed.get("is_locked")
+    if isinstance(raw_is_locked, bool):
+        is_locked_value = raw_is_locked
+    elif isinstance(raw_is_locked, (int, float)):
+        is_locked_value = bool(raw_is_locked)
+    elif isinstance(raw_is_locked, str):
+        is_locked_value = raw_is_locked.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        is_locked_value = False
 
     card_id: int | None = None
     raw_id = parsed.get("id")
@@ -1071,11 +1229,24 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         if parsed_id > 0:
             card_id = parsed_id
 
+    character_id: int | None = None
+    raw_character_id = parsed.get("character_id")
+    if isinstance(raw_character_id, int) and raw_character_id > 0:
+        character_id = raw_character_id
+    elif isinstance(raw_character_id, str) and raw_character_id.strip().isdigit():
+        parsed_character_id = int(raw_character_id.strip())
+        if parsed_character_id > 0:
+            character_id = parsed_character_id
+
     return {
         "id": card_id,
         "title": title_value,
         "content": content_value,
         "triggers": triggers_value,
+        "kind": kind_value,
+        "avatar_url": avatar_value,
+        "character_id": character_id,
+        "is_locked": is_locked_value,
         "source": source_value,
     }
 
@@ -1172,7 +1343,7 @@ def _story_plot_card_change_event_to_out(event: StoryPlotCardChangeEvent) -> Sto
 
 
 def _normalize_story_match_tokens(value: str) -> list[str]:
-    normalized_source = value.lower().replace("ё", "е")
+    normalized_source = value.lower().replace("С‘", "Рµ")
     return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
 
 
@@ -1259,6 +1430,63 @@ def _list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
     ).all()
 
 
+def _list_story_characters(db: Session, user_id: int) -> list[StoryCharacter]:
+    return db.scalars(
+        select(StoryCharacter)
+        .where(StoryCharacter.user_id == user_id)
+        .order_by(StoryCharacter.id.asc())
+    ).all()
+
+
+def _get_story_character_for_user_or_404(db: Session, user_id: int, character_id: int) -> StoryCharacter:
+    character = db.scalar(
+        select(StoryCharacter).where(
+            StoryCharacter.id == character_id,
+            StoryCharacter.user_id == user_id,
+        )
+    )
+    if character is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Character not found")
+    return character
+
+
+def _get_story_main_hero_card(db: Session, game_id: int) -> StoryWorldCard | None:
+    return db.scalar(
+        select(StoryWorldCard)
+        .where(
+            StoryWorldCard.game_id == game_id,
+            StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+        )
+        .order_by(StoryWorldCard.id.asc())
+    )
+
+
+def _build_story_world_card_from_character(
+    *,
+    game_id: int,
+    character: StoryCharacter,
+    kind: str,
+    lock_card: bool = True,
+) -> StoryWorldCard:
+    normalized_name = _normalize_story_world_card_title(character.name)
+    normalized_content = _normalize_story_world_card_content(character.description)
+    normalized_triggers = _deserialize_story_world_card_triggers(character.triggers)
+    if not normalized_triggers:
+        normalized_triggers = _normalize_story_world_card_triggers([], fallback_title=normalized_name)
+
+    return StoryWorldCard(
+        game_id=game_id,
+        title=normalized_name,
+        content=normalized_content,
+        triggers=_serialize_story_world_card_triggers(normalized_triggers),
+        kind=_normalize_story_world_card_kind(kind),
+        avatar_url=_normalize_story_character_avatar_url(character.avatar_url),
+        character_id=character.id,
+        is_locked=lock_card,
+        source=STORY_WORLD_CARD_SOURCE_USER,
+    )
+
+
 def _list_story_plot_card_events(
     db: Session,
     game_id: int,
@@ -1297,21 +1525,27 @@ def _select_story_world_cards_for_prompt(
 ) -> list[dict[str, Any]]:
     prompt_tokens = _normalize_story_match_tokens(prompt)
     selected_cards: list[dict[str, Any]] = []
+    selected_card_ids: set[int] = set()
 
-    for card in world_cards:
+    def append_card(card: StoryWorldCard, *, force_include: bool = False) -> None:
+        if card.id in selected_card_ids:
+            return
+        if len(selected_cards) >= 10:
+            return
+
         title = " ".join(card.title.split()).strip()
         content = card.content.replace("\r\n", "\n").strip()
         if not title or not content:
-            continue
+            return
 
         triggers = _deserialize_story_world_card_triggers(card.triggers)
         if not triggers:
             triggers = _normalize_story_world_card_triggers([], fallback_title=title)
 
-        if prompt_tokens:
+        if prompt_tokens and not force_include:
             is_relevant = any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers)
             if not is_relevant:
-                continue
+                return
 
         selected_cards.append(
             {
@@ -1319,11 +1553,42 @@ def _select_story_world_cards_for_prompt(
                 "title": title,
                 "content": content,
                 "triggers": triggers,
+                "kind": _normalize_story_world_card_kind(card.kind),
+                "avatar_url": _normalize_avatar_value(card.avatar_url),
+                "character_id": card.character_id,
+                "is_locked": bool(card.is_locked),
                 "source": _normalize_story_world_card_source(card.source),
             }
         )
+        selected_card_ids.add(card.id)
+
+    main_hero_card = next(
+        (
+            card
+            for card in world_cards
+            if _normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        ),
+        None,
+    )
+    if main_hero_card is not None:
+        append_card(main_hero_card, force_include=True)
+
+    npc_cards = [
+        card
+        for card in world_cards
+        if _normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_NPC
+    ]
+    for card in npc_cards[:4]:
+        append_card(card, force_include=True)
         if len(selected_cards) >= 10:
             break
+
+    for card in world_cards:
+        if len(selected_cards) >= 10:
+            break
+        if card.id in selected_card_ids:
+            continue
+        append_card(card)
 
     return selected_cards
 
@@ -1339,28 +1604,36 @@ def _build_story_system_prompt(
     lines = [STORY_SYSTEM_PROMPT]
 
     if instruction_cards:
-        lines.extend(["", "Пользовательские инструкции для текущей игры:"])
+        lines.extend(["", "User instruction cards for this game:"])
         for index, card in enumerate(instruction_cards, start=1):
             lines.append(f"{index}. {card['title']}: {card['content']}")
 
     if plot_cards:
-        lines.extend(["", "Карточки сюжета и памяти игры:"])
+        lines.extend(["", "Plot and memory cards:"])
         for index, card in enumerate(plot_cards, start=1):
             lines.append(f"{index}. {card['title']}: {card['content']}")
 
     if world_cards:
-        lines.extend(["", "Карточки мира, релевантные текущему действию игрока:"])
+        lines.extend(["", "World cards relevant to the current player action:"])
         for index, card in enumerate(world_cards, start=1):
             lines.append(f"{index}. {card['title']}: {card['content']}")
-            trigger_line = ", ".join(card["triggers"]) if card["triggers"] else "нет"
-            lines.append(f"Триггеры: {trigger_line}")
+            trigger_line = ", ".join(card["triggers"]) if card["triggers"] else "none"
+            lines.append(f"Triggers: {trigger_line}")
+            card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+                lines.append("Type: main_hero")
+            elif card_kind == STORY_WORLD_CARD_KIND_NPC:
+                lines.append("Type: npc")
+            else:
+                lines.append("Type: world")
 
     lines.extend(
         [
             "",
-            "Следуй инструкциям и карточкам мира молча.",
-            "Не перечисляй и не комментируй их в ответе.",
-            "Просто продолжай историю в нужной манере.",
+            "Follow instruction and world cards silently.",
+            "Do not enumerate or explain these cards in the answer.",
+            "If an NPC speaks, output that paragraph as [[NPC:Name]] dialogue text.",
+            "Use [[NPC:...]] only for direct NPC speech, not for narration.",
         ]
     )
     return "\n".join(lines)
@@ -1404,24 +1677,24 @@ def _build_mock_story_response(prompt: str, turn_index: int) -> str:
         prompt_reference = f"{prompt_reference[:237]}..."
 
     openings = (
-        f"Вы делаете шаг: {prompt_reference}. Мир откликается сразу, будто давно ждал именно этого решения.",
-        f"Ваше действие звучит уверенно: {prompt_reference}. Несколько фигур в тени одновременно поворачиваются к вам.",
-        f"После ваших слов ({prompt_reference}) в зале на миг становится тише, и даже огонь в лампах будто тускнеет.",
+        f"Р’С‹ РґРµР»Р°РµС‚Рµ С€Р°Рі: {prompt_reference}. РњРёСЂ РѕС‚РєР»РёРєР°РµС‚СЃСЏ СЃСЂР°Р·Сѓ, Р±СѓРґС‚Рѕ РґР°РІРЅРѕ Р¶РґР°Р» РёРјРµРЅРЅРѕ СЌС‚РѕРіРѕ СЂРµС€РµРЅРёСЏ.",
+        f"Р’Р°С€Рµ РґРµР№СЃС‚РІРёРµ Р·РІСѓС‡РёС‚ СѓРІРµСЂРµРЅРЅРѕ: {prompt_reference}. РќРµСЃРєРѕР»СЊРєРѕ С„РёРіСѓСЂ РІ С‚РµРЅРё РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ РїРѕРІРѕСЂР°С‡РёРІР°СЋС‚СЃСЏ Рє РІР°Рј.",
+        f"РџРѕСЃР»Рµ РІР°С€РёС… СЃР»РѕРІ ({prompt_reference}) РІ Р·Р°Р»Рµ РЅР° РјРёРі СЃС‚Р°РЅРѕРІРёС‚СЃСЏ С‚РёС€Рµ, Рё РґР°Р¶Рµ РѕРіРѕРЅСЊ РІ Р»Р°РјРїР°С… Р±СѓРґС‚Рѕ С‚СѓСЃРєРЅРµРµС‚.",
     )
     complications = (
-        "Слева слышится короткий металлический звон, а впереди кто-то закрывает путь, прищурившись и ожидая вашего следующего шага.",
-        "Старый трактирщик быстро уводит взгляд, но едва заметно показывает на узкий проход за стойкой, где обычно никого не бывает.",
-        "Из дальнего угла доносится шепот о цене вашей смелости, и становится ясно: назад дорога будет уже не такой простой.",
+        "РЎР»РµРІР° СЃР»С‹С€РёС‚СЃСЏ РєРѕСЂРѕС‚РєРёР№ РјРµС‚Р°Р»Р»РёС‡РµСЃРєРёР№ Р·РІРѕРЅ, Р° РІРїРµСЂРµРґРё РєС‚Рѕ-С‚Рѕ Р·Р°РєСЂС‹РІР°РµС‚ РїСѓС‚СЊ, РїСЂРёС‰СѓСЂРёРІС€РёСЃСЊ Рё РѕР¶РёРґР°СЏ РІР°С€РµРіРѕ СЃР»РµРґСѓСЋС‰РµРіРѕ С€Р°РіР°.",
+        "РЎС‚Р°СЂС‹Р№ С‚СЂР°РєС‚РёСЂС‰РёРє Р±С‹СЃС‚СЂРѕ СѓРІРѕРґРёС‚ РІР·РіР»СЏРґ, РЅРѕ РµРґРІР° Р·Р°РјРµС‚РЅРѕ РїРѕРєР°Р·С‹РІР°РµС‚ РЅР° СѓР·РєРёР№ РїСЂРѕС…РѕРґ Р·Р° СЃС‚РѕР№РєРѕР№, РіРґРµ РѕР±С‹С‡РЅРѕ РЅРёРєРѕРіРѕ РЅРµ Р±С‹РІР°РµС‚.",
+        "РР· РґР°Р»СЊРЅРµРіРѕ СѓРіР»Р° РґРѕРЅРѕСЃРёС‚СЃСЏ С€РµРїРѕС‚ Рѕ С†РµРЅРµ РІР°С€РµР№ СЃРјРµР»РѕСЃС‚Рё, Рё СЃС‚Р°РЅРѕРІРёС‚СЃСЏ СЏСЃРЅРѕ: РЅР°Р·Р°Рґ РґРѕСЂРѕРіР° Р±СѓРґРµС‚ СѓР¶Рµ РЅРµ С‚Р°РєРѕР№ РїСЂРѕСЃС‚РѕР№.",
     )
     outcomes = (
-        "У вас появляется шанс выиграть время и подготовить почву для более рискованного хода.",
-        "Обстановка сгущается, но инициатива все еще у вас, если действовать точно и без паузы.",
-        "Ситуация накаляется, однако именно это может дать вам редкую возможность перехватить контроль.",
+        "РЈ РІР°СЃ РїРѕСЏРІР»СЏРµС‚СЃСЏ С€Р°РЅСЃ РІС‹РёРіСЂР°С‚СЊ РІСЂРµРјСЏ Рё РїРѕРґРіРѕС‚РѕРІРёС‚СЊ РїРѕС‡РІСѓ РґР»СЏ Р±РѕР»РµРµ СЂРёСЃРєРѕРІР°РЅРЅРѕРіРѕ С…РѕРґР°.",
+        "РћР±СЃС‚Р°РЅРѕРІРєР° СЃРіСѓС‰Р°РµС‚СЃСЏ, РЅРѕ РёРЅРёС†РёР°С‚РёРІР° РІСЃРµ РµС‰Рµ Сѓ РІР°СЃ, РµСЃР»Рё РґРµР№СЃС‚РІРѕРІР°С‚СЊ С‚РѕС‡РЅРѕ Рё Р±РµР· РїР°СѓР·С‹.",
+        "РЎРёС‚СѓР°С†РёСЏ РЅР°РєР°Р»СЏРµС‚СЃСЏ, РѕРґРЅР°РєРѕ РёРјРµРЅРЅРѕ СЌС‚Рѕ РјРѕР¶РµС‚ РґР°С‚СЊ РІР°Рј СЂРµРґРєСѓСЋ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРµСЂРµС…РІР°С‚РёС‚СЊ РєРѕРЅС‚СЂРѕР»СЊ.",
     )
     prompts = (
-        "Что вы сделаете в первую очередь?",
-        "Какой ход выберете дальше?",
-        "Каким будет ваш следующий шаг?",
+        "Р§С‚Рѕ РІС‹ СЃРґРµР»Р°РµС‚Рµ РІ РїРµСЂРІСѓСЋ РѕС‡РµСЂРµРґСЊ?",
+        "РљР°РєРѕР№ С…РѕРґ РІС‹Р±РµСЂРµС‚Рµ РґР°Р»СЊС€Рµ?",
+        "РљР°РєРёРј Р±СѓРґРµС‚ РІР°С€ СЃР»РµРґСѓСЋС‰РёР№ С€Р°Рі?",
     )
 
     opening = openings[(turn_index - 1) % len(openings)]
@@ -1764,7 +2037,7 @@ def _build_story_world_card_extraction_messages(
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
     existing_titles = [card.title.strip() for card in existing_cards if card.title.strip()]
-    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "нет"
+    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "РЅРµС‚"
     prompt_preview = prompt.strip()
     assistant_preview = assistant_text.strip()
     if len(prompt_preview) > 1200:
@@ -1776,20 +2049,20 @@ def _build_story_world_card_extraction_messages(
         {
             "role": "system",
             "content": (
-                "Ты извлекаешь важные сущности мира из художественного фрагмента. "
-                "Верни строго JSON-массив без markdown. "
-                "Формат элемента: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
-                "Добавляй только новые и действительно важные сущности (персонажи, предметы, места, организации). "
-                "Максимум 3 элемента. Если добавлять нечего, верни []"
+                "РўС‹ РёР·РІР»РµРєР°РµС€СЊ РІР°Р¶РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё РјРёСЂР° РёР· С…СѓРґРѕР¶РµСЃС‚РІРµРЅРЅРѕРіРѕ С„СЂР°РіРјРµРЅС‚Р°. "
+                "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РјР°СЃСЃРёРІ Р±РµР· markdown. "
+                "Р¤РѕСЂРјР°С‚ СЌР»РµРјРµРЅС‚Р°: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
+                "Р”РѕР±Р°РІР»СЏР№ С‚РѕР»СЊРєРѕ РЅРѕРІС‹Рµ Рё РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ РІР°Р¶РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё (РїРµСЂСЃРѕРЅР°Р¶Рё, РїСЂРµРґРјРµС‚С‹, РјРµСЃС‚Р°, РѕСЂРіР°РЅРёР·Р°С†РёРё). "
+                "РњР°РєСЃРёРјСѓРј 3 СЌР»РµРјРµРЅС‚Р°. Р•СЃР»Рё РґРѕР±Р°РІР»СЏС‚СЊ РЅРµС‡РµРіРѕ, РІРµСЂРЅРё []"
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Последний ход игрока:\n{prompt_preview}\n\n"
-                f"Ответ мастера:\n{assistant_preview}\n\n"
-                f"Уже существующие карточки: {existing_titles_preview}\n\n"
-                "Верни только JSON-массив."
+                f"РџРѕСЃР»РµРґРЅРёР№ С…РѕРґ РёРіСЂРѕРєР°:\n{prompt_preview}\n\n"
+                f"РћС‚РІРµС‚ РјР°СЃС‚РµСЂР°:\n{assistant_preview}\n\n"
+                f"РЈР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ РєР°СЂС‚РѕС‡РєРё: {existing_titles_preview}\n\n"
+                "Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ JSON-РјР°СЃСЃРёРІ."
             ),
         },
     ]
@@ -1876,6 +2149,8 @@ def _build_story_world_card_change_messages(
                 "title": title,
                 "content": content,
                 "triggers": _deserialize_story_world_card_triggers(card.triggers)[:10],
+                "kind": _normalize_story_world_card_kind(card.kind),
+                "is_locked": bool(card.is_locked),
                 "source": _normalize_story_world_card_source(card.source),
             }
         )
@@ -1903,9 +2178,10 @@ def _build_story_world_card_change_messages(
                 "1) Keep only significant details that matter in future turns.\n"
                 "2) Ignore mundane transient details (food, drinks, coffee, cups, generic furniture, routine background actions).\n"
                 "3) Prefer update for existing cards when new important details appear.\n"
-                "4) Delete only if a card became invalid/irrelevant.\n"
-                "5) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
-                f"6) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+                "4) Never update or delete cards with \"is_locked\": true.\n"
+                "5) Delete only if a card became invalid/irrelevant.\n"
+                "6) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
+                f"7) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
         },
         {
@@ -1997,9 +2273,10 @@ def _normalize_story_world_card_change_operations(
         if importance in STORY_WORLD_CARD_LOW_IMPORTANCE:
             continue
 
-        kind = str(raw_item.get("kind", "")).strip().lower()
-        if kind in STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS and importance != "critical":
+        raw_kind = str(raw_item.get("kind", "")).strip().lower()
+        if raw_kind in STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS and importance != "critical":
             continue
+        ai_card_kind = _map_story_world_card_ai_kind(raw_kind)
 
         target_card = _extract_story_world_card_operation_target(raw_item, existing_by_id, existing_by_title)
         raw_changed_text = raw_item.get("changed_text")
@@ -2038,6 +2315,9 @@ def _normalize_story_world_card_change_operations(
                 if target_card is not None:
                     action = STORY_WORLD_CARD_EVENT_UPDATED
 
+            if action == STORY_WORLD_CARD_EVENT_ADDED and target_card is not None and bool(target_card.is_locked):
+                continue
+
             if action == STORY_WORLD_CARD_EVENT_ADDED:
                 if title_key in seen_added_title_keys:
                     continue
@@ -2051,6 +2331,7 @@ def _normalize_story_world_card_change_operations(
                         "title": title,
                         "content": content,
                         "triggers": triggers,
+                        "kind": ai_card_kind,
                         "changed_text": changed_text,
                     }
                 )
@@ -2064,6 +2345,8 @@ def _normalize_story_world_card_change_operations(
                 continue
             if target_card.id in seen_target_ids:
                 continue
+            if bool(target_card.is_locked):
+                continue
             if not title or not content:
                 continue
             if _is_story_world_card_title_mundane(title) and importance != "critical":
@@ -2072,7 +2355,14 @@ def _normalize_story_world_card_change_operations(
             current_title = " ".join(target_card.title.split()).strip()
             current_content = target_card.content.replace("\r\n", "\n").strip()
             current_triggers = _deserialize_story_world_card_triggers(target_card.triggers)
-            if title == current_title and content == current_content and triggers == current_triggers:
+            current_kind = _normalize_story_world_card_kind(target_card.kind)
+            next_kind = current_kind if not raw_kind else ai_card_kind
+            if (
+                title == current_title
+                and content == current_content
+                and triggers == current_triggers
+                and next_kind == current_kind
+            ):
                 continue
 
             changed_text = _normalize_story_world_card_changed_text(
@@ -2086,6 +2376,7 @@ def _normalize_story_world_card_change_operations(
                     "title": title,
                     "content": content,
                     "triggers": triggers,
+                    "kind": next_kind,
                     "changed_text": changed_text,
                 }
             )
@@ -2098,6 +2389,8 @@ def _normalize_story_world_card_change_operations(
             if target_card is None:
                 continue
             if target_card.id in seen_target_ids:
+                continue
+            if bool(target_card.is_locked):
                 continue
             if target_card.source != STORY_WORLD_CARD_SOURCE_AI:
                 continue
@@ -2317,6 +2610,7 @@ def _apply_story_world_card_change_operations(
             triggers_value = operation.get("triggers")
             if not title_value or not content_value or not isinstance(triggers_value, list):
                 continue
+            card_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
             card = StoryWorldCard(
                 game_id=game.id,
                 title=_normalize_story_world_card_title(title_value),
@@ -2327,6 +2621,10 @@ def _apply_story_world_card_change_operations(
                         fallback_title=title_value,
                     )
                 ),
+                kind=card_kind,
+                avatar_url=None,
+                character_id=None,
+                is_locked=False,
                 source=STORY_WORLD_CARD_SOURCE_AI,
             )
             db.add(card)
@@ -2368,6 +2666,8 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_UPDATED:
+            if bool(card.is_locked):
+                continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
             previous_title_key = card.title.casefold()
             title_value = str(operation.get("title", "")).strip()
@@ -2384,6 +2684,7 @@ def _apply_story_world_card_change_operations(
                     fallback_title=title_value,
                 )
             )
+            card.kind = _normalize_story_world_card_kind(str(operation.get("kind", card.kind)))
             card.source = STORY_WORLD_CARD_SOURCE_AI
             db.flush()
 
@@ -2419,6 +2720,8 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_DELETED:
+            if bool(card.is_locked):
+                continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
             changed_text_fallback = _derive_story_changed_text_from_snapshots(
                 action=STORY_WORLD_CARD_EVENT_DELETED,
@@ -2493,42 +2796,44 @@ def _build_story_plot_card_memory_messages(
     *,
     existing_card: StoryPlotCard | None,
     assistant_messages: list[StoryMessage],
+    context_limit_tokens: int,
 ) -> list[dict[str, str]]:
     current_memory = ""
     if existing_card is not None:
         current_memory = existing_card.content.replace("\r\n", "\n").strip()
 
-    history_items: list[dict[str, str]] = []
-    for message in assistant_messages[-40:]:
-        content = message.content.replace("\r\n", "\n").strip()
-        if not content:
-            continue
-        if len(content) > 700:
-            content = f"{content[:697].rstrip()}..."
-        history_items.append({"id": message.id, "content": content})
+    history_limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    history_items = _trim_story_history_to_context_limit(
+        [{"role": STORY_ASSISTANT_ROLE, "content": message.content} for message in assistant_messages],
+        history_limit,
+    )
+    history_json_payload = [
+        {"id": index, "content": item.get("content", "")}
+        for index, item in enumerate(history_items, start=1)
+    ]
 
-    history_json = json.dumps(history_items, ensure_ascii=False)
+    history_json = json.dumps(history_json_payload, ensure_ascii=False)
     current_title = existing_card.title.strip() if existing_card is not None else ""
 
     return [
         {
             "role": "system",
             "content": (
-                "Ты сжимаешь историю ответов мастера игры в короткую карточку памяти. "
-                "Сохраняй важные факты, имена, отношения, незавершенные конфликты, цели, открытия и текущую сцену. "
-                "Пиши компактно, но без потери смысла. "
-                "Заголовок должен быть конкретным по текущей сцене, без шаблонов вроде 'Сюжетная сводка'. "
-                "Верни строго JSON-объект без markdown: {\"title\": string, \"content\": string}. "
-                "title: до 120 символов. content: до 16000 символов."
+                "РўС‹ СЃР¶РёРјР°РµС€СЊ РёСЃС‚РѕСЂРёСЋ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° РёРіСЂС‹ РІ РєРѕСЂРѕС‚РєСѓСЋ РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. "
+                "РЎРѕС…СЂР°РЅСЏР№ РІР°Р¶РЅС‹Рµ С„Р°РєС‚С‹, РёРјРµРЅР°, РѕС‚РЅРѕС€РµРЅРёСЏ, РЅРµР·Р°РІРµСЂС€РµРЅРЅС‹Рµ РєРѕРЅС„Р»РёРєС‚С‹, С†РµР»Рё, РѕС‚РєСЂС‹С‚РёСЏ Рё С‚РµРєСѓС‰СѓСЋ СЃС†РµРЅСѓ. "
+                "РџРёС€Рё РєРѕРјРїР°РєС‚РЅРѕ, РЅРѕ Р±РµР· РїРѕС‚РµСЂРё СЃРјС‹СЃР»Р°. "
+                "Р—Р°РіРѕР»РѕРІРѕРє РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РєРѕРЅРєСЂРµС‚РЅС‹Рј РїРѕ С‚РµРєСѓС‰РµР№ СЃС†РµРЅРµ, Р±РµР· С€Р°Р±Р»РѕРЅРѕРІ РІСЂРѕРґРµ 'РЎСЋР¶РµС‚РЅР°СЏ СЃРІРѕРґРєР°'. "
+                "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РѕР±СЉРµРєС‚ Р±РµР· markdown: {\"title\": string, \"content\": string}. "
+                "title: РґРѕ 120 СЃРёРјРІРѕР»РѕРІ. content: РґРѕ 16000 СЃРёРјРІРѕР»РѕРІ."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Текущая карточка памяти (может быть пусто):\nЗаголовок: {current_title or 'нет'}\n"
-                f"Текст:\n{current_memory or 'нет'}\n\n"
-                f"История ответов мастера JSON:\n{history_json}\n\n"
-                "Обнови карточку памяти. Верни только JSON."
+                f"РўРµРєСѓС‰Р°СЏ РєР°СЂС‚РѕС‡РєР° РїР°РјСЏС‚Рё (РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚Рѕ):\nР—Р°РіРѕР»РѕРІРѕРє: {current_title or 'РЅРµС‚'}\n"
+                f"РўРµРєСЃС‚:\n{current_memory or 'РЅРµС‚'}\n\n"
+                f"РСЃС‚РѕСЂРёСЏ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° JSON:\n{history_json}\n\n"
+                "РћР±РЅРѕРІРё РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ JSON."
             ),
         },
     ]
@@ -2542,13 +2847,13 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
         raw_payload.get("title")
         or raw_payload.get("name")
         or raw_payload.get("heading")
-        or raw_payload.get("заголовок")
+        or raw_payload.get("Р·Р°РіРѕР»РѕРІРѕРє")
     )
     raw_content = (
         raw_payload.get("content")
         or raw_payload.get("summary")
         or raw_payload.get("text")
-        or raw_payload.get("текст")
+        or raw_payload.get("С‚РµРєСЃС‚")
     )
     if not isinstance(raw_title, str) or not isinstance(raw_content, str):
         nested_card = raw_payload.get("card")
@@ -2564,7 +2869,7 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
     if len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
         title = title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
     if len(content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
-        content = content[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
+        content = content[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
     if not title or not content:
         return None
 
@@ -2575,26 +2880,25 @@ def _build_story_plot_card_fallback_payload(
     *,
     existing_card: StoryPlotCard | None,
     assistant_messages: list[StoryMessage],
+    context_limit_tokens: int,
 ) -> tuple[str, str] | None:
-    history_parts: list[str] = []
-    for message in assistant_messages[-8:]:
-        content = message.content.replace("\r\n", "\n").strip()
-        if not content:
-            continue
-        if len(content) > 420:
-            content = f"{content[:417].rstrip()}..."
-        history_parts.append(content)
+    history_limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    trimmed_history = _trim_story_history_to_context_limit(
+        [{"role": STORY_ASSISTANT_ROLE, "content": message.content} for message in assistant_messages],
+        history_limit,
+    )
+    history_parts = [item.get("content", "").replace("\r\n", "\n").strip() for item in trimmed_history if item.get("content")]
 
     if not history_parts:
         return None
 
     fallback_title = existing_card.title.strip() if existing_card is not None else ""
     if not fallback_title:
-        for message in reversed(assistant_messages[-8:]):
-            raw_candidate = message.content.replace("\r\n", "\n").strip()
+        for item in reversed(trimmed_history):
+            raw_candidate = item.get("content", "").replace("\r\n", "\n").strip()
             if not raw_candidate:
                 continue
-            first_line = raw_candidate.split("\n", maxsplit=1)[0].strip(" .,:;!?-\"'«»()[]")
+            first_line = raw_candidate.split("\n", maxsplit=1)[0].strip(" .,:;!?-\"'В«В»()[]")
             if not first_line:
                 continue
             words = first_line.split()
@@ -2607,15 +2911,13 @@ def _build_story_plot_card_fallback_payload(
                 break
 
     if not fallback_title:
-        fallback_title = "Ключевые события эпизода"
+        fallback_title = "РљР»СЋС‡РµРІС‹Рµ СЃРѕР±С‹С‚РёСЏ СЌРїРёР·РѕРґР°"
 
-    combined_content = "\n\n".join(history_parts[-4:])
-    if len(combined_content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
-        combined_content = combined_content[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
+    combined_content = "\n\n".join(history_parts)
 
     return (
         _normalize_story_plot_card_title(fallback_title),
-        _normalize_story_plot_card_content(combined_content),
+        _normalize_story_plot_card_content(combined_content, preserve_tail=True),
     )
 
 
@@ -2651,7 +2953,11 @@ def _upsert_story_plot_memory_card(
         ),
         None,
     )
-    messages_payload = _build_story_plot_card_memory_messages(existing_card=ai_card, assistant_messages=assistant_messages)
+    messages_payload = _build_story_plot_card_memory_messages(
+        existing_card=ai_card,
+        assistant_messages=assistant_messages,
+        context_limit_tokens=game.context_limit_chars,
+    )
 
     normalized_payload: tuple[str, str] | None = None
     try:
@@ -2670,6 +2976,7 @@ def _upsert_story_plot_memory_card(
         normalized_payload = _build_story_plot_card_fallback_payload(
             existing_card=ai_card,
             assistant_messages=assistant_messages,
+            context_limit_tokens=game.context_limit_chars,
         )
     if normalized_payload is None:
         return (False, [])
@@ -2753,11 +3060,33 @@ def _restore_story_world_card_from_snapshot(
         return None
 
     source = _normalize_story_world_card_source(str(snapshot.get("source", "")))
+    kind = _normalize_story_world_card_kind(str(snapshot.get("kind", "")))
+    raw_avatar = snapshot.get("avatar_url")
+    avatar_url = _normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
+    if avatar_url is not None and avatar_url.startswith("data:image/"):
+        avatar_url = _normalize_story_character_avatar_url(avatar_url)
     raw_triggers = snapshot.get("triggers")
     trigger_values: list[str] = []
     if isinstance(raw_triggers, list):
         trigger_values = [value for value in raw_triggers if isinstance(value, str)]
     triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+    raw_character_id = snapshot.get("character_id")
+    character_id: int | None = None
+    if isinstance(raw_character_id, int) and raw_character_id > 0:
+        character_id = raw_character_id
+    elif isinstance(raw_character_id, str) and raw_character_id.strip().isdigit():
+        parsed_character_id = int(raw_character_id.strip())
+        if parsed_character_id > 0:
+            character_id = parsed_character_id
+    raw_is_locked = snapshot.get("is_locked")
+    if isinstance(raw_is_locked, bool):
+        is_locked = raw_is_locked
+    elif isinstance(raw_is_locked, (int, float)):
+        is_locked = bool(raw_is_locked)
+    elif isinstance(raw_is_locked, str):
+        is_locked = raw_is_locked.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        is_locked = False
 
     card_id: int | None = None
     raw_card_id = snapshot.get("id")
@@ -2779,6 +3108,10 @@ def _restore_story_world_card_from_snapshot(
             title=_normalize_story_world_card_title(title),
             content=_normalize_story_world_card_content(content),
             triggers=_serialize_story_world_card_triggers(triggers),
+            kind=kind,
+            avatar_url=avatar_url,
+            character_id=character_id,
+            is_locked=is_locked,
             source=source,
         )
         db.add(world_card)
@@ -2788,6 +3121,10 @@ def _restore_story_world_card_from_snapshot(
     world_card.title = _normalize_story_world_card_title(title)
     world_card.content = _normalize_story_world_card_content(content)
     world_card.triggers = _serialize_story_world_card_triggers(triggers)
+    world_card.kind = kind
+    world_card.avatar_url = avatar_url
+    world_card.character_id = character_id
+    world_card.is_locked = is_locked
     world_card.source = source
     db.flush()
     return world_card
@@ -3886,6 +4223,82 @@ def update_avatar(
     return UserOut.model_validate(user)
 
 
+@app.get("/api/story/characters", response_model=list[StoryCharacterOut])
+def list_story_characters(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryCharacterOut]:
+    user = _get_current_user(db, authorization)
+    characters = _list_story_characters(db, user.id)
+    return [_story_character_to_out(character) for character in characters]
+
+
+@app.post("/api/story/characters", response_model=StoryCharacterOut)
+def create_story_character(
+    payload: StoryCharacterCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterOut:
+    user = _get_current_user(db, authorization)
+    normalized_name = _normalize_story_character_name(payload.name)
+    normalized_description = _normalize_story_character_description(payload.description)
+    normalized_triggers = _normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
+    avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    character = StoryCharacter(
+        user_id=user.id,
+        name=normalized_name,
+        description=normalized_description,
+        triggers=_serialize_story_world_card_triggers(normalized_triggers),
+        avatar_url=avatar_url,
+        source=STORY_CHARACTER_SOURCE_USER,
+    )
+    db.add(character)
+    db.commit()
+    db.refresh(character)
+    return _story_character_to_out(character)
+
+
+@app.patch("/api/story/characters/{character_id}", response_model=StoryCharacterOut)
+def update_story_character(
+    character_id: int,
+    payload: StoryCharacterUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterOut:
+    user = _get_current_user(db, authorization)
+    character = _get_story_character_for_user_or_404(db, user.id, character_id)
+    normalized_name = _normalize_story_character_name(payload.name)
+    normalized_description = _normalize_story_character_description(payload.description)
+    normalized_triggers = _normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
+    avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    character.name = normalized_name
+    character.description = normalized_description
+    character.triggers = _serialize_story_world_card_triggers(normalized_triggers)
+    character.avatar_url = avatar_url
+    character.source = _normalize_story_character_source(character.source)
+    db.commit()
+    db.refresh(character)
+    return _story_character_to_out(character)
+
+
+@app.delete("/api/story/characters/{character_id}", response_model=MessageResponse)
+def delete_story_character(
+    character_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    character = _get_story_character_for_user_or_404(db, user.id, character_id)
+    linked_cards = db.scalars(
+        select(StoryWorldCard).where(StoryWorldCard.character_id == character.id)
+    ).all()
+    for linked_card in linked_cards:
+        linked_card.character_id = None
+    db.delete(character)
+    db.commit()
+    return MessageResponse(message="Character deleted")
+
+
 @app.get("/api/story/games", response_model=list[StoryGameSummaryOut])
 def list_story_games(
     authorization: str | None = Header(default=None),
@@ -4146,6 +4559,87 @@ def list_story_world_cards(
     return [_story_world_card_to_out(card) for card in cards]
 
 
+@app.post("/api/story/games/{game_id}/main-hero", response_model=StoryWorldCardOut)
+def select_story_main_hero(
+    game_id: int,
+    payload: StoryCharacterAssignRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    existing_main_hero = _get_story_main_hero_card(db, game.id)
+    if existing_main_hero is not None:
+        if existing_main_hero.character_id == payload.character_id:
+            return _story_world_card_to_out(existing_main_hero)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Main hero is already selected and cannot be changed",
+        )
+
+    character = _get_story_character_for_user_or_404(db, user.id, payload.character_id)
+    main_hero_card = _build_story_world_card_from_character(
+        game_id=game.id,
+        character=character,
+        kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
+        lock_card=True,
+    )
+    db.add(main_hero_card)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(main_hero_card)
+    return _story_world_card_to_out(main_hero_card)
+
+
+@app.post("/api/story/games/{game_id}/npc-from-character", response_model=StoryWorldCardOut)
+def create_story_npc_from_character(
+    game_id: int,
+    payload: StoryCharacterAssignRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    character = _get_story_character_for_user_or_404(db, user.id, payload.character_id)
+    npc_card = _build_story_world_card_from_character(
+        game_id=game.id,
+        character=character,
+        kind=STORY_WORLD_CARD_KIND_NPC,
+        lock_card=True,
+    )
+    db.add(npc_card)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(npc_card)
+    return _story_world_card_to_out(npc_card)
+
+
+@app.patch("/api/story/games/{game_id}/world-cards/{card_id}/avatar", response_model=StoryWorldCardOut)
+def update_story_world_card_avatar(
+    game_id: int,
+    card_id: int,
+    payload: StoryWorldCardAvatarUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    world_card = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.id == card_id,
+            StoryWorldCard.game_id == game.id,
+        )
+    )
+    if world_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+
+    world_card.avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(world_card)
+    return _story_world_card_to_out(world_card)
+
+
 @app.post("/api/story/games/{game_id}/world-cards", response_model=StoryWorldCardOut)
 def create_story_world_card(
     game_id: int,
@@ -4158,12 +4652,17 @@ def create_story_world_card(
     normalized_title = _normalize_story_world_card_title(payload.title)
     normalized_content = _normalize_story_world_card_content(payload.content)
     normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
+    normalized_avatar = _normalize_story_character_avatar_url(payload.avatar_url)
 
     world_card = StoryWorldCard(
         game_id=game.id,
         title=normalized_title,
         content=normalized_content,
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
+        kind=STORY_WORLD_CARD_KIND_WORLD,
+        avatar_url=normalized_avatar,
+        character_id=None,
+        is_locked=False,
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
     db.add(world_card)
@@ -4191,6 +4690,11 @@ def update_story_world_card(
     )
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+    if bool(world_card.is_locked) or _is_story_world_card_user_character(world_card):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This character card cannot be edited",
+        )
 
     normalized_title = _normalize_story_world_card_title(payload.title)
     normalized_content = _normalize_story_world_card_content(payload.content)
@@ -4222,6 +4726,14 @@ def delete_story_world_card(
     )
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+    if (
+        _normalize_story_world_card_kind(world_card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        and bool(world_card.is_locked)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Main hero cannot be removed once selected",
+        )
 
     db.delete(world_card)
     _touch_story_game(game)
@@ -4548,3 +5060,4 @@ def yookassa_webhook(payload: dict[str, Any], db: Session = Depends(get_db)) -> 
 def logout() -> MessageResponse:
     # JWT is stateless. Frontend should discard the token.
     return MessageResponse(message="ok")
+

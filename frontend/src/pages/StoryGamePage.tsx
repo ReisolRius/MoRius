@@ -30,21 +30,28 @@ import {
 import { brandLogo, icons } from '../assets'
 import { updateCurrentUserAvatar } from '../services/authApi'
 import {
+  createStoryCharacter,
   createStoryInstructionCard,
   createStoryGame,
+  createStoryNpcFromCharacter,
   createStoryPlotCard,
   createStoryWorldCard,
+  deleteStoryCharacter,
   deleteStoryInstructionCard,
   deleteStoryPlotCard,
   deleteStoryWorldCard,
   generateStoryResponseStream,
   getStoryGame,
+  listStoryCharacters,
   listStoryGames,
+  selectStoryMainHero,
+  updateStoryCharacter,
   updateStoryGameSettings,
   updateStoryPlotCard,
   undoStoryPlotCardEvent,
   undoStoryWorldCardEvent,
   updateStoryInstructionCard,
+  updateStoryWorldCardAvatar,
   updateStoryWorldCard,
   updateStoryMessage,
 } from '../services/storyApi'
@@ -58,6 +65,7 @@ import {
 } from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
 import type {
+  StoryCharacter,
   StoryGameSummary,
   StoryInstructionCard,
   StoryMessage,
@@ -66,6 +74,7 @@ import type {
   StoryWorldCard,
   StoryWorldCardEvent,
 } from '../types/story'
+import { compressImageFileToDataUrl } from '../utils/avatar'
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -90,8 +99,14 @@ type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type PanelCardMenuType = 'instruction' | 'plot' | 'world'
+type CharacterDialogMode = 'manage' | 'select-main-hero' | 'select-npc'
+type CharacterDraftMode = 'create' | 'edit'
+type AssistantMessageBlock =
+  | { type: 'narrative'; text: string }
+  | { type: 'npc'; npcName: string; text: string }
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 200 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
@@ -113,6 +128,7 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
   updated: 'Обновлено',
   deleted: 'Удалено',
 }
+const NPC_DIALOGUE_MARKER_PATTERN = /^\[\[NPC:([^\]]+)\]\]\s*([\s\S]*)$/i
 
 function splitAssistantParagraphs(content: string): string[] {
   const paragraphs = content
@@ -121,6 +137,30 @@ function splitAssistantParagraphs(content: string): string[] {
     .map((value) => value.trim())
     .filter(Boolean)
   return paragraphs.length > 0 ? paragraphs : ['']
+}
+
+function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
+  const paragraphs = splitAssistantParagraphs(content)
+  const blocks: AssistantMessageBlock[] = []
+  paragraphs.forEach((paragraph) => {
+    const markerMatch = paragraph.match(NPC_DIALOGUE_MARKER_PATTERN)
+    if (!markerMatch) {
+      blocks.push({ type: 'narrative', text: paragraph })
+      return
+    }
+    const npcName = markerMatch[1].trim()
+    const npcText = markerMatch[2].trim()
+    if (!npcName || !npcText) {
+      blocks.push({ type: 'narrative', text: paragraph })
+      return
+    }
+    blocks.push({
+      type: 'npc',
+      npcName,
+      text: npcText,
+    })
+  })
+  return blocks
 }
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
@@ -166,6 +206,10 @@ function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle: string): 
   pushTrigger(fallbackTitle)
 
   return normalized.slice(0, 40)
+}
+
+function normalizeCharacterTriggersDraft(draft: string, fallbackName: string): string[] {
+  return normalizeWorldCardTriggersDraft(draft, fallbackName).slice(0, 40)
 }
 
 function clampStoryContextLimit(value: number): number {
@@ -274,6 +318,37 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
   return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
 }
 
+type CharacterAvatarProps = {
+  avatarUrl: string | null
+  fallbackLabel: string
+  size?: number
+}
+
+function CharacterAvatar({ avatarUrl, fallbackLabel, size = 44 }: CharacterAvatarProps) {
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
+
+  if (avatarUrl && avatarUrl !== failedImageUrl) {
+    return (
+      <Box
+        component="img"
+        src={avatarUrl}
+        alt={fallbackLabel}
+        onError={() => setFailedImageUrl(avatarUrl)}
+        sx={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          border: '1px solid rgba(186, 202, 214, 0.28)',
+          objectFit: 'cover',
+          backgroundColor: 'rgba(18, 22, 29, 0.7)',
+        }}
+      />
+    )
+  }
+
+  return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
+}
+
 function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const [, setGames] = useState<StoryGameSummary[]>([])
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
@@ -320,6 +395,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [expandedPlotCardEventIds, setExpandedPlotCardEventIds] = useState<number[]>([])
   const [undoingPlotCardEventIds, setUndoingPlotCardEventIds] = useState<number[]>([])
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
+  const [characters, setCharacters] = useState<StoryCharacter[]>([])
+  const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
+  const [isLoadingCharacters, setIsLoadingCharacters] = useState(false)
+  const [isSavingCharacter, setIsSavingCharacter] = useState(false)
+  const [deletingCharacterId, setDeletingCharacterId] = useState<number | null>(null)
+  const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
+  const [characterDialogMode, setCharacterDialogMode] = useState<CharacterDialogMode>('manage')
+  const [characterDraftMode, setCharacterDraftMode] = useState<CharacterDraftMode>('create')
+  const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null)
+  const [characterNameDraft, setCharacterNameDraft] = useState('')
+  const [characterDescriptionDraft, setCharacterDescriptionDraft] = useState('')
+  const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
+  const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
+  const [characterAvatarError, setCharacterAvatarError] = useState('')
+  const [isSelectingCharacter, setIsSelectingCharacter] = useState(false)
+  const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
+  const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
   const [dismissedWorldCardEventIds, setDismissedWorldCardEventIds] = useState<number[]>([])
   const [expandedWorldCardEventIds, setExpandedWorldCardEventIds] = useState<number[]>([])
@@ -345,6 +437,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const worldCardAvatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const activeDisplayTitle = useMemo(
     () => getDisplayStoryTitle(activeGameId, customTitleMap),
@@ -481,6 +575,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
+  const mainHeroCard = useMemo(
+    () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
+    [worldCards],
+  )
+  const npcAvatarByName = useMemo(() => {
+    const map = new Map<string, string | null>()
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc') {
+        return
+      }
+      const key = card.title.trim().toLowerCase()
+      if (!key || map.has(key)) {
+        return
+      }
+      map.set(key, card.avatar_url ?? null)
+    })
+    return map
+  }, [worldCards])
+  const selectedMenuWorldCard = useMemo(
+    () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
+    [cardMenuCardId, cardMenuType, worldCards],
+  )
+  const isSelectedMenuWorldCardLocked = Boolean(
+    selectedMenuWorldCard &&
+      (selectedMenuWorldCard.is_locked ||
+        (selectedMenuWorldCard.kind === 'main_hero' || selectedMenuWorldCard.kind === 'npc') &&
+          selectedMenuWorldCard.source !== 'ai'),
+  )
+  const canDeleteSelectedMenuWorldCard = Boolean(
+    selectedMenuWorldCard &&
+      !(selectedMenuWorldCard.kind === 'main_hero' && selectedMenuWorldCard.is_locked),
+  )
 
   const adjustInputHeight = useCallback(() => {
     const node = textAreaRef.current
@@ -509,6 +635,333 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setExpandedPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setUndoingPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
   }, [])
+
+  const loadCharacters = useCallback(
+    async (options?: { silent?: boolean }) => {
+      const silent = options?.silent ?? false
+      if (!silent) {
+        setIsLoadingCharacters(true)
+      }
+      try {
+        const loadedCharacters = await listStoryCharacters(authToken)
+        setCharacters(loadedCharacters)
+        setHasLoadedCharacters(true)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
+        setErrorMessage(detail)
+      } finally {
+        if (!silent) {
+          setIsLoadingCharacters(false)
+        }
+      }
+    },
+    [authToken],
+  )
+
+  const resetCharacterDraft = useCallback(() => {
+    setCharacterDraftMode('create')
+    setEditingCharacterId(null)
+    setCharacterNameDraft('')
+    setCharacterDescriptionDraft('')
+    setCharacterTriggersDraft('')
+    setCharacterAvatarDraft(null)
+    setCharacterAvatarError('')
+  }, [])
+
+  const openCharacterDialog = useCallback(
+    async (mode: CharacterDialogMode) => {
+      setCharacterDialogMode(mode)
+      setCharacterDialogOpen(true)
+      setCharacterAvatarError('')
+      if (!hasLoadedCharacters && !isLoadingCharacters) {
+        await loadCharacters()
+      }
+    },
+    [hasLoadedCharacters, isLoadingCharacters, loadCharacters],
+  )
+
+  const handleOpenCharacterManager = useCallback(async () => {
+    resetCharacterDraft()
+    await openCharacterDialog('manage')
+  }, [openCharacterDialog, resetCharacterDraft])
+
+  const handleOpenCharacterSelectorForMainHero = useCallback(async () => {
+    await openCharacterDialog('select-main-hero')
+  }, [openCharacterDialog])
+
+  const handleOpenCharacterSelectorForNpc = useCallback(async () => {
+    await openCharacterDialog('select-npc')
+  }, [openCharacterDialog])
+
+  const handleCloseCharacterDialog = useCallback(() => {
+    if (isSavingCharacter || isSelectingCharacter) {
+      return
+    }
+    setCharacterDialogOpen(false)
+    setCharacterAvatarError('')
+    if (characterDialogMode === 'manage') {
+      resetCharacterDraft()
+    }
+  }, [characterDialogMode, isSavingCharacter, isSelectingCharacter, resetCharacterDraft])
+
+  const handleStartCreateCharacter = useCallback(() => {
+    resetCharacterDraft()
+  }, [resetCharacterDraft])
+
+  const handleStartEditCharacter = useCallback((character: StoryCharacter) => {
+    setCharacterDraftMode('edit')
+    setEditingCharacterId(character.id)
+    setCharacterNameDraft(character.name)
+    setCharacterDescriptionDraft(character.description)
+    setCharacterTriggersDraft(character.triggers.join(', '))
+    setCharacterAvatarDraft(character.avatar_url)
+    setCharacterAvatarError('')
+  }, [])
+
+  const handleChooseCharacterAvatar = useCallback(() => {
+    if (isSavingCharacter) {
+      return
+    }
+    characterAvatarInputRef.current?.click()
+  }, [isSavingCharacter])
+
+  const handleCharacterAvatarChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setCharacterAvatarError('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+
+    setCharacterAvatarError('')
+    try {
+      const compressedDataUrl = await compressImageFileToDataUrl(selectedFile, {
+        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxDimension: 960,
+      })
+      setCharacterAvatarDraft(compressedDataUrl)
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : 'Не удалось обработать аватар персонажа'
+      setCharacterAvatarError(detail)
+    }
+  }, [])
+
+  const handleRemoveCharacterAvatar = useCallback(() => {
+    if (isSavingCharacter) {
+      return
+    }
+    setCharacterAvatarDraft(null)
+    setCharacterAvatarError('')
+  }, [isSavingCharacter])
+
+  const handleSaveCharacter = useCallback(async () => {
+    if (isSavingCharacter) {
+      return
+    }
+
+    const normalizedName = characterNameDraft.replace(/\s+/g, ' ').trim()
+    const normalizedDescription = characterDescriptionDraft.replace(/\r\n/g, '\n').trim()
+    if (!normalizedName) {
+      setErrorMessage('Имя персонажа не может быть пустым')
+      return
+    }
+    if (!normalizedDescription) {
+      setErrorMessage('Описание персонажа не может быть пустым')
+      return
+    }
+
+    const normalizedTriggers = normalizeCharacterTriggersDraft(characterTriggersDraft, normalizedName)
+    setErrorMessage('')
+    setIsSavingCharacter(true)
+    try {
+      if (characterDraftMode === 'create') {
+        const createdCharacter = await createStoryCharacter({
+          token: authToken,
+          input: {
+            name: normalizedName,
+            description: normalizedDescription,
+            triggers: normalizedTriggers,
+            avatar_url: characterAvatarDraft,
+          },
+        })
+        setCharacters((previous) => [...previous, createdCharacter])
+      } else if (editingCharacterId !== null) {
+        const updatedCharacter = await updateStoryCharacter({
+          token: authToken,
+          characterId: editingCharacterId,
+          input: {
+            name: normalizedName,
+            description: normalizedDescription,
+            triggers: normalizedTriggers,
+            avatar_url: characterAvatarDraft,
+          },
+        })
+        setCharacters((previous) => previous.map((item) => (item.id === updatedCharacter.id ? updatedCharacter : item)))
+      }
+      resetCharacterDraft()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить персонажа'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingCharacter(false)
+    }
+  }, [
+    authToken,
+    characterAvatarDraft,
+    characterDescriptionDraft,
+    characterDraftMode,
+    characterNameDraft,
+    characterTriggersDraft,
+    editingCharacterId,
+    isSavingCharacter,
+    resetCharacterDraft,
+  ])
+
+  const handleDeleteCharacter = useCallback(
+    async (characterId: number) => {
+      if (deletingCharacterId !== null || isSavingCharacter) {
+        return
+      }
+      setDeletingCharacterId(characterId)
+      setErrorMessage('')
+      try {
+        await deleteStoryCharacter({
+          token: authToken,
+          characterId,
+        })
+        setCharacters((previous) => previous.filter((character) => character.id !== characterId))
+        if (editingCharacterId === characterId) {
+          resetCharacterDraft()
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось удалить персонажа'
+        setErrorMessage(detail)
+      } finally {
+        setDeletingCharacterId(null)
+      }
+    },
+    [authToken, deletingCharacterId, editingCharacterId, isSavingCharacter, resetCharacterDraft],
+  )
+
+  const ensureGameForCharacterSelection = useCallback(async (): Promise<number | null> => {
+    if (activeGameId) {
+      return activeGameId
+    }
+    setIsCreatingGame(true)
+    try {
+      const newGame = await createStoryGame({ token: authToken })
+      setGames((previousGames) => sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]))
+      setActiveGameId(newGame.id)
+      const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
+      setContextLimitChars(normalizedContextLimit)
+      setContextLimitDraft(String(normalizedContextLimit))
+      setInstructionCards([])
+      setPlotCards([])
+      setWorldCards([])
+      applyPlotCardEvents([])
+      applyWorldCardEvents([])
+      onNavigate(`/home/${newGame.id}`)
+      return newGame.id
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
+      setErrorMessage(detail)
+      return null
+    } finally {
+      setIsCreatingGame(false)
+    }
+  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, onNavigate])
+
+  const handleSelectCharacterForGame = useCallback(
+    async (character: StoryCharacter) => {
+      if (isSelectingCharacter) {
+        return
+      }
+      setIsSelectingCharacter(true)
+      setErrorMessage('')
+      try {
+        const targetGameId = await ensureGameForCharacterSelection()
+        if (!targetGameId) {
+          return
+        }
+
+        const createdCard =
+          characterDialogMode === 'select-main-hero'
+            ? await selectStoryMainHero({
+                token: authToken,
+                gameId: targetGameId,
+                characterId: character.id,
+              })
+            : await createStoryNpcFromCharacter({
+                token: authToken,
+                gameId: targetGameId,
+                characterId: character.id,
+              })
+
+        setWorldCards((previousCards) => {
+          const hasCard = previousCards.some((card) => card.id === createdCard.id)
+          if (hasCard) {
+            return previousCards.map((card) => (card.id === createdCard.id ? createdCard : card))
+          }
+          return [...previousCards, createdCard]
+        })
+        setCharacterDialogOpen(false)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось применить персонажа'
+        setErrorMessage(detail)
+      } finally {
+        setIsSelectingCharacter(false)
+      }
+    },
+    [authToken, characterDialogMode, ensureGameForCharacterSelection, isSelectingCharacter],
+  )
+
+  const handleOpenWorldCardAvatarPicker = useCallback((cardId: number) => {
+    if (isSavingWorldCardAvatar) {
+      return
+    }
+    setWorldCardAvatarTargetId(cardId)
+    worldCardAvatarInputRef.current?.click()
+  }, [isSavingWorldCardAvatar])
+
+  const handleWorldCardAvatarChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile || !activeGameId || worldCardAvatarTargetId === null) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setErrorMessage('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+
+    setErrorMessage('')
+    setIsSavingWorldCardAvatar(true)
+    try {
+      const avatarDataUrl = await compressImageFileToDataUrl(selectedFile, {
+        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxDimension: 960,
+      })
+      const updatedCard = await updateStoryWorldCardAvatar({
+        token: authToken,
+        gameId: activeGameId,
+        cardId: worldCardAvatarTargetId,
+        avatar_url: avatarDataUrl,
+      })
+      setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить аватар персонажа'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingWorldCardAvatar(false)
+      setWorldCardAvatarTargetId(null)
+    }
+  }, [activeGameId, authToken, worldCardAvatarTargetId])
 
   const loadGameById = useCallback(
     async (gameId: number, options?: { silent?: boolean }) => {
@@ -1325,7 +1778,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     } else {
       const card = worldCards.find((item) => item.id === cardMenuCardId)
-      if (card) {
+      const isLockedCharacterCard =
+        card !== undefined &&
+        (card.is_locked || ((card.kind === 'main_hero' || card.kind === 'npc') && card.source !== 'ai'))
+      if (card && !isLockedCharacterCard) {
         handleOpenEditWorldCardDialog(card)
       }
     }
@@ -1358,6 +1814,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       await handleDeletePlotCard(targetCardId)
       return
     }
+    if (targetType === 'world') {
+      const worldCard = worldCards.find((card) => card.id === targetCardId)
+      if (worldCard?.kind === 'main_hero' && worldCard.is_locked) {
+        setErrorMessage('Главного героя нельзя удалить после выбора')
+        return
+      }
+    }
     await handleDeleteWorldCard(targetCardId)
   }, [
     cardMenuCardId,
@@ -1366,6 +1829,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     handleDeleteInstructionCard,
     handleDeletePlotCard,
     handleDeleteWorldCard,
+    worldCards,
+    setErrorMessage,
   ])
 
   const handleStartRightPanelResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -2577,54 +3042,84 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
           {rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
+              <Stack direction="column" spacing={0.7}>
+                <Button
+                  onClick={() => void handleOpenCharacterSelectorForMainHero()}
+                  disabled={isGenerating || isCreatingGame || Boolean(mainHeroCard)}
+                  sx={{
+                    minHeight: 40,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    color: '#d9dee8',
+                    border: '1px solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-card-bg)',
+                  }}
+                >
+                  {mainHeroCard ? `Главный герой: ${mainHeroCard.title}` : 'Выбрать главного героя'}
+                </Button>
+                <Button
+                  onClick={() => void handleOpenCharacterSelectorForNpc()}
+                  disabled={isGenerating || isCreatingGame}
+                  sx={{
+                    minHeight: 40,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    color: '#d9dee8',
+                    border: '1px solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-card-bg)',
+                  }}
+                >
+                  Добавить NPC из персонажей
+                </Button>
+              </Stack>
+
               {worldCards.length === 0 ? (
-                <>
-                  <Button
-                    onClick={handleOpenCreateWorldCardDialog}
-                    disabled={isGenerating || isSavingWorldCard || isCreatingGame}
-                    sx={{
-                      minHeight: 44,
-                      borderRadius: '12px',
-                      textTransform: 'none',
-                      color: '#d9dee8',
-                      border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: 'var(--morius-card-bg)',
-                    }}
-                  >
-                    Добавить первую карточку
-                  </Button>
-                  <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
-                    Здесь живут персонажи, предметы и важные детали мира. Используйте триггеры через запятую.
-                  </Typography>
-                </>
+                <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
+                  Здесь живут персонажи, предметы и важные детали мира. Для NPC используйте выбор из «Моих персонажей».
+                </Typography>
               ) : (
-                <>
-                  <Box
-                    className="morius-scrollbar"
-                    sx={{
-                      flex: 1,
-                      minHeight: 0,
-                      overflowY: 'auto',
-                      pr: 0.25,
-                    }}
-                  >
-                    <Stack spacing={0.85}>
-                      {worldCards.map((card) => (
-                        <Box
-                          key={card.id}
-                          sx={{
-                            borderRadius: '12px',
-                            border: '1px solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-card-bg)',
-                            px: 1,
-                            py: 0.85,
-                            height: RIGHT_PANEL_CARD_HEIGHT,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                <Box
+                  className="morius-scrollbar"
+                  sx={{
+                    flex: 1,
+                    minHeight: 0,
+                    overflowY: 'auto',
+                    pr: 0.25,
+                  }}
+                >
+                  <Stack spacing={0.85}>
+                    {worldCards.map((card) => (
+                      <Box
+                        key={card.id}
+                        sx={{
+                          borderRadius: '12px',
+                          border: '1px solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-card-bg)',
+                          px: 1,
+                          py: 0.85,
+                          height: RIGHT_PANEL_CARD_HEIGHT,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                          <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                            {card.kind === 'npc' || card.kind === 'main_hero' ? (
+                              <Button
+                                onClick={() => handleOpenWorldCardAvatarPicker(card.id)}
+                                disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
+                                sx={{
+                                  minWidth: 0,
+                                  p: 0,
+                                  width: 30,
+                                  height: 30,
+                                  borderRadius: '50%',
+                                }}
+                              >
+                                <CharacterAvatar avatarUrl={card.avatar_url} fallbackLabel={card.title} size={30} />
+                              </Button>
+                            ) : null}
                             <Typography
                               sx={{
                                 color: '#e2e8f3',
@@ -2640,76 +3135,76 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             >
                               {card.title}
                             </Typography>
-                            {card.source === 'ai' ? (
-                              <Typography
-                                sx={{
-                                  color: 'rgba(165, 188, 224, 0.66)',
-                                  fontSize: '0.68rem',
-                                  lineHeight: 1,
-                                  letterSpacing: 0.2,
-                                  flexShrink: 0,
-                                }}
-                              >
-                                ии
-                              </Typography>
-                            ) : null}
-                            <IconButton
-                              onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
-                              disabled={isWorldCardActionLocked}
-                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
-                            >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
-                            </IconButton>
                           </Stack>
-                          <Typography
-                            sx={{
-                              mt: 0.55,
-                              color: 'rgba(207, 217, 232, 0.86)',
-                              fontSize: '0.86rem',
-                              lineHeight: 1.4,
-                              whiteSpace: 'pre-wrap',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 5,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
+                          {card.source === 'ai' ? (
+                            <Typography
+                              sx={{
+                                color: 'rgba(165, 188, 224, 0.66)',
+                                fontSize: '0.68rem',
+                                lineHeight: 1,
+                                letterSpacing: 0.2,
+                                flexShrink: 0,
+                              }}
+                            >
+                              ии
+                            </Typography>
+                          ) : null}
+                          <IconButton
+                            onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
+                            disabled={isWorldCardActionLocked}
+                            sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
                           >
-                            {card.content}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              mt: 0.45,
-                              color: 'rgba(178, 195, 221, 0.7)',
-                              fontSize: '0.78rem',
-                              lineHeight: 1.3,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
-                          </Typography>
-                        </Box>
-                      ))}
-                    </Stack>
-                  </Box>
-                  <Button
-                    onClick={handleOpenCreateWorldCardDialog}
-                    disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
-                    sx={{
-                      minHeight: 40,
-                      borderRadius: '12px',
-                      textTransform: 'none',
-                      color: '#d9dee8',
-                      border: '1px dashed var(--morius-card-border)',
-                      backgroundColor: 'var(--morius-card-bg)',
-                    }}
-                  >
-                    Добавить карточку
-                  </Button>
-                </>
+                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                          </IconButton>
+                        </Stack>
+                        <Typography
+                          sx={{
+                            mt: 0.55,
+                            color: 'rgba(207, 217, 232, 0.86)',
+                            fontSize: '0.86rem',
+                            lineHeight: 1.4,
+                            whiteSpace: 'pre-wrap',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 5,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {card.content}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            mt: 0.45,
+                            color: 'rgba(178, 195, 221, 0.7)',
+                            fontSize: '0.78rem',
+                            lineHeight: 1.3,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Stack>
+                </Box>
               )}
+              <Button
+                onClick={handleOpenCreateWorldCardDialog}
+                disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                sx={{
+                  minHeight: 40,
+                  borderRadius: '12px',
+                  textTransform: 'none',
+                  color: '#d9dee8',
+                  border: '1px dashed var(--morius-card-border)',
+                  backgroundColor: 'var(--morius-card-bg)',
+                }}
+              >
+                Новая карточка мира
+              </Button>
             </Box>
           ) : null}
         </Box>
@@ -2925,7 +3420,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }
 
                   if (message.role === 'assistant') {
-                    const paragraphs = splitAssistantParagraphs(message.content)
+                    const blocks = parseAssistantMessageBlocks(message.content)
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
                     const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
@@ -2945,19 +3440,65 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         }}
                       >
                         <Stack spacing={1.5}>
-                          {paragraphs.map((paragraph, index) => (
-                            <Typography
-                              key={`${message.id}-${index}`}
-                              sx={{
-                                color: '#d8dde7',
-                                lineHeight: 1.58,
-                                fontSize: { xs: '1.02rem', md: '1.12rem' },
-                                whiteSpace: 'pre-wrap',
-                              }}
-                            >
-                              {paragraph}
-                            </Typography>
-                          ))}
+                          {blocks.map((block, index) => {
+                            if (block.type === 'npc') {
+                              const npcAvatar = npcAvatarByName.get(block.npcName.toLowerCase()) ?? null
+                              return (
+                                <Stack
+                                  key={`${message.id}-${index}-npc`}
+                                  direction="row"
+                                  spacing={0.9}
+                                  alignItems="flex-start"
+                                  sx={{
+                                    borderRadius: '12px',
+                                    border: '1px solid rgba(186, 202, 214, 0.2)',
+                                    backgroundColor: 'rgba(22, 30, 42, 0.56)',
+                                    px: 0.85,
+                                    py: 0.7,
+                                  }}
+                                >
+                                  <CharacterAvatar avatarUrl={npcAvatar} fallbackLabel={block.npcName} size={30} />
+                                  <Stack spacing={0.35} sx={{ minWidth: 0 }}>
+                                    <Typography
+                                      sx={{
+                                        color: 'rgba(178, 198, 228, 0.9)',
+                                        fontSize: '0.84rem',
+                                        lineHeight: 1.2,
+                                        fontWeight: 700,
+                                        letterSpacing: 0.18,
+                                      }}
+                                    >
+                                      {block.npcName}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        color: '#d8dde7',
+                                        lineHeight: 1.54,
+                                        fontSize: { xs: '1rem', md: '1.08rem' },
+                                        whiteSpace: 'pre-wrap',
+                                      }}
+                                    >
+                                      {block.text}
+                                    </Typography>
+                                  </Stack>
+                                </Stack>
+                              )
+                            }
+
+                            return (
+                              <Typography
+                                key={`${message.id}-${index}`}
+                                sx={{
+                                  color: '#d8dde7',
+                                  lineHeight: 1.58,
+                                  fontSize: { xs: '1.02rem', md: '1.12rem' },
+                                  whiteSpace: 'pre-wrap',
+                                }}
+                              >
+                                {block.text}
+                              </Typography>
+                            )
+                          })}
                           {isStreaming ? (
                             <Box
                               sx={{
@@ -3228,16 +3769,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }
 
                   return (
-                    <Typography
+                    <Stack
                       key={message.id}
                       onClick={() => handleStartMessageEdit(message)}
                       title="Нажмите, чтобы изменить текст"
+                      direction="row"
+                      spacing={0.8}
+                      alignItems="flex-start"
                       sx={{
                         mb: 2.4,
-                        color: 'rgba(198, 207, 222, 0.92)',
-                        lineHeight: 1.58,
-                        whiteSpace: 'pre-wrap',
-                        fontSize: { xs: '1rem', md: '1.08rem' },
                         cursor: isGenerating ? 'default' : 'text',
                         borderRadius: '10px',
                         px: 0.42,
@@ -3246,9 +3786,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         '&:hover': isGenerating ? {} : { backgroundColor: 'rgba(186, 202, 214, 0.06)' },
                       }}
                     >
-                      {'> '}
-                      {message.content}
-                    </Typography>
+                      <CharacterAvatar
+                        avatarUrl={mainHeroCard?.avatar_url ?? null}
+                        fallbackLabel={mainHeroCard?.title || user.display_name || 'Игрок'}
+                        size={28}
+                      />
+                      <Typography
+                        sx={{
+                          color: 'rgba(198, 207, 222, 0.92)',
+                          lineHeight: 1.58,
+                          whiteSpace: 'pre-wrap',
+                          fontSize: { xs: '1rem', md: '1.08rem' },
+                          pt: 0.14,
+                        }}
+                      >
+                        {message.content}
+                      </Typography>
+                    </Stack>
                   )
                 })
               : null}
@@ -3382,6 +3936,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Box>
       </Box>
 
+      <input
+        ref={characterAvatarInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={handleCharacterAvatarChange}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={worldCardAvatarInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={handleWorldCardAvatarChange}
+        style={{ display: 'none' }}
+      />
+
       <Menu
         anchorEl={cardMenuAnchorEl}
         open={Boolean(cardMenuAnchorEl)}
@@ -3406,7 +3975,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ? isInstructionCardActionLocked
                 : cardMenuType === 'plot'
                   ? isPlotCardActionLocked
-                  : isWorldCardActionLocked
+                  : isWorldCardActionLocked || isSelectedMenuWorldCardLocked
           }
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
@@ -3423,7 +3992,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ? isInstructionCardActionLocked
                 : cardMenuType === 'plot'
                   ? isPlotCardActionLocked
-                  : isWorldCardActionLocked
+                  : isWorldCardActionLocked || !canDeleteSelectedMenuWorldCard
           }
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
         >
@@ -3792,6 +4361,312 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       </Dialog>
 
       <Dialog
+        open={characterDialogOpen}
+        onClose={handleCloseCharacterDialog}
+        maxWidth="sm"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
+            {characterDialogMode === 'manage'
+              ? 'Мои персонажи'
+              : characterDialogMode === 'select-main-hero'
+                ? 'Выбрать главного героя'
+                : 'Выбрать NPC'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.4 }}>
+          {isLoadingCharacters && characters.length === 0 ? (
+            <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
+              <CircularProgress size={26} />
+            </Stack>
+          ) : null}
+
+          {characterDialogMode === 'manage' ? (
+            <Stack spacing={1.1}>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1}
+                sx={{
+                  borderRadius: '12px',
+                  border: '1px solid var(--morius-card-border)',
+                  backgroundColor: 'var(--morius-card-bg)',
+                  p: 1,
+                }}
+              >
+                <Stack spacing={0.7} alignItems="center">
+                  <Button
+                    onClick={handleChooseCharacterAvatar}
+                    disabled={isSavingCharacter}
+                    sx={{ minWidth: 0, p: 0, borderRadius: '50%', width: 76, height: 76 }}
+                  >
+                    <CharacterAvatar
+                      avatarUrl={characterAvatarDraft}
+                      fallbackLabel={characterNameDraft || 'Персонаж'}
+                      size={76}
+                    />
+                  </Button>
+                  <Stack direction="row" spacing={0.5}>
+                    <Button
+                      onClick={handleChooseCharacterAvatar}
+                      disabled={isSavingCharacter}
+                      sx={{
+                        minHeight: 30,
+                        borderRadius: '9px',
+                        textTransform: 'none',
+                        border: '1px solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                      }}
+                    >
+                      Аватар
+                    </Button>
+                    <Button
+                      onClick={handleRemoveCharacterAvatar}
+                      disabled={isSavingCharacter || !characterAvatarDraft}
+                      sx={{ minHeight: 30, borderRadius: '9px', textTransform: 'none' }}
+                    >
+                      Убрать
+                    </Button>
+                  </Stack>
+                </Stack>
+                <Stack spacing={0.8} sx={{ flex: 1 }}>
+                  <Box
+                    component="input"
+                    value={characterNameDraft}
+                    placeholder="Имя"
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterNameDraft(event.target.value)}
+                    sx={{
+                      width: '100%',
+                      minHeight: 40,
+                      borderRadius: '11px',
+                      border: '1px solid rgba(186, 202, 214, 0.22)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: '#dbe2ee',
+                      px: 1.1,
+                      outline: 'none',
+                      fontSize: '0.96rem',
+                    }}
+                  />
+                  <Box
+                    component="textarea"
+                    value={characterDescriptionDraft}
+                    placeholder="Описание персонажа"
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setCharacterDescriptionDraft(event.target.value)}
+                    sx={{
+                      width: '100%',
+                      minHeight: 92,
+                      resize: 'vertical',
+                      borderRadius: '11px',
+                      border: '1px solid rgba(186, 202, 214, 0.22)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: '#dbe2ee',
+                      px: 1.1,
+                      py: 0.9,
+                      outline: 'none',
+                      fontSize: '0.92rem',
+                      lineHeight: 1.4,
+                      fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                    }}
+                  />
+                  <Box
+                    component="input"
+                    value={characterTriggersDraft}
+                    placeholder="Триггеры через запятую"
+                    onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterTriggersDraft(event.target.value)}
+                    sx={{
+                      width: '100%',
+                      minHeight: 38,
+                      borderRadius: '11px',
+                      border: '1px solid rgba(186, 202, 214, 0.22)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: '#dbe2ee',
+                      px: 1.1,
+                      outline: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                  />
+                  {characterAvatarError ? <Alert severity="error">{characterAvatarError}</Alert> : null}
+                  <Stack direction="row" spacing={0.7}>
+                    <Button
+                      variant="contained"
+                      onClick={() => void handleSaveCharacter()}
+                      disabled={isSavingCharacter}
+                      sx={{
+                        minHeight: 36,
+                        borderRadius: '10px',
+                        textTransform: 'none',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        color: 'var(--morius-text-primary)',
+                      }}
+                    >
+                      {isSavingCharacter ? (
+                        <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+                      ) : characterDraftMode === 'create' ? (
+                        'Добавить'
+                      ) : (
+                        'Сохранить'
+                      )}
+                    </Button>
+                    <Button onClick={handleStartCreateCharacter} disabled={isSavingCharacter} sx={{ textTransform: 'none' }}>
+                      Очистить
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Stack>
+
+              <Box className="morius-scrollbar" sx={{ maxHeight: 280, overflowY: 'auto', pr: 0.2 }}>
+                <Stack spacing={0.7}>
+                  {characters.map((character) => (
+                    <Box
+                      key={character.id}
+                      sx={{
+                        borderRadius: '12px',
+                        border: '1px solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        px: 0.95,
+                        py: 0.75,
+                      }}
+                    >
+                      <Stack direction="row" spacing={0.7} alignItems="flex-start">
+                        <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
+                        <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.28}>
+                          <Typography sx={{ color: '#e2e8f3', fontWeight: 700, fontSize: '0.94rem' }}>{character.name}</Typography>
+                          <Typography
+                            sx={{
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.84rem',
+                              lineHeight: 1.36,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {character.description}
+                          </Typography>
+                        </Stack>
+                        <Stack spacing={0.4}>
+                          <Button
+                            onClick={() => handleStartEditCharacter(character)}
+                            disabled={isSavingCharacter}
+                            sx={{ minHeight: 30, minWidth: 0, px: 1, textTransform: 'none' }}
+                          >
+                            Изм.
+                          </Button>
+                          <Button
+                            onClick={() => void handleDeleteCharacter(character.id)}
+                            disabled={isSavingCharacter || deletingCharacterId === character.id}
+                            sx={{ minHeight: 30, minWidth: 0, px: 1, textTransform: 'none', color: 'rgba(248, 176, 176, 0.94)' }}
+                          >
+                            {deletingCharacterId === character.id ? <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.94)' }} /> : 'Удалить'}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Box>
+                  ))}
+                  {characters.length === 0 ? (
+                    <Typography sx={{ color: 'rgba(186, 202, 214, 0.68)', fontSize: '0.9rem' }}>
+                      Персонажей пока нет. Создайте первого.
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Box>
+            </Stack>
+          ) : (
+            <Stack spacing={0.8}>
+              <Typography sx={{ color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.9rem' }}>
+                {characterDialogMode === 'select-main-hero'
+                  ? 'Выберите персонажа для роли главного героя. После выбора смена будет недоступна.'
+                  : 'Выберите персонажа для добавления как NPC.'}
+              </Typography>
+              <Box className="morius-scrollbar" sx={{ maxHeight: 360, overflowY: 'auto', pr: 0.2 }}>
+                <Stack spacing={0.75}>
+                  {characters.map((character) => (
+                    <Button
+                      key={character.id}
+                      onClick={() => void handleSelectCharacterForGame(character)}
+                      disabled={isSelectingCharacter}
+                      sx={{
+                        borderRadius: '12px',
+                        border: '1px solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        color: '#d9dee8',
+                        textTransform: 'none',
+                        alignItems: 'flex-start',
+                        textAlign: 'left',
+                        px: 0.9,
+                        py: 0.7,
+                        justifyContent: 'flex-start',
+                      }}
+                    >
+                      <Stack direction="row" spacing={0.7} alignItems="flex-start" sx={{ width: '100%' }}>
+                        <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
+                        <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: '#e2e8f3' }}>{character.name}</Typography>
+                          <Typography
+                            sx={{
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.84rem',
+                              lineHeight: 1.36,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {character.description}
+                          </Typography>
+                        </Stack>
+                      </Stack>
+                    </Button>
+                  ))}
+                  {characters.length === 0 ? (
+                    <Typography sx={{ color: 'rgba(186, 202, 214, 0.68)', fontSize: '0.9rem' }}>
+                      Сначала создайте персонажей в разделе «Мои персонажи».
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.4 }}>
+          <Button
+            onClick={() => {
+              void loadCharacters({ silent: false })
+            }}
+            disabled={isLoadingCharacters || isSavingCharacter || isSelectingCharacter}
+            sx={{ color: 'text.secondary' }}
+          >
+            Обновить
+          </Button>
+          <Button
+            onClick={handleCloseCharacterDialog}
+            disabled={isSavingCharacter || isSelectingCharacter}
+            sx={{ color: 'text.secondary' }}
+          >
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={profileDialogOpen}
         onClose={handleCloseProfileDialog}
         maxWidth="xs"
@@ -3820,7 +4695,66 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         <DialogContent sx={{ pt: 0.2 }}>
           <Stack spacing={2.2}>
             <Stack direction="row" spacing={1.8} alignItems="center">
-              <UserAvatar user={user} size={84} />
+              <Box
+                role="button"
+                tabIndex={0}
+                aria-label="Изменить аватар"
+                onClick={handleChooseAvatar}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleChooseAvatar()
+                  }
+                }}
+                sx={{
+                  position: 'relative',
+                  width: 84,
+                  height: 84,
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  cursor: isAvatarSaving ? 'default' : 'pointer',
+                  outline: 'none',
+                  '&:hover .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                  '&:focus-visible .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                }}
+              >
+                <UserAvatar user={user} size={84} />
+                <Box
+                  className="morius-profile-avatar-overlay"
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(7, 11, 19, 0.58)',
+                    opacity: 0,
+                    transition: 'opacity 180ms ease',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      border: '1px solid rgba(219, 221, 231, 0.5)',
+                      backgroundColor: 'rgba(17, 20, 27, 0.78)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--morius-text-primary)',
+                      fontSize: '1.12rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✎
+                  </Box>
+                </Box>
+              </Box>
               <Stack spacing={0.3} sx={{ minWidth: 0 }}>
                 <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{user.display_name || 'Игрок'}</Typography>
                 <Typography
@@ -3845,6 +4779,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               style={{ display: 'none' }}
             />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  handleCloseProfileDialog()
+                  void handleOpenCharacterManager()
+                }}
+                disabled={isAvatarSaving}
+                sx={{
+                  minHeight: 40,
+                  borderColor: 'rgba(186, 202, 214, 0.28)',
+                  color: 'rgba(223, 229, 239, 0.9)',
+                }}
+              >
+                Мои персонажи
+              </Button>
               <Button
                 variant="outlined"
                 onClick={handleChooseAvatar}
