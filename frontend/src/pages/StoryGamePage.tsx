@@ -63,6 +63,10 @@ type UserAvatarProps = {
   size?: number
 }
 
+type RightPanelMode = 'ai' | 'world'
+type AiPanelTab = 'instructions' | 'settings'
+type WorldPanelTab = 'story' | 'world'
+
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
@@ -190,6 +194,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
+  const [activeAiPanelTab, setActiveAiPanelTab] = useState<AiPanelTab>('instructions')
+  const [activeWorldPanelTab, setActiveWorldPanelTab] = useState<WorldPanelTab>('story')
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
@@ -218,6 +225,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     messages.length > 0 &&
     messages[messages.length - 1]?.role === 'assistant' &&
     Boolean(activeGameId)
+  const leftPanelTabLabel = rightPanelMode === 'ai' ? 'Инструкции' : 'Сюжет'
+  const rightPanelTabLabel = rightPanelMode === 'ai' ? 'Настройки' : 'Мир'
+  const isLeftPanelTabActive =
+    rightPanelMode === 'ai' ? activeAiPanelTab === 'instructions' : activeWorldPanelTab === 'story'
 
   const adjustInputHeight = useCallback(() => {
     const node = textAreaRef.current
@@ -306,7 +317,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId])
 
   useEffect(() => {
-    if (!activeGameId || isLoadingGameMessages || messages.length > 0 || inputValue.trim().length > 0) {
+    if (!activeGameId || isLoadingGameMessages || messages.length > 0) {
       return
     }
 
@@ -320,7 +331,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId?: unknown
         title?: unknown
         description?: unknown
-        prompt?: unknown
       }
       if (parsed.gameId !== activeGameId) {
         return
@@ -344,17 +354,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
 
-      if (typeof parsed.prompt === 'string') {
-        const normalizedPrompt = parsed.prompt.trim()
-        if (normalizedPrompt.length > 0) {
-          setInputValue(normalizedPrompt)
-        }
-      }
+      setInputValue('')
       localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
     } catch {
       localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
     }
-  }, [activeGameId, inputValue, isLoadingGameMessages, messages.length])
+  }, [activeGameId, isLoadingGameMessages, messages.length])
 
   useEffect(() => {
     if (isEditingTitle) {
@@ -898,24 +903,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Stack direction="row" spacing={1.2}>
               <IconButton
                 aria-label="Миры"
+                onClick={() => setRightPanelMode('world')}
                 sx={{
                   width: 44,
                   height: 44,
                   borderRadius: '14px',
-                  border: '1px solid rgba(186, 202, 214, 0.14)',
-                  backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                  border:
+                    rightPanelMode === 'world'
+                      ? '1px solid rgba(206, 219, 236, 0.38)'
+                      : '1px solid rgba(186, 202, 214, 0.14)',
+                  background:
+                    rightPanelMode === 'world'
+                      ? 'linear-gradient(180deg, rgba(43, 53, 69, 0.9), rgba(28, 35, 48, 0.92))'
+                      : 'rgba(16, 20, 27, 0.82)',
                 }}
               >
                 <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
               </IconButton>
               <IconButton
                 aria-label="ИИ"
+                onClick={() => setRightPanelMode('ai')}
                 sx={{
                   width: 44,
                   height: 44,
                   borderRadius: '14px',
-                  border: '1px solid rgba(186, 202, 214, 0.14)',
-                  backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                  border:
+                    rightPanelMode === 'ai'
+                      ? '1px solid rgba(206, 219, 236, 0.38)'
+                      : '1px solid rgba(186, 202, 214, 0.14)',
+                  background:
+                    rightPanelMode === 'ai'
+                      ? 'linear-gradient(180deg, rgba(43, 53, 69, 0.9), rgba(28, 35, 48, 0.92))'
+                      : 'rgba(16, 20, 27, 0.82)',
                 }}
               >
                 <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -964,22 +983,43 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
               alignItems: 'center',
+              gap: 0.2,
             }}
           >
-            <Typography sx={{ color: '#d9dee8', fontSize: '1rem', lineHeight: 1.1, textAlign: 'center', py: 0.65 }}>
-              Инструкции
-            </Typography>
-            <Typography
+            <Button
+              onClick={() =>
+                rightPanelMode === 'ai' ? setActiveAiPanelTab('instructions') : setActiveWorldPanelTab('story')
+              }
               sx={{
-                color: 'rgba(186, 202, 214, 0.7)',
+                color: isLeftPanelTabActive ? '#d9dee8' : 'rgba(186, 202, 214, 0.7)',
                 fontSize: '1rem',
+                fontWeight: isLeftPanelTabActive ? 700 : 500,
                 lineHeight: 1.1,
                 textAlign: 'center',
                 py: 0.65,
+                minHeight: 0,
+                borderRadius: '10px',
+                textTransform: 'none',
               }}
             >
-              Настройки
-            </Typography>
+              {leftPanelTabLabel}
+            </Button>
+            <Button
+              onClick={() => (rightPanelMode === 'ai' ? setActiveAiPanelTab('settings') : setActiveWorldPanelTab('world'))}
+              sx={{
+                color: isLeftPanelTabActive ? 'rgba(186, 202, 214, 0.7)' : '#d9dee8',
+                fontSize: '1rem',
+                fontWeight: isLeftPanelTabActive ? 500 : 700,
+                lineHeight: 1.1,
+                textAlign: 'center',
+                py: 0.65,
+                minHeight: 0,
+                borderRadius: '10px',
+                textTransform: 'none',
+              }}
+            >
+              {rightPanelTabLabel}
+            </Button>
           </Box>
           <Box
             sx={{
@@ -994,28 +1034,61 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 width: '50%',
                 height: '100%',
                 backgroundColor: 'rgba(205, 216, 233, 0.78)',
+                transform: isLeftPanelTabActive ? 'translateX(0)' : 'translateX(100%)',
+                transition: 'transform 220ms ease',
               }}
             />
           </Box>
         </Box>
-        <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2 }}>
-          <Button
-            onClick={() => void handleCreateGame()}
-            disabled={isCreatingGame || isGenerating}
-            sx={{
-              minHeight: 44,
-              borderRadius: '12px',
-              textTransform: 'none',
-              color: '#d9dee8',
-              border: '1px dashed rgba(186, 202, 214, 0.28)',
-              backgroundColor: 'rgba(20, 24, 32, 0.66)',
-            }}
-          >
-            {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую карточку'}
-          </Button>
-          <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
-            {hasSavedGames ? 'Контекст игры появится после добавления карточек.' : 'Пока пусто. Здесь появится ваш контекст игры.'}
-          </Typography>
+        <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2, flex: 1 }}>
+          {rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
+            <>
+              <Button
+                onClick={() => void handleCreateGame()}
+                disabled={isCreatingGame || isGenerating}
+                sx={{
+                  minHeight: 44,
+                  borderRadius: '12px',
+                  textTransform: 'none',
+                  color: '#d9dee8',
+                  border: '1px dashed rgba(186, 202, 214, 0.28)',
+                  backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                }}
+              >
+                {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую карточку'}
+              </Button>
+              <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
+                {hasSavedGames ? 'Контекст игры появится после добавления карточек.' : 'Пока пусто. Здесь появится ваш контекст игры.'}
+              </Typography>
+            </>
+          ) : null}
+
+          {rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
+            <Box
+              sx={{
+                borderRadius: '12px',
+                border: '1px dashed rgba(186, 202, 214, 0.22)',
+                backgroundColor: 'rgba(18, 22, 30, 0.52)',
+                px: 1.1,
+                py: 1.2,
+              }}
+            >
+              <Typography sx={{ color: 'rgba(190, 202, 220, 0.68)', fontSize: '0.9rem' }}>
+                Настройки ИИ скоро появятся.
+              </Typography>
+            </Box>
+          ) : null}
+
+          {rightPanelMode === 'world' ? (
+            <Box
+              sx={{
+                flex: 1,
+                borderRadius: '12px',
+                border: '1px dashed rgba(186, 202, 214, 0.2)',
+                backgroundColor: 'rgba(18, 22, 30, 0.5)',
+              }}
+            />
+          ) : null}
         </Box>
       </Box>
 

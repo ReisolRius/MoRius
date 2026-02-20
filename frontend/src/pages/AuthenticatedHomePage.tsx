@@ -63,7 +63,6 @@ type PresetWorld = {
   title: string
   teaser: string
   description: string
-  prompt: string
   artwork: string
 }
 
@@ -105,8 +104,6 @@ const PRESET_WORLDS: PresetWorld[] = [
     teaser: 'Древние королевства, магические ордена и забытые руины.',
     description:
       'Мир высоких гор, лунных лесов и старых трактов. Между княжествами идёт холодная война, а в тенях пробуждаются силы, которые когда-то считались легендой.',
-    prompt:
-      'Опиши вводную сцену в фэнтези-мире: старый тракт, вечер, близится гроза, вдалеке видны огни города-крепости.',
     artwork:
       'repeating-linear-gradient(24deg, hsla(42, 30%, 55%, 0.16) 0 12px, transparent 12px 28px), radial-gradient(circle at 78% 22%, hsla(40, 44%, 62%, 0.18), transparent 42%), linear-gradient(152deg, hsla(208, 34%, 17%, 0.98) 0%, hsla(219, 38%, 11%, 0.99) 100%)',
   },
@@ -116,8 +113,6 @@ const PRESET_WORLDS: PresetWorld[] = [
     teaser: 'Неоновые кварталы, корпорации и хаос нижнего города.',
     description:
       'Мегаполис под кислотным дождём. В небе висят рекламные дроны, а на уровне улиц власть делят синдикаты, уличные сети и корпоративные отделы безопасности.',
-    prompt:
-      'Опиши вступительную сцену в киберпанк-мире: ночной мегаполис, мокрые неоновые улицы, напряжение перед операцией.',
     artwork:
       'repeating-linear-gradient(118deg, hsla(195, 34%, 58%, 0.16) 0 10px, transparent 10px 24px), radial-gradient(circle at 16% 80%, hsla(207, 42%, 60%, 0.17), transparent 46%), linear-gradient(160deg, hsla(214, 32%, 16%, 0.98) 0%, hsla(226, 40%, 10%, 0.99) 100%)',
   },
@@ -127,8 +122,6 @@ const PRESET_WORLDS: PresetWorld[] = [
     teaser: 'Знакомый мир, где каждая мелочь может изменить сюжет.',
     description:
       'Большой город, пригородные трассы, офисные кварталы и тихие спальные районы. Реалистичный сеттинг для историй о выборе, риске, расследовании и личных границах.',
-    prompt:
-      'Опиши стартовую сцену в современном мире: раннее утро, город просыпается, у героя есть важное решение на сегодня.',
     artwork:
       'repeating-radial-gradient(circle at 0 0, hsla(205, 24%, 58%, 0.16) 0 4px, transparent 4px 18px), radial-gradient(circle at 70% 12%, hsla(28, 24%, 58%, 0.12), transparent 40%), linear-gradient(148deg, hsla(210, 28%, 17%, 0.98) 0%, hsla(221, 34%, 11%, 0.99) 100%)',
   },
@@ -386,7 +379,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               gameId: game.id,
               title: world.title,
               description: world.description,
-              prompt: world.prompt,
             }),
           )
         } else {
