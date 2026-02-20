@@ -3,6 +3,7 @@ export type StoryRole = 'user' | 'assistant'
 export type StoryGameSummary = {
   id: number
   title: string
+  context_limit_chars: number
   last_activity_at: string
   created_at: string
   updated_at: string

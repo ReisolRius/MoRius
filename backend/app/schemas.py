@@ -81,6 +81,11 @@ class CoinTopUpSyncResponse(BaseModel):
 
 class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
+    context_limit_chars: int | None = Field(default=None, ge=9, le=32_000)
+
+
+class StoryGameSettingsUpdateRequest(BaseModel):
+    context_limit_chars: int = Field(ge=9, le=32_000)
 
 
 class StoryInstructionCardInput(BaseModel):
@@ -179,6 +184,7 @@ class StoryGameSummaryOut(BaseModel):
 
     id: int
     title: str
+    context_limit_chars: int
     last_activity_at: datetime
     created_at: datetime
     updated_at: datetime

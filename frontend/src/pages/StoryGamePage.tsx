@@ -20,6 +20,7 @@ import {
   DialogTitle,
   Grow,
   IconButton,
+  Slider,
   Stack,
   Typography,
   type GrowProps,
@@ -35,6 +36,7 @@ import {
   generateStoryResponseStream,
   getStoryGame,
   listStoryGames,
+  updateStoryGameSettings,
   undoStoryWorldCardEvent,
   updateStoryInstructionCard,
   updateStoryWorldCard,
@@ -81,6 +83,9 @@ const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальш
 const HEADER_AVATAR_SIZE = 44
 const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
 const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
+const STORY_CONTEXT_LIMIT_MIN = 9
+const STORY_CONTEXT_LIMIT_MAX = 32000
+const STORY_DEFAULT_CONTEXT_LIMIT = 12000
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
   added: 'Добавлено',
   updated: 'Обновлено',
@@ -139,6 +144,13 @@ function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle: string): 
   pushTrigger(fallbackTitle)
 
   return normalized.slice(0, 40)
+}
+
+function clampStoryContextLimit(value: number): number {
+  if (!Number.isFinite(value)) {
+    return STORY_DEFAULT_CONTEXT_LIMIT
+  }
+  return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
 }
 
 const DialogTransition = forwardRef(function DialogTransition(
@@ -262,6 +274,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
+  const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
+  const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
+  const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
   const generationAbortRef = useRef<AbortController | null>(null)
   const instructionDialogGameIdRef = useRef<number | null>(null)
   const worldCardDialogGameIdRef = useRef<number | null>(null)
@@ -331,6 +346,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
         setWorldCards(payload.world_cards)
+        const normalizedContextLimit = clampStoryContextLimit(payload.game.context_limit_chars)
+        setContextLimitChars(normalizedContextLimit)
+        setContextLimitDraft(String(normalizedContextLimit))
         applyWorldCardEvents(payload.world_card_events ?? [])
         setGames((previousGames) => {
           const hasGame = previousGames.some((game) => game.id === payload.game.id)
@@ -372,6 +390,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setMessages([])
           setInstructionCards([])
           setWorldCards([])
+          setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
+          setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
           applyWorldCardEvents([])
         }
       } catch (error) {
@@ -653,6 +673,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
+        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
+        setContextLimitChars(normalizedContextLimit)
+        setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
         setWorldCards([])
         applyWorldCardEvents([])
@@ -806,6 +829,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
+        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
+        setContextLimitChars(normalizedContextLimit)
+        setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
         setWorldCards([])
         applyWorldCardEvents([])
@@ -935,6 +961,83 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, loadGameById, undoingWorldCardEventIds],
   )
 
+  const persistContextLimit = useCallback(
+    async (nextValue: number) => {
+      const targetGameId = activeGameId
+      if (!targetGameId || isSavingContextLimit) {
+        return
+      }
+
+      const normalizedValue = clampStoryContextLimit(nextValue)
+      setContextLimitChars(normalizedValue)
+      setContextLimitDraft(String(normalizedValue))
+      setErrorMessage('')
+      setIsSavingContextLimit(true)
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          contextLimitChars: normalizedValue,
+        })
+        const persistedValue = clampStoryContextLimit(updatedGame.context_limit_chars)
+        setContextLimitChars(persistedValue)
+        setContextLimitDraft(String(persistedValue))
+        setGames((previousGames) =>
+          sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит контекста'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingContextLimit(false)
+      }
+    },
+    [activeGameId, authToken, isSavingContextLimit],
+  )
+
+  const handleContextLimitSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
+    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+    const normalizedValue = clampStoryContextLimit(rawValue)
+    setContextLimitChars(normalizedValue)
+    setContextLimitDraft(String(normalizedValue))
+  }, [])
+
+  const handleContextLimitSliderCommit = useCallback(
+    async (_event: unknown, nextValue: number | number[]) => {
+      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+      await persistContextLimit(rawValue)
+    },
+    [persistContextLimit],
+  )
+
+  const handleContextLimitDraftChange = useCallback((value: string) => {
+    const sanitized = value.replace(/[^\d]/g, '')
+    setContextLimitDraft(sanitized)
+    if (!sanitized) {
+      return
+    }
+    const parsed = Number.parseInt(sanitized, 10)
+    if (Number.isNaN(parsed)) {
+      return
+    }
+    setContextLimitChars(clampStoryContextLimit(parsed))
+  }, [])
+
+  const handleContextLimitDraftCommit = useCallback(async () => {
+    if (!contextLimitDraft.trim()) {
+      const normalized = clampStoryContextLimit(contextLimitChars)
+      setContextLimitDraft(String(normalized))
+      await persistContextLimit(normalized)
+      return
+    }
+
+    const parsed = Number.parseInt(contextLimitDraft, 10)
+    const normalized = clampStoryContextLimit(Number.isNaN(parsed) ? contextLimitChars : parsed)
+    setContextLimitChars(normalized)
+    setContextLimitDraft(String(normalized))
+    await persistContextLimit(normalized)
+  }, [contextLimitChars, contextLimitDraft, persistContextLimit])
+
   const runStoryGeneration = useCallback(
     async (options: {
       gameId: number
@@ -1059,6 +1162,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
+        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
+        setContextLimitChars(normalizedContextLimit)
+        setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
         setWorldCards([])
         applyWorldCardEvents([])
@@ -1621,15 +1727,85 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box
               sx={{
                 borderRadius: '12px',
-                border: '1px dashed rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(18, 22, 30, 0.52)',
-                px: 1.1,
-                py: 1.2,
+                border: '1px solid rgba(186, 202, 214, 0.2)',
+                backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                px: 1.05,
+                py: 1.05,
               }}
             >
-              <Typography sx={{ color: 'rgba(190, 202, 220, 0.68)', fontSize: '0.9rem' }}>
-                Настройки ИИ скоро появятся.
+              <Typography sx={{ color: '#dfe6f2', fontSize: '0.9rem', fontWeight: 700 }}>Лимит контекста</Typography>
+              <Typography sx={{ mt: 0.4, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.82rem', lineHeight: 1.38 }}>
+                Ограничивает размер отправляемого контекста в символах.
               </Typography>
+
+              {!activeGameId ? (
+                <Typography sx={{ mt: 0.85, color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.82rem' }}>
+                  Настройка появится после создания игры.
+                </Typography>
+              ) : (
+                <>
+                  <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.15 }}>
+                    <Box
+                      component="input"
+                      value={contextLimitDraft}
+                      onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
+                      onBlur={() => {
+                        void handleContextLimitDraftCommit()
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void handleContextLimitDraftCommit()
+                        }
+                      }}
+                      disabled={isSavingContextLimit || isGenerating}
+                      inputMode="numeric"
+                      sx={{
+                        width: 112,
+                        minHeight: 34,
+                        borderRadius: '9px',
+                        border: '1px solid rgba(186, 202, 214, 0.26)',
+                        backgroundColor: 'rgba(12, 16, 24, 0.76)',
+                        color: '#deE6f3',
+                        px: 0.9,
+                        outline: 'none',
+                        fontSize: '0.88rem',
+                      }}
+                    />
+                    <Typography sx={{ color: 'rgba(186, 202, 220, 0.68)', fontSize: '0.8rem' }}>символов</Typography>
+                    {isSavingContextLimit ? <CircularProgress size={14} sx={{ color: 'rgba(205, 215, 231, 0.86)' }} /> : null}
+                  </Stack>
+
+                  <Slider
+                    value={contextLimitChars}
+                    min={STORY_CONTEXT_LIMIT_MIN}
+                    max={STORY_CONTEXT_LIMIT_MAX}
+                    step={1}
+                    onChange={handleContextLimitSliderChange}
+                    onChangeCommitted={(event, value) => {
+                      void handleContextLimitSliderCommit(event, value)
+                    }}
+                    disabled={isSavingContextLimit || isGenerating}
+                    sx={{
+                      mt: 0.9,
+                      color: '#c6d3e5',
+                      '& .MuiSlider-thumb': {
+                        width: 16,
+                        height: 16,
+                      },
+                    }}
+                  />
+
+                  <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.3 }}>
+                    <Typography sx={{ color: 'rgba(184, 198, 219, 0.62)', fontSize: '0.74rem' }}>
+                      {STORY_CONTEXT_LIMIT_MIN}
+                    </Typography>
+                    <Typography sx={{ color: 'rgba(184, 198, 219, 0.62)', fontSize: '0.74rem' }}>
+                      {STORY_CONTEXT_LIMIT_MAX}
+                    </Typography>
+                  </Stack>
+                </>
+              )}
             </Box>
           ) : null}
 

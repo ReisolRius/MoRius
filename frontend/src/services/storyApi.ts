@@ -133,6 +133,22 @@ export async function getStoryGame(payload: {
   })
 }
 
+export async function updateStoryGameSettings(payload: {
+  token: string
+  gameId: number
+  contextLimitChars: number
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      context_limit_chars: payload.contextLimitChars,
+    }),
+  })
+}
+
 export async function updateStoryMessage(payload: {
   token: string
   gameId: number

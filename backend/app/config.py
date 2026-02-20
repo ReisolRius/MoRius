@@ -64,8 +64,13 @@ class Settings:
     openrouter_api_key: str
     openrouter_chat_url: str
     openrouter_model: str
+    openrouter_world_card_model: str
+    openrouter_translation_model: str
     openrouter_site_url: str
     openrouter_app_name: str
+    story_translation_enabled: bool
+    story_user_language: str
+    story_model_language: str
 
 
 settings = Settings(
@@ -109,6 +114,17 @@ settings = Settings(
     openrouter_api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
     openrouter_chat_url=os.getenv("OPENROUTER_CHAT_URL", "https://openrouter.ai/api/v1/chat/completions").strip(),
     openrouter_model=os.getenv("OPENROUTER_MODEL", "openrouter/free").strip(),
+    openrouter_world_card_model=os.getenv(
+        "OPENROUTER_WORLD_CARD_MODEL",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+    ).strip(),
+    openrouter_translation_model=os.getenv(
+        "OPENROUTER_TRANSLATION_MODEL",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+    ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
+    story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=True),
+    story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
+    story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
 )

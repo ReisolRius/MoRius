@@ -51,6 +51,7 @@ from app.schemas import (
     RegisterRequest,
     RegisterVerifyRequest,
     StoryGameCreateRequest,
+    StoryGameSettingsUpdateRequest,
     StoryGameOut,
     StoryGameSummaryOut,
     StoryGenerateRequest,
@@ -101,6 +102,9 @@ COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
+STORY_CONTEXT_LIMIT_MIN_CHARS = 9
+STORY_CONTEXT_LIMIT_MAX_CHARS = 32_000
+STORY_DEFAULT_CONTEXT_LIMIT_CHARS = 12_000
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_WORLD_CARD_EVENT_ADDED = "added"
@@ -178,6 +182,24 @@ def _ensure_user_coins_column_exists() -> None:
         connection.execute(text("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0"))
 
 
+def _ensure_story_game_context_limit_column_exists() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryGame.__tablename__):
+        return
+
+    game_columns = {column["name"] for column in inspector.get_columns(StoryGame.__tablename__)}
+    if "context_limit_chars" in game_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"ALTER TABLE {StoryGame.__tablename__} "
+                f"ADD COLUMN context_limit_chars INTEGER NOT NULL DEFAULT {STORY_DEFAULT_CONTEXT_LIMIT_CHARS}"
+            )
+        )
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     if settings.database_url.startswith("sqlite:///"):
@@ -188,6 +210,7 @@ def on_startup() -> None:
 
     Base.metadata.create_all(bind=engine)
     _ensure_user_coins_column_exists()
+    _ensure_story_game_context_limit_column_exists()
 
 
 def _normalize_email(email: str) -> str:
@@ -630,6 +653,12 @@ def _get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
 
     return user
+
+
+def _normalize_story_context_limit_chars(value: int | None) -> int:
+    if value is None:
+        return STORY_DEFAULT_CONTEXT_LIMIT_CHARS
+    return max(STORY_CONTEXT_LIMIT_MIN_CHARS, min(value, STORY_CONTEXT_LIMIT_MAX_CHARS))
 
 
 def _normalize_story_text(value: str) -> str:
@@ -1118,20 +1147,215 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
 
 
+def _is_story_translation_enabled() -> bool:
+    return (
+        settings.story_translation_enabled
+        and bool(settings.openrouter_api_key)
+        and bool(settings.openrouter_translation_model)
+        and settings.story_user_language != settings.story_model_language
+    )
+
+
+def _translate_text_batch_with_openrouter(
+    texts: list[str],
+    *,
+    source_language: str,
+    target_language: str,
+) -> list[str]:
+    if not texts:
+        return []
+
+    translation_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a precise translator. "
+                "Translate each input text to the target language while preserving meaning, tone, line breaks, and markup. "
+                "Return strict JSON array of strings with the same order and same count as input. "
+                "Do not add comments. Do not wrap JSON in markdown."
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "source_language": source_language,
+                    "target_language": target_language,
+                    "texts": texts,
+                },
+                ensure_ascii=False,
+            ),
+        },
+    ]
+    raw_response = _request_openrouter_story_text(
+        translation_messages,
+        model_name=settings.openrouter_translation_model,
+        allow_free_fallback=False,
+        temperature=0,
+    )
+    parsed_payload = _extract_json_array_from_text(raw_response)
+    if not isinstance(parsed_payload, list):
+        raise RuntimeError("OpenRouter translation returned malformed payload")
+
+    translated_texts: list[str] = []
+    for item in parsed_payload:
+        if isinstance(item, str):
+            translated_texts.append(item)
+            continue
+        if isinstance(item, dict):
+            text_value = item.get("text")
+            if isinstance(text_value, str):
+                translated_texts.append(text_value)
+
+    if len(translated_texts) != len(texts):
+        raise RuntimeError("OpenRouter translation returned incomplete translations")
+    return translated_texts
+
+
+def _translate_texts_with_openrouter(
+    texts: list[str],
+    *,
+    source_language: str,
+    target_language: str,
+) -> list[str]:
+    if not texts:
+        return []
+    if not _is_story_translation_enabled():
+        return texts
+    if source_language == target_language:
+        return texts
+
+    translated_texts = list(texts)
+    non_empty_items = [(index, text_value) for index, text_value in enumerate(texts) if text_value.strip()]
+    if not non_empty_items:
+        return translated_texts
+
+    max_batch_items = 12
+    max_batch_chars = 12_000
+    batch_indices: list[int] = []
+    batch_texts: list[str] = []
+    batch_chars = 0
+
+    def flush_batch() -> None:
+        nonlocal batch_indices, batch_texts, batch_chars
+        if not batch_texts:
+            return
+        translated_batch = _translate_text_batch_with_openrouter(
+            batch_texts,
+            source_language=source_language,
+            target_language=target_language,
+        )
+        for position, translated_value in zip(batch_indices, translated_batch):
+            translated_texts[position] = translated_value
+        batch_indices = []
+        batch_texts = []
+        batch_chars = 0
+
+    for index, text_value in non_empty_items:
+        text_len = len(text_value)
+        should_flush = batch_texts and (
+            len(batch_texts) >= max_batch_items or batch_chars + text_len > max_batch_chars
+        )
+        if should_flush:
+            flush_batch()
+
+        batch_indices.append(index)
+        batch_texts.append(text_value)
+        batch_chars += text_len
+
+    flush_batch()
+    return translated_texts
+
+
+def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) -> list[dict[str, str]]:
+    if not _is_story_translation_enabled():
+        return messages_payload
+
+    source_language = settings.story_user_language
+    target_language = settings.story_model_language
+    raw_texts = [message.get("content", "") for message in messages_payload]
+    translated_texts = _translate_texts_with_openrouter(
+        raw_texts,
+        source_language=source_language,
+        target_language=target_language,
+    )
+    translated_messages: list[dict[str, str]] = []
+    for message, translated_content in zip(messages_payload, translated_texts):
+        translated_messages.append({"role": message["role"], "content": translated_content})
+    return translated_messages
+
+
+def _translate_story_model_output_to_user(text_value: str) -> str:
+    if not text_value.strip():
+        return text_value
+    if not _is_story_translation_enabled():
+        return text_value
+    source_language = settings.story_model_language
+    target_language = settings.story_user_language
+    translated = _translate_texts_with_openrouter(
+        [text_value],
+        source_language=source_language,
+        target_language=target_language,
+    )
+    return translated[0] if translated else text_value
+
+
+def _trim_story_history_to_context_limit(
+    history: list[dict[str, str]],
+    context_limit_chars: int,
+) -> list[dict[str, str]]:
+    if not history:
+        return []
+
+    limit = _normalize_story_context_limit_chars(context_limit_chars)
+    selected_reversed: list[dict[str, str]] = []
+    consumed_chars = 0
+
+    for item in reversed(history):
+        content = item.get("content", "")
+        if not content:
+            continue
+        entry_cost = len(content) + 12
+        if consumed_chars + entry_cost <= limit:
+            selected_reversed.append(item)
+            consumed_chars += entry_cost
+            continue
+
+        if not selected_reversed:
+            max_content_chars = max(limit - 12, STORY_CONTEXT_LIMIT_MIN_CHARS)
+            selected_reversed.append({"role": item.get("role", STORY_USER_ROLE), "content": content[-max_content_chars:]})
+        break
+
+    selected_reversed.reverse()
+    return selected_reversed
+
+
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    *,
+    context_limit_chars: int,
+    translate_for_model: bool = False,
 ) -> list[dict[str, str]]:
     history = [
         {"role": message.role, "content": message.content.strip()}
         for message in context_messages
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
     ]
-    if len(history) > 24:
-        history = history[-24:]
+    if len(history) > 80:
+        history = history[-80:]
+    history = _trim_story_history_to_context_limit(history, context_limit_chars)
 
-    return [{"role": "system", "content": _build_story_system_prompt(instruction_cards, world_cards)}, *history]
+    messages_payload = [{"role": "system", "content": _build_story_system_prompt(instruction_cards, world_cards)}, *history]
+    if not translate_for_model:
+        return messages_payload
+
+    try:
+        return _translate_story_messages_for_model(messages_payload)
+    except Exception as exc:
+        logger.warning("Story input translation failed: %s", exc)
+        return messages_payload
 
 
 def _extract_text_from_model_content(value: Any) -> str:
@@ -1558,8 +1782,11 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
     if settings.openrouter_app_name:
         headers["X-Title"] = settings.openrouter_app_name
 
-    candidate_models = [settings.openrouter_model]
-    if settings.openrouter_model != "openrouter/free":
+    primary_model = settings.openrouter_world_card_model or settings.openrouter_model
+    candidate_models = [primary_model]
+    if settings.openrouter_model and settings.openrouter_model not in candidate_models:
+        candidate_models.append(settings.openrouter_model)
+    if "openrouter/free" not in candidate_models:
         candidate_models.append("openrouter/free")
 
     last_error: RuntimeError | None = None
@@ -2071,9 +2298,16 @@ def _iter_gigachat_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    *,
+    context_limit_chars: int,
 ):
     access_token = _get_gigachat_access_token()
-    messages_payload = _build_story_provider_messages(context_messages, instruction_cards, world_cards)
+    messages_payload = _build_story_provider_messages(
+        context_messages,
+        instruction_cards,
+        world_cards,
+        context_limit_chars=context_limit_chars,
+    )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
 
@@ -2165,8 +2399,15 @@ def _iter_openrouter_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    *,
+    context_limit_chars: int,
 ):
-    messages_payload = _build_story_provider_messages(context_messages, instruction_cards, world_cards)
+    messages_payload = _build_story_provider_messages(
+        context_messages,
+        instruction_cards,
+        world_cards,
+        context_limit_chars=context_limit_chars,
+    )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
 
@@ -2305,6 +2546,157 @@ def _iter_openrouter_story_stream_chunks(
     raise RuntimeError("OpenRouter chat request failed")
 
 
+def _request_gigachat_story_text(messages_payload: list[dict[str, str]]) -> str:
+    access_token = _get_gigachat_access_token()
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": settings.gigachat_model,
+        "messages": messages_payload,
+        "stream": False,
+    }
+
+    try:
+        response = requests.post(
+            settings.gigachat_chat_url,
+            headers=headers,
+            json=payload,
+            timeout=(20, 120),
+            verify=settings.gigachat_verify_ssl,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach GigaChat chat endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = {}
+
+        if isinstance(error_payload, dict):
+            detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+
+        error_text = f"GigaChat chat error ({response.status_code})"
+        if detail:
+            error_text = f"{error_text}: {detail}"
+        raise RuntimeError(error_text)
+
+    try:
+        payload_value = response.json()
+    except ValueError as exc:
+        raise RuntimeError("GigaChat chat returned invalid payload") from exc
+
+    if not isinstance(payload_value, dict):
+        return ""
+    choices = payload_value.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    choice = choices[0] if isinstance(choices[0], dict) else {}
+    message_value = choice.get("message")
+    if not isinstance(message_value, dict):
+        return ""
+    return _extract_text_from_model_content(message_value.get("content"))
+
+
+def _request_openrouter_story_text(
+    messages_payload: list[dict[str, str]],
+    *,
+    model_name: str | None = None,
+    allow_free_fallback: bool = True,
+    temperature: float | None = None,
+) -> str:
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    if settings.openrouter_site_url:
+        headers["HTTP-Referer"] = settings.openrouter_site_url
+    if settings.openrouter_app_name:
+        headers["X-Title"] = settings.openrouter_app_name
+
+    primary_model = (model_name or settings.openrouter_model).strip()
+    if not primary_model:
+        raise RuntimeError("OpenRouter chat model is not configured")
+
+    candidate_models = [primary_model]
+    if allow_free_fallback and primary_model != "openrouter/free":
+        candidate_models.append("openrouter/free")
+
+    last_error: RuntimeError | None = None
+    for candidate_model in candidate_models:
+        payload = {
+            "model": candidate_model,
+            "messages": messages_payload,
+            "stream": False,
+        }
+        if temperature is not None:
+            payload["temperature"] = temperature
+        try:
+            response = requests.post(
+                settings.openrouter_chat_url,
+                headers=headers,
+                json=payload,
+                timeout=(20, 120),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
+
+            if isinstance(error_payload, dict):
+                error_value = error_payload.get("error")
+                if isinstance(error_value, dict):
+                    detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+                    metadata_value = error_value.get("metadata")
+                    if isinstance(metadata_value, dict):
+                        raw_detail = str(metadata_value.get("raw") or "").strip()
+                        if raw_detail:
+                            detail = f"{detail}. {raw_detail}" if detail else raw_detail
+                elif isinstance(error_value, str):
+                    detail = error_value.strip()
+                if not detail:
+                    detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+
+            error_text = f"OpenRouter chat error ({response.status_code})"
+            if detail:
+                error_text = f"{error_text}: {detail}"
+
+            if response.status_code in {404, 429, 503} and candidate_model != candidate_models[-1]:
+                last_error = RuntimeError(error_text)
+                continue
+            raise RuntimeError(error_text)
+
+        try:
+            payload_value = response.json()
+        except ValueError as exc:
+            raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+
+        if not isinstance(payload_value, dict):
+            return ""
+        choices = payload_value.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        message_value = choice.get("message")
+        if not isinstance(message_value, dict):
+            return ""
+        return _extract_text_from_model_content(message_value.get("content"))
+
+    if last_error is not None:
+        raise last_error
+    return ""
+
+
 def _iter_story_provider_stream_chunks(
     *,
     prompt: str,
@@ -2312,12 +2704,60 @@ def _iter_story_provider_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    context_limit_chars: int,
 ):
     if settings.story_llm_provider == "gigachat":
-        yield from _iter_gigachat_story_stream_chunks(context_messages, instruction_cards, world_cards)
+        if _is_story_translation_enabled():
+            payload = _build_story_provider_messages(
+                context_messages,
+                instruction_cards,
+                world_cards,
+                context_limit_chars=context_limit_chars,
+                translate_for_model=True,
+            )
+            generated_text = _request_gigachat_story_text(payload)
+            try:
+                translated_text = _translate_story_model_output_to_user(generated_text)
+            except Exception as exc:
+                logger.warning("Story output translation failed: %s", exc)
+                translated_text = generated_text
+            for chunk in _iter_story_stream_chunks(translated_text):
+                yield chunk
+            return
+
+        yield from _iter_gigachat_story_stream_chunks(
+            context_messages,
+            instruction_cards,
+            world_cards,
+            context_limit_chars=context_limit_chars,
+        )
         return
+
     if settings.story_llm_provider == "openrouter":
-        yield from _iter_openrouter_story_stream_chunks(context_messages, instruction_cards, world_cards)
+        if _is_story_translation_enabled():
+            payload = _build_story_provider_messages(
+                context_messages,
+                instruction_cards,
+                world_cards,
+                context_limit_chars=context_limit_chars,
+                translate_for_model=True,
+            )
+            generated_text = _request_openrouter_story_text(payload)
+            try:
+                translated_text = _translate_story_model_output_to_user(generated_text)
+            except Exception as exc:
+                logger.warning("Story output translation failed: %s", exc)
+                translated_text = generated_text
+            for chunk in _iter_story_stream_chunks(translated_text):
+                yield chunk
+            return
+
+        yield from _iter_openrouter_story_stream_chunks(
+            context_messages,
+            instruction_cards,
+            world_cards,
+            context_limit_chars=context_limit_chars,
+        )
         return
 
     response_text = _build_mock_story_response(prompt, turn_index)
@@ -2347,6 +2787,7 @@ def _stream_story_response(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    context_limit_chars: int,
 ):
     assistant_message = StoryMessage(
         game_id=game.id,
@@ -2378,6 +2819,7 @@ def _stream_story_response(
             context_messages=context_messages,
             instruction_cards=instruction_cards,
             world_cards=world_cards,
+            context_limit_chars=context_limit_chars,
         ):
             produced += chunk
             if len(produced) - persisted_length >= persist_interval:
@@ -2688,10 +3130,12 @@ def create_story_game(
     title = payload.title.strip() if payload.title else STORY_DEFAULT_TITLE
     if not title:
         title = STORY_DEFAULT_TITLE
+    context_limit_chars = _normalize_story_context_limit_chars(payload.context_limit_chars)
 
     game = StoryGame(
         user_id=user.id,
         title=title,
+        context_limit_chars=context_limit_chars,
         last_activity_at=_utcnow(),
     )
     db.add(game)
@@ -2719,6 +3163,22 @@ def get_story_game(
         world_cards=[_story_world_card_to_out(card) for card in world_cards],
         world_card_events=[_story_world_card_change_event_to_out(event) for event in world_card_events],
     )
+
+
+@app.patch("/api/story/games/{game_id}/settings", response_model=StoryGameSummaryOut)
+def update_story_game_settings(
+    game_id: int,
+    payload: StoryGameSettingsUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryGameSummaryOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    game.context_limit_chars = _normalize_story_context_limit_chars(payload.context_limit_chars)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(game)
+    return StoryGameSummaryOut.model_validate(game)
 
 
 @app.get("/api/story/games/{game_id}/instructions", response_model=list[StoryInstructionCardOut])
@@ -3011,6 +3471,7 @@ def generate_story_response(
         context_messages=context_messages,
         instruction_cards=instruction_cards,
         world_cards=active_world_cards,
+        context_limit_chars=_normalize_story_context_limit_chars(game.context_limit_chars),
     )
     return StreamingResponse(
         stream,
