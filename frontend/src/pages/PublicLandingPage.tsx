@@ -21,35 +21,49 @@ const STORY_TEXT =
 const featureCards = [
   {
     id: 'choice',
-    title: 'Твой выбор имеет вес',
+    title: 'Каждое решение меняет мир',
     description:
-      'Здесь нельзя ошибиться. Каждое решение - от случайной фразы до боя с драконом - меняет мир вокруг. Один жест может открыть новый путь или привести к проблемам.',
+      'Союзники запоминают, враги мстят, слухи расходятся. Ты строишь репутацию поступками.',
     icon: icons.like,
   },
   {
-    id: 'living-world',
-    title: 'Живой мир за сценой',
+    id: 'gm',
+    title: 'Ты - герой. ИИ - мастер игры',
     description:
-      'ИИ не просто пишет текст. Он отслеживает отношения, фракции, погоду и последствия. Если герой в долгу - трактир полон слухов, а стража смотрит иначе.',
+      'Ты задаёшь намерение, мы создаём сцену и ведём сюжет дальше - как в настолке, только быстрее.',
     icon: icons.settings,
   },
   {
-    id: 'coauthor',
-    title: 'Ты автор, ИИ - соавтор',
-    description:
-      'Опиши действие своими словами: "Хочу обмануть стражу" или "Ищу древний фолиант". ИИ поймет мысль и развернет сцену в полноценное приключение.',
+    id: 'pay',
+    title: 'Плати только за действие',
+    description: 'Никаких подписок "на всякий случай". Тратишь только когда играешь.',
     icon: icons.send,
-  },
-  {
-    id: 'tokens',
-    title: 'Платишь только за игру',
-    description:
-      'Покупаешь токены - получаешь личные приключения без подписок и скрытых списаний. Ты контролируешь бюджет, а история подстраивается под твой темп.',
-    icon: icons.coin,
   },
 ]
 
-const footerLinks = ['О проекте', 'телеграм', 'Вконтакте']
+const footerLinks: Array<{ label: string; href: string; external?: boolean }> = [
+  { label: 'О проекте', href: '#' },
+  { label: 'телеграм', href: '#' },
+  { label: 'Вконтакте', href: 'https://vk.com/optrovert', external: true },
+]
+
+const ctaButtonSx: SxProps<Theme> = {
+  minWidth: 140,
+  minHeight: 40,
+  borderRadius: '10px',
+  px: 2.2,
+  fontWeight: 700,
+  fontSize: '0.9rem',
+  color: '#12161d',
+  backgroundColor: '#d7dfea',
+  boxShadow: '0 10px 22px rgba(0, 0, 0, 0.3)',
+  transition: 'transform 220ms ease, box-shadow 220ms ease, background-color 220ms ease',
+  '&:hover': {
+    backgroundColor: '#e5ecf4',
+    transform: 'translateY(-1px)',
+    boxShadow: '0 14px 28px rgba(0, 0, 0, 0.36)',
+  },
+}
 
 type PublicLandingPageProps = {
   isAuthenticated: boolean
@@ -165,12 +179,13 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
   return (
     <Box
       sx={{
-        backgroundColor: '#040507',
-        backgroundImage:
-          'radial-gradient(circle at 72% 22%, rgba(182, 108, 42, 0.08), transparent 24%), linear-gradient(180deg, rgba(8, 11, 16, 0.94) 0%, rgba(4, 6, 10, 0.98) 100%)',
-        color: 'text.primary',
+        position: 'relative',
         minHeight: '100svh',
         overflow: 'hidden',
+        color: '#d9dde4',
+        backgroundColor: '#02040a',
+        backgroundImage:
+          'radial-gradient(circle at 70% 15%, rgba(168, 110, 56, 0.16) 0%, rgba(168, 110, 56, 0.04) 32%, transparent 55%), linear-gradient(180deg, #080b12 0%, #03050a 44%, #02040a 100%)',
       }}
     >
       <Box
@@ -181,11 +196,12 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           alignItems: 'center',
           justifyContent: 'center',
           position: 'relative',
-          zIndex: 2,
           textAlign: 'center',
           px: 3,
-          py: { xs: 10, md: 12 },
-          backgroundImage: `linear-gradient(180deg, rgba(3, 5, 8, 0.42) 0%, rgba(3, 5, 8, 0.72) 54%, rgba(4, 5, 7, 0.98) 100%), url(${heroBackground})`,
+          pt: { xs: 10, md: 12 },
+          pb: { xs: 13, md: 15 },
+          zIndex: 2,
+          backgroundImage: `linear-gradient(180deg, rgba(4, 5, 8, 0.52) 0%, rgba(4, 5, 9, 0.8) 56%, rgba(3, 4, 8, 0.98) 100%), url(${heroBackground})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
@@ -194,7 +210,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             position: 'absolute',
             inset: 0,
             background:
-              'linear-gradient(90deg, rgba(3, 5, 8, 0.94) 0%, rgba(3, 5, 8, 0.36) 23%, rgba(3, 5, 8, 0.28) 78%, rgba(3, 5, 8, 0.94) 100%)',
+              'linear-gradient(90deg, rgba(4, 6, 10, 0.95) 0%, rgba(4, 6, 10, 0.34) 22%, rgba(4, 6, 10, 0.28) 78%, rgba(4, 6, 10, 0.95) 100%)',
             pointerEvents: 'none',
           },
           '&::after': {
@@ -202,7 +218,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             position: 'absolute',
             inset: 0,
             background:
-              'radial-gradient(circle at 55% 36%, rgba(195, 121, 44, 0.24) 0%, rgba(195, 121, 44, 0.08) 34%, transparent 70%), linear-gradient(180deg, transparent 54%, #040507 96%)',
+              'radial-gradient(circle at 53% 32%, rgba(191, 123, 57, 0.24) 0%, rgba(191, 123, 57, 0.07) 33%, transparent 70%), linear-gradient(180deg, transparent 55%, rgba(4, 6, 10, 0.76) 76%, rgba(4, 6, 10, 0.97) 100%)',
             pointerEvents: 'none',
           },
         }}
@@ -214,7 +230,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               src={brandLogo}
               alt="Morius"
               sx={{
-                width: { xs: 250, sm: 322, md: 362 },
+                width: { xs: 252, sm: 318, md: 368 },
                 maxWidth: '92%',
                 animation: 'morius-fade-up 620ms cubic-bezier(0.22, 1, 0.36, 1) both',
               }}
@@ -222,45 +238,39 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             <Typography
               variant="h2"
               sx={{
-                maxWidth: 760,
+                maxWidth: 780,
                 fontSize: { xs: '2.05rem', md: '2.95rem' },
                 lineHeight: 1.22,
+                color: '#d8dce4',
                 animation: 'morius-fade-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both',
                 animationDelay: '90ms',
               }}
             >
-              Твой ход, герой. ИИ уже ждет.
+              Твой ход. История начинается сейчас
             </Typography>
             <Typography
               sx={{
-                maxWidth: 620,
-                color: 'text.secondary',
-                fontSize: { xs: '0.95rem', md: '1rem' },
+                maxWidth: 680,
+                color: 'rgba(215, 220, 230, 0.74)',
+                fontSize: { xs: '0.93rem', md: '0.99rem' },
                 lineHeight: 1.5,
                 animation: 'morius-fade-up 740ms cubic-bezier(0.22, 1, 0.36, 1) both',
                 animationDelay: '150ms',
               }}
             >
-              Это не просто игра по сценарию. Это живой мир, который дышит и меняется благодаря тебе.
+              Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится
+              история.
             </Typography>
             <Button
               variant="contained"
               onClick={() => openAuthDialog('login')}
-              sx={{
-                minWidth: 150,
-                minHeight: 42,
-                backgroundColor: 'primary.main',
-                color: '#171716',
-                animation: 'morius-fade-up 760ms cubic-bezier(0.22, 1, 0.36, 1) both',
-                animationDelay: '210ms',
-                transition: 'transform 220ms ease, box-shadow 220ms ease, background-color 220ms ease',
-                boxShadow: '0 10px 24px rgba(0, 0, 0, 0.28)',
-                '&:hover': {
-                  backgroundColor: '#edf4fc',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 16px 30px rgba(0, 0, 0, 0.35)',
+              sx={[
+                ctaButtonSx,
+                {
+                  animation: 'morius-fade-up 760ms cubic-bezier(0.22, 1, 0.36, 1) both',
+                  animationDelay: '210ms',
                 },
-              }}
+              ]}
             >
               Начать играть
             </Button>
@@ -272,17 +282,17 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           sx={{
             position: 'absolute',
             left: '50%',
-            bottom: { xs: -96, sm: -112, md: -142, lg: -166 },
+            bottom: { xs: -118, sm: -136, md: -168, lg: -188 },
             transform: 'translateX(-50%)',
-            width: { xs: '240%', sm: '188%', md: '150%', lg: '136%' },
-            height: { xs: 290, sm: 340, md: 410, lg: 446 },
+            width: { xs: '265%', sm: '215%', md: '176%', lg: '154%' },
+            height: { xs: 338, sm: 388, md: 468, lg: 520 },
             overflow: 'hidden',
-            zIndex: 1,
+            zIndex: 3,
             pointerEvents: 'none',
             WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.58) 16%, #000 34%, #000 73%, rgba(0, 0, 0, 0.58) 88%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.4) 10%, #000 34%, #000 70%, rgba(0, 0, 0, 0.4) 90%, transparent 100%)',
             maskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.58) 16%, #000 34%, #000 73%, rgba(0, 0, 0, 0.58) 88%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.4) 10%, #000 34%, #000 70%, rgba(0, 0, 0, 0.4) 90%, transparent 100%)',
           }}
         >
           <Box
@@ -296,8 +306,8 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               height: '100%',
               objectFit: 'cover',
               objectPosition: '50% 49%',
-              opacity: 0.9,
-              filter: 'grayscale(1) contrast(1.2) brightness(1.16)',
+              opacity: 0.96,
+              filter: 'grayscale(1) brightness(0.82) contrast(1.3) saturate(0.7)',
             }}
           />
           <Box
@@ -310,10 +320,26 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 63%',
-              opacity: 0.72,
+              objectPosition: '50% 64%',
+              opacity: 0.86,
               mixBlendMode: 'screen',
-              filter: 'grayscale(1) blur(2.6px) contrast(1.16) brightness(1.28)',
+              filter: 'grayscale(1) blur(2.8px) brightness(1.16) contrast(1.22)',
+            }}
+          />
+          <Box
+            component="img"
+            src={heroClouds}
+            alt=""
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: '50% 74%',
+              opacity: 0.58,
+              mixBlendMode: 'screen',
+              filter: 'grayscale(1) blur(9px) brightness(1.24)',
             }}
           />
         </Box>
@@ -326,15 +352,43 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           minHeight: '100svh',
           position: 'relative',
           zIndex: 1,
+          mt: { xs: -128, sm: -150, md: -182 },
           display: 'flex',
           alignItems: 'center',
-          pt: { xs: 19, sm: 21, md: 24 },
-          pb: { xs: 8, md: 9 },
+          pt: { xs: 28, sm: 30, md: 34 },
+          pb: { xs: 10, md: 12 },
           background:
-            'linear-gradient(180deg, #040507 0%, rgba(5, 7, 11, 0.96) 34%, rgba(5, 7, 11, 0.94) 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.012) 0, rgba(255,255,255,0.012) 1px, transparent 1px, transparent 30px)',
+            'linear-gradient(180deg, rgba(2, 4, 8, 0.96) 0%, #02040a 28%, #02040a 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.009) 0, rgba(255,255,255,0.009) 1px, transparent 1px, transparent 30px)',
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            left: '50%',
+            top: { xs: -104, md: -142 },
+            transform: 'translateX(-50%)',
+            width: { xs: '250%', sm: '205%', md: '165%', lg: '148%' },
+            height: { xs: 260, sm: 300, md: 360 },
+            backgroundImage: `url(${heroClouds})`,
+            backgroundRepeat: 'no-repeat',
+            backgroundSize: 'cover',
+            backgroundPosition: '50% 58%',
+            opacity: 0.44,
+            filter: 'grayscale(1) blur(10px) brightness(1.06)',
+            mixBlendMode: 'screen',
+            pointerEvents: 'none',
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: 0,
+            height: { xs: 220, md: 280 },
+            background: 'linear-gradient(180deg, rgba(6, 8, 12, 0) 0%, rgba(2, 4, 8, 0.68) 36%, #02040a 100%)',
+            pointerEvents: 'none',
+          },
         }}
       >
-        <Container maxWidth="lg" sx={{ width: '100%' }}>
+        <Container maxWidth="lg" sx={{ width: '100%', position: 'relative', zIndex: 2 }}>
           <RevealOnView>
             <Stack spacing={{ xs: 5, md: 7 }} alignItems="center">
               <Typography
@@ -342,15 +396,23 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                 sx={{
                   fontSize: { xs: '2rem', md: '3.05rem' },
                   textAlign: 'center',
-                  maxWidth: 580,
+                  lineHeight: 1.25,
+                  maxWidth: 620,
+                  color: '#d3d8e0',
                 }}
               >
                 Ваше приключение начинается здесь и сейчас
               </Typography>
 
-              <Box sx={{ width: '100%', maxWidth: 860 }}>
-                <Box sx={{ minHeight: { xs: 136, md: 148 }, mb: 3 }}>
-                  <Typography sx={{ color: 'text.primary', lineHeight: 1.62, fontSize: { xs: '1rem', md: '1.08rem' } }}>
+              <Box sx={{ width: '100%', maxWidth: 770 }}>
+                <Box sx={{ minHeight: { xs: 120, md: 132 }, mb: 2.8 }}>
+                  <Typography
+                    sx={{
+                      color: 'rgba(217, 222, 232, 0.86)',
+                      lineHeight: 1.62,
+                      fontSize: { xs: '0.97rem', md: '1rem' },
+                    }}
+                  >
                     {typedText}
                     {isTyping ? (
                       <Box component="span" className="typing-caret" sx={{ ml: 0.2 }}>
@@ -362,35 +424,34 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
 
                 <Box
                   sx={{
-                    borderRadius: '14px',
-                    border: '1px solid rgba(186, 202, 214, 0.12)',
-                    background: 'linear-gradient(180deg, rgba(16, 18, 22, 0.88) 0%, rgba(17, 19, 22, 0.72) 100%)',
-                    backdropFilter: 'blur(4px)',
-                    boxShadow: '0 18px 34px rgba(0, 0, 0, 0.24)',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(185, 198, 214, 0.18)',
+                    background: 'linear-gradient(180deg, rgba(18, 21, 28, 0.9) 0%, rgba(14, 17, 23, 0.86) 100%)',
+                    boxShadow: '0 18px 30px rgba(0, 0, 0, 0.34)',
                   }}
                 >
                   <Box
                     component="textarea"
                     value={promptText}
                     onChange={(event) => setPromptText(event.target.value)}
-                    placeholder="Что вы будете делать дальше?"
+                    placeholder="Что же будете делать дальше?"
                     rows={3}
                     spellCheck={false}
                     sx={{
                       display: 'block',
                       width: '100%',
-                      minHeight: { xs: 82, md: 92 },
+                      minHeight: { xs: 80, md: 90 },
                       border: 'none',
                       outline: 'none',
                       resize: 'none',
-                      p: '14px 16px',
+                      p: '12px 14px',
                       backgroundColor: 'transparent',
-                      color: 'text.primary',
+                      color: '#dde2ea',
                       fontFamily: 'inherit',
-                      fontSize: { xs: '0.98rem', md: '1.04rem' },
+                      fontSize: { xs: '0.94rem', md: '0.99rem' },
                       lineHeight: 1.5,
                       '&::placeholder': {
-                        color: 'rgba(223, 229, 239, 0.74)',
+                        color: 'rgba(220, 226, 236, 0.5)',
                         opacity: 1,
                       },
                     }}
@@ -398,15 +459,17 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                   <Stack
                     direction="row"
                     alignItems="center"
-                    spacing={0.2}
+                    spacing={0.1}
                     sx={{
-                      borderTop: '1px solid rgba(186, 202, 214, 0.1)',
-                      p: '6px 10px',
+                      borderTop: '1px solid rgba(185, 198, 214, 0.14)',
+                      p: '5px 9px',
                     }}
                   >
-                    <Stack direction="row" alignItems="center" spacing={0.45} sx={{ pl: 0.5, pr: 0.7 }}>
+                    <Stack direction="row" alignItems="center" spacing={0.4} sx={{ pl: 0.6, pr: 0.8 }}>
                       <Box component="img" src={icons.tabcoin} alt="coin count" sx={{ width: 12, height: 12 }} />
-                      <Typography sx={{ fontSize: '1.48rem', lineHeight: 1, color: 'text.secondary' }}>5</Typography>
+                      <Typography sx={{ fontSize: '1.42rem', lineHeight: 1, color: 'rgba(211, 217, 228, 0.85)' }}>
+                        5
+                      </Typography>
                     </Stack>
                     <IconButton
                       size="small"
@@ -435,39 +498,23 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                       aria-label="send disabled"
                       onClick={(event) => event.preventDefault()}
                       sx={{
-                        width: 36,
-                        height: 36,
-                        backgroundColor: 'primary.main',
+                        width: 32,
+                        height: 32,
+                        backgroundColor: '#d7dfea',
                         transition: 'transform 180ms ease, background-color 180ms ease',
                         '&:hover': {
-                          backgroundColor: '#edf4fc',
+                          backgroundColor: '#e5ecf4',
                           transform: 'translateY(-1px)',
                         },
                       }}
                     >
-                      <Box component="img" src={icons.send} alt="" sx={{ width: 16, height: 16 }} />
+                      <Box component="img" src={icons.send} alt="" sx={{ width: 14, height: 14 }} />
                     </IconButton>
                   </Stack>
                 </Box>
 
-                <Box sx={{ textAlign: 'center', mt: 5 }}>
-                  <Button
-                    variant="contained"
-                    onClick={() => openAuthDialog('register')}
-                    sx={{
-                      minWidth: 170,
-                      minHeight: 44,
-                      backgroundColor: 'primary.main',
-                      color: '#171716',
-                      transition: 'transform 220ms ease, box-shadow 220ms ease, background-color 220ms ease',
-                      boxShadow: '0 10px 24px rgba(0, 0, 0, 0.26)',
-                      '&:hover': {
-                        backgroundColor: '#edf4fc',
-                        transform: 'translateY(-2px)',
-                        boxShadow: '0 16px 28px rgba(0, 0, 0, 0.34)',
-                      },
-                    }}
-                  >
+                <Box sx={{ textAlign: 'center', mt: 4.5 }}>
+                  <Button variant="contained" onClick={() => openAuthDialog('register')} sx={ctaButtonSx}>
                     Начать играть
                   </Button>
                 </Box>
@@ -477,23 +524,22 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
         </Container>
       </Box>
 
-      <Box component="section" sx={{ minHeight: '100svh', display: 'flex', alignItems: 'center', py: { xs: 8, md: 9 } }}>
+      <Box component="section" sx={{ minHeight: '92svh', display: 'flex', alignItems: 'center', py: { xs: 10, md: 12 } }}>
         <Container maxWidth="lg" sx={{ width: '100%' }}>
           <Stack spacing={6} alignItems="center">
             <RevealOnView>
-              <Stack spacing={1.3} alignItems="center" textAlign="center">
-                <Typography variant="h2" sx={{ fontSize: { xs: '2rem', md: '3rem' } }}>
-                  Как работает твое приключение
+              <Stack spacing={1.25} alignItems="center" textAlign="center">
+                <Typography variant="h2" sx={{ fontSize: { xs: '2rem', md: '2.92rem' }, color: '#d3d8e0' }}>
+                  Как устроена игра
                 </Typography>
                 <Typography
                   sx={{
                     maxWidth: 760,
-                    color: 'text.secondary',
-                    fontSize: { xs: '0.95rem', md: '1rem' },
+                    color: 'rgba(214, 221, 231, 0.64)',
+                    fontSize: { xs: '0.92rem', md: '0.98rem' },
                   }}
                 >
-                  Здесь нет сценариев и рельсов. Только чистый лист твоей фантазии и бесконечные миры, которые ИИ
-                  создает специально для тебя.
+                  Ты выбираешь действия. ИИ ведет мир: описывает сцены, персонажей и последствия.
                 </Typography>
               </Stack>
             </RevealOnView>
@@ -502,11 +548,11 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               sx={{
                 width: '100%',
                 display: 'grid',
-                gap: 2.6,
+                gap: 2.4,
                 gridTemplateColumns: {
                   xs: '1fr',
                   sm: 'repeat(2, minmax(0, 1fr))',
-                  lg: 'repeat(4, minmax(0, 1fr))',
+                  md: 'repeat(3, minmax(0, 1fr))',
                 },
               }}
             >
@@ -514,20 +560,21 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                 <RevealOnView key={feature.id} delay={index * 95} y={30} threshold={0.18}>
                   <Card
                     sx={{
-                      backgroundColor: 'rgba(10, 13, 18, 0.84)',
-                      border: '1px solid rgba(186, 202, 214, 0.08)',
-                      minHeight: 312,
+                      background: 'linear-gradient(180deg, rgba(16, 19, 26, 0.94) 0%, rgba(13, 16, 22, 0.92) 100%)',
+                      border: '1px solid rgba(185, 198, 214, 0.16)',
+                      minHeight: { xs: 222, md: 236 },
+                      borderRadius: '10px',
                       transition:
                         'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), border-color 280ms ease, box-shadow 280ms ease, background-color 280ms ease',
-                      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.18)',
+                      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.2)',
                       '&:hover': {
-                        transform: 'translateY(-8px)',
-                        borderColor: 'rgba(186, 202, 214, 0.22)',
-                        backgroundColor: 'rgba(14, 18, 26, 0.9)',
-                        boxShadow: '0 22px 34px rgba(0, 0, 0, 0.28)',
+                        transform: 'translateY(-7px)',
+                        borderColor: 'rgba(185, 198, 214, 0.34)',
+                        backgroundColor: 'rgba(18, 22, 30, 0.96)',
+                        boxShadow: '0 20px 34px rgba(0, 0, 0, 0.3)',
                       },
                       '&:hover .feature-icon': {
-                        transform: 'translateY(-2px) scale(1.06)',
+                        transform: 'translateY(-2px) scale(1.05)',
                       },
                     }}
                   >
@@ -545,21 +592,21 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                         src={feature.icon}
                         alt={feature.title}
                         sx={{
-                          width: 54,
-                          height: 54,
-                          mb: 2.2,
+                          width: 44,
+                          height: 44,
+                          mb: 2.1,
                           objectFit: 'contain',
                           transition: 'transform 260ms ease',
                           filter:
-                            feature.id === 'coauthor'
-                              ? 'brightness(0) saturate(100%) invert(82%) sepia(8%) saturate(330%) hue-rotate(173deg) brightness(92%) contrast(91%)'
+                            feature.id === 'pay'
+                              ? 'brightness(0) saturate(100%) invert(88%) sepia(10%) saturate(262%) hue-rotate(174deg) brightness(90%) contrast(91%)'
                               : 'none',
                         }}
                       />
-                      <Typography variant="h6" sx={{ mb: 1.4, fontSize: '1.32rem', fontWeight: 700 }}>
+                      <Typography variant="h6" sx={{ mb: 1.2, fontSize: '1.28rem', fontWeight: 700, color: '#d8dde5' }}>
                         {feature.title}
                       </Typography>
-                      <Typography sx={{ color: 'text.secondary', lineHeight: 1.55, fontSize: '0.9rem' }}>
+                      <Typography sx={{ color: 'rgba(213, 220, 231, 0.62)', lineHeight: 1.54, fontSize: '0.9rem' }}>
                         {feature.description}
                       </Typography>
                     </CardContent>
@@ -571,40 +618,23 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
         </Container>
       </Box>
 
-      <Box component="section" sx={{ minHeight: '70svh', display: 'grid', placeItems: 'center', px: 3, py: { xs: 8, md: 10 } }}>
+      <Box component="section" sx={{ minHeight: '62svh', display: 'grid', placeItems: 'center', px: 3, py: { xs: 8, md: 10 } }}>
         <RevealOnView>
-          <Stack spacing={1.4} alignItems="center" textAlign="center">
-            <Typography variant="h2" sx={{ fontSize: { xs: '2.05rem', md: '3.05rem' }, maxWidth: 760 }}>
-              Скорее погрузись в мир приключений без ограничений!
+          <Stack spacing={1.25} alignItems="center" textAlign="center">
+            <Typography variant="h2" sx={{ fontSize: { xs: '2rem', md: '2.82rem' }, maxWidth: 760, color: '#d3d8e0' }}>
+              Готов сделать первый ход?
             </Typography>
-            <Typography sx={{ color: 'text.secondary', fontSize: { xs: '0.94rem', md: '1rem' } }}>
-              Зарегистрируйся и начни свою игру
+            <Typography sx={{ color: 'rgba(214, 221, 231, 0.62)', fontSize: { xs: '0.92rem', md: '0.98rem' } }}>
+              Зарегистрируйся и начни играть
             </Typography>
-            <Button
-              variant="contained"
-              onClick={() => openAuthDialog('register')}
-              sx={{
-                minWidth: 150,
-                minHeight: 42,
-                backgroundColor: 'primary.main',
-                color: '#171716',
-                mt: 0.9,
-                transition: 'transform 220ms ease, box-shadow 220ms ease, background-color 220ms ease',
-                boxShadow: '0 10px 24px rgba(0, 0, 0, 0.26)',
-                '&:hover': {
-                  backgroundColor: '#edf4fc',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 16px 28px rgba(0, 0, 0, 0.34)',
-                },
-              }}
-            >
+            <Button variant="contained" onClick={() => openAuthDialog('register')} sx={[ctaButtonSx, { mt: 0.8 }]}>
               Начать играть
             </Button>
           </Stack>
         </RevealOnView>
       </Box>
 
-      <Box component="footer" sx={{ borderTop: '1px solid rgba(182, 196, 214, 0.12)', py: 4.5 }}>
+      <Box component="footer" sx={{ borderTop: '1px solid rgba(185, 198, 214, 0.14)', py: 4.5 }}>
         <Container maxWidth="lg">
           <RevealOnView>
             <Stack
@@ -616,26 +646,30 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             >
               {footerLinks.map((link) => (
                 <Typography
-                  key={link}
+                  key={link.label}
                   component="a"
-                  href="#"
+                  href={link.href}
+                  target={link.external ? '_blank' : undefined}
+                  rel={link.external ? 'noopener noreferrer' : undefined}
                   sx={{
-                    color: 'text.primary',
+                    color: '#e2e6ed',
                     textDecoration: 'none',
                     fontWeight: 600,
                     transition: 'color 180ms ease, transform 180ms ease',
                     '&:hover': {
-                      color: 'primary.main',
+                      color: '#f0f4fb',
                       transform: 'translateY(-1px)',
                     },
                   }}
                 >
-                  {link}
+                  {link.label}
                 </Typography>
               ))}
             </Stack>
           </RevealOnView>
-          <Typography sx={{ textAlign: 'center', color: 'text.secondary', fontSize: '0.84rem' }}>MoRius ©</Typography>
+          <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.6)', fontSize: '0.84rem' }}>
+            MoRius ©
+          </Typography>
         </Container>
       </Box>
 
