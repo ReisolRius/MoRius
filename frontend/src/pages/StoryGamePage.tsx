@@ -255,6 +255,8 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
       setActiveAssistantMessageId(null)
       const controller = new AbortController()
       generationAbortRef.current = controller
+      let wasAborted = false
+      let streamStarted = false
 
       try {
         await generateStoryResponseStream({
@@ -264,6 +266,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
           rerollLastResponse: options.rerollLastResponse,
           signal: controller.signal,
           onStart: (payload) => {
+            streamStarted = true
             setActiveAssistantMessageId(payload.assistant_message_id)
             setMessages((previousMessages) => {
               const nextMessages = [...previousMessages]
@@ -310,7 +313,9 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
           },
         })
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (controller.signal.aborted) {
+          wasAborted = true
+        } else {
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
           setErrorMessage(detail)
         }
@@ -318,7 +323,14 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout }: StoryGamePageP
         setIsGenerating(false)
         setActiveAssistantMessageId(null)
         generationAbortRef.current = null
-        void loadGameById(options.gameId, { silent: true })
+
+        if (wasAborted && streamStarted) {
+          await new Promise<void>((resolve) => {
+            window.setTimeout(() => resolve(), 700)
+          })
+        }
+
+        await loadGameById(options.gameId, { silent: true })
         try {
           const refreshedGames = await listStoryGames(authToken)
           setGames(sortGamesByActivity(refreshedGames))

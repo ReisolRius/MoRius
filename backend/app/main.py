@@ -86,6 +86,15 @@ STORY_ASSISTANT_ROLE = "assistant"
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
+STORY_SYSTEM_PROMPT = (
+    "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
+    "Отвечай только на русском языке. "
+    "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
+    "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
+    "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
+    "Формат: 2-5 абзацев связного повествования. "
+    "В конце добавляй краткий крючок-вопрос: что игрок делает дальше."
+)
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -675,6 +684,18 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
 
 
+def _build_story_provider_messages(context_messages: list[StoryMessage]) -> list[dict[str, str]]:
+    history = [
+        {"role": message.role, "content": message.content.strip()}
+        for message in context_messages
+        if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
+    ]
+    if len(history) > 24:
+        history = history[-24:]
+
+    return [{"role": "system", "content": STORY_SYSTEM_PROMPT}, *history]
+
+
 def _extract_text_from_model_content(value: Any) -> str:
     if isinstance(value, str):
         return value
@@ -778,12 +799,8 @@ def _get_gigachat_access_token() -> str:
 
 def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
     access_token = _get_gigachat_access_token()
-    messages_payload = [
-        {"role": message.role, "content": message.content}
-        for message in context_messages
-        if message.content.strip()
-    ]
-    if not messages_payload:
+    messages_payload = _build_story_provider_messages(context_messages)
+    if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
 
     headers = {
@@ -809,71 +826,70 @@ def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
     except requests.RequestException as exc:
         raise RuntimeError("Failed to reach GigaChat chat endpoint") from exc
 
-    if response.status_code >= 400:
-        detail = ""
-        try:
-            error_payload = response.json()
-        except ValueError:
-            error_payload = {}
+    try:
+        if response.status_code >= 400:
+            detail = ""
+            try:
+                error_payload = response.json()
+            except ValueError:
+                error_payload = {}
 
-        if isinstance(error_payload, dict):
-            detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
+            if isinstance(error_payload, dict):
+                detail = str(error_payload.get("message") or error_payload.get("error") or "").strip()
 
-        if detail:
-            raise RuntimeError(f"GigaChat chat error ({response.status_code}): {detail}")
-        raise RuntimeError(f"GigaChat chat error ({response.status_code})")
+            if detail:
+                raise RuntimeError(f"GigaChat chat error ({response.status_code}): {detail}")
+            raise RuntimeError(f"GigaChat chat error ({response.status_code})")
 
-    # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
-    response.encoding = "utf-8"
-    emitted_delta = False
-    for raw_line in response.iter_lines(decode_unicode=True):
-        if raw_line is None:
-            continue
-        line = raw_line.strip()
-        if not line or not line.startswith("data:"):
-            continue
-
-        raw_data = line[len("data:") :].strip()
-        if raw_data == "[DONE]":
-            break
-
-        try:
-            chunk_payload = json.loads(raw_data)
-        except json.JSONDecodeError:
-            continue
-
-        choices = chunk_payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            continue
-
-        choice = choices[0] if isinstance(choices[0], dict) else {}
-        delta_value = choice.get("delta")
-        if isinstance(delta_value, dict):
-            content_delta = delta_value.get("content")
-            if isinstance(content_delta, str) and content_delta:
-                emitted_delta = True
-                yield content_delta
+        # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
+        response.encoding = "utf-8"
+        emitted_delta = False
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if raw_line is None:
+                continue
+            line = raw_line.strip()
+            if not line or not line.startswith("data:"):
                 continue
 
-        if emitted_delta:
-            continue
-
-        message_value = choice.get("message")
-        if isinstance(message_value, dict):
-            content_value = message_value.get("content")
-            if isinstance(content_value, str) and content_value:
-                for chunk in _iter_story_stream_chunks(content_value):
-                    yield chunk
+            raw_data = line[len("data:") :].strip()
+            if raw_data == "[DONE]":
                 break
+
+            try:
+                chunk_payload = json.loads(raw_data)
+            except json.JSONDecodeError:
+                continue
+
+            choices = chunk_payload.get("choices")
+            if not isinstance(choices, list) or not choices:
+                continue
+
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            delta_value = choice.get("delta")
+            if isinstance(delta_value, dict):
+                content_delta = delta_value.get("content")
+                if isinstance(content_delta, str) and content_delta:
+                    emitted_delta = True
+                    yield content_delta
+                    continue
+
+            if emitted_delta:
+                continue
+
+            message_value = choice.get("message")
+            if isinstance(message_value, dict):
+                content_value = message_value.get("content")
+                if isinstance(content_value, str) and content_value:
+                    for chunk in _iter_story_stream_chunks(content_value):
+                        yield chunk
+                    break
+    finally:
+        response.close()
 
 
 def _iter_openrouter_story_stream_chunks(context_messages: list[StoryMessage]):
-    messages_payload = [
-        {"role": message.role, "content": message.content}
-        for message in context_messages
-        if message.content.strip()
-    ]
-    if not messages_payload:
+    messages_payload = _build_story_provider_messages(context_messages)
+    if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
 
     headers = {
@@ -886,93 +902,129 @@ def _iter_openrouter_story_stream_chunks(context_messages: list[StoryMessage]):
     if settings.openrouter_app_name:
         headers["X-Title"] = settings.openrouter_app_name
 
-    payload = {
-        "model": settings.openrouter_model,
-        "messages": messages_payload,
-        "stream": True,
-    }
+    candidate_models = [settings.openrouter_model]
+    if settings.openrouter_model != "openrouter/free":
+        candidate_models.append("openrouter/free")
 
-    try:
-        response = requests.post(
-            settings.openrouter_chat_url,
-            headers=headers,
-            json=payload,
-            timeout=(20, 120),
-            stream=True,
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+    last_error: RuntimeError | None = None
 
-    if response.status_code >= 400:
-        detail = ""
-        try:
-            error_payload = response.json()
-        except ValueError:
-            error_payload = {}
+    for model_name in candidate_models:
+        payload = {
+            "model": model_name,
+            "messages": messages_payload,
+            "stream": True,
+        }
 
-        if isinstance(error_payload, dict):
-            error_value = error_payload.get("error")
-            if isinstance(error_value, dict):
-                detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-            elif isinstance(error_value, str):
-                detail = error_value.strip()
+        for attempt_index in range(2):
+            try:
+                response = requests.post(
+                    settings.openrouter_chat_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=(20, 120),
+                    stream=True,
+                )
+            except requests.RequestException as exc:
+                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
 
-            if not detail:
-                detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+            try:
+                if response.status_code >= 400:
+                    detail = ""
+                    try:
+                        error_payload = response.json()
+                    except ValueError:
+                        error_payload = {}
 
-        if detail:
-            raise RuntimeError(f"OpenRouter chat error ({response.status_code}): {detail}")
-        raise RuntimeError(f"OpenRouter chat error ({response.status_code})")
+                    if isinstance(error_payload, dict):
+                        error_value = error_payload.get("error")
+                        if isinstance(error_value, dict):
+                            detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+                            metadata_value = error_value.get("metadata")
+                            if isinstance(metadata_value, dict):
+                                raw_detail = str(metadata_value.get("raw") or "").strip()
+                                if raw_detail:
+                                    detail = f"{detail}. {raw_detail}" if detail else raw_detail
+                        elif isinstance(error_value, str):
+                            detail = error_value.strip()
 
-    # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
-    response.encoding = "utf-8"
-    emitted_delta = False
-    for raw_line in response.iter_lines(decode_unicode=True):
-        if raw_line is None:
-            continue
-        line = raw_line.strip()
-        if not line or not line.startswith("data:"):
-            continue
+                        if not detail:
+                            detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
 
-        raw_data = line[len("data:") :].strip()
-        if raw_data == "[DONE]":
-            break
+                    if response.status_code == 429 and attempt_index == 0:
+                        time.sleep(1.1)
+                        continue
 
-        try:
-            chunk_payload = json.loads(raw_data)
-        except json.JSONDecodeError:
-            continue
+                    error_text = f"OpenRouter chat error ({response.status_code})"
+                    if detail:
+                        error_text = f"{error_text}: {detail}"
 
-        error_value = chunk_payload.get("error")
-        if isinstance(error_value, dict):
-            error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-            raise RuntimeError(error_detail or "OpenRouter stream returned an error")
-        if isinstance(error_value, str) and error_value.strip():
-            raise RuntimeError(error_value.strip())
+                    if response.status_code in {404, 429, 503} and model_name != candidate_models[-1]:
+                        last_error = RuntimeError(error_text)
+                        break
 
-        choices = chunk_payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            continue
+                    raise RuntimeError(error_text)
 
-        choice = choices[0] if isinstance(choices[0], dict) else {}
-        delta_value = choice.get("delta")
-        if isinstance(delta_value, dict):
-            content_delta = _extract_text_from_model_content(delta_value.get("content"))
-            if content_delta:
-                emitted_delta = True
-                yield content_delta
-                continue
+                # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
+                response.encoding = "utf-8"
+                emitted_delta = False
+                for raw_line in response.iter_lines(decode_unicode=True):
+                    if raw_line is None:
+                        continue
+                    line = raw_line.strip()
+                    if not line or not line.startswith("data:"):
+                        continue
 
-        if emitted_delta:
-            continue
+                    raw_data = line[len("data:") :].strip()
+                    if raw_data == "[DONE]":
+                        break
 
-        message_value = choice.get("message")
-        if isinstance(message_value, dict):
-            content_value = _extract_text_from_model_content(message_value.get("content"))
-            if content_value:
-                for chunk in _iter_story_stream_chunks(content_value):
-                    yield chunk
-                break
+                    try:
+                        chunk_payload = json.loads(raw_data)
+                    except json.JSONDecodeError:
+                        continue
+
+                    error_value = chunk_payload.get("error")
+                    if isinstance(error_value, dict):
+                        error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+                        raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+                    if isinstance(error_value, str) and error_value.strip():
+                        raise RuntimeError(error_value.strip())
+
+                    choices = chunk_payload.get("choices")
+                    if not isinstance(choices, list) or not choices:
+                        continue
+
+                    choice = choices[0] if isinstance(choices[0], dict) else {}
+                    delta_value = choice.get("delta")
+                    if isinstance(delta_value, dict):
+                        content_delta = _extract_text_from_model_content(delta_value.get("content"))
+                        if content_delta:
+                            emitted_delta = True
+                            yield content_delta
+                            continue
+
+                    if emitted_delta:
+                        continue
+
+                    message_value = choice.get("message")
+                    if isinstance(message_value, dict):
+                        content_value = _extract_text_from_model_content(message_value.get("content"))
+                        if content_value:
+                            for chunk in _iter_story_stream_chunks(content_value):
+                                yield chunk
+                            break
+
+                return
+            finally:
+                response.close()
+
+        if model_name == candidate_models[-1] and last_error is not None:
+            raise last_error
+
+    if last_error is not None:
+        raise last_error
+
+    raise RuntimeError("OpenRouter chat request failed")
 
 
 def _iter_story_provider_stream_chunks(
@@ -1033,6 +1085,8 @@ def _stream_story_response(
     )
 
     produced = ""
+    persisted_length = 0
+    persist_interval = 220
     aborted = False
     stream_error: str | None = None
     try:
@@ -1042,6 +1096,12 @@ def _stream_story_response(
             context_messages=context_messages,
         ):
             produced += chunk
+            if len(produced) - persisted_length >= persist_interval:
+                assistant_message.content = produced
+                _touch_story_game(game)
+                db.commit()
+                db.refresh(assistant_message)
+                persisted_length = len(produced)
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
     except GeneratorExit:
         aborted = True
