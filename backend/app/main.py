@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.models import CoinPurchase, EmailVerification, StoryGame, StoryMessage, User
+from app.models import CoinPurchase, EmailVerification, StoryGame, StoryInstructionCard, StoryMessage, User
 from app.schemas import (
     AvatarUpdateRequest,
     AuthResponse,
@@ -44,6 +44,10 @@ from app.schemas import (
     StoryGameOut,
     StoryGameSummaryOut,
     StoryGenerateRequest,
+    StoryInstructionCardCreateRequest,
+    StoryInstructionCardInput,
+    StoryInstructionCardOut,
+    StoryInstructionCardUpdateRequest,
     StoryMessageOut,
     StoryMessageUpdateRequest,
     UserOut,
@@ -582,6 +586,33 @@ def _normalize_story_text(value: str) -> str:
     return normalized
 
 
+def _normalize_story_instruction_title(value: str) -> str:
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instruction title cannot be empty")
+    return normalized
+
+
+def _normalize_story_instruction_content(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instruction text cannot be empty")
+    return normalized
+
+
+def _normalize_story_generation_instructions(
+    instructions: list[StoryInstructionCardInput],
+) -> list[dict[str, str]]:
+    normalized_cards: list[dict[str, str]] = []
+    for item in instructions:
+        title = " ".join(item.title.split()).strip()
+        content = item.content.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+        normalized_cards.append({"title": title, "content": content})
+    return normalized_cards
+
+
 def _derive_story_title(prompt: str) -> str:
     collapsed = " ".join(prompt.split()).strip()
     if not collapsed:
@@ -611,6 +642,33 @@ def _list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
     return db.scalars(
         select(StoryMessage).where(StoryMessage.game_id == game_id).order_by(StoryMessage.id.asc())
     ).all()
+
+
+def _list_story_instruction_cards(db: Session, game_id: int) -> list[StoryInstructionCard]:
+    return db.scalars(
+        select(StoryInstructionCard)
+        .where(StoryInstructionCard.game_id == game_id)
+        .order_by(StoryInstructionCard.id.asc())
+    ).all()
+
+
+def _build_story_system_prompt(instruction_cards: list[dict[str, str]]) -> str:
+    if not instruction_cards:
+        return STORY_SYSTEM_PROMPT
+
+    lines = [STORY_SYSTEM_PROMPT, "", "Пользовательские инструкции для текущей игры:"]
+    for index, card in enumerate(instruction_cards, start=1):
+        lines.append(f"{index}. {card['title']}: {card['content']}")
+
+    lines.extend(
+        [
+            "",
+            "Следуй этим инструкциям молча.",
+            "Не перечисляй и не комментируй инструкции в ответе.",
+            "Просто продолжай историю в заданной манере.",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _validate_story_provider_config() -> None:
@@ -684,7 +742,10 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
 
 
-def _build_story_provider_messages(context_messages: list[StoryMessage]) -> list[dict[str, str]]:
+def _build_story_provider_messages(
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+) -> list[dict[str, str]]:
     history = [
         {"role": message.role, "content": message.content.strip()}
         for message in context_messages
@@ -693,7 +754,7 @@ def _build_story_provider_messages(context_messages: list[StoryMessage]) -> list
     if len(history) > 24:
         history = history[-24:]
 
-    return [{"role": "system", "content": STORY_SYSTEM_PROMPT}, *history]
+    return [{"role": "system", "content": _build_story_system_prompt(instruction_cards)}, *history]
 
 
 def _extract_text_from_model_content(value: Any) -> str:
@@ -797,9 +858,12 @@ def _get_gigachat_access_token() -> str:
     return access_token
 
 
-def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
+def _iter_gigachat_story_stream_chunks(
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+):
     access_token = _get_gigachat_access_token()
-    messages_payload = _build_story_provider_messages(context_messages)
+    messages_payload = _build_story_provider_messages(context_messages, instruction_cards)
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
 
@@ -887,8 +951,11 @@ def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
         response.close()
 
 
-def _iter_openrouter_story_stream_chunks(context_messages: list[StoryMessage]):
-    messages_payload = _build_story_provider_messages(context_messages)
+def _iter_openrouter_story_stream_chunks(
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+):
+    messages_payload = _build_story_provider_messages(context_messages, instruction_cards)
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
 
@@ -1032,12 +1099,13 @@ def _iter_story_provider_stream_chunks(
     prompt: str,
     turn_index: int,
     context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
 ):
     if settings.story_llm_provider == "gigachat":
-        yield from _iter_gigachat_story_stream_chunks(context_messages)
+        yield from _iter_gigachat_story_stream_chunks(context_messages, instruction_cards)
         return
     if settings.story_llm_provider == "openrouter":
-        yield from _iter_openrouter_story_stream_chunks(context_messages)
+        yield from _iter_openrouter_story_stream_chunks(context_messages, instruction_cards)
         return
 
     response_text = _build_mock_story_response(prompt, turn_index)
@@ -1065,6 +1133,7 @@ def _stream_story_response(
     prompt: str,
     turn_index: int,
     context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
 ):
     assistant_message = StoryMessage(
         game_id=game.id,
@@ -1094,6 +1163,7 @@ def _stream_story_response(
             prompt=prompt,
             turn_index=turn_index,
             context_messages=context_messages,
+            instruction_cards=instruction_cards,
         ):
             produced += chunk
             if len(produced) - persisted_length >= persist_interval:
@@ -1410,10 +1480,95 @@ def get_story_game(
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
+    instruction_cards = _list_story_instruction_cards(db, game.id)
     return StoryGameOut(
         game=StoryGameSummaryOut.model_validate(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
+        instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
     )
+
+
+@app.get("/api/story/games/{game_id}/instructions", response_model=list[StoryInstructionCardOut])
+def list_story_instruction_cards(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryInstructionCardOut]:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    cards = _list_story_instruction_cards(db, game.id)
+    return [StoryInstructionCardOut.model_validate(card) for card in cards]
+
+
+@app.post("/api/story/games/{game_id}/instructions", response_model=StoryInstructionCardOut)
+def create_story_instruction_card(
+    game_id: int,
+    payload: StoryInstructionCardCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryInstructionCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    instruction_card = StoryInstructionCard(
+        game_id=game.id,
+        title=_normalize_story_instruction_title(payload.title),
+        content=_normalize_story_instruction_content(payload.content),
+    )
+    db.add(instruction_card)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(instruction_card)
+    return StoryInstructionCardOut.model_validate(instruction_card)
+
+
+@app.patch("/api/story/games/{game_id}/instructions/{instruction_id}", response_model=StoryInstructionCardOut)
+def update_story_instruction_card(
+    game_id: int,
+    instruction_id: int,
+    payload: StoryInstructionCardUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryInstructionCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    instruction_card = db.scalar(
+        select(StoryInstructionCard).where(
+            StoryInstructionCard.id == instruction_id,
+            StoryInstructionCard.game_id == game.id,
+        )
+    )
+    if instruction_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instruction card not found")
+
+    instruction_card.title = _normalize_story_instruction_title(payload.title)
+    instruction_card.content = _normalize_story_instruction_content(payload.content)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(instruction_card)
+    return StoryInstructionCardOut.model_validate(instruction_card)
+
+
+@app.delete("/api/story/games/{game_id}/instructions/{instruction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_story_instruction_card(
+    game_id: int,
+    instruction_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> None:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    instruction_card = db.scalar(
+        select(StoryInstructionCard).where(
+            StoryInstructionCard.id == instruction_id,
+            StoryInstructionCard.game_id == game.id,
+        )
+    )
+    if instruction_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instruction card not found")
+
+    db.delete(instruction_card)
+    _touch_story_game(game)
+    db.commit()
 
 
 @app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)
@@ -1455,6 +1610,7 @@ def generate_story_response(
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
+    instruction_cards = _normalize_story_generation_instructions(payload.instructions)
     source_user_message: StoryMessage | None = None
 
     if payload.reroll_last_response:
@@ -1500,6 +1656,7 @@ def generate_story_response(
         prompt=prompt_text,
         turn_index=assistant_turn_index,
         context_messages=context_messages,
+        instruction_cards=instruction_cards,
     )
     return StreamingResponse(
         stream,

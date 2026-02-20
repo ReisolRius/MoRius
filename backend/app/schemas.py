@@ -83,9 +83,25 @@ class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
 
 
+class StoryInstructionCardInput(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+
+
 class StoryGenerateRequest(BaseModel):
     prompt: str | None = Field(default=None, min_length=1, max_length=8_000)
     reroll_last_response: bool = False
+    instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
+
+
+class StoryInstructionCardCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+class StoryInstructionCardUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
 
 
 class StoryMessageUpdateRequest(BaseModel):
@@ -98,6 +114,17 @@ class StoryMessageOut(BaseModel):
     id: int
     game_id: int
     role: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryInstructionCardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    title: str
     content: str
     created_at: datetime
     updated_at: datetime
@@ -116,3 +143,4 @@ class StoryGameSummaryOut(BaseModel):
 class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
+    instruction_cards: list[StoryInstructionCardOut]

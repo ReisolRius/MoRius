@@ -27,10 +27,13 @@ import {
 import { brandLogo, icons } from '../assets'
 import { updateCurrentUserAvatar } from '../services/authApi'
 import {
+  createStoryInstructionCard,
   createStoryGame,
+  deleteStoryInstructionCard,
   generateStoryResponseStream,
   getStoryGame,
   listStoryGames,
+  updateStoryInstructionCard,
   updateStoryMessage,
 } from '../services/storyApi'
 import {
@@ -42,7 +45,7 @@ import {
   type StoryTitleMap,
 } from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
-import type { StoryGameSummary, StoryMessage } from '../types/story'
+import type { StoryGameSummary, StoryInstructionCard, StoryMessage } from '../types/story'
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -182,7 +185,7 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
 }
 
 function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
-  const [games, setGames] = useState<StoryGameSummary[]>([])
+  const [, setGames] = useState<StoryGameSummary[]>([])
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [messages, setMessages] = useState<StoryMessage[]>([])
   const [inputValue, setInputValue] = useState('')
@@ -207,7 +210,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
   const [isSavingMessage, setIsSavingMessage] = useState(false)
+  const [instructionCards, setInstructionCards] = useState<StoryInstructionCard[]>([])
+  const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
+  const [editingInstructionId, setEditingInstructionId] = useState<number | null>(null)
+  const [instructionTitleDraft, setInstructionTitleDraft] = useState('')
+  const [instructionContentDraft, setInstructionContentDraft] = useState('')
+  const [isSavingInstruction, setIsSavingInstruction] = useState(false)
+  const [deletingInstructionId, setDeletingInstructionId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
+  const instructionDialogGameIdRef = useRef<number | null>(null)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -218,7 +229,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const hasMessages = messages.length > 0
-  const hasSavedGames = games.length > 0
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
   const canReroll =
     !isGenerating &&
@@ -252,6 +262,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       try {
         const payload = await getStoryGame({ token: authToken, gameId })
         setMessages(payload.messages)
+        setInstructionCards(payload.instruction_cards)
         setGames((previousGames) => {
           const hasGame = previousGames.some((game) => game.id === payload.game.id)
           const nextGames = hasGame
@@ -290,6 +301,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         } else {
           setActiveGameId(null)
           setMessages([])
+          setInstructionCards([])
         }
       } catch (error) {
         if (!isActive) {
@@ -315,6 +327,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     setQuickStartIntro('')
   }, [activeGameId])
+
+  useEffect(() => {
+    if (instructionDialogGameIdRef.current === activeGameId) {
+      return
+    }
+    instructionDialogGameIdRef.current = activeGameId
+
+    if (isSavingInstruction || isCreatingGame) {
+      return
+    }
+    setInstructionDialogOpen(false)
+    setEditingInstructionId(null)
+    setInstructionTitleDraft('')
+    setInstructionContentDraft('')
+    setDeletingInstructionId(null)
+  }, [activeGameId, isCreatingGame, isSavingInstruction])
 
   useEffect(() => {
     if (!activeGameId || isLoadingGameMessages || messages.length > 0) {
@@ -385,28 +413,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     viewport.scrollTop = viewport.scrollHeight
   }, [messages, isGenerating])
-
-  const handleCreateGame = useCallback(async () => {
-    if (isCreatingGame || isGenerating) {
-      return
-    }
-
-    setErrorMessage('')
-    setIsCreatingGame(true)
-    try {
-      const game = await createStoryGame({ token: authToken })
-      setGames((previousGames) => sortGamesByActivity([game, ...previousGames.filter((item) => item.id !== game.id)]))
-      setActiveGameId(game.id)
-      setMessages([])
-      setInputValue('')
-      onNavigate(`/home/${game.id}`)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
-      setErrorMessage(detail)
-    } finally {
-      setIsCreatingGame(false)
-    }
-  }, [authToken, isCreatingGame, isGenerating, onNavigate])
 
   const applyCustomTitle = useCallback((gameId: number, nextTitle: string) => {
     setCustomTitleMap((previousMap) => {
@@ -501,8 +507,155 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages])
 
+  const handleOpenCreateInstructionDialog = () => {
+    if (isGenerating || isSavingInstruction || isCreatingGame) {
+      return
+    }
+    setEditingInstructionId(null)
+    setInstructionTitleDraft('')
+    setInstructionContentDraft('')
+    setInstructionDialogOpen(true)
+  }
+
+  const handleOpenEditInstructionDialog = (card: StoryInstructionCard) => {
+    if (isGenerating || isSavingInstruction || isCreatingGame) {
+      return
+    }
+    setEditingInstructionId(card.id)
+    setInstructionTitleDraft(card.title)
+    setInstructionContentDraft(card.content)
+    setInstructionDialogOpen(true)
+  }
+
+  const handleCloseInstructionDialog = () => {
+    if (isSavingInstruction || isCreatingGame) {
+      return
+    }
+    setInstructionDialogOpen(false)
+    setEditingInstructionId(null)
+    setInstructionTitleDraft('')
+    setInstructionContentDraft('')
+  }
+
+  const handleSaveInstructionCard = useCallback(async () => {
+    if (isSavingInstruction || isCreatingGame) {
+      return
+    }
+
+    const normalizedTitle = instructionTitleDraft.replace(/\s+/g, ' ').trim()
+    const normalizedContent = instructionContentDraft.replace(/\r\n/g, '\n').trim()
+
+    if (!normalizedTitle) {
+      setErrorMessage('Название карточки не может быть пустым')
+      return
+    }
+    if (!normalizedContent) {
+      setErrorMessage('Текст инструкции не может быть пустым')
+      return
+    }
+
+    setErrorMessage('')
+    setIsSavingInstruction(true)
+    let targetGameId = activeGameId
+    try {
+      if (!targetGameId) {
+        setIsCreatingGame(true)
+        const newGame = await createStoryGame({ token: authToken })
+        setGames((previousGames) =>
+          sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
+        )
+        setActiveGameId(newGame.id)
+        setInstructionCards([])
+        onNavigate(`/home/${newGame.id}`)
+        targetGameId = newGame.id
+      }
+
+      if (!targetGameId) {
+        setErrorMessage('Не удалось создать игру для карточки инструкции')
+        return
+      }
+
+      if (editingInstructionId === null) {
+        const createdCard = await createStoryInstructionCard({
+          token: authToken,
+          gameId: targetGameId,
+          title: normalizedTitle,
+          content: normalizedContent,
+        })
+        setInstructionCards((previousCards) => [...previousCards, createdCard])
+      } else {
+        const updatedCard = await updateStoryInstructionCard({
+          token: authToken,
+          gameId: targetGameId,
+          instructionId: editingInstructionId,
+          title: normalizedTitle,
+          content: normalizedContent,
+        })
+        setInstructionCards((previousCards) =>
+          previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)),
+        )
+      }
+
+      setInstructionDialogOpen(false)
+      setEditingInstructionId(null)
+      setInstructionTitleDraft('')
+      setInstructionContentDraft('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить карточку'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingInstruction(false)
+      setIsCreatingGame(false)
+    }
+  }, [
+    activeGameId,
+    authToken,
+    editingInstructionId,
+    instructionContentDraft,
+    instructionTitleDraft,
+    isCreatingGame,
+    isSavingInstruction,
+    onNavigate,
+  ])
+
+  const handleDeleteInstructionCard = useCallback(
+    async (cardId: number) => {
+      if (!activeGameId || deletingInstructionId !== null || isSavingInstruction || isCreatingGame) {
+        return
+      }
+
+      setErrorMessage('')
+      setDeletingInstructionId(cardId)
+      try {
+        await deleteStoryInstructionCard({
+          token: authToken,
+          gameId: activeGameId,
+          instructionId: cardId,
+        })
+        setInstructionCards((previousCards) => previousCards.filter((card) => card.id !== cardId))
+        if (editingInstructionId === cardId) {
+          setInstructionDialogOpen(false)
+          setEditingInstructionId(null)
+          setInstructionTitleDraft('')
+          setInstructionContentDraft('')
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось удалить карточку'
+        setErrorMessage(detail)
+      } finally {
+        setDeletingInstructionId(null)
+      }
+    },
+    [activeGameId, authToken, deletingInstructionId, editingInstructionId, isCreatingGame, isSavingInstruction],
+  )
+
   const runStoryGeneration = useCallback(
-    async (options: { gameId: number; prompt?: string; rerollLastResponse?: boolean }) => {
+    async (options: {
+      gameId: number
+      prompt?: string
+      rerollLastResponse?: boolean
+      instructionCards?: StoryInstructionCard[]
+    }) => {
       setErrorMessage('')
       setIsGenerating(true)
       setActiveAssistantMessageId(null)
@@ -517,6 +670,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: options.gameId,
           prompt: options.prompt,
           rerollLastResponse: options.rerollLastResponse,
+          instructions: (options.instructionCards ?? [])
+            .map((card) => ({
+              title: card.title.replace(/\s+/g, ' ').trim(),
+              content: card.content.replace(/\r\n/g, '\n').trim(),
+            }))
+            .filter((card) => card.title.length > 0 && card.content.length > 0),
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
@@ -614,6 +773,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
+        setInstructionCards([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
       } catch (error) {
@@ -647,8 +807,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
+      instructionCards,
     })
-  }, [activeGameId, authToken, inputValue, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
 
   const handleStopGeneration = useCallback(() => {
     generationAbortRef.current?.abort()
@@ -671,8 +832,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     await runStoryGeneration({
       gameId: activeGameId,
       rerollLastResponse: true,
+      instructionCards,
     })
-  }, [activeGameId, canReroll, runStoryGeneration])
+  }, [activeGameId, canReroll, instructionCards, runStoryGeneration])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -1042,25 +1204,129 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         </Box>
         <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2, flex: 1 }}>
           {rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
-            <>
-              <Button
-                onClick={() => void handleCreateGame()}
-                disabled={isCreatingGame || isGenerating}
-                sx={{
-                  minHeight: 44,
-                  borderRadius: '12px',
-                  textTransform: 'none',
-                  color: '#d9dee8',
-                  border: '1px dashed rgba(186, 202, 214, 0.28)',
-                  backgroundColor: 'rgba(20, 24, 32, 0.66)',
-                }}
-              >
-                {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую карточку'}
-              </Button>
-              <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
-                {hasSavedGames ? 'Контекст игры появится после добавления карточек.' : 'Пока пусто. Здесь появится ваш контекст игры.'}
-              </Typography>
-            </>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
+              {instructionCards.length === 0 ? (
+                <>
+                  <Button
+                    onClick={handleOpenCreateInstructionDialog}
+                    disabled={isGenerating || isSavingInstruction || isCreatingGame}
+                    sx={{
+                      minHeight: 44,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      color: '#d9dee8',
+                      border: '1px dashed rgba(186, 202, 214, 0.28)',
+                      backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                    }}
+                  >
+                    Добавить первую карточку
+                  </Button>
+                  <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
+                    Добавьте инструкции с нужным стилем истории. Они автоматически отправляются с каждым вашим сообщением.
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <Box
+                    className="morius-scrollbar"
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: 'auto',
+                      pr: 0.25,
+                    }}
+                  >
+                    <Stack spacing={0.85}>
+                      {instructionCards.map((card) => (
+                        <Box
+                          key={card.id}
+                          sx={{
+                            borderRadius: '12px',
+                            border: '1px solid rgba(186, 202, 214, 0.2)',
+                            backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                            px: 1,
+                            py: 0.9,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              color: '#e2e8f3',
+                              fontWeight: 700,
+                              fontSize: '0.95rem',
+                              lineHeight: 1.25,
+                            }}
+                          >
+                            {card.title}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              mt: 0.55,
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.86rem',
+                              lineHeight: 1.4,
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            {card.content}
+                          </Typography>
+                          <Stack direction="row" spacing={0.45} justifyContent="flex-end" sx={{ mt: 0.8 }}>
+                            <Button
+                              onClick={() => handleOpenEditInstructionDialog(card)}
+                              disabled={isSavingInstruction || deletingInstructionId === card.id || isGenerating || isCreatingGame}
+                              sx={{
+                                minHeight: 30,
+                                borderRadius: '9px',
+                                textTransform: 'none',
+                                px: 1.1,
+                                color: 'rgba(208, 219, 235, 0.9)',
+                                fontSize: '0.8rem',
+                              }}
+                            >
+                              Редактировать
+                            </Button>
+                            <Button
+                              onClick={() => void handleDeleteInstructionCard(card.id)}
+                              disabled={
+                                isSavingInstruction || deletingInstructionId !== null || isGenerating || isCreatingGame
+                              }
+                              sx={{
+                                minHeight: 30,
+                                borderRadius: '9px',
+                                textTransform: 'none',
+                                px: 1.1,
+                                color: 'rgba(248, 176, 176, 0.9)',
+                                fontSize: '0.8rem',
+                                border: '1px solid rgba(236, 142, 142, 0.22)',
+                              }}
+                            >
+                              {deletingInstructionId === card.id ? (
+                                <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.9)' }} />
+                              ) : (
+                                'Удалить'
+                              )}
+                            </Button>
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                  <Button
+                    onClick={handleOpenCreateInstructionDialog}
+                    disabled={isGenerating || isSavingInstruction || deletingInstructionId !== null || isCreatingGame}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      color: '#d9dee8',
+                      border: '1px dashed rgba(186, 202, 214, 0.3)',
+                      backgroundColor: 'rgba(18, 22, 30, 0.58)',
+                    }}
+                  >
+                    Добавить карточку
+                  </Button>
+                </>
+              )}
+            </Box>
           ) : null}
 
           {rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
@@ -1501,6 +1767,123 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
           </Box>
       </Box>
+
+      <Dialog
+        open={instructionDialogOpen}
+        onClose={handleCloseInstructionDialog}
+        maxWidth="sm"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: '1px solid rgba(186, 202, 214, 0.16)',
+            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
+            {editingInstructionId === null ? 'Новая инструкция' : 'Редактирование инструкции'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.3 }}>
+          <Stack spacing={1.1}>
+            <Box
+              component="input"
+              value={instructionTitleDraft}
+              placeholder="Название карточки"
+              maxLength={120}
+              autoFocus
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setInstructionTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  void handleSaveInstructionCard()
+                }
+              }}
+              sx={{
+                width: '100%',
+                minHeight: 42,
+                borderRadius: '11px',
+                border: '1px solid rgba(186, 202, 214, 0.26)',
+                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                color: '#dfe6f2',
+                px: 1.1,
+                outline: 'none',
+                fontSize: '0.96rem',
+              }}
+            />
+            <Box
+              component="textarea"
+              value={instructionContentDraft}
+              placeholder="Опишите стиль, жанр, формат и другие пожелания к ответам ИИ."
+              maxLength={8000}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInstructionContentDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleSaveInstructionCard()
+                }
+              }}
+              sx={{
+                width: '100%',
+                minHeight: 150,
+                resize: 'vertical',
+                borderRadius: '11px',
+                border: '1px solid rgba(186, 202, 214, 0.22)',
+                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                color: '#dbe2ee',
+                px: 1.1,
+                py: 0.9,
+                outline: 'none',
+                fontSize: '0.96rem',
+                lineHeight: 1.45,
+                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+              }}
+            />
+            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
+              {instructionContentDraft.length}/8000
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
+          <Button
+            onClick={handleCloseInstructionDialog}
+            disabled={isSavingInstruction || isCreatingGame}
+            sx={{ color: 'text.secondary' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveInstructionCard()}
+            disabled={isSavingInstruction || isCreatingGame}
+            sx={{
+              backgroundColor: '#d9e4f2',
+              color: '#171716',
+              minWidth: 118,
+              '&:hover': { backgroundColor: '#edf4fc' },
+            }}
+          >
+            {isSavingInstruction || isCreatingGame ? (
+              <CircularProgress size={16} sx={{ color: '#171716' }} />
+            ) : editingInstructionId === null ? (
+              'Добавить'
+            ) : (
+              'Сохранить'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={profileDialogOpen}

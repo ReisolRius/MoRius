@@ -2,6 +2,7 @@ import { API_BASE_URL } from '../config/env'
 import type {
   StoryGamePayload,
   StoryGameSummary,
+  StoryInstructionCard,
   StoryMessage,
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
@@ -22,10 +23,16 @@ export type StoryGenerationStreamOptions = {
   gameId: number
   prompt?: string
   rerollLastResponse?: boolean
+  instructions?: StoryInstructionCardInput[]
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
   onDone?: (payload: StoryStreamDonePayload) => void
+}
+
+export type StoryInstructionCardInput = {
+  title: string
+  content: string
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -144,6 +151,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     body: JSON.stringify({
       prompt: options.prompt,
       reroll_last_response: Boolean(options.rerollLastResponse),
+      instructions: options.instructions ?? [],
     }),
     signal: options.signal,
   })
@@ -222,5 +230,78 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
 
   if (streamError) {
     throw streamError
+  }
+}
+
+export async function listStoryInstructionCards(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryInstructionCard[]> {
+  return request<StoryInstructionCard[]>(`/api/story/games/${payload.gameId}/instructions`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function createStoryInstructionCard(payload: {
+  token: string
+  gameId: number
+  title: string
+  content: string
+}): Promise<StoryInstructionCard> {
+  return request<StoryInstructionCard>(`/api/story/games/${payload.gameId}/instructions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function updateStoryInstructionCard(payload: {
+  token: string
+  gameId: number
+  instructionId: number
+  title: string
+  content: string
+}): Promise<StoryInstructionCard> {
+  return request<StoryInstructionCard>(`/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function deleteStoryInstructionCard(payload: {
+  token: string
+  gameId: number
+  instructionId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
   }
 }
