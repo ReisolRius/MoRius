@@ -821,6 +821,8 @@ def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
             raise RuntimeError(f"GigaChat chat error ({response.status_code}): {detail}")
         raise RuntimeError(f"GigaChat chat error ({response.status_code})")
 
+    # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
+    response.encoding = "utf-8"
     emitted_delta = False
     for raw_line in response.iter_lines(decode_unicode=True):
         if raw_line is None:
@@ -920,6 +922,8 @@ def _iter_openrouter_story_stream_chunks(context_messages: list[StoryMessage]):
             raise RuntimeError(f"OpenRouter chat error ({response.status_code}): {detail}")
         raise RuntimeError(f"OpenRouter chat error ({response.status_code})")
 
+    # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
+    response.encoding = "utf-8"
     emitted_delta = False
     for raw_line in response.iter_lines(decode_unicode=True):
         if raw_line is None:
