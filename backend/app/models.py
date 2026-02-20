@@ -121,3 +121,19 @@ class StoryWorldCard(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StoryWorldCardChangeEvent(Base):
+    __tablename__ = "story_world_card_change_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    assistant_message_id: Mapped[int] = mapped_column(ForeignKey("story_messages.id"), nullable=False, index=True)
+    world_card_id: Mapped[int | None] = mapped_column(ForeignKey("story_world_cards.id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    changed_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    before_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

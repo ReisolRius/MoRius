@@ -146,8 +146,8 @@ function App() {
     }
 
     if (!isAuthenticatedPath(path)) {
-      window.history.replaceState({}, '', '/home')
-      setPath('/home')
+      window.history.replaceState({}, '', '/dashboard')
+      setPath('/dashboard')
     }
   }, [authToken, authUser, isHydratingSession, path])
 
@@ -169,7 +169,7 @@ function App() {
       setAuthToken(payload.access_token)
       setAuthUser(payload.user)
       setIsHydratingSession(false)
-      navigate('/home')
+      navigate('/dashboard')
     },
     [navigate],
   )
@@ -287,7 +287,7 @@ function App() {
   return (
     <PublicLandingPage
       isAuthenticated={isAuthenticated}
-      onGoHome={() => navigate('/home')}
+      onGoHome={() => navigate('/dashboard')}
       onAuthSuccess={handleAuthSuccess}
     />
   )

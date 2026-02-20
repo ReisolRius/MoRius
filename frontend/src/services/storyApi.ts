@@ -389,3 +389,27 @@ export async function deleteStoryWorldCard(payload: {
     throw new Error(detail)
   }
 }
+
+export async function undoStoryWorldCardEvent(payload: {
+  token: string
+  gameId: number
+  eventId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/world-card-events/${payload.eventId}/undo`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
+  }
+}

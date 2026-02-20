@@ -35,6 +35,7 @@ import {
   generateStoryResponseStream,
   getStoryGame,
   listStoryGames,
+  undoStoryWorldCardEvent,
   updateStoryInstructionCard,
   updateStoryWorldCard,
   updateStoryMessage,
@@ -48,7 +49,7 @@ import {
   type StoryTitleMap,
 } from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
-import type { StoryGameSummary, StoryInstructionCard, StoryMessage, StoryWorldCard } from '../types/story'
+import type { StoryGameSummary, StoryInstructionCard, StoryMessage, StoryWorldCard, StoryWorldCardEvent } from '../types/story'
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -79,6 +80,12 @@ const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
 const HEADER_AVATAR_SIZE = 44
 const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
+const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
+const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
+  added: 'Добавлено',
+  updated: 'Обновлено',
+  deleted: 'Удалено',
+}
 
 function splitAssistantParagraphs(content: string): string[] {
   const paragraphs = content
@@ -244,6 +251,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingInstruction, setIsSavingInstruction] = useState(false)
   const [deletingInstructionId, setDeletingInstructionId] = useState<number | null>(null)
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
+  const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
+  const [dismissedWorldCardEventIds, setDismissedWorldCardEventIds] = useState<number[]>([])
+  const [expandedWorldCardEventIds, setExpandedWorldCardEventIds] = useState<number[]>([])
+  const [undoingWorldCardEventIds, setUndoingWorldCardEventIds] = useState<number[]>([])
   const [worldCardDialogOpen, setWorldCardDialogOpen] = useState(false)
   const [editingWorldCardId, setEditingWorldCardId] = useState<number | null>(null)
   const [worldCardTitleDraft, setWorldCardTitleDraft] = useState('')
@@ -274,6 +285,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelTabLabel = rightPanelMode === 'ai' ? 'Настройки' : 'Мир'
   const isLeftPanelTabActive =
     rightPanelMode === 'ai' ? activeAiPanelTab === 'instructions' : activeWorldPanelTab === 'story'
+  const visibleWorldCardEvents = useMemo(
+    () => worldCardEvents.filter((event) => !dismissedWorldCardEventIds.includes(event.id)),
+    [dismissedWorldCardEventIds, worldCardEvents],
+  )
+  const worldCardEventsByAssistantId = useMemo(() => {
+    const nextMap = new Map<number, StoryWorldCardEvent[]>()
+    visibleWorldCardEvents.forEach((event) => {
+      const currentItems = nextMap.get(event.assistant_message_id) ?? []
+      currentItems.push(event)
+      nextMap.set(event.assistant_message_id, currentItems)
+    })
+    return nextMap
+  }, [visibleWorldCardEvents])
 
   const adjustInputHeight = useCallback(() => {
     const node = textAreaRef.current
@@ -288,6 +312,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     node.style.overflowY = node.scrollHeight > maxHeight ? 'auto' : 'hidden'
   }, [])
 
+  const applyWorldCardEvents = useCallback((nextEvents: StoryWorldCardEvent[]) => {
+    setWorldCardEvents(nextEvents)
+    const eventIds = new Set(nextEvents.map((event) => event.id))
+    setDismissedWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+    setExpandedWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+    setUndoingWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
+  }, [])
+
   const loadGameById = useCallback(
     async (gameId: number, options?: { silent?: boolean }) => {
       const silent = options?.silent ?? false
@@ -299,6 +331,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
         setWorldCards(payload.world_cards)
+        applyWorldCardEvents(payload.world_card_events ?? [])
         setGames((previousGames) => {
           const hasGame = previousGames.some((game) => game.id === payload.game.id)
           const nextGames = hasGame
@@ -315,7 +348,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [authToken],
+    [applyWorldCardEvents, authToken],
   )
 
   useEffect(() => {
@@ -339,6 +372,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setMessages([])
           setInstructionCards([])
           setWorldCards([])
+          applyWorldCardEvents([])
         }
       } catch (error) {
         if (!isActive) {
@@ -355,7 +389,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isActive = false
       generationAbortRef.current?.abort()
     }
-  }, [authToken, initialGameId, loadGameById])
+  }, [applyWorldCardEvents, authToken, initialGameId, loadGameById])
 
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
@@ -621,6 +655,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setActiveGameId(newGame.id)
         setInstructionCards([])
         setWorldCards([])
+        applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
       }
@@ -671,6 +706,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isCreatingGame,
     isSavingInstruction,
     onNavigate,
+    applyWorldCardEvents,
   ])
 
   const handleDeleteInstructionCard = useCallback(
@@ -753,6 +789,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setErrorMessage('Текст карточки мира не может быть пустым')
       return
     }
+    if (normalizedContent.length > WORLD_CARD_CONTENT_MAX_LENGTH) {
+      setErrorMessage(`Текст карточки мира не должен превышать ${WORLD_CARD_CONTENT_MAX_LENGTH} символов`)
+      return
+    }
 
     const normalizedTriggers = normalizeWorldCardTriggersDraft(worldCardTriggersDraft, normalizedTitle)
     setErrorMessage('')
@@ -768,6 +808,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setActiveGameId(newGame.id)
         setInstructionCards([])
         setWorldCards([])
+        applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
       }
@@ -817,6 +858,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isCreatingGame,
     isSavingWorldCard,
     onNavigate,
+    applyWorldCardEvents,
     worldCardContentDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
@@ -852,6 +894,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     },
     [activeGameId, authToken, deletingWorldCardId, editingWorldCardId, isCreatingGame, isSavingWorldCard],
+  )
+
+  const handleDismissWorldCardEvent = useCallback((eventId: number) => {
+    setDismissedWorldCardEventIds((previousIds) => (previousIds.includes(eventId) ? previousIds : [...previousIds, eventId]))
+  }, [])
+
+  const handleToggleWorldCardEventExpanded = useCallback((eventId: number) => {
+    setExpandedWorldCardEventIds((previousIds) =>
+      previousIds.includes(eventId)
+        ? previousIds.filter((value) => value !== eventId)
+        : [...previousIds, eventId],
+    )
+  }, [])
+
+  const handleUndoWorldCardEvent = useCallback(
+    async (eventId: number) => {
+      if (!activeGameId || undoingWorldCardEventIds.includes(eventId)) {
+        return
+      }
+
+      setErrorMessage('')
+      setUndoingWorldCardEventIds((previousIds) =>
+        previousIds.includes(eventId) ? previousIds : [...previousIds, eventId],
+      )
+      try {
+        await undoStoryWorldCardEvent({
+          token: authToken,
+          gameId: activeGameId,
+          eventId,
+        })
+        await loadGameById(activeGameId, { silent: true })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось откатить изменение карточки'
+        setErrorMessage(detail)
+      } finally {
+        setUndoingWorldCardEventIds((previousIds) => previousIds.filter((value) => value !== eventId))
+      }
+    },
+    [activeGameId, authToken, loadGameById, undoingWorldCardEventIds],
   )
 
   const runStoryGeneration = useCallback(
@@ -980,6 +1061,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setActiveGameId(newGame.id)
         setInstructionCards([])
         setWorldCards([])
+        applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
       } catch (error) {
@@ -1015,7 +1097,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyWorldCardEvents, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
 
   const handleStopGeneration = useCallback(() => {
     generationAbortRef.current?.abort()
@@ -1932,6 +2014,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   if (message.role === 'assistant') {
                     const paragraphs = splitAssistantParagraphs(message.content)
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
+                    const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
                     return (
                       <Box
                         key={message.id}
@@ -1970,6 +2053,135 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 backgroundColor: 'rgba(195, 209, 228, 0.72)',
                               }}
                             />
+                          ) : null}
+                          {messageWorldCardEvents.length > 0 ? (
+                            <Stack spacing={0.75}>
+                              {messageWorldCardEvents.map((worldCardEvent) => {
+                                const isExpanded = expandedWorldCardEventIds.includes(worldCardEvent.id)
+                                const isUndoing = undoingWorldCardEventIds.includes(worldCardEvent.id)
+                                const statusLabel = WORLD_CARD_EVENT_STATUS_LABEL[worldCardEvent.action]
+                                const statusColor =
+                                  worldCardEvent.action === 'added'
+                                    ? 'rgba(118, 232, 177, 0.94)'
+                                    : worldCardEvent.action === 'deleted'
+                                      ? 'rgba(249, 160, 160, 0.92)'
+                                      : 'rgba(112, 195, 248, 0.94)'
+                                const statusBackground =
+                                  worldCardEvent.action === 'added'
+                                    ? 'rgba(51, 104, 81, 0.46)'
+                                    : worldCardEvent.action === 'deleted'
+                                      ? 'rgba(112, 55, 61, 0.46)'
+                                      : 'rgba(44, 89, 126, 0.46)'
+
+                                return (
+                                  <Box
+                                    key={worldCardEvent.id}
+                                    onClick={(event) => event.stopPropagation()}
+                                    sx={{
+                                      borderRadius: '12px',
+                                      border: '1px solid rgba(186, 202, 214, 0.2)',
+                                      backgroundColor: 'rgba(26, 37, 56, 0.58)',
+                                      px: 0.95,
+                                      py: 0.62,
+                                    }}
+                                  >
+                                    <Stack direction="row" alignItems="center" spacing={0.55}>
+                                      <Box
+                                        sx={{
+                                          borderRadius: '999px',
+                                          px: 0.65,
+                                          py: 0.08,
+                                          fontSize: '0.67rem',
+                                          lineHeight: 1.2,
+                                          textTransform: 'uppercase',
+                                          letterSpacing: 0.2,
+                                          color: statusColor,
+                                          backgroundColor: statusBackground,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {statusLabel}
+                                      </Box>
+                                      <Typography
+                                        sx={{
+                                          color: 'rgba(226, 235, 248, 0.94)',
+                                          fontSize: '0.88rem',
+                                          lineHeight: 1.25,
+                                          fontWeight: 600,
+                                          flex: 1,
+                                          minWidth: 0,
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                        }}
+                                      >
+                                        {worldCardEvent.title}
+                                      </Typography>
+                                      <IconButton
+                                        aria-label="Откатить изменение карточки"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          void handleUndoWorldCardEvent(worldCardEvent.id)
+                                        }}
+                                        disabled={isUndoing}
+                                        sx={{ width: 28, height: 28 }}
+                                      >
+                                        {isUndoing ? (
+                                          <CircularProgress size={14} sx={{ color: 'rgba(208, 220, 237, 0.86)' }} />
+                                        ) : (
+                                          <Box component="img" src={icons.undo} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
+                                        )}
+                                      </IconButton>
+                                      <IconButton
+                                        aria-label="Скрыть блок"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleDismissWorldCardEvent(worldCardEvent.id)
+                                        }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          color: 'rgba(198, 210, 228, 0.86)',
+                                          fontSize: '1.05rem',
+                                          lineHeight: 1,
+                                        }}
+                                      >
+                                        ×
+                                      </IconButton>
+                                      <IconButton
+                                        aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleToggleWorldCardEventExpanded(worldCardEvent.id)
+                                        }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          color: 'rgba(198, 210, 228, 0.86)',
+                                          fontSize: '0.98rem',
+                                          lineHeight: 1,
+                                        }}
+                                      >
+                                        {isExpanded ? '˄' : '˅'}
+                                      </IconButton>
+                                    </Stack>
+                                    {isExpanded ? (
+                                      <Typography
+                                        sx={{
+                                          mt: 0.55,
+                                          color: 'rgba(202, 214, 232, 0.88)',
+                                          fontSize: '0.82rem',
+                                          lineHeight: 1.36,
+                                          whiteSpace: 'pre-wrap',
+                                        }}
+                                      >
+                                        {worldCardEvent.changed_text}
+                                      </Typography>
+                                    ) : null}
+                                  </Box>
+                                )
+                              })}
+                            </Stack>
                           ) : null}
                         </Stack>
                       </Box>
@@ -2306,7 +2518,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="textarea"
               value={worldCardContentDraft}
               placeholder="Кратко опишите сущность: внешность, роль, свойства, важные детали."
-              maxLength={8000}
+              maxLength={WORLD_CARD_CONTENT_MAX_LENGTH}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setWorldCardContentDraft(event.target.value)}
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
@@ -2348,7 +2560,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }}
             />
             <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
-              {worldCardContentDraft.length}/8000
+              {worldCardContentDraft.length}/{WORLD_CARD_CONTENT_MAX_LENGTH}
             </Typography>
           </Stack>
         </DialogContent>

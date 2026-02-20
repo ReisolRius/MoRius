@@ -27,7 +27,16 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import Base, engine, get_db
-from app.models import CoinPurchase, EmailVerification, StoryGame, StoryInstructionCard, StoryMessage, StoryWorldCard, User
+from app.models import (
+    CoinPurchase,
+    EmailVerification,
+    StoryGame,
+    StoryInstructionCard,
+    StoryMessage,
+    StoryWorldCard,
+    StoryWorldCardChangeEvent,
+    User,
+)
 from app.schemas import (
     AvatarUpdateRequest,
     AuthResponse,
@@ -52,6 +61,7 @@ from app.schemas import (
     StoryMessageOut,
     StoryMessageUpdateRequest,
     StoryWorldCardCreateRequest,
+    StoryWorldCardChangeEventOut,
     StoryWorldCardOut,
     StoryWorldCardUpdateRequest,
     UserOut,
@@ -93,6 +103,43 @@ STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_WORLD_CARD_EVENT_ADDED = "added"
+STORY_WORLD_CARD_EVENT_UPDATED = "updated"
+STORY_WORLD_CARD_EVENT_DELETED = "deleted"
+STORY_WORLD_CARD_EVENT_ACTIONS = {
+    STORY_WORLD_CARD_EVENT_ADDED,
+    STORY_WORLD_CARD_EVENT_UPDATED,
+    STORY_WORLD_CARD_EVENT_DELETED,
+}
+STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 1_000
+STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
+STORY_WORLD_CARD_MAX_AI_CHANGES = 3
+STORY_WORLD_CARD_SIGNIFICANT_IMPORTANCE = {"high", "critical"}
+STORY_WORLD_CARD_ALLOWED_KINDS = {
+    "character",
+    "npc",
+    "item",
+    "artifact",
+    "action",
+    "event",
+    "place",
+    "location",
+    "faction",
+    "organization",
+    "quest",
+}
+STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
+    "кофе",
+    "чашка",
+    "кружка",
+    "чай",
+    "вода",
+    "стол",
+    "стул",
+    "завтрак",
+    "утро",
+    "окно",
+}
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
@@ -629,6 +676,8 @@ def _normalize_story_world_card_title(value: str) -> str:
 
 def _normalize_story_world_card_content(value: str) -> str:
     normalized = value.replace("\r\n", "\n").strip()
+    if len(normalized) > STORY_WORLD_CARD_MAX_CONTENT_LENGTH:
+        normalized = normalized[:STORY_WORLD_CARD_MAX_CONTENT_LENGTH].rstrip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="World card text cannot be empty")
     return normalized
@@ -720,6 +769,116 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
     )
 
 
+def _normalize_story_world_card_event_action(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in STORY_WORLD_CARD_EVENT_ACTIONS:
+        return normalized
+    return ""
+
+
+def _normalize_story_world_card_changed_text(value: str, *, fallback: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        normalized = fallback.strip()
+    if len(normalized) > STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH:
+        normalized = normalized[:STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH].rstrip()
+    return normalized
+
+
+def _is_story_world_card_title_mundane(value: str) -> bool:
+    tokens = _normalize_story_match_tokens(value)
+    if not tokens:
+        return False
+    if len(tokens) == 1:
+        return tokens[0] in STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS
+    if len(tokens) == 2:
+        return all(token in STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS for token in tokens)
+    return False
+
+
+def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
+    return {
+        "id": card.id,
+        "title": card.title,
+        "content": card.content,
+        "triggers": _deserialize_story_world_card_triggers(card.triggers),
+        "source": _normalize_story_world_card_source(card.source),
+    }
+
+
+def _serialize_story_world_card_snapshot(value: dict[str, Any] | None) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, Any] | None:
+    if raw_value is None:
+        return None
+    normalized_raw = raw_value.strip()
+    if not normalized_raw:
+        return None
+
+    try:
+        parsed = json.loads(normalized_raw)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(parsed, dict):
+        return None
+
+    title_value = " ".join(str(parsed.get("title", "")).split()).strip()
+    content_value = str(parsed.get("content", "")).replace("\r\n", "\n").strip()
+    if not title_value or not content_value:
+        return None
+
+    if len(title_value) > 120:
+        title_value = title_value[:120].rstrip()
+    if len(content_value) > STORY_WORLD_CARD_MAX_CONTENT_LENGTH:
+        content_value = content_value[:STORY_WORLD_CARD_MAX_CONTENT_LENGTH].rstrip()
+    if not title_value or not content_value:
+        return None
+
+    raw_triggers = parsed.get("triggers")
+    trigger_values: list[str] = []
+    if isinstance(raw_triggers, list):
+        trigger_values = [item for item in raw_triggers if isinstance(item, str)]
+    triggers_value = _normalize_story_world_card_triggers(trigger_values, fallback_title=title_value)
+    source_value = _normalize_story_world_card_source(str(parsed.get("source", "")))
+
+    card_id: int | None = None
+    raw_id = parsed.get("id")
+    if isinstance(raw_id, int) and raw_id > 0:
+        card_id = raw_id
+    elif isinstance(raw_id, str) and raw_id.strip().isdigit():
+        parsed_id = int(raw_id.strip())
+        if parsed_id > 0:
+            card_id = parsed_id
+
+    return {
+        "id": card_id,
+        "title": title_value,
+        "content": content_value,
+        "triggers": triggers_value,
+        "source": source_value,
+    }
+
+
+def _story_world_card_change_event_to_out(event: StoryWorldCardChangeEvent) -> StoryWorldCardChangeEventOut:
+    return StoryWorldCardChangeEventOut(
+        id=event.id,
+        game_id=event.game_id,
+        assistant_message_id=event.assistant_message_id,
+        world_card_id=event.world_card_id,
+        action=_normalize_story_world_card_event_action(event.action) or STORY_WORLD_CARD_EVENT_UPDATED,
+        title=event.title,
+        changed_text=event.changed_text,
+        before_snapshot=_deserialize_story_world_card_snapshot(event.before_snapshot),
+        after_snapshot=_deserialize_story_world_card_snapshot(event.after_snapshot),
+        created_at=event.created_at,
+    )
+
+
 def _normalize_story_match_tokens(value: str) -> list[str]:
     normalized_source = value.lower().replace("ё", "е")
     return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
@@ -798,6 +957,22 @@ def _list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
         .where(StoryWorldCard.game_id == game_id)
         .order_by(StoryWorldCard.id.asc())
     ).all()
+
+
+def _list_story_world_card_events(
+    db: Session,
+    game_id: int,
+    *,
+    assistant_message_id: int | None = None,
+    include_undone: bool = False,
+) -> list[StoryWorldCardChangeEvent]:
+    query = select(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id)
+    if assistant_message_id is not None:
+        query = query.where(StoryWorldCardChangeEvent.assistant_message_id == assistant_message_id)
+    if not include_undone:
+        query = query.where(StoryWorldCardChangeEvent.undone_at.is_(None))
+    query = query.order_by(StoryWorldCardChangeEvent.id.asc())
+    return db.scalars(query).all()
 
 
 def _select_story_world_cards_for_prompt(
@@ -1099,6 +1274,265 @@ def _normalize_story_world_card_candidates(
     return normalized_cards
 
 
+def _build_story_world_card_change_messages(
+    prompt: str,
+    assistant_text: str,
+    existing_cards: list[StoryWorldCard],
+) -> list[dict[str, str]]:
+    prompt_preview = prompt.strip()
+    assistant_preview = assistant_text.strip()
+    if len(prompt_preview) > 1200:
+        prompt_preview = f"{prompt_preview[:1197].rstrip()}..."
+    if len(assistant_preview) > 5200:
+        assistant_preview = f"{assistant_preview[:5197].rstrip()}..."
+
+    existing_cards_preview: list[dict[str, Any]] = []
+    for card in existing_cards[:120]:
+        title = " ".join(card.title.split()).strip()
+        content = card.content.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+        if len(content) > 320:
+            content = f"{content[:317].rstrip()}..."
+        existing_cards_preview.append(
+            {
+                "id": card.id,
+                "title": title,
+                "content": content,
+                "triggers": _deserialize_story_world_card_triggers(card.triggers)[:10],
+                "source": _normalize_story_world_card_source(card.source),
+            }
+        )
+
+    existing_cards_json = json.dumps(existing_cards_preview, ensure_ascii=False)
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You update long-term world memory for an interactive RPG session. "
+                "Return strict JSON array without markdown.\n"
+                "Each item format:\n"
+                "{"
+                "\"action\":\"add|update|delete\","
+                "\"card_id\": number optional,"
+                "\"title\": string optional,"
+                "\"content\": string optional,"
+                "\"triggers\": string[] optional,"
+                "\"changed_text\": string optional,"
+                "\"importance\":\"critical|high|medium|low\","
+                "\"kind\":\"character|npc|item|artifact|action|event|place|location|faction|organization|quest\""
+                "}.\n"
+                "Rules:\n"
+                "1) Keep only significant details that matter in future turns.\n"
+                "2) Ignore mundane transient details (food, drinks, coffee, cups, generic furniture, routine background actions).\n"
+                "3) Prefer update for existing cards when new important details appear.\n"
+                "4) Delete only if a card became invalid/irrelevant.\n"
+                "5) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
+                f"6) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Player action:\n{prompt_preview}\n\n"
+                f"Game master response:\n{assistant_preview}\n\n"
+                f"Existing world cards JSON:\n{existing_cards_json}\n\n"
+                "Return JSON array only."
+            ),
+        },
+    ]
+
+
+def _extract_story_world_card_operation_target(
+    raw_item: dict[str, Any],
+    existing_by_id: dict[int, StoryWorldCard],
+    existing_by_title: dict[str, StoryWorldCard],
+) -> StoryWorldCard | None:
+    raw_card_id = raw_item.get("card_id")
+    if isinstance(raw_card_id, int) and raw_card_id > 0:
+        card = existing_by_id.get(raw_card_id)
+        if card is not None:
+            return card
+    elif isinstance(raw_card_id, str) and raw_card_id.strip().isdigit():
+        parsed_card_id = int(raw_card_id.strip())
+        if parsed_card_id > 0:
+            card = existing_by_id.get(parsed_card_id)
+            if card is not None:
+                return card
+
+    for field_name in ("target_title", "title"):
+        raw_title = raw_item.get(field_name)
+        if not isinstance(raw_title, str):
+            continue
+        normalized_title = " ".join(raw_title.split()).strip().casefold()
+        if not normalized_title:
+            continue
+        card = existing_by_title.get(normalized_title)
+        if card is not None:
+            return card
+
+    return None
+
+
+def _normalize_story_world_card_change_operations(
+    raw_operations: Any,
+    existing_cards: list[StoryWorldCard],
+) -> list[dict[str, Any]]:
+    if isinstance(raw_operations, dict):
+        raw_nested_operations = raw_operations.get("changes")
+        if not isinstance(raw_nested_operations, list):
+            raw_nested_operations = raw_operations.get("operations")
+        raw_operations = raw_nested_operations
+    if not isinstance(raw_operations, list):
+        return []
+
+    existing_by_id = {card.id: card for card in existing_cards}
+    existing_by_title = {
+        " ".join(card.title.split()).strip().casefold(): card
+        for card in existing_cards
+        if " ".join(card.title.split()).strip()
+    }
+
+    normalized_operations: list[dict[str, Any]] = []
+    seen_target_ids: set[int] = set()
+    seen_added_title_keys: set[str] = set()
+
+    for raw_item in raw_operations:
+        if not isinstance(raw_item, dict):
+            continue
+
+        action = _normalize_story_world_card_event_action(str(raw_item.get("action", "")))
+        if not action:
+            continue
+
+        importance = str(raw_item.get("importance", "high")).strip().lower()
+        if importance and importance not in STORY_WORLD_CARD_SIGNIFICANT_IMPORTANCE:
+            continue
+
+        kind = str(raw_item.get("kind", "")).strip().lower()
+        if kind and kind not in STORY_WORLD_CARD_ALLOWED_KINDS:
+            continue
+
+        target_card = _extract_story_world_card_operation_target(raw_item, existing_by_id, existing_by_title)
+        raw_changed_text = raw_item.get("changed_text")
+        changed_text_source = raw_changed_text if isinstance(raw_changed_text, str) else ""
+
+        title = ""
+        content = ""
+        triggers: list[str] = []
+
+        if action in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}:
+            raw_title = raw_item.get("title")
+            raw_content = raw_item.get("content")
+            if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+                continue
+            title = " ".join(raw_title.split()).strip()
+            content = raw_content.replace("\r\n", "\n").strip()
+            if len(title) > 120:
+                title = title[:120].rstrip()
+            if len(content) > STORY_WORLD_CARD_MAX_CONTENT_LENGTH:
+                content = content[:STORY_WORLD_CARD_MAX_CONTENT_LENGTH].rstrip()
+            if not title or not content:
+                continue
+
+            raw_triggers = raw_item.get("triggers")
+            trigger_values: list[str] = []
+            if isinstance(raw_triggers, list):
+                trigger_values = [item for item in raw_triggers if isinstance(item, str)]
+            triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+
+            title_key = title.casefold()
+            if _is_story_world_card_title_mundane(title) and importance != "critical":
+                continue
+
+            if action == STORY_WORLD_CARD_EVENT_ADDED and target_card is None:
+                target_card = existing_by_title.get(title_key)
+                if target_card is not None:
+                    action = STORY_WORLD_CARD_EVENT_UPDATED
+
+            if action == STORY_WORLD_CARD_EVENT_ADDED:
+                if title_key in seen_added_title_keys:
+                    continue
+                changed_text = _normalize_story_world_card_changed_text(
+                    changed_text_source,
+                    fallback=content,
+                )
+                normalized_operations.append(
+                    {
+                        "action": STORY_WORLD_CARD_EVENT_ADDED,
+                        "title": title,
+                        "content": content,
+                        "triggers": triggers,
+                        "changed_text": changed_text,
+                    }
+                )
+                seen_added_title_keys.add(title_key)
+                if len(normalized_operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
+                    break
+                continue
+
+        if action == STORY_WORLD_CARD_EVENT_UPDATED:
+            if target_card is None:
+                continue
+            if target_card.id in seen_target_ids:
+                continue
+            if not title or not content:
+                continue
+            if _is_story_world_card_title_mundane(title) and importance != "critical":
+                continue
+
+            current_title = " ".join(target_card.title.split()).strip()
+            current_content = target_card.content.replace("\r\n", "\n").strip()
+            current_triggers = _deserialize_story_world_card_triggers(target_card.triggers)
+            if title == current_title and content == current_content and triggers == current_triggers:
+                continue
+
+            changed_text = _normalize_story_world_card_changed_text(
+                changed_text_source,
+                fallback=f"Обновлены важные детали: {title}",
+            )
+            normalized_operations.append(
+                {
+                    "action": STORY_WORLD_CARD_EVENT_UPDATED,
+                    "world_card_id": target_card.id,
+                    "title": title,
+                    "content": content,
+                    "triggers": triggers,
+                    "changed_text": changed_text,
+                }
+            )
+            seen_target_ids.add(target_card.id)
+            if len(normalized_operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
+                break
+            continue
+
+        if action == STORY_WORLD_CARD_EVENT_DELETED:
+            if target_card is None:
+                continue
+            if target_card.id in seen_target_ids:
+                continue
+            if target_card.source != STORY_WORLD_CARD_SOURCE_AI:
+                continue
+            changed_text = _normalize_story_world_card_changed_text(
+                changed_text_source,
+                fallback=f"Карточка удалена как неактуальная: {target_card.title}",
+            )
+            normalized_operations.append(
+                {
+                    "action": STORY_WORLD_CARD_EVENT_DELETED,
+                    "world_card_id": target_card.id,
+                    "title": target_card.title,
+                    "changed_text": changed_text,
+                }
+            )
+            seen_target_ids.add(target_card.id)
+            if len(normalized_operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
+                break
+
+    return normalized_operations
+
+
 def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -1241,67 +1675,310 @@ def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str
     return _extract_json_array_from_text(content_value)
 
 
-def _generate_story_world_card_candidates(
+def _generate_story_world_card_change_operations(
     prompt: str,
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, Any]]:
     if not assistant_text.strip() or len(assistant_text.strip()) < 80:
         return []
-    if len(existing_cards) >= 120:
+    if len(existing_cards) >= 240:
         return []
 
-    existing_title_keys = {
-        " ".join(card.title.split()).strip().casefold()
-        for card in existing_cards
-        if " ".join(card.title.split()).strip()
-    }
-    messages_payload = _build_story_world_card_extraction_messages(prompt, assistant_text, existing_cards)
+    messages_payload = _build_story_world_card_change_messages(prompt, assistant_text, existing_cards)
 
-    raw_candidates: Any = []
+    raw_operations: Any = []
     if settings.story_llm_provider == "openrouter":
-        raw_candidates = _request_openrouter_world_card_candidates(messages_payload)
+        raw_operations = _request_openrouter_world_card_candidates(messages_payload)
     elif settings.story_llm_provider == "gigachat":
-        raw_candidates = _request_gigachat_world_card_candidates(messages_payload)
+        raw_operations = _request_gigachat_world_card_candidates(messages_payload)
     else:
         return []
 
-    return _normalize_story_world_card_candidates(raw_candidates, existing_title_keys)
+    return _normalize_story_world_card_change_operations(raw_operations, existing_cards)
+
+
+def _apply_story_world_card_change_operations(
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    operations: list[dict[str, Any]],
+) -> list[StoryWorldCardChangeEvent]:
+    if not operations:
+        return []
+
+    existing_cards = _list_story_world_cards(db, game.id)
+    existing_by_id = {card.id: card for card in existing_cards}
+    existing_by_title = {
+        " ".join(card.title.split()).strip().casefold(): card
+        for card in existing_cards
+        if " ".join(card.title.split()).strip()
+    }
+    events: list[StoryWorldCardChangeEvent] = []
+
+    for operation in operations[:STORY_WORLD_CARD_MAX_AI_CHANGES]:
+        action = _normalize_story_world_card_event_action(str(operation.get("action", "")))
+        if not action:
+            continue
+
+        if action == STORY_WORLD_CARD_EVENT_ADDED:
+            title_value = str(operation.get("title", "")).strip()
+            content_value = str(operation.get("content", "")).strip()
+            triggers_value = operation.get("triggers")
+            if not title_value or not content_value or not isinstance(triggers_value, list):
+                continue
+            card = StoryWorldCard(
+                game_id=game.id,
+                title=_normalize_story_world_card_title(title_value),
+                content=_normalize_story_world_card_content(content_value),
+                triggers=_serialize_story_world_card_triggers(
+                    _normalize_story_world_card_triggers(
+                        [item for item in triggers_value if isinstance(item, str)],
+                        fallback_title=title_value,
+                    )
+                ),
+                source=STORY_WORLD_CARD_SOURCE_AI,
+            )
+            db.add(card)
+            db.flush()
+
+            card_snapshot = _story_world_card_snapshot_from_card(card)
+            changed_text = _normalize_story_world_card_changed_text(
+                str(operation.get("changed_text", "")),
+                fallback=card.content,
+            )
+            event = StoryWorldCardChangeEvent(
+                game_id=game.id,
+                assistant_message_id=assistant_message.id,
+                world_card_id=card.id,
+                action=STORY_WORLD_CARD_EVENT_ADDED,
+                title=card.title,
+                changed_text=changed_text,
+                before_snapshot=None,
+                after_snapshot=_serialize_story_world_card_snapshot(card_snapshot),
+            )
+            db.add(event)
+            events.append(event)
+            existing_by_id[card.id] = card
+            existing_by_title[card.title.casefold()] = card
+            continue
+
+        raw_world_card_id = operation.get("world_card_id")
+        if not isinstance(raw_world_card_id, int):
+            continue
+        card = existing_by_id.get(raw_world_card_id)
+        if card is None:
+            continue
+
+        if action == STORY_WORLD_CARD_EVENT_UPDATED:
+            before_snapshot = _story_world_card_snapshot_from_card(card)
+            previous_title_key = card.title.casefold()
+            title_value = str(operation.get("title", "")).strip()
+            content_value = str(operation.get("content", "")).strip()
+            triggers_value = operation.get("triggers")
+            if not title_value or not content_value or not isinstance(triggers_value, list):
+                continue
+
+            card.title = _normalize_story_world_card_title(title_value)
+            card.content = _normalize_story_world_card_content(content_value)
+            card.triggers = _serialize_story_world_card_triggers(
+                _normalize_story_world_card_triggers(
+                    [item for item in triggers_value if isinstance(item, str)],
+                    fallback_title=title_value,
+                )
+            )
+            card.source = STORY_WORLD_CARD_SOURCE_AI
+            db.flush()
+
+            after_snapshot = _story_world_card_snapshot_from_card(card)
+            if before_snapshot == after_snapshot:
+                continue
+
+            changed_text = _normalize_story_world_card_changed_text(
+                str(operation.get("changed_text", "")),
+                fallback=f"Обновлены важные детали: {card.title}",
+            )
+            event = StoryWorldCardChangeEvent(
+                game_id=game.id,
+                assistant_message_id=assistant_message.id,
+                world_card_id=card.id,
+                action=STORY_WORLD_CARD_EVENT_UPDATED,
+                title=card.title,
+                changed_text=changed_text,
+                before_snapshot=_serialize_story_world_card_snapshot(before_snapshot),
+                after_snapshot=_serialize_story_world_card_snapshot(after_snapshot),
+            )
+            db.add(event)
+            events.append(event)
+            existing_by_title.pop(previous_title_key, None)
+            existing_by_title[card.title.casefold()] = card
+            continue
+
+        if action == STORY_WORLD_CARD_EVENT_DELETED:
+            before_snapshot = _story_world_card_snapshot_from_card(card)
+            changed_text = _normalize_story_world_card_changed_text(
+                str(operation.get("changed_text", "")),
+                fallback=f"Карточка удалена как неактуальная: {card.title}",
+            )
+            event = StoryWorldCardChangeEvent(
+                game_id=game.id,
+                assistant_message_id=assistant_message.id,
+                world_card_id=card.id,
+                action=STORY_WORLD_CARD_EVENT_DELETED,
+                title=card.title,
+                changed_text=changed_text,
+                before_snapshot=_serialize_story_world_card_snapshot(before_snapshot),
+                after_snapshot=None,
+            )
+            db.add(event)
+            events.append(event)
+            existing_by_id.pop(card.id, None)
+            existing_by_title.pop(card.title.casefold(), None)
+            db.delete(card)
+            db.flush()
+
+    if not events:
+        return []
+
+    _touch_story_game(game)
+    db.commit()
+    for event in events:
+        db.refresh(event)
+
+    return events
 
 
 def _persist_generated_story_world_cards(
     db: Session,
     game: StoryGame,
+    assistant_message: StoryMessage,
     prompt: str,
     assistant_text: str,
-) -> None:
+) -> list[StoryWorldCardChangeEvent]:
     existing_cards = _list_story_world_cards(db, game.id)
     try:
-        candidates = _generate_story_world_card_candidates(
+        operations = _generate_story_world_card_change_operations(
             prompt=prompt,
             assistant_text=assistant_text,
             existing_cards=existing_cards,
         )
     except Exception as exc:
         logger.warning("World card extraction failed: %s", exc)
-        return
+        return []
 
-    if not candidates:
-        return
+    try:
+        return _apply_story_world_card_change_operations(
+            db=db,
+            game=game,
+            assistant_message=assistant_message,
+            operations=operations,
+        )
+    except Exception as exc:
+        logger.warning("World card persistence failed: %s", exc)
+        return []
 
-    for candidate in candidates:
-        db.add(
-            StoryWorldCard(
-                game_id=game.id,
-                title=candidate["title"],
-                content=candidate["content"],
-                triggers=_serialize_story_world_card_triggers(candidate["triggers"]),
-                source=STORY_WORLD_CARD_SOURCE_AI,
+
+def _restore_story_world_card_from_snapshot(
+    db: Session,
+    game_id: int,
+    snapshot: dict[str, Any] | None,
+) -> StoryWorldCard | None:
+    if snapshot is None:
+        return None
+
+    title = str(snapshot.get("title", "")).strip()
+    content = str(snapshot.get("content", "")).strip()
+    if not title or not content:
+        return None
+
+    source = _normalize_story_world_card_source(str(snapshot.get("source", "")))
+    raw_triggers = snapshot.get("triggers")
+    trigger_values: list[str] = []
+    if isinstance(raw_triggers, list):
+        trigger_values = [value for value in raw_triggers if isinstance(value, str)]
+    triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+
+    card_id: int | None = None
+    raw_card_id = snapshot.get("id")
+    if isinstance(raw_card_id, int) and raw_card_id > 0:
+        card_id = raw_card_id
+
+    world_card: StoryWorldCard | None = None
+    if card_id is not None:
+        world_card = db.scalar(
+            select(StoryWorldCard).where(
+                StoryWorldCard.id == card_id,
+                StoryWorldCard.game_id == game_id,
             )
         )
 
+    if world_card is None:
+        world_card = StoryWorldCard(
+            game_id=game_id,
+            title=_normalize_story_world_card_title(title),
+            content=_normalize_story_world_card_content(content),
+            triggers=_serialize_story_world_card_triggers(triggers),
+            source=source,
+        )
+        db.add(world_card)
+        db.flush()
+        return world_card
+
+    world_card.title = _normalize_story_world_card_title(title)
+    world_card.content = _normalize_story_world_card_content(content)
+    world_card.triggers = _serialize_story_world_card_triggers(triggers)
+    world_card.source = source
+    db.flush()
+    return world_card
+
+
+def _undo_story_world_card_change_event(
+    db: Session,
+    game: StoryGame,
+    event: StoryWorldCardChangeEvent,
+) -> None:
+    if event.undone_at is not None:
+        return
+
+    action = _normalize_story_world_card_event_action(event.action)
+    if not action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
+
+    before_snapshot = _deserialize_story_world_card_snapshot(event.before_snapshot)
+    after_snapshot = _deserialize_story_world_card_snapshot(event.after_snapshot)
+
+    if action == STORY_WORLD_CARD_EVENT_ADDED:
+        target_card_id = event.world_card_id
+        if target_card_id is None and after_snapshot is not None:
+            raw_snapshot_id = after_snapshot.get("id")
+            if isinstance(raw_snapshot_id, int) and raw_snapshot_id > 0:
+                target_card_id = raw_snapshot_id
+
+        if target_card_id is not None:
+            world_card = db.scalar(
+                select(StoryWorldCard).where(
+                    StoryWorldCard.id == target_card_id,
+                    StoryWorldCard.game_id == game.id,
+                )
+            )
+            if world_card is not None:
+                db.delete(world_card)
+                db.flush()
+    elif action in {STORY_WORLD_CARD_EVENT_UPDATED, STORY_WORLD_CARD_EVENT_DELETED}:
+        restored_card = _restore_story_world_card_from_snapshot(db, game.id, before_snapshot)
+        if restored_card is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot restore world card state for this event",
+            )
+        event.world_card_id = restored_card.id
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
+
+    event.undone_at = _utcnow()
     _touch_story_game(game)
     db.commit()
+    db.refresh(event)
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -1711,13 +2388,18 @@ def _stream_story_response(
         db.refresh(assistant_message)
 
     if not aborted and stream_error is None:
+        persisted_world_card_events: list[StoryWorldCardChangeEventOut] = []
         try:
-            _persist_generated_story_world_cards(
+            generated_events = _persist_generated_story_world_cards(
                 db=db,
                 game=game,
+                assistant_message=assistant_message,
                 prompt=prompt,
                 assistant_text=assistant_message.content,
             )
+            persisted_world_card_events = [
+                _story_world_card_change_event_to_out(event) for event in generated_events if event.undone_at is None
+            ]
         except Exception:
             logger.exception("Failed to persist generated world cards")
         yield _sse_event(
@@ -1730,7 +2412,8 @@ def _stream_story_response(
                     "content": assistant_message.content,
                     "created_at": assistant_message.created_at.isoformat(),
                     "updated_at": assistant_message.updated_at.isoformat(),
-                }
+                },
+                "world_card_events": [event.model_dump(mode="json") for event in persisted_world_card_events],
             },
         )
 
@@ -2014,11 +2697,13 @@ def get_story_game(
     messages = _list_story_messages(db, game.id)
     instruction_cards = _list_story_instruction_cards(db, game.id)
     world_cards = _list_story_world_cards(db, game.id)
+    world_card_events = _list_story_world_card_events(db, game.id)
     return StoryGameOut(
         game=StoryGameSummaryOut.model_validate(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         world_cards=[_story_world_card_to_out(card) for card in world_cards],
+        world_card_events=[_story_world_card_change_event_to_out(event) for event in world_card_events],
     )
 
 
@@ -2199,6 +2884,28 @@ def delete_story_world_card(
     _touch_story_game(game)
     db.commit()
     return MessageResponse(message="World card deleted")
+
+
+@app.post("/api/story/games/{game_id}/world-card-events/{event_id}/undo", response_model=MessageResponse)
+def undo_story_world_card_event(
+    game_id: int,
+    event_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    event = db.scalar(
+        select(StoryWorldCardChangeEvent).where(
+            StoryWorldCardChangeEvent.id == event_id,
+            StoryWorldCardChangeEvent.game_id == game.id,
+        )
+    )
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card event not found")
+
+    _undo_story_world_card_change_event(db, game, event)
+    return MessageResponse(message="World card change reverted")
 
 
 @app.patch("/api/story/games/{game_id}/messages/{message_id}", response_model=StoryMessageOut)

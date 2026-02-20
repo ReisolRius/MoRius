@@ -106,13 +106,13 @@ class StoryInstructionCardUpdateRequest(BaseModel):
 
 class StoryWorldCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=8_000)
+    content: str = Field(min_length=1, max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
 
 
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=8_000)
+    content: str = Field(min_length=1, max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
 
 
@@ -153,6 +153,27 @@ class StoryWorldCardOut(BaseModel):
     updated_at: datetime
 
 
+class StoryWorldCardSnapshotOut(BaseModel):
+    id: int | None
+    title: str
+    content: str
+    triggers: list[str]
+    source: str
+
+
+class StoryWorldCardChangeEventOut(BaseModel):
+    id: int
+    game_id: int
+    assistant_message_id: int
+    world_card_id: int | None
+    action: str
+    title: str
+    changed_text: str
+    before_snapshot: StoryWorldCardSnapshotOut | None
+    after_snapshot: StoryWorldCardSnapshotOut | None
+    created_at: datetime
+
+
 class StoryGameSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -168,3 +189,4 @@ class StoryGameOut(BaseModel):
     messages: list[StoryMessageOut]
     instruction_cards: list[StoryInstructionCardOut]
     world_cards: list[StoryWorldCardOut]
+    world_card_events: list[StoryWorldCardChangeEventOut]
