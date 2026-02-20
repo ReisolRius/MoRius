@@ -615,6 +615,19 @@ def _validate_story_provider_config() -> None:
             detail="GigaChat provider is not configured: set GIGACHAT_AUTHORIZATION_KEY",
         )
 
+    if provider == "openrouter":
+        if not settings.openrouter_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenRouter provider is not configured: set OPENROUTER_API_KEY",
+            )
+        if not settings.openrouter_model:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="OpenRouter provider is not configured: set OPENROUTER_MODEL",
+            )
+        return
+
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail=f"Unsupported STORY_LLM_PROVIDER: {provider}",
@@ -658,6 +671,35 @@ def _build_mock_story_response(prompt: str, turn_index: int) -> str:
 
 def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str]:
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
+
+
+def _extract_text_from_model_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, list):
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+
+            if not isinstance(item, dict):
+                continue
+
+            text_value = item.get("text")
+            if isinstance(text_value, str):
+                parts.append(text_value)
+                continue
+
+            if item.get("type") == "text":
+                content_value = item.get("content")
+                if isinstance(content_value, str):
+                    parts.append(content_value)
+
+        return "".join(parts)
+
+    return ""
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -821,6 +863,112 @@ def _iter_gigachat_story_stream_chunks(context_messages: list[StoryMessage]):
                 break
 
 
+def _iter_openrouter_story_stream_chunks(context_messages: list[StoryMessage]):
+    messages_payload = [
+        {"role": message.role, "content": message.content}
+        for message in context_messages
+        if message.content.strip()
+    ]
+    if not messages_payload:
+        raise RuntimeError("No messages to send to OpenRouter")
+
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Accept": "text/event-stream",
+        "Content-Type": "application/json",
+    }
+    if settings.openrouter_site_url:
+        headers["HTTP-Referer"] = settings.openrouter_site_url
+    if settings.openrouter_app_name:
+        headers["X-Title"] = settings.openrouter_app_name
+
+    payload = {
+        "model": settings.openrouter_model,
+        "messages": messages_payload,
+        "stream": True,
+    }
+
+    try:
+        response = requests.post(
+            settings.openrouter_chat_url,
+            headers=headers,
+            json=payload,
+            timeout=(20, 120),
+            stream=True,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = ""
+        try:
+            error_payload = response.json()
+        except ValueError:
+            error_payload = {}
+
+        if isinstance(error_payload, dict):
+            error_value = error_payload.get("error")
+            if isinstance(error_value, dict):
+                detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+            elif isinstance(error_value, str):
+                detail = error_value.strip()
+
+            if not detail:
+                detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+
+        if detail:
+            raise RuntimeError(f"OpenRouter chat error ({response.status_code}): {detail}")
+        raise RuntimeError(f"OpenRouter chat error ({response.status_code})")
+
+    emitted_delta = False
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if raw_line is None:
+            continue
+        line = raw_line.strip()
+        if not line or not line.startswith("data:"):
+            continue
+
+        raw_data = line[len("data:") :].strip()
+        if raw_data == "[DONE]":
+            break
+
+        try:
+            chunk_payload = json.loads(raw_data)
+        except json.JSONDecodeError:
+            continue
+
+        error_value = chunk_payload.get("error")
+        if isinstance(error_value, dict):
+            error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+            raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+        if isinstance(error_value, str) and error_value.strip():
+            raise RuntimeError(error_value.strip())
+
+        choices = chunk_payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        delta_value = choice.get("delta")
+        if isinstance(delta_value, dict):
+            content_delta = _extract_text_from_model_content(delta_value.get("content"))
+            if content_delta:
+                emitted_delta = True
+                yield content_delta
+                continue
+
+        if emitted_delta:
+            continue
+
+        message_value = choice.get("message")
+        if isinstance(message_value, dict):
+            content_value = _extract_text_from_model_content(message_value.get("content"))
+            if content_value:
+                for chunk in _iter_story_stream_chunks(content_value):
+                    yield chunk
+                break
+
+
 def _iter_story_provider_stream_chunks(
     *,
     prompt: str,
@@ -829,6 +977,9 @@ def _iter_story_provider_stream_chunks(
 ):
     if settings.story_llm_provider == "gigachat":
         yield from _iter_gigachat_story_stream_chunks(context_messages)
+        return
+    if settings.story_llm_provider == "openrouter":
+        yield from _iter_openrouter_story_stream_chunks(context_messages)
         return
 
     response_text = _build_mock_story_response(prompt, turn_index)

@@ -61,6 +61,11 @@ class Settings:
     gigachat_chat_url: str
     gigachat_model: str
     gigachat_verify_ssl: bool
+    openrouter_api_key: str
+    openrouter_chat_url: str
+    openrouter_model: str
+    openrouter_site_url: str
+    openrouter_app_name: str
 
 
 settings = Settings(
@@ -101,4 +106,9 @@ settings = Settings(
     gigachat_chat_url=os.getenv("GIGACHAT_CHAT_URL", "https://gigachat.devices.sberbank.ru/api/v1/chat/completions").strip(),
     gigachat_model=os.getenv("GIGACHAT_MODEL", "GigaChat-2-Lite").strip(),
     gigachat_verify_ssl=_to_bool(os.getenv("GIGACHAT_VERIFY_SSL"), default=True),
+    openrouter_api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
+    openrouter_chat_url=os.getenv("OPENROUTER_CHAT_URL", "https://openrouter.ai/api/v1/chat/completions").strip(),
+    openrouter_model=os.getenv("OPENROUTER_MODEL", "openrouter/free").strip(),
+    openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
+    openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
 )
