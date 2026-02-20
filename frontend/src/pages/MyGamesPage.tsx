@@ -11,6 +11,7 @@ import {
   Grow,
   IconButton,
   Stack,
+  SvgIcon,
   Typography,
   type GrowProps,
 } from '@mui/material'
@@ -48,14 +49,21 @@ const APP_TEXT_PRIMARY = '#DBDDE7'
 const APP_TEXT_SECONDARY = '#A4ADB6'
 const APP_BUTTON_HOVER = '#1D2738'
 const APP_BUTTON_ACTIVE = '#25354D'
+const APP_BUTTON_SHELL = {
+  width: 44,
+  height: 44,
+  borderRadius: '14px',
+  border: `1px solid ${APP_BORDER_COLOR}`,
+  backgroundColor: APP_CARD_BACKGROUND,
+} as const
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
-  { value: 'updated_desc', label: 'Упорядочить по дате: новые' },
-  { value: 'updated_asc', label: 'Упорядочить по дате: старые' },
-  { value: 'created_desc', label: 'Сначала новые игры' },
-  { value: 'created_asc', label: 'Сначала старые игры' },
+  { value: 'updated_desc', label: 'Недавние' },
+  { value: 'updated_asc', label: 'Старые' },
+  { value: 'created_desc', label: 'Созданы: новые' },
+  { value: 'created_asc', label: 'Созданы: старые' },
 ]
 
 const CARD_PALETTES = [
@@ -165,6 +173,28 @@ function buildCardArtwork(gameId: number): string {
   ].join(', ')
 }
 
+function SearchGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
+      <path
+        d="M10.5 4a6.5 6.5 0 1 0 4.18 11.48l3.92 3.92a1 1 0 0 0 1.4-1.42l-3.87-3.86A6.5 6.5 0 0 0 10.5 4m0 2a4.5 4.5 0 1 1 0 9.01 4.5 4.5 0 0 1 0-9.01"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
+function SortGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
+      <path
+        d="M4 7h16v2H4zm4 4h12v2H8zm4 4h8v2h-8z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -248,6 +278,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -339,10 +370,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
 
   const pageTitle = mode === 'all' ? 'Все игры' : 'Мои игры'
-  const pageDescription =
-    mode === 'all'
-      ? 'Открывайте любую историю и продолжайте приключение.'
-      : 'Продолжайте начатые истории или создайте новую игру.'
+
+  const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
 
   const menuButtonSx = (isActive: boolean) => ({
     width: '100%',
@@ -453,20 +482,61 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           zIndex: 45,
         }}
       >
-        <Button
-          variant="text"
-          onClick={() => setProfileDialogOpen(true)}
-          aria-label="Открыть профиль"
-          sx={{
-            minWidth: 0,
-            width: HEADER_AVATAR_SIZE,
-            height: HEADER_AVATAR_SIZE,
-            p: 0,
-            borderRadius: '50%',
-          }}
-        >
-          <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton
+            aria-label={isHeaderActionsOpen ? 'Скрыть кнопки шапки' : 'Показать кнопки шапки'}
+            onClick={() => setIsHeaderActionsOpen((previous) => !previous)}
+            sx={APP_BUTTON_SHELL}
+          >
+            <Box
+              component="img"
+              src={icons.arrowback}
+              alt=""
+              sx={{
+                width: 20,
+                height: 20,
+                opacity: 0.9,
+                transform: isHeaderActionsOpen ? 'none' : 'rotate(180deg)',
+                transition: 'transform 220ms ease',
+              }}
+            />
+          </IconButton>
+
+          <Box
+            sx={{
+              ml: isHeaderActionsOpen ? 1.2 : 0,
+              maxWidth: isHeaderActionsOpen ? 240 : 0,
+              opacity: isHeaderActionsOpen ? 1 : 0,
+              transform: isHeaderActionsOpen ? 'translateX(0)' : 'translateX(14px)',
+              pointerEvents: isHeaderActionsOpen ? 'auto' : 'none',
+              overflow: 'hidden',
+              transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
+            }}
+          >
+            <Stack direction="row" spacing={1.2}>
+              <IconButton aria-label="Поддержка" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
+                <Box component="img" src={icons.reload} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <IconButton aria-label="Оформление" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
+                <Box component="img" src={icons.settings} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <Button
+                variant="text"
+                onClick={() => setProfileDialogOpen(true)}
+                aria-label="Открыть профиль"
+                sx={{
+                  minWidth: 0,
+                  width: HEADER_AVATAR_SIZE,
+                  height: HEADER_AVATAR_SIZE,
+                  p: 0,
+                  borderRadius: '50%',
+                }}
+              >
+                <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
+              </Button>
+            </Stack>
+          </Box>
+        </Box>
       </Box>
 
       <Box
@@ -483,84 +553,134 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             </Alert>
           ) : null}
 
-          <Stack spacing={0.5} sx={{ mb: 2 }}>
-            <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-              {pageTitle}
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.02rem' }}>{pageDescription}</Typography>
-          </Stack>
-
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 260px 170px' },
+              gridTemplateColumns: { xs: '1fr', xl: '170px minmax(0, 1fr) 190px' },
               gap: 1.2,
+              alignItems: 'center',
               mb: 2,
             }}
           >
-            <Box
-              component="input"
-              value={searchQuery}
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-              placeholder="Введите название игры для поиска..."
-              sx={{
-                width: '100%',
-                minHeight: 54,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                color: APP_TEXT_PRIMARY,
-                px: 1.4,
-                outline: 'none',
-                fontSize: '1.02rem',
-                '&::placeholder': {
-                  color: APP_TEXT_SECONDARY,
-                },
-              }}
-            />
+            <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+              {pageTitle}
+            </Typography>
 
             <Box
-              component="select"
-              value={sortMode}
-              onChange={(event: ChangeEvent<HTMLSelectElement>) => setSortMode(event.target.value as GamesSortMode)}
               sx={{
-                width: '100%',
-                minHeight: 54,
+                position: 'relative',
                 borderRadius: '14px',
                 border: `1px solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
-                color: APP_TEXT_PRIMARY,
-                px: 1.2,
-                outline: 'none',
-                fontSize: '1rem',
-                cursor: 'pointer',
+                minHeight: 54,
               }}
             >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              <Box
+                component="input"
+                value={searchQuery}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
+                placeholder="Поиск"
+                sx={{
+                  width: '100%',
+                  minHeight: 54,
+                  borderRadius: '14px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: APP_TEXT_PRIMARY,
+                  pl: 1.4,
+                  pr: 5.2,
+                  outline: 'none',
+                  fontSize: '1.02rem',
+                  '&::placeholder': {
+                    color: APP_TEXT_SECONDARY,
+                  },
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: 1.1,
+                  transform: 'translateY(-50%)',
+                  color: APP_TEXT_SECONDARY,
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+              >
+                <SearchGlyph />
+              </Box>
             </Box>
 
+            <Box
+              sx={{
+                position: 'relative',
+                borderRadius: '14px',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                minHeight: 54,
+              }}
+            >
+              <Box
+                component="select"
+                value={sortMode}
+                onChange={(event: ChangeEvent<HTMLSelectElement>) => setSortMode(event.target.value as GamesSortMode)}
+                sx={{
+                  width: '100%',
+                  minHeight: 54,
+                  borderRadius: '14px',
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  color: APP_TEXT_PRIMARY,
+                  pl: 1.2,
+                  pr: 4.4,
+                  outline: 'none',
+                  fontSize: '0.98rem',
+                  appearance: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Box>
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: '50%',
+                  right: 1.05,
+                  transform: 'translateY(-50%)',
+                  color: APP_TEXT_SECONDARY,
+                  display: 'grid',
+                  placeItems: 'center',
+                  pointerEvents: 'none',
+                }}
+              >
+                <SortGlyph />
+              </Box>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.8 }}>
             <Button
               onClick={() => void handleCreateGame()}
               disabled={isCreatingGame}
               sx={{
-                minHeight: 54,
-                borderRadius: '14px',
+                minHeight: 46,
+                minWidth: 176,
+                borderRadius: '12px',
                 textTransform: 'none',
                 color: APP_TEXT_PRIMARY,
                 border: `1px solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_BUTTON_ACTIVE,
                 fontWeight: 700,
-                fontSize: '1.02rem',
                 '&:hover': {
                   backgroundColor: APP_BUTTON_HOVER,
                 },
               }}
             >
-              {isCreatingGame ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : '+ Создать игру'}
+              {isCreatingGame ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Новая игра +'}
             </Button>
           </Box>
 
@@ -587,12 +707,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             <Box
               sx={{
                 display: 'grid',
-                gap: 1.3,
+                gap: 1.4,
                 gridTemplateColumns: {
                   xs: '1fr',
                   sm: 'repeat(2, minmax(0, 1fr))',
-                  md: 'repeat(3, minmax(0, 1fr))',
-                  xl: 'repeat(4, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
                 },
               }}
             >
@@ -601,8 +720,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                   key={game.id}
                   onClick={() => onNavigate(`/home/${game.id}`)}
                   sx={{
-                    borderRadius: '16px',
-                    minHeight: { xs: 184, md: 212 },
+                    borderRadius: '20px',
+                    minHeight: { xs: 300, md: 330 },
                     p: 0,
                     display: 'flex',
                     flexDirection: 'column',
@@ -611,9 +730,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     textAlign: 'left',
                     border: `1px solid ${APP_BORDER_COLOR}`,
                     overflow: 'hidden',
-                    backgroundImage: buildCardArtwork(game.id),
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
+                    background: APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
                     transition: 'transform 180ms ease, border-color 180ms ease',
                     '&:hover': {
@@ -624,12 +741,30 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 >
                   <Box
                     sx={{
-                      mt: 'auto',
+                      minHeight: { xs: 174, md: 194 },
+                      backgroundImage: buildCardArtwork(game.id),
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      position: 'relative',
+                    }}
+                  >
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        background:
+                          'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
+                      }}
+                    />
+                  </Box>
+                  <Box
+                    sx={{
                       width: '100%',
                       px: { xs: 1.2, md: 1.35 },
                       py: { xs: 1.05, md: 1.2 },
-                      background:
-                        'linear-gradient(180deg, rgba(6, 9, 14, 0.14) 0%, rgba(6, 9, 14, 0.9) 44%, rgba(6, 9, 14, 0.96) 100%)',
+                      background: 'linear-gradient(180deg, rgba(12, 16, 21, 0.9) 0%, rgba(10, 14, 19, 0.96) 100%)',
+                      borderTop: `1px solid ${APP_BORDER_COLOR}`,
                     }}
                   >
                     <Typography
@@ -652,7 +787,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                         color: APP_TEXT_SECONDARY,
                         fontSize: { xs: '0.92rem', md: '0.95rem' },
                         lineHeight: 1.4,
-                        mb: 0.85,
+                        mb: 0.95,
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
                         WebkitBoxOrient: 'vertical',
@@ -662,7 +797,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                       {gamePreviews[game.id] ?? 'Загружаем превью...'}
                     </Typography>
                     <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      Обновлено {new Date(game.last_activity_at).toLocaleString('ru-RU')}
+                      {formatUpdatedAtLabel(game.last_activity_at)}
                     </Typography>
                   </Box>
                 </Button>

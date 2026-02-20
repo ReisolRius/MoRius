@@ -1642,10 +1642,6 @@ def _build_story_provider_messages(
         for message in context_messages
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
     ]
-    if plot_cards:
-        history = history[-2:]
-    elif len(history) > 80:
-        history = history[-80:]
 
     system_prompt = _build_story_system_prompt(instruction_cards, plot_cards, world_cards)
     system_prompt_tokens = _estimate_story_tokens(system_prompt)

@@ -259,6 +259,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
@@ -271,6 +272,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
   const [quickStartTarget, setQuickStartTarget] = useState<string | null>(null)
+  const [selectedNewsItem, setSelectedNewsItem] = useState<DashboardNewsItem | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleCloseProfileDialog = () => {
@@ -489,6 +491,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }
 
+  const handleOpenNewsDetails = (item: DashboardNewsItem) => {
+    setSelectedNewsItem(item)
+  }
+
+  const handleCloseNewsDetails = () => {
+    setSelectedNewsItem(null)
+  }
+
   const profileName = user.display_name || 'Игрок'
   const isQuickStartBusy = Boolean(quickStartTarget)
   const dashboardView = 'welcome' as const
@@ -548,20 +558,87 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           zIndex: 45,
         }}
       >
-        <Button
-          variant="text"
-          onClick={() => setProfileDialogOpen(true)}
-          aria-label="Открыть профиль"
-          sx={{
-            minWidth: 0,
-            width: HEADER_AVATAR_SIZE,
-            height: HEADER_AVATAR_SIZE,
-            p: 0,
-            borderRadius: '50%',
-          }}
-        >
-          <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-        </Button>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton
+            aria-label={isHeaderActionsOpen ? 'Скрыть кнопки шапки' : 'Показать кнопки шапки'}
+            onClick={() => setIsHeaderActionsOpen((previous) => !previous)}
+            sx={{
+              width: 44,
+              height: 44,
+              borderRadius: '14px',
+              border: `1px solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_CARD_BACKGROUND,
+            }}
+          >
+            <Box
+              component="img"
+              src={icons.arrowback}
+              alt=""
+              sx={{
+                width: 20,
+                height: 20,
+                opacity: 0.9,
+                transform: isHeaderActionsOpen ? 'none' : 'rotate(180deg)',
+                transition: 'transform 220ms ease',
+              }}
+            />
+          </IconButton>
+
+          <Box
+            sx={{
+              ml: isHeaderActionsOpen ? 1.2 : 0,
+              maxWidth: isHeaderActionsOpen ? 240 : 0,
+              opacity: isHeaderActionsOpen ? 1 : 0,
+              transform: isHeaderActionsOpen ? 'translateX(0)' : 'translateX(14px)',
+              pointerEvents: isHeaderActionsOpen ? 'auto' : 'none',
+              overflow: 'hidden',
+              transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
+            }}
+          >
+            <Stack direction="row" spacing={1.2}>
+              <IconButton
+                aria-label="Поддержка"
+                onClick={(event) => event.preventDefault()}
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '14px',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                }}
+              >
+                <Box component="img" src={icons.reload} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <IconButton
+                aria-label="Оформление"
+                onClick={(event) => event.preventDefault()}
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '14px',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                }}
+              >
+                <Box component="img" src={icons.settings} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <Button
+                variant="text"
+                onClick={() => setProfileDialogOpen(true)}
+                aria-label="Открыть профиль"
+                sx={{
+                  minWidth: 0,
+                  width: HEADER_AVATAR_SIZE,
+                  height: HEADER_AVATAR_SIZE,
+                  p: 0,
+                  borderRadius: '50%',
+                }}
+              >
+                <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
+              </Button>
+            </Stack>
+          </Box>
+        </Box>
       </Box>
 
       <Box
@@ -706,6 +783,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {DASHBOARD_NEWS.map((item) => (
                   <Button
                     key={item.id}
+                    onClick={() => handleOpenNewsDetails(item)}
                     sx={{
                       minHeight: 112,
                       borderRadius: '14px',
@@ -841,9 +919,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.16, mb: 0.42 }}>
                       {world.title}
                     </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem', lineHeight: 1.35 }}>
-                      {world.teaser}
-                    </Typography>
                   </Box>
                 </Box>
 
@@ -873,6 +948,45 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Box>
         </Box>
       </Box>
+
+      <Dialog
+        open={selectedNewsItem !== null}
+        onClose={handleCloseNewsDetails}
+        maxWidth="sm"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 0.8 }}>
+          <Stack spacing={0.4}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+              {selectedNewsItem?.category}
+            </Typography>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1.2 }}>{selectedNewsItem?.title}</Typography>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.8 }}>
+          <Stack spacing={1.2}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1.6 }}>
+              {selectedNewsItem?.description}
+            </Typography>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>{selectedNewsItem?.dateLabel}</Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={handleCloseNewsDetails} sx={{ color: APP_TEXT_SECONDARY }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={profileDialogOpen}

@@ -451,8 +451,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return 0
     }
 
-    const activeHistory = normalizedHistory.length > 80 ? normalizedHistory.slice(-80) : normalizedHistory
-    const payload = activeHistory
+    const payload = normalizedHistory
       .map((message) => `${message.role === 'user' ? 'Игрок' : 'ИИ'}: ${message.content}`)
       .join('\n')
     return estimateTextTokens(payload)
