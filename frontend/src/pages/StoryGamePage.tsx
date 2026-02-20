@@ -182,6 +182,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [messages, setMessages] = useState<StoryMessage[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [quickStartIntro, setQuickStartIntro] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isLoadingGameMessages, setIsLoadingGameMessages] = useState(false)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
@@ -301,6 +302,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [])
 
   useEffect(() => {
+    setQuickStartIntro('')
+  }, [activeGameId])
+
+  useEffect(() => {
     if (!activeGameId || isLoadingGameMessages || messages.length > 0 || inputValue.trim().length > 0) {
       return
     }
@@ -311,14 +316,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     try {
-      const parsed = JSON.parse(rawPayload) as { gameId?: unknown; prompt?: unknown }
-      if (parsed.gameId !== activeGameId || typeof parsed.prompt !== 'string') {
+      const parsed = JSON.parse(rawPayload) as {
+        gameId?: unknown
+        title?: unknown
+        description?: unknown
+        prompt?: unknown
+      }
+      if (parsed.gameId !== activeGameId) {
         return
       }
 
-      const normalizedPrompt = parsed.prompt.trim()
-      if (normalizedPrompt.length > 0) {
-        setInputValue(normalizedPrompt)
+      if (typeof parsed.title === 'string') {
+        const normalizedTitle = parsed.title.trim()
+        if (normalizedTitle.length > 0) {
+          setCustomTitleMap((previousMap) => {
+            const nextMap = setStoryTitle(previousMap, activeGameId, normalizedTitle)
+            persistStoryTitleMap(nextMap)
+            return nextMap
+          })
+        }
+      }
+
+      if (typeof parsed.description === 'string') {
+        const normalizedDescription = parsed.description.trim()
+        if (normalizedDescription.length > 0) {
+          setQuickStartIntro(normalizedDescription)
+        }
+      }
+
+      if (typeof parsed.prompt === 'string') {
+        const normalizedPrompt = parsed.prompt.trim()
+        if (normalizedPrompt.length > 0) {
+          setInputValue(normalizedPrompt)
+        }
       }
       localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
     } catch {
@@ -1117,7 +1147,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             {!isLoadingGameMessages && messages.length === 0 ? (
               <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
                 <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
-                  {INITIAL_STORY_PLACEHOLDER}
+                  {quickStartIntro || INITIAL_STORY_PLACEHOLDER}
                 </Typography>
               </Stack>
             ) : null}

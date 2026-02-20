@@ -385,6 +385,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             JSON.stringify({
               gameId: game.id,
               title: world.title,
+              description: world.description,
               prompt: world.prompt,
             }),
           )
@@ -684,7 +685,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   display: 'flex',
                   alignItems: 'flex-end',
                   background:
-                    'linear-gradient(132deg, rgba(19, 28, 38, 0.95) 0%, rgba(16, 24, 34, 0.95) 34%, rgba(27, 34, 46, 0.96) 62%, rgba(14, 19, 28, 0.98) 100%)',
+                    'linear-gradient(132deg, rgba(12, 18, 26, 0.98) 0%, rgba(10, 16, 23, 0.98) 34%, rgba(15, 22, 31, 0.98) 62%, rgba(8, 13, 20, 0.99) 100%)',
                   boxShadow: '0 28px 44px rgba(0, 0, 0, 0.35)',
                 }}
               >
@@ -695,6 +696,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     inset: 0,
                     background:
                       'radial-gradient(circle at 84% 20%, rgba(233, 178, 91, 0.22), transparent 34%), repeating-linear-gradient(128deg, rgba(189, 205, 223, 0.09) 0 6px, transparent 6px 20px)',
+                  }}
+                />
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    background:
+                      'linear-gradient(180deg, rgba(4, 7, 11, 0.44) 0%, rgba(4, 7, 11, 0.58) 54%, rgba(4, 7, 11, 0.74) 100%)',
                   }}
                 />
                 <Box
@@ -847,6 +857,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   borderRadius: '16px',
                   border: '1px solid rgba(186, 202, 214, 0.14)',
                   overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
                   textTransform: 'none',
                   textAlign: 'left',
                   alignItems: 'stretch',
@@ -875,7 +887,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       px: 1.2,
                       py: 1.05,
                       background:
-                        'linear-gradient(180deg, rgba(6, 9, 14, 0.16) 0%, rgba(6, 9, 14, 0.9) 48%, rgba(6, 9, 14, 0.96) 100%)',
+                        'linear-gradient(180deg, rgba(6, 9, 14, 0.26) 0%, rgba(6, 9, 14, 0.94) 48%, rgba(6, 9, 14, 0.98) 100%)',
                     }}
                   >
                     <Typography sx={{ color: '#ecf2fb', fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.16, mb: 0.42 }}>
@@ -888,7 +900,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 </Box>
 
                 <Box sx={{ px: 1.2, py: 1.05 }}>
-                  <Typography sx={{ color: 'rgba(196, 208, 224, 0.86)', fontSize: '0.92rem', lineHeight: 1.42 }}>
+                  <Typography
+                    sx={{
+                      color: 'rgba(196, 208, 224, 0.86)',
+                      fontSize: '0.92rem',
+                      lineHeight: 1.42,
+                      display: '-webkit-box',
+                      WebkitLineClamp: 4,
+                      WebkitBoxOrient: 'vertical',
+                      overflow: 'hidden',
+                    }}
+                  >
                     {world.description}
                   </Typography>
                 </Box>
