@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 import math
 import secrets
 import smtplib
@@ -84,6 +85,7 @@ STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
@@ -996,6 +998,13 @@ def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _public_story_error_detail(exc: Exception) -> str:
+    detail = str(exc).strip()
+    if not detail:
+        return "Text generation failed"
+    return detail[:500]
+
+
 def _stream_story_response(
     *,
     db: Session,
@@ -1039,7 +1048,8 @@ def _stream_story_response(
         raise
     except Exception as exc:
         stream_error = str(exc)
-        error_detail = stream_error if settings.debug else "Text generation failed"
+        logger.exception("Story generation failed")
+        error_detail = _public_story_error_detail(exc)
         yield _sse_event("error", {"detail": error_detail})
     finally:
         assistant_message.content = produced
