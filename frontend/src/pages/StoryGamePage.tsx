@@ -20,6 +20,8 @@ import {
   DialogTitle,
   Grow,
   IconButton,
+  Menu,
+  MenuItem,
   Slider,
   Stack,
   Typography,
@@ -87,6 +89,7 @@ type UserAvatarProps = {
 type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
+type PanelCardMenuType = 'instruction' | 'plot' | 'world'
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
@@ -99,6 +102,10 @@ const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 2000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 5000
 const STORY_DEFAULT_CONTEXT_LIMIT = 2000
+const RIGHT_PANEL_WIDTH_MIN = 300
+const RIGHT_PANEL_WIDTH_MAX = 460
+const RIGHT_PANEL_WIDTH_DEFAULT = 332
+const RIGHT_PANEL_CARD_HEIGHT = 198
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
@@ -166,6 +173,13 @@ function clampStoryContextLimit(value: number): number {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
   return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+}
+
+function clampRightPanelWidth(value: number): number {
+  if (!Number.isFinite(value)) {
+    return RIGHT_PANEL_WIDTH_DEFAULT
+  }
+  return Math.min(RIGHT_PANEL_WIDTH_MAX, Math.max(RIGHT_PANEL_WIDTH_MIN, Math.round(value)))
 }
 
 function formatContextChars(value: number): string {
@@ -273,6 +287,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
   const [activeAiPanelTab, setActiveAiPanelTab] = useState<AiPanelTab>('instructions')
   const [activeWorldPanelTab, setActiveWorldPanelTab] = useState<WorldPanelTab>('story')
@@ -319,7 +334,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
+  const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
+  const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
+  const rightPanelResizingRef = useRef(false)
   const instructionDialogGameIdRef = useRef<number | null>(null)
   const plotCardDialogGameIdRef = useRef<number | null>(null)
   const worldCardDialogGameIdRef = useRef<number | null>(null)
@@ -343,6 +362,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelTabLabel = rightPanelMode === 'ai' ? 'Настройки' : 'Мир'
   const isLeftPanelTabActive =
     rightPanelMode === 'ai' ? activeAiPanelTab === 'instructions' : activeWorldPanelTab === 'story'
+  const rightPanelContentKey =
+    rightPanelMode === 'ai'
+      ? `ai-${activeAiPanelTab}`
+      : `world-${activeWorldPanelTab}`
   const visibleWorldCardEvents = useMemo(
     () => worldCardEvents.filter((event) => !dismissedWorldCardEventIds.includes(event.id)),
     [dismissedWorldCardEventIds, worldCardEvents],
@@ -456,6 +479,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const cardsContextOverflowChars = Math.max(cardsContextCharsUsed - contextLimitChars, 0)
   const cardsContextUsagePercent =
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
+  const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
+  const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
+  const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
 
   const adjustInputHeight = useCallback(() => {
     const node = textAreaRef.current
@@ -572,6 +598,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     setQuickStartIntro('')
   }, [activeGameId])
+
+  useEffect(() => {
+    setCardMenuAnchorEl(null)
+    setCardMenuType(null)
+    setCardMenuCardId(null)
+  }, [activeGameId])
+
+  useEffect(() => {
+    return () => {
+      if (rightPanelResizingRef.current) {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (instructionDialogGameIdRef.current === activeGameId) {
@@ -1251,6 +1292,114 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, deletingWorldCardId, editingWorldCardId, isCreatingGame, isSavingWorldCard],
   )
 
+  const handleOpenCardMenu = useCallback(
+    (event: React.MouseEvent<HTMLElement>, type: PanelCardMenuType, cardId: number) => {
+      event.stopPropagation()
+      setCardMenuAnchorEl(event.currentTarget)
+      setCardMenuType(type)
+      setCardMenuCardId(cardId)
+    },
+    [],
+  )
+
+  const handleCloseCardMenu = useCallback(() => {
+    setCardMenuAnchorEl(null)
+    setCardMenuType(null)
+    setCardMenuCardId(null)
+  }, [])
+
+  const handleCardMenuEdit = useCallback(() => {
+    if (cardMenuCardId === null || cardMenuType === null) {
+      handleCloseCardMenu()
+      return
+    }
+
+    if (cardMenuType === 'instruction') {
+      const card = instructionCards.find((item) => item.id === cardMenuCardId)
+      if (card) {
+        handleOpenEditInstructionDialog(card)
+      }
+    } else if (cardMenuType === 'plot') {
+      const card = plotCards.find((item) => item.id === cardMenuCardId)
+      if (card) {
+        handleOpenEditPlotCardDialog(card)
+      }
+    } else {
+      const card = worldCards.find((item) => item.id === cardMenuCardId)
+      if (card) {
+        handleOpenEditWorldCardDialog(card)
+      }
+    }
+
+    handleCloseCardMenu()
+  }, [
+    cardMenuCardId,
+    cardMenuType,
+    handleCloseCardMenu,
+    instructionCards,
+    plotCards,
+    worldCards,
+  ])
+
+  const handleCardMenuDelete = useCallback(async () => {
+    if (cardMenuCardId === null || cardMenuType === null) {
+      handleCloseCardMenu()
+      return
+    }
+
+    const targetCardId = cardMenuCardId
+    const targetType = cardMenuType
+    handleCloseCardMenu()
+
+    if (targetType === 'instruction') {
+      await handleDeleteInstructionCard(targetCardId)
+      return
+    }
+    if (targetType === 'plot') {
+      await handleDeletePlotCard(targetCardId)
+      return
+    }
+    await handleDeleteWorldCard(targetCardId)
+  }, [
+    cardMenuCardId,
+    cardMenuType,
+    handleCloseCardMenu,
+    handleDeleteInstructionCard,
+    handleDeletePlotCard,
+    handleDeleteWorldCard,
+  ])
+
+  const handleStartRightPanelResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    rightPanelResizingRef.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const updateWidth = (clientX: number) => {
+      const computedWidth = window.innerWidth - clientX - 18
+      setRightPanelWidth(clampRightPanelWidth(computedWidth))
+    }
+
+    const handleMouseMove = (mouseEvent: MouseEvent) => {
+      updateWidth(mouseEvent.clientX)
+    }
+
+    const stopResizing = () => {
+      rightPanelResizingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', stopResizing)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', stopResizing)
+  }, [])
+
   const handleDismissWorldCardEvent = useCallback((eventId: number) => {
     setDismissedWorldCardEventIds((previousIds) => (previousIds.includes(eventId) ? previousIds : [...previousIds, eventId]))
   }, [])
@@ -1737,7 +1886,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             height: 44,
             borderRadius: '14px',
             border: '1px solid rgba(186, 202, 214, 0.14)',
-            backgroundColor: 'rgba(16, 20, 27, 0.82)',
+            backgroundColor: '#111821',
           }}
         >
           <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -1754,7 +1903,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           borderRadius: '14px',
           border: '1px solid rgba(186, 202, 214, 0.12)',
           background:
-            'linear-gradient(180deg, rgba(17, 21, 29, 0.86) 0%, rgba(13, 16, 22, 0.93) 100%), radial-gradient(circle at 40% 0%, rgba(186, 202, 214, 0.06), transparent 60%)',
+            'linear-gradient(180deg, #121a25 0%, #0d131d 100%)',
           p: 1.3,
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
@@ -1775,7 +1924,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
         </Stack>
       </Box>
-
       <Box
         sx={{
           position: 'fixed',
@@ -1798,7 +1946,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               height: 44,
               borderRadius: '14px',
               border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: 'rgba(16, 20, 27, 0.82)',
+              backgroundColor: '#111821',
             }}
           >
             <Box
@@ -1840,8 +1988,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       : '1px solid rgba(186, 202, 214, 0.14)',
                   background:
                     rightPanelMode === 'world'
-                      ? 'linear-gradient(180deg, rgba(43, 53, 69, 0.9), rgba(28, 35, 48, 0.92))'
-                      : 'rgba(16, 20, 27, 0.82)',
+                      ? 'linear-gradient(180deg, #2d3b50, #243142)'
+                      : '#111821',
                 }}
               >
                 <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -1859,8 +2007,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       : '1px solid rgba(186, 202, 214, 0.14)',
                   background:
                     rightPanelMode === 'ai'
-                      ? 'linear-gradient(180deg, rgba(43, 53, 69, 0.9), rgba(28, 35, 48, 0.92))'
-                      : 'rgba(16, 20, 27, 0.82)',
+                      ? 'linear-gradient(180deg, #2d3b50, #243142)'
+                      : '#111821',
                 }}
               >
                 <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -1889,11 +2037,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           top: 82,
           right: 18,
           bottom: 20,
-          width: 278,
+          width: { xs: 292, md: rightPanelWidth },
           zIndex: 25,
           borderRadius: '14px',
           border: '1px solid rgba(186, 202, 214, 0.14)',
-          background: 'linear-gradient(180deg, rgba(18, 22, 30, 0.9), rgba(13, 16, 22, 0.95))',
+          background: 'linear-gradient(180deg, #111927, #0d141f)',
           transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
           opacity: isRightPanelOpen ? 1 : 0,
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
@@ -1901,8 +2049,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          boxShadow: '0 18px 40px rgba(0, 0, 0, 0.28)',
         }}
       >
+        <Box
+          onMouseDown={handleStartRightPanelResize}
+          sx={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 8,
+            cursor: 'col-resize',
+            zIndex: 2,
+            display: { xs: 'none', md: 'block' },
+            '&:hover::after': {
+              opacity: 1,
+            },
+            '&::after': {
+              content: '""',
+              position: 'absolute',
+              left: 1,
+              top: 12,
+              bottom: 12,
+              width: 2,
+              borderRadius: '999px',
+              backgroundColor: 'rgba(186, 202, 214, 0.46)',
+              opacity: 0,
+              transition: 'opacity 180ms ease',
+            },
+          }}
+        />
         <Box sx={{ px: 1.1, pt: 1.1, borderBottom: '1px solid rgba(186, 202, 214, 0.14)' }}>
           <Box
             sx={{
@@ -1966,7 +2143,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
           </Box>
         </Box>
-        <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2, flex: 1 }}>
+        <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+          <Box
+            key={rightPanelContentKey}
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1.2,
+              minHeight: 0,
+              flex: 1,
+              animation: 'morius-panel-content-enter 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+              '@keyframes morius-panel-content-enter': {
+                from: { opacity: 0, transform: 'translateY(8px)' },
+                to: { opacity: 1, transform: 'translateY(0)' },
+              },
+            }}
+          >
           {rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {instructionCards.length === 0 ? (
@@ -1980,7 +2172,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                      backgroundColor: '#142030',
                     }}
                   >
                     Добавить первую карточку
@@ -2007,21 +2199,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           sx={{
                             borderRadius: '12px',
                             border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                            backgroundColor: '#111b2a',
                             px: 1,
-                            py: 0.9,
+                            py: 0.85,
+                            height: RIGHT_PANEL_CARD_HEIGHT,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
                           }}
                         >
-                          <Typography
-                            sx={{
-                              color: '#e2e8f3',
-                              fontWeight: 700,
-                              fontSize: '0.95rem',
-                              lineHeight: 1.25,
-                            }}
-                          >
-                            {card.title}
-                          </Typography>
+                          <Stack direction="row" alignItems="center" spacing={0.35}>
+                            <Typography
+                              sx={{
+                                color: '#e2e8f3',
+                                fontWeight: 700,
+                                fontSize: '0.95rem',
+                                lineHeight: 1.25,
+                                flex: 1,
+                                minWidth: 0,
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {card.title}
+                            </Typography>
+                            <IconButton
+                              onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
+                              disabled={isInstructionCardActionLocked}
+                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                            >
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            </IconButton>
+                          </Stack>
                           <Typography
                             sx={{
                               mt: 0.55,
@@ -2029,47 +2239,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               fontSize: '0.86rem',
                               lineHeight: 1.4,
                               whiteSpace: 'pre-wrap',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 6,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
                             }}
                           >
                             {card.content}
                           </Typography>
-                          <Stack direction="row" spacing={0.45} justifyContent="flex-end" sx={{ mt: 0.8 }}>
-                            <Button
-                              onClick={() => handleOpenEditInstructionDialog(card)}
-                              disabled={isSavingInstruction || deletingInstructionId === card.id || isGenerating || isCreatingGame}
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(208, 219, 235, 0.9)',
-                                fontSize: '0.8rem',
-                              }}
-                            >
-                              Редактировать
-                            </Button>
-                            <Button
-                              onClick={() => void handleDeleteInstructionCard(card.id)}
-                              disabled={
-                                isSavingInstruction || deletingInstructionId !== null || isGenerating || isCreatingGame
-                              }
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(248, 176, 176, 0.9)',
-                                fontSize: '0.8rem',
-                                border: '1px solid rgba(236, 142, 142, 0.22)',
-                              }}
-                            >
-                              {deletingInstructionId === card.id ? (
-                                <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.9)' }} />
-                              ) : (
-                                'Удалить'
-                              )}
-                            </Button>
-                          </Stack>
                         </Box>
                       ))}
                     </Stack>
@@ -2083,7 +2260,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: 'rgba(18, 22, 30, 0.58)',
+                      backgroundColor: '#132030',
                     }}
                   >
                     Добавить карточку
@@ -2096,11 +2273,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           {rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
             <Box
               sx={{
-                borderRadius: '12px',
-                border: '1px solid rgba(186, 202, 214, 0.2)',
-                backgroundColor: 'rgba(16, 20, 28, 0.68)',
-                px: 1.05,
-                py: 1.05,
+                px: 0.25,
+                py: 0.2,
               }}
             >
               <Typography sx={{ color: '#dfe6f2', fontSize: '0.9rem', fontWeight: 700 }}>Лимит контекста</Typography>
@@ -2178,11 +2352,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Box
                     sx={{
                       mt: 1.05,
-                      borderRadius: '10px',
-                      border: '1px solid rgba(186, 202, 214, 0.17)',
-                      backgroundColor: 'rgba(12, 16, 24, 0.64)',
-                      px: 0.9,
-                      py: 0.82,
+                      pt: 0.92,
+                      borderTop: '1px solid rgba(186, 202, 214, 0.14)',
                     }}
                   >
                     <Stack direction="row" justifyContent="space-between" alignItems="baseline">
@@ -2295,7 +2466,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                      backgroundColor: '#142030',
                     }}
                   >
                     Добавить первую карточку
@@ -2322,9 +2493,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           sx={{
                             borderRadius: '12px',
                             border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                            backgroundColor: '#111b2a',
                             px: 1,
-                            py: 0.9,
+                            py: 0.85,
+                            height: RIGHT_PANEL_CARD_HEIGHT,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
                           }}
                         >
                           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
@@ -2334,26 +2509,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 fontWeight: 700,
                                 fontSize: '0.95rem',
                                 lineHeight: 1.25,
+                                flex: 1,
+                                minWidth: 0,
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                overflow: 'hidden',
                               }}
                             >
                               {card.title}
                             </Typography>
                             {card.source === 'ai' ? (
-                              <Box
+                              <Typography
                                 sx={{
-                                  borderRadius: '999px',
-                                  px: 0.7,
-                                  py: 0.08,
-                                  border: '1px solid rgba(168, 201, 255, 0.36)',
-                                  color: 'rgba(192, 214, 255, 0.9)',
-                                  fontSize: '0.7rem',
-                                  lineHeight: 1.2,
+                                  color: 'rgba(165, 188, 224, 0.66)',
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1,
+                                  letterSpacing: 0.2,
                                   flexShrink: 0,
                                 }}
                               >
-                                ИИ
-                              </Box>
+                                ии
+                              </Typography>
                             ) : null}
+                            <IconButton
+                              onClick={(event) => handleOpenCardMenu(event, 'plot', card.id)}
+                              disabled={isPlotCardActionLocked}
+                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                            >
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            </IconButton>
                           </Stack>
                           <Typography
                             sx={{
@@ -2362,45 +2546,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               fontSize: '0.86rem',
                               lineHeight: 1.4,
                               whiteSpace: 'pre-wrap',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 7,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
                             }}
                           >
                             {card.content}
                           </Typography>
-                          <Stack direction="row" spacing={0.45} justifyContent="flex-end" sx={{ mt: 0.8 }}>
-                            <Button
-                              onClick={() => handleOpenEditPlotCardDialog(card)}
-                              disabled={isSavingPlotCard || deletingPlotCardId === card.id || isGenerating || isCreatingGame}
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(208, 219, 235, 0.9)',
-                                fontSize: '0.8rem',
-                              }}
-                            >
-                              Редактировать
-                            </Button>
-                            <Button
-                              onClick={() => void handleDeletePlotCard(card.id)}
-                              disabled={isSavingPlotCard || deletingPlotCardId !== null || isGenerating || isCreatingGame}
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(248, 176, 176, 0.9)',
-                                fontSize: '0.8rem',
-                                border: '1px solid rgba(236, 142, 142, 0.22)',
-                              }}
-                            >
-                              {deletingPlotCardId === card.id ? (
-                                <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.9)' }} />
-                              ) : (
-                                'Удалить'
-                              )}
-                            </Button>
-                          </Stack>
                         </Box>
                       ))}
                     </Stack>
@@ -2414,7 +2567,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: 'rgba(18, 22, 30, 0.58)',
+                      backgroundColor: '#132030',
                     }}
                   >
                     Добавить карточку
@@ -2437,7 +2590,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                      backgroundColor: '#142030',
                     }}
                   >
                     Добавить первую карточку
@@ -2464,9 +2617,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           sx={{
                             borderRadius: '12px',
                             border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                            backgroundColor: '#111b2a',
                             px: 1,
-                            py: 0.9,
+                            py: 0.85,
+                            height: RIGHT_PANEL_CARD_HEIGHT,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
                           }}
                         >
                           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
@@ -2476,26 +2633,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 fontWeight: 700,
                                 fontSize: '0.95rem',
                                 lineHeight: 1.25,
+                                flex: 1,
+                                minWidth: 0,
+                                whiteSpace: 'nowrap',
+                                textOverflow: 'ellipsis',
+                                overflow: 'hidden',
                               }}
                             >
                               {card.title}
                             </Typography>
                             {card.source === 'ai' ? (
-                              <Box
+                              <Typography
                                 sx={{
-                                  borderRadius: '999px',
-                                  px: 0.7,
-                                  py: 0.08,
-                                  border: '1px solid rgba(168, 201, 255, 0.36)',
-                                  color: 'rgba(192, 214, 255, 0.9)',
-                                  fontSize: '0.7rem',
-                                  lineHeight: 1.2,
+                                  color: 'rgba(165, 188, 224, 0.66)',
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1,
+                                  letterSpacing: 0.2,
                                   flexShrink: 0,
                                 }}
                               >
-                                ИИ
-                              </Box>
+                                ии
+                              </Typography>
                             ) : null}
+                            <IconButton
+                              onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
+                              disabled={isWorldCardActionLocked}
+                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                            >
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            </IconButton>
                           </Stack>
                           <Typography
                             sx={{
@@ -2504,6 +2670,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               fontSize: '0.86rem',
                               lineHeight: 1.4,
                               whiteSpace: 'pre-wrap',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 5,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
                             }}
                           >
                             {card.content}
@@ -2514,45 +2684,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               color: 'rgba(178, 195, 221, 0.7)',
                               fontSize: '0.78rem',
                               lineHeight: 1.3,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
                             }}
                           >
                             Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
                           </Typography>
-                          <Stack direction="row" spacing={0.45} justifyContent="flex-end" sx={{ mt: 0.8 }}>
-                            <Button
-                              onClick={() => handleOpenEditWorldCardDialog(card)}
-                              disabled={isSavingWorldCard || deletingWorldCardId === card.id || isGenerating || isCreatingGame}
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(208, 219, 235, 0.9)',
-                                fontSize: '0.8rem',
-                              }}
-                            >
-                              Редактировать
-                            </Button>
-                            <Button
-                              onClick={() => void handleDeleteWorldCard(card.id)}
-                              disabled={isSavingWorldCard || deletingWorldCardId !== null || isGenerating || isCreatingGame}
-                              sx={{
-                                minHeight: 30,
-                                borderRadius: '9px',
-                                textTransform: 'none',
-                                px: 1.1,
-                                color: 'rgba(248, 176, 176, 0.9)',
-                                fontSize: '0.8rem',
-                                border: '1px solid rgba(236, 142, 142, 0.22)',
-                              }}
-                            >
-                              {deletingWorldCardId === card.id ? (
-                                <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.9)' }} />
-                              ) : (
-                                'Удалить'
-                              )}
-                            </Button>
-                          </Stack>
                         </Box>
                       ))}
                     </Stack>
@@ -2566,7 +2705,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: 'rgba(18, 22, 30, 0.58)',
+                      backgroundColor: '#132030',
                     }}
                   >
                     Добавить карточку
@@ -2577,6 +2716,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ) : null}
         </Box>
       </Box>
+    </Box>
 
       <Box
         sx={{
@@ -2865,8 +3005,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       <Box
                                         sx={{
                                           borderRadius: '999px',
-                                          px: 0.65,
-                                          py: 0.08,
+                                          px: 0.92,
+                                          py: 0.22,
                                           fontSize: '0.67rem',
                                           lineHeight: 1.2,
                                           textTransform: 'uppercase',
@@ -2990,8 +3130,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       <Box
                                         sx={{
                                           borderRadius: '999px',
-                                          px: 0.65,
-                                          py: 0.08,
+                                          px: 0.92,
+                                          py: 0.22,
                                           fontSize: '0.67rem',
                                           lineHeight: 1.2,
                                           textTransform: 'uppercase',
@@ -3243,6 +3383,55 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
           </Box>
       </Box>
+
+      <Menu
+        anchorEl={cardMenuAnchorEl}
+        open={Boolean(cardMenuAnchorEl)}
+        onClose={handleCloseCardMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            borderRadius: '12px',
+            border: '1px solid rgba(186, 202, 214, 0.2)',
+            background: 'linear-gradient(180deg, #111927, #0d141f)',
+            minWidth: 154,
+          },
+        }}
+      >
+        <MenuItem
+          onClick={handleCardMenuEdit}
+          disabled={
+            cardMenuType === null
+              ? true
+              : cardMenuType === 'instruction'
+                ? isInstructionCardActionLocked
+                : cardMenuType === 'plot'
+                  ? isPlotCardActionLocked
+                  : isWorldCardActionLocked
+          }
+          sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+        >
+          Редактировать
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            void handleCardMenuDelete()
+          }}
+          disabled={
+            cardMenuType === null
+              ? true
+              : cardMenuType === 'instruction'
+                ? isInstructionCardActionLocked
+                : cardMenuType === 'plot'
+                  ? isPlotCardActionLocked
+                  : isWorldCardActionLocked
+          }
+          sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+        >
+          Удалить
+        </MenuItem>
+      </Menu>
 
       <Dialog
         open={instructionDialogOpen}
