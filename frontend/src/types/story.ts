@@ -27,6 +27,18 @@ export type StoryInstructionCard = {
   updated_at: string
 }
 
+export type StoryPlotCardSource = 'user' | 'ai'
+
+export type StoryPlotCard = {
+  id: number
+  game_id: number
+  title: string
+  content: string
+  source: StoryPlotCardSource
+  created_at: string
+  updated_at: string
+}
+
 export type StoryWorldCardSource = 'user' | 'ai'
 
 export type StoryWorldCard = {
@@ -67,6 +79,7 @@ export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
   instruction_cards: StoryInstructionCard[]
+  plot_cards: StoryPlotCard[]
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
 }
@@ -84,4 +97,5 @@ export type StoryStreamChunkPayload = {
 export type StoryStreamDonePayload = {
   message: StoryMessage
   world_card_events?: StoryWorldCardEvent[]
+  plot_card_created?: boolean
 }

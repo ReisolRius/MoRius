@@ -33,6 +33,7 @@ from app.models import (
     StoryGame,
     StoryInstructionCard,
     StoryMessage,
+    StoryPlotCard,
     StoryWorldCard,
     StoryWorldCardChangeEvent,
     User,
@@ -61,6 +62,9 @@ from app.schemas import (
     StoryInstructionCardUpdateRequest,
     StoryMessageOut,
     StoryMessageUpdateRequest,
+    StoryPlotCardCreateRequest,
+    StoryPlotCardOut,
+    StoryPlotCardUpdateRequest,
     StoryWorldCardCreateRequest,
     StoryWorldCardChangeEventOut,
     StoryWorldCardOut,
@@ -102,11 +106,15 @@ COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
-STORY_CONTEXT_LIMIT_MIN_CHARS = 9
-STORY_CONTEXT_LIMIT_MAX_CHARS = 32_000
-STORY_DEFAULT_CONTEXT_LIMIT_CHARS = 12_000
+STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 5_000
+STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_PLOT_CARD_SOURCE_USER = "user"
+STORY_PLOT_CARD_SOURCE_AI = "ai"
+STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 2_000
+STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
 STORY_WORLD_CARD_EVENT_ADDED = "added"
 STORY_WORLD_CARD_EVENT_UPDATED = "updated"
 STORY_WORLD_CARD_EVENT_DELETED = "deleted"
@@ -144,6 +152,7 @@ STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
     "окно",
 }
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
+STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -195,7 +204,7 @@ def _ensure_story_game_context_limit_column_exists() -> None:
         connection.execute(
             text(
                 f"ALTER TABLE {StoryGame.__tablename__} "
-                f"ADD COLUMN context_limit_chars INTEGER NOT NULL DEFAULT {STORY_DEFAULT_CONTEXT_LIMIT_CHARS}"
+                f"ADD COLUMN context_limit_chars INTEGER NOT NULL DEFAULT {STORY_DEFAULT_CONTEXT_LIMIT_TOKENS}"
             )
         )
 
@@ -657,8 +666,37 @@ def _get_current_user(
 
 def _normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
-        return STORY_DEFAULT_CONTEXT_LIMIT_CHARS
-    return max(STORY_CONTEXT_LIMIT_MIN_CHARS, min(value, STORY_CONTEXT_LIMIT_MAX_CHARS))
+        return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
+    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+
+
+def _estimate_story_tokens(value: str) -> int:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return 0
+    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
+    if matches:
+        return len(matches)
+    return max(1, math.ceil(len(normalized) / 4))
+
+
+def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    if token_limit <= 0:
+        return ""
+
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("ё", "е")))
+    if not matches:
+        char_limit = max(token_limit * 4, 1)
+        return normalized[-char_limit:]
+    if len(matches) <= token_limit:
+        return normalized
+
+    start_token_index = len(matches) - token_limit
+    start_char_index = matches[start_token_index].start()
+    return normalized[start_char_index:].lstrip()
 
 
 def _normalize_story_text(value: str) -> str:
@@ -680,6 +718,31 @@ def _normalize_story_instruction_content(value: str) -> str:
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instruction text cannot be empty")
     return normalized
+
+
+def _normalize_story_plot_card_title(value: str) -> str:
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plot card title cannot be empty")
+    if len(normalized) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+        normalized = normalized[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+    return normalized
+
+
+def _normalize_story_plot_card_content(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if len(normalized) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
+        normalized = normalized[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plot card text cannot be empty")
+    return normalized
+
+
+def _normalize_story_plot_card_source(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized == STORY_PLOT_CARD_SOURCE_AI:
+        return STORY_PLOT_CARD_SOURCE_AI
+    return STORY_PLOT_CARD_SOURCE_USER
 
 
 def _normalize_story_generation_instructions(
@@ -792,6 +855,18 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         content=card.content,
         triggers=_deserialize_story_world_card_triggers(card.triggers),
         source=_normalize_story_world_card_source(card.source),
+        created_at=card.created_at,
+        updated_at=card.updated_at,
+    )
+
+
+def _story_plot_card_to_out(card: StoryPlotCard) -> StoryPlotCardOut:
+    return StoryPlotCardOut(
+        id=card.id,
+        game_id=card.game_id,
+        title=card.title,
+        content=card.content,
+        source=_normalize_story_plot_card_source(card.source),
         created_at=card.created_at,
         updated_at=card.updated_at,
     )
@@ -983,6 +1058,14 @@ def _list_story_instruction_cards(db: Session, game_id: int) -> list[StoryInstru
     ).all()
 
 
+def _list_story_plot_cards(db: Session, game_id: int) -> list[StoryPlotCard]:
+    return db.scalars(
+        select(StoryPlotCard)
+        .where(StoryPlotCard.game_id == game_id)
+        .order_by(StoryPlotCard.id.asc())
+    ).all()
+
+
 def _list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
     return db.scalars(
         select(StoryWorldCard)
@@ -1046,9 +1129,10 @@ def _select_story_world_cards_for_prompt(
 
 def _build_story_system_prompt(
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
 ) -> str:
-    if not instruction_cards and not world_cards:
+    if not instruction_cards and not plot_cards and not world_cards:
         return STORY_SYSTEM_PROMPT
 
     lines = [STORY_SYSTEM_PROMPT]
@@ -1056,6 +1140,11 @@ def _build_story_system_prompt(
     if instruction_cards:
         lines.extend(["", "Пользовательские инструкции для текущей игры:"])
         for index, card in enumerate(instruction_cards, start=1):
+            lines.append(f"{index}. {card['title']}: {card['content']}")
+
+    if plot_cards:
+        lines.extend(["", "Карточки сюжета и памяти игры:"])
+        for index, card in enumerate(plot_cards, start=1):
             lines.append(f"{index}. {card['title']}: {card['content']}")
 
     if world_cards:
@@ -1302,28 +1391,36 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
 
 def _trim_story_history_to_context_limit(
     history: list[dict[str, str]],
-    context_limit_chars: int,
+    context_limit_tokens: int,
 ) -> list[dict[str, str]]:
     if not history:
         return []
 
-    limit = _normalize_story_context_limit_chars(context_limit_chars)
+    limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    if limit <= 0:
+        return []
+
     selected_reversed: list[dict[str, str]] = []
-    consumed_chars = 0
+    consumed_tokens = 0
 
     for item in reversed(history):
         content = item.get("content", "")
         if not content:
             continue
-        entry_cost = len(content) + 12
-        if consumed_chars + entry_cost <= limit:
+        entry_cost = _estimate_story_tokens(content) + 4
+        if consumed_tokens + entry_cost <= limit:
             selected_reversed.append(item)
-            consumed_chars += entry_cost
+            consumed_tokens += entry_cost
             continue
 
         if not selected_reversed:
-            max_content_chars = max(limit - 12, STORY_CONTEXT_LIMIT_MIN_CHARS)
-            selected_reversed.append({"role": item.get("role", STORY_USER_ROLE), "content": content[-max_content_chars:]})
+            max_content_tokens = max(limit - 4, 1)
+            selected_reversed.append(
+                {
+                    "role": item.get("role", STORY_USER_ROLE),
+                    "content": _trim_story_text_tail_by_tokens(content, max_content_tokens),
+                }
+            )
         break
 
     selected_reversed.reverse()
@@ -1333,9 +1430,10 @@ def _trim_story_history_to_context_limit(
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
-    context_limit_chars: int,
+    context_limit_tokens: int,
     translate_for_model: bool = False,
 ) -> list[dict[str, str]]:
     history = [
@@ -1343,11 +1441,17 @@ def _build_story_provider_messages(
         for message in context_messages
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
     ]
-    if len(history) > 80:
+    if plot_cards:
+        history = history[-2:]
+    elif len(history) > 80:
         history = history[-80:]
-    history = _trim_story_history_to_context_limit(history, context_limit_chars)
 
-    messages_payload = [{"role": "system", "content": _build_story_system_prompt(instruction_cards, world_cards)}, *history]
+    system_prompt = _build_story_system_prompt(instruction_cards, plot_cards, world_cards)
+    system_prompt_tokens = _estimate_story_tokens(system_prompt)
+    history_budget_tokens = max(_normalize_story_context_limit_chars(context_limit_tokens) - system_prompt_tokens, 0)
+    history = _trim_story_history_to_context_limit(history, history_budget_tokens)
+
+    messages_payload = [{"role": "system", "content": system_prompt}, *history]
     if not translate_for_model:
         return messages_payload
 
@@ -1407,6 +1511,32 @@ def _extract_json_array_from_text(raw_value: str) -> Any:
             return []
 
     return []
+
+
+def _extract_json_object_from_text(raw_value: str) -> Any:
+    normalized = raw_value.strip()
+    if not normalized:
+        return {}
+
+    try:
+        parsed = json.loads(normalized)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    start_index = normalized.find("{")
+    end_index = normalized.rfind("}")
+    if start_index >= 0 and end_index > start_index:
+        fragment = normalized[start_index : end_index + 1]
+        try:
+            parsed = json.loads(fragment)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+
+    return {}
 
 
 def _build_story_world_card_extraction_messages(
@@ -2119,6 +2249,136 @@ def _persist_generated_story_world_cards(
         return []
 
 
+def _build_story_plot_card_memory_messages(
+    *,
+    existing_card: StoryPlotCard | None,
+    assistant_messages: list[StoryMessage],
+) -> list[dict[str, str]]:
+    current_memory = ""
+    if existing_card is not None:
+        current_memory = existing_card.content.replace("\r\n", "\n").strip()
+
+    history_items: list[dict[str, str]] = []
+    for message in assistant_messages[-40:]:
+        content = message.content.replace("\r\n", "\n").strip()
+        if not content:
+            continue
+        if len(content) > 700:
+            content = f"{content[:697].rstrip()}..."
+        history_items.append({"id": message.id, "content": content})
+
+    history_json = json.dumps(history_items, ensure_ascii=False)
+    current_title = existing_card.title.strip() if existing_card is not None else ""
+
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Ты сжимаешь историю ответов мастера игры в короткую карточку памяти. "
+                "Сохраняй важные факты, имена, отношения, незавершенные конфликты, цели, открытия и текущую сцену. "
+                "Пиши компактно, но без потери смысла. "
+                "Верни строго JSON-объект без markdown: {\"title\": string, \"content\": string}. "
+                "title: до 120 символов. content: до 2000 символов."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Текущая карточка памяти (может быть пусто):\nЗаголовок: {current_title or 'нет'}\n"
+                f"Текст:\n{current_memory or 'нет'}\n\n"
+                f"История ответов мастера JSON:\n{history_json}\n\n"
+                "Обнови карточку памяти. Верни только JSON."
+            ),
+        },
+    ]
+
+
+def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] | None:
+    if not isinstance(raw_payload, dict):
+        return None
+
+    raw_title = raw_payload.get("title")
+    raw_content = raw_payload.get("content")
+    if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+        return None
+
+    title = " ".join(raw_title.split()).strip()
+    content = raw_content.replace("\r\n", "\n").strip()
+    if not title or not content:
+        return None
+
+    if len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+        title = title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+    if len(content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
+        content = content[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
+    if not title or not content:
+        return None
+
+    return (title, content)
+
+
+def _upsert_story_plot_memory_card(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> bool:
+    if not settings.openrouter_api_key:
+        return False
+
+    model_name = (settings.openrouter_plot_card_model or settings.openrouter_translation_model).strip()
+    if not model_name:
+        return False
+
+    assistant_messages = db.scalars(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.role == STORY_ASSISTANT_ROLE,
+        )
+        .order_by(StoryMessage.id.asc())
+    ).all()
+    if not assistant_messages:
+        return False
+
+    existing_cards = _list_story_plot_cards(db, game.id)
+    ai_card = next((card for card in existing_cards if _normalize_story_plot_card_source(card.source) == STORY_PLOT_CARD_SOURCE_AI), None)
+    messages_payload = _build_story_plot_card_memory_messages(existing_card=ai_card, assistant_messages=assistant_messages)
+
+    raw_response = _request_openrouter_story_text(
+        messages_payload,
+        model_name=model_name,
+        allow_free_fallback=False,
+        temperature=0.1,
+    )
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    normalized_payload = _normalize_story_plot_card_ai_payload(parsed_payload)
+    if normalized_payload is None:
+        return False
+    title, content = normalized_payload
+
+    if ai_card is None:
+        new_card = StoryPlotCard(
+            game_id=game.id,
+            title=title,
+            content=content,
+            source=STORY_PLOT_CARD_SOURCE_AI,
+        )
+        db.add(new_card)
+        _touch_story_game(game)
+        db.commit()
+        return True
+
+    if ai_card.title == title and ai_card.content == content:
+        return False
+
+    ai_card.title = title
+    ai_card.content = content
+    ai_card.source = STORY_PLOT_CARD_SOURCE_AI
+    _touch_story_game(game)
+    db.commit()
+    return False
+
+
 def _restore_story_world_card_from_snapshot(
     db: Session,
     game_id: int,
@@ -2297,6 +2557,7 @@ def _get_gigachat_access_token() -> str:
 def _iter_gigachat_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
     context_limit_chars: int,
@@ -2305,8 +2566,9 @@ def _iter_gigachat_story_stream_chunks(
     messages_payload = _build_story_provider_messages(
         context_messages,
         instruction_cards,
+        plot_cards,
         world_cards,
-        context_limit_chars=context_limit_chars,
+        context_limit_tokens=context_limit_chars,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
@@ -2398,6 +2660,7 @@ def _iter_gigachat_story_stream_chunks(
 def _iter_openrouter_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
     context_limit_chars: int,
@@ -2405,8 +2668,9 @@ def _iter_openrouter_story_stream_chunks(
     messages_payload = _build_story_provider_messages(
         context_messages,
         instruction_cards,
+        plot_cards,
         world_cards,
-        context_limit_chars=context_limit_chars,
+        context_limit_tokens=context_limit_chars,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
@@ -2703,6 +2967,7 @@ def _iter_story_provider_stream_chunks(
     turn_index: int,
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
 ):
@@ -2711,8 +2976,9 @@ def _iter_story_provider_stream_chunks(
             payload = _build_story_provider_messages(
                 context_messages,
                 instruction_cards,
+                plot_cards,
                 world_cards,
-                context_limit_chars=context_limit_chars,
+                context_limit_tokens=context_limit_chars,
                 translate_for_model=True,
             )
             generated_text = _request_gigachat_story_text(payload)
@@ -2728,6 +2994,7 @@ def _iter_story_provider_stream_chunks(
         yield from _iter_gigachat_story_stream_chunks(
             context_messages,
             instruction_cards,
+            plot_cards,
             world_cards,
             context_limit_chars=context_limit_chars,
         )
@@ -2738,8 +3005,9 @@ def _iter_story_provider_stream_chunks(
             payload = _build_story_provider_messages(
                 context_messages,
                 instruction_cards,
+                plot_cards,
                 world_cards,
-                context_limit_chars=context_limit_chars,
+                context_limit_tokens=context_limit_chars,
                 translate_for_model=True,
             )
             generated_text = _request_openrouter_story_text(payload)
@@ -2755,6 +3023,7 @@ def _iter_story_provider_stream_chunks(
         yield from _iter_openrouter_story_stream_chunks(
             context_messages,
             instruction_cards,
+            plot_cards,
             world_cards,
             context_limit_chars=context_limit_chars,
         )
@@ -2786,6 +3055,7 @@ def _stream_story_response(
     turn_index: int,
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
 ):
@@ -2818,6 +3088,7 @@ def _stream_story_response(
             turn_index=turn_index,
             context_messages=context_messages,
             instruction_cards=instruction_cards,
+            plot_cards=plot_cards,
             world_cards=world_cards,
             context_limit_chars=context_limit_chars,
         ):
@@ -2845,6 +3116,7 @@ def _stream_story_response(
 
     if not aborted and stream_error is None:
         persisted_world_card_events: list[StoryWorldCardChangeEventOut] = []
+        plot_card_created = False
         try:
             generated_events = _persist_generated_story_world_cards(
                 db=db,
@@ -2858,6 +3130,10 @@ def _stream_story_response(
             ]
         except Exception:
             logger.exception("Failed to persist generated world cards")
+        try:
+            plot_card_created = _upsert_story_plot_memory_card(db=db, game=game)
+        except Exception:
+            logger.exception("Failed to update story plot memory card")
         yield _sse_event(
             "done",
             {
@@ -2870,6 +3146,7 @@ def _stream_story_response(
                     "updated_at": assistant_message.updated_at.isoformat(),
                 },
                 "world_card_events": [event.model_dump(mode="json") for event in persisted_world_card_events],
+                "plot_card_created": plot_card_created,
             },
         )
 
@@ -3154,12 +3431,14 @@ def get_story_game(
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
     instruction_cards = _list_story_instruction_cards(db, game.id)
+    plot_cards = _list_story_plot_cards(db, game.id)
     world_cards = _list_story_world_cards(db, game.id)
     world_card_events = _list_story_world_card_events(db, game.id)
     return StoryGameOut(
         game=StoryGameSummaryOut.model_validate(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
+        plot_cards=[_story_plot_card_to_out(card) for card in plot_cards],
         world_cards=[_story_world_card_to_out(card) for card in world_cards],
         world_card_events=[_story_world_card_change_event_to_out(event) for event in world_card_events],
     )
@@ -3263,6 +3542,91 @@ def delete_story_instruction_card(
     _touch_story_game(game)
     db.commit()
     return MessageResponse(message="Instruction card deleted")
+
+
+@app.get("/api/story/games/{game_id}/plot-cards", response_model=list[StoryPlotCardOut])
+def list_story_plot_cards(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryPlotCardOut]:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    cards = _list_story_plot_cards(db, game.id)
+    return [_story_plot_card_to_out(card) for card in cards]
+
+
+@app.post("/api/story/games/{game_id}/plot-cards", response_model=StoryPlotCardOut)
+def create_story_plot_card(
+    game_id: int,
+    payload: StoryPlotCardCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryPlotCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    plot_card = StoryPlotCard(
+        game_id=game.id,
+        title=_normalize_story_plot_card_title(payload.title),
+        content=_normalize_story_plot_card_content(payload.content),
+        source=STORY_PLOT_CARD_SOURCE_USER,
+    )
+    db.add(plot_card)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(plot_card)
+    return _story_plot_card_to_out(plot_card)
+
+
+@app.patch("/api/story/games/{game_id}/plot-cards/{card_id}", response_model=StoryPlotCardOut)
+def update_story_plot_card(
+    game_id: int,
+    card_id: int,
+    payload: StoryPlotCardUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryPlotCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    plot_card = db.scalar(
+        select(StoryPlotCard).where(
+            StoryPlotCard.id == card_id,
+            StoryPlotCard.game_id == game.id,
+        )
+    )
+    if plot_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
+
+    plot_card.title = _normalize_story_plot_card_title(payload.title)
+    plot_card.content = _normalize_story_plot_card_content(payload.content)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(plot_card)
+    return _story_plot_card_to_out(plot_card)
+
+
+@app.delete("/api/story/games/{game_id}/plot-cards/{card_id}", response_model=MessageResponse)
+def delete_story_plot_card(
+    game_id: int,
+    card_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    plot_card = db.scalar(
+        select(StoryPlotCard).where(
+            StoryPlotCard.id == card_id,
+            StoryPlotCard.game_id == game.id,
+        )
+    )
+    if plot_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
+
+    db.delete(plot_card)
+    _touch_story_game(game)
+    db.commit()
+    return MessageResponse(message="Plot card deleted")
 
 
 @app.get("/api/story/games/{game_id}/world-cards", response_model=list[StoryWorldCardOut])
@@ -3422,6 +3786,7 @@ def generate_story_response(
     game = _get_user_story_game_or_404(db, user.id, game_id)
     messages = _list_story_messages(db, game.id)
     instruction_cards = _normalize_story_generation_instructions(payload.instructions)
+    plot_cards = _list_story_plot_cards(db, game.id)
     world_cards = _list_story_world_cards(db, game.id)
     source_user_message: StoryMessage | None = None
 
@@ -3458,6 +3823,14 @@ def generate_story_response(
         db.refresh(source_user_message)
 
     active_world_cards = _select_story_world_cards_for_prompt(prompt_text, world_cards)
+    active_plot_cards = [
+        {
+            "title": card.title.replace("\r\n", " ").strip(),
+            "content": card.content.replace("\r\n", "\n").strip(),
+        }
+        for card in plot_cards[:40]
+        if card.title.strip() and card.content.strip()
+    ]
     context_messages = _list_story_messages(db, game.id)
     assistant_turn_index = (
         len([message for message in context_messages if message.role == STORY_ASSISTANT_ROLE]) + 1
@@ -3470,6 +3843,7 @@ def generate_story_response(
         turn_index=assistant_turn_index,
         context_messages=context_messages,
         instruction_cards=instruction_cards,
+        plot_cards=active_plot_cards,
         world_cards=active_world_cards,
         context_limit_chars=_normalize_story_context_limit_chars(game.context_limit_chars),
     )

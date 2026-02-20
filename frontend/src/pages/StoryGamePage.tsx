@@ -30,13 +30,16 @@ import { updateCurrentUserAvatar } from '../services/authApi'
 import {
   createStoryInstructionCard,
   createStoryGame,
+  createStoryPlotCard,
   createStoryWorldCard,
   deleteStoryInstructionCard,
+  deleteStoryPlotCard,
   deleteStoryWorldCard,
   generateStoryResponseStream,
   getStoryGame,
   listStoryGames,
   updateStoryGameSettings,
+  updateStoryPlotCard,
   undoStoryWorldCardEvent,
   updateStoryInstructionCard,
   updateStoryWorldCard,
@@ -51,7 +54,14 @@ import {
   type StoryTitleMap,
 } from '../services/storyTitleStore'
 import type { AuthUser } from '../types/auth'
-import type { StoryGameSummary, StoryInstructionCard, StoryMessage, StoryWorldCard, StoryWorldCardEvent } from '../types/story'
+import type {
+  StoryGameSummary,
+  StoryInstructionCard,
+  StoryMessage,
+  StoryPlotCard,
+  StoryWorldCard,
+  StoryWorldCardEvent,
+} from '../types/story'
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -75,11 +85,6 @@ type UserAvatarProps = {
 type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
-type StoryWorldCardContextEntry = {
-  title: string
-  content: string
-  triggers: string[]
-}
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
@@ -88,11 +93,11 @@ const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальш
 const HEADER_AVATAR_SIZE = 44
 const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
 const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
-const STORY_CONTEXT_LIMIT_MIN = 9
-const STORY_CONTEXT_LIMIT_MAX = 32000
-const STORY_DEFAULT_CONTEXT_LIMIT = 12000
-const STORY_WORLD_CONTEXT_CARD_LIMIT = 10
-const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
+const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 2000
+const STORY_CONTEXT_LIMIT_MIN = 500
+const STORY_CONTEXT_LIMIT_MAX = 5000
+const STORY_DEFAULT_CONTEXT_LIMIT = 2000
+const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
   added: 'Добавлено',
@@ -165,110 +170,16 @@ function formatContextChars(value: number): string {
   return CONTEXT_NUMBER_FORMATTER.format(Math.max(0, Math.round(value)))
 }
 
-function normalizeStoryMatchTokens(value: string): string[] {
-  const normalizedSource = value.toLowerCase().replace(/ё/g, 'е')
-  return normalizedSource.match(STORY_MATCH_TOKEN_PATTERN) ?? []
-}
-
-function isStoryTriggerMatch(trigger: string, promptTokens: string[]): boolean {
-  const triggerTokens = normalizeStoryMatchTokens(trigger)
-  if (triggerTokens.length === 0) {
-    return false
-  }
-
-  if (triggerTokens.length === 1) {
-    const triggerToken = triggerTokens[0]
-    if (triggerToken.length < 2) {
-      return false
-    }
-    for (const token of promptTokens) {
-      if (token === triggerToken || token.startsWith(triggerToken)) {
-        return true
-      }
-      if (token.length >= 4 && triggerToken.startsWith(token)) {
-        return true
-      }
-    }
-    return false
-  }
-
-  for (const triggerToken of triggerTokens) {
-    const isTokenMatched = promptTokens.some(
-      (token) => token === triggerToken || token.startsWith(triggerToken) || (token.length >= 4 && triggerToken.startsWith(token)),
-    )
-    if (!isTokenMatched) {
-      return false
-    }
-  }
-  return true
-}
-
-function normalizeStoryWorldCardTrigger(value: string): string {
-  const normalized = value.replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim()
+function estimateTextTokens(value: string): number {
+  const normalized = value.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
-    return ''
+    return 0
   }
-  if (normalized.length > 80) {
-    return normalized.slice(0, 80).trimEnd()
+  const matches = normalized.toLowerCase().replace(/ё/g, 'е').match(STORY_TOKEN_ESTIMATE_PATTERN)
+  if (matches && matches.length > 0) {
+    return matches.length
   }
-  return normalized
-}
-
-function normalizeStoryWorldCardTriggersForContext(values: string[], fallbackTitle: string): string[] {
-  const normalized: string[] = []
-  const seen = new Set<string>()
-
-  values.forEach((rawValue) => {
-    const trigger = normalizeStoryWorldCardTrigger(rawValue)
-    if (!trigger) {
-      return
-    }
-    const key = trigger.toLowerCase()
-    if (seen.has(key)) {
-      return
-    }
-    seen.add(key)
-    normalized.push(trigger)
-  })
-
-  const fallbackTrigger = normalizeStoryWorldCardTrigger(fallbackTitle)
-  if (fallbackTrigger) {
-    const fallbackKey = fallbackTrigger.toLowerCase()
-    if (!seen.has(fallbackKey)) {
-      normalized.unshift(fallbackTrigger)
-    }
-  }
-
-  return normalized.slice(0, 40)
-}
-
-function selectStoryWorldCardsForContext(prompt: string, cards: StoryWorldCard[]): StoryWorldCardContextEntry[] {
-  const promptTokens = normalizeStoryMatchTokens(prompt)
-  if (promptTokens.length === 0) {
-    return []
-  }
-
-  const selectedCards: StoryWorldCardContextEntry[] = []
-  for (const card of cards) {
-    const title = card.title.replace(/\s+/g, ' ').trim()
-    const content = card.content.replace(/\r\n/g, '\n').trim()
-    if (!title || !content) {
-      continue
-    }
-
-    const triggers = normalizeStoryWorldCardTriggersForContext(card.triggers ?? [], title)
-    const isRelevant = triggers.some((trigger) => isStoryTriggerMatch(trigger, promptTokens))
-    if (!isRelevant) {
-      continue
-    }
-
-    selectedCards.push({ title, content, triggers })
-    if (selectedCards.length >= STORY_WORLD_CONTEXT_CARD_LIMIT) {
-      break
-    }
-  }
-
-  return selectedCards
+  return Math.max(1, Math.ceil(normalized.length / 4))
 }
 
 const DialogTransition = forwardRef(function DialogTransition(
@@ -380,6 +291,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [instructionContentDraft, setInstructionContentDraft] = useState('')
   const [isSavingInstruction, setIsSavingInstruction] = useState(false)
   const [deletingInstructionId, setDeletingInstructionId] = useState<number | null>(null)
+  const [plotCards, setPlotCards] = useState<StoryPlotCard[]>([])
+  const [plotCardDialogOpen, setPlotCardDialogOpen] = useState(false)
+  const [editingPlotCardId, setEditingPlotCardId] = useState<number | null>(null)
+  const [plotCardTitleDraft, setPlotCardTitleDraft] = useState('')
+  const [plotCardContentDraft, setPlotCardContentDraft] = useState('')
+  const [isSavingPlotCard, setIsSavingPlotCard] = useState(false)
+  const [deletingPlotCardId, setDeletingPlotCardId] = useState<number | null>(null)
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
   const [dismissedWorldCardEventIds, setDismissedWorldCardEventIds] = useState<number[]>([])
@@ -397,6 +315,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
   const generationAbortRef = useRef<AbortController | null>(null)
   const instructionDialogGameIdRef = useRef<number | null>(null)
+  const plotCardDialogGameIdRef = useRef<number | null>(null)
   const worldCardDialogGameIdRef = useRef<number | null>(null)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
@@ -441,38 +360,55 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         .filter((card) => card.title.length > 0 && card.content.length > 0),
     [instructionCards],
   )
-  const lastUserPromptForContext = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index]
-      if (message?.role === 'user') {
-        return message.content.replace(/\r\n/g, '\n').trim()
-      }
-    }
-    return ''
-  }, [messages])
-  const activeWorldCardsForContext = useMemo(
-    () => selectStoryWorldCardsForContext(lastUserPromptForContext, worldCards),
-    [lastUserPromptForContext, worldCards],
+  const normalizedPlotCardsForContext = useMemo(
+    () =>
+      plotCards
+        .map((card) => ({
+          title: card.title.replace(/\s+/g, ' ').trim(),
+          content: card.content.replace(/\r\n/g, '\n').trim(),
+        }))
+        .filter((card) => card.title.length > 0 && card.content.length > 0),
+    [plotCards],
   )
-  const instructionContextCharsUsed = useMemo(() => {
+  const normalizedWorldCardsForContext = useMemo(
+    () =>
+      worldCards
+        .map((card) => ({
+          title: card.title.replace(/\s+/g, ' ').trim(),
+          content: card.content.replace(/\r\n/g, '\n').trim(),
+          triggers: card.triggers.map((trigger) => trigger.replace(/\s+/g, ' ').trim()).filter(Boolean),
+        }))
+        .filter((card) => card.title.length > 0 && card.content.length > 0),
+    [worldCards],
+  )
+  const instructionContextTokensUsed = useMemo(() => {
     if (normalizedInstructionCardsForContext.length === 0) {
       return 0
     }
-    return normalizedInstructionCardsForContext.map((card, index) => `${index + 1}. ${card.title}: ${card.content}`).join('\n')
-      .length
+    const payload = normalizedInstructionCardsForContext
+      .map((card, index) => `${index + 1}. ${card.title}: ${card.content}`)
+      .join('\n')
+    return estimateTextTokens(payload)
   }, [normalizedInstructionCardsForContext])
-  const worldContextCharsUsed = useMemo(() => {
-    if (activeWorldCardsForContext.length === 0) {
+  const plotContextTokensUsed = useMemo(() => {
+    if (normalizedPlotCardsForContext.length === 0) {
+      return 0
+    }
+    const payload = normalizedPlotCardsForContext.map((card, index) => `${index + 1}. ${card.title}: ${card.content}`).join('\n')
+    return estimateTextTokens(payload)
+  }, [normalizedPlotCardsForContext])
+  const worldContextTokensUsed = useMemo(() => {
+    if (normalizedWorldCardsForContext.length === 0) {
       return 0
     }
     const lines: string[] = []
-    activeWorldCardsForContext.forEach((card, index) => {
+    normalizedWorldCardsForContext.forEach((card, index) => {
       lines.push(`${index + 1}. ${card.title}: ${card.content}`)
       lines.push(`Триггеры: ${card.triggers.length > 0 ? card.triggers.join(', ') : 'нет'}`)
     })
-    return lines.join('\n').length
-  }, [activeWorldCardsForContext])
-  const cardsContextCharsUsed = instructionContextCharsUsed + worldContextCharsUsed
+    return estimateTextTokens(lines.join('\n'))
+  }, [normalizedWorldCardsForContext])
+  const cardsContextCharsUsed = instructionContextTokensUsed + plotContextTokensUsed + worldContextTokensUsed
   const freeContextChars = Math.max(contextLimitChars - cardsContextCharsUsed, 0)
   const cardsContextOverflowChars = Math.max(cardsContextCharsUsed - contextLimitChars, 0)
   const cardsContextUsagePercent =
@@ -509,6 +445,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const payload = await getStoryGame({ token: authToken, gameId })
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
+        setPlotCards(payload.plot_cards ?? [])
         setWorldCards(payload.world_cards)
         const normalizedContextLimit = clampStoryContextLimit(payload.game.context_limit_chars)
         setContextLimitChars(normalizedContextLimit)
@@ -553,6 +490,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setActiveGameId(null)
           setMessages([])
           setInstructionCards([])
+          setPlotCards([])
           setWorldCards([])
           setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
           setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
@@ -598,6 +536,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setInstructionContentDraft('')
     setDeletingInstructionId(null)
   }, [activeGameId, isCreatingGame, isSavingInstruction])
+
+  useEffect(() => {
+    if (plotCardDialogGameIdRef.current === activeGameId) {
+      return
+    }
+    plotCardDialogGameIdRef.current = activeGameId
+
+    if (isSavingPlotCard || isCreatingGame) {
+      return
+    }
+    setPlotCardDialogOpen(false)
+    setEditingPlotCardId(null)
+    setPlotCardTitleDraft('')
+    setPlotCardContentDraft('')
+    setDeletingPlotCardId(null)
+  }, [activeGameId, isCreatingGame, isSavingPlotCard])
 
   useEffect(() => {
     if (worldCardDialogGameIdRef.current === activeGameId) {
@@ -841,6 +795,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setContextLimitChars(normalizedContextLimit)
         setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
+        setPlotCards([])
         setWorldCards([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
@@ -927,6 +882,157 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, deletingInstructionId, editingInstructionId, isCreatingGame, isSavingInstruction],
   )
 
+  const handleOpenCreatePlotCardDialog = () => {
+    if (isGenerating || isSavingPlotCard || isCreatingGame) {
+      return
+    }
+    setEditingPlotCardId(null)
+    setPlotCardTitleDraft('')
+    setPlotCardContentDraft('')
+    setPlotCardDialogOpen(true)
+  }
+
+  const handleOpenEditPlotCardDialog = (card: StoryPlotCard) => {
+    if (isGenerating || isSavingPlotCard || isCreatingGame) {
+      return
+    }
+    setEditingPlotCardId(card.id)
+    setPlotCardTitleDraft(card.title)
+    setPlotCardContentDraft(card.content)
+    setPlotCardDialogOpen(true)
+  }
+
+  const handleClosePlotCardDialog = () => {
+    if (isSavingPlotCard || isCreatingGame) {
+      return
+    }
+    setPlotCardDialogOpen(false)
+    setEditingPlotCardId(null)
+    setPlotCardTitleDraft('')
+    setPlotCardContentDraft('')
+  }
+
+  const handleSavePlotCard = useCallback(async () => {
+    if (isSavingPlotCard || isCreatingGame) {
+      return
+    }
+
+    const normalizedTitle = plotCardTitleDraft.replace(/\s+/g, ' ').trim()
+    const normalizedContent = plotCardContentDraft.replace(/\r\n/g, '\n').trim()
+
+    if (!normalizedTitle) {
+      setErrorMessage('Название карточки сюжета не может быть пустым')
+      return
+    }
+    if (!normalizedContent) {
+      setErrorMessage('Текст карточки сюжета не может быть пустым')
+      return
+    }
+    if (normalizedContent.length > STORY_PLOT_CARD_CONTENT_MAX_LENGTH) {
+      setErrorMessage(`Текст карточки сюжета не должен превышать ${STORY_PLOT_CARD_CONTENT_MAX_LENGTH} символов`)
+      return
+    }
+
+    setErrorMessage('')
+    setIsSavingPlotCard(true)
+    let targetGameId = activeGameId
+    try {
+      if (!targetGameId) {
+        setIsCreatingGame(true)
+        const newGame = await createStoryGame({ token: authToken })
+        setGames((previousGames) =>
+          sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
+        )
+        setActiveGameId(newGame.id)
+        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
+        setContextLimitChars(normalizedContextLimit)
+        setContextLimitDraft(String(normalizedContextLimit))
+        setInstructionCards([])
+        setPlotCards([])
+        setWorldCards([])
+        applyWorldCardEvents([])
+        onNavigate(`/home/${newGame.id}`)
+        targetGameId = newGame.id
+      }
+
+      if (!targetGameId) {
+        setErrorMessage('Не удалось создать игру для карточки сюжета')
+        return
+      }
+
+      if (editingPlotCardId === null) {
+        const createdCard = await createStoryPlotCard({
+          token: authToken,
+          gameId: targetGameId,
+          title: normalizedTitle,
+          content: normalizedContent,
+        })
+        setPlotCards((previousCards) => [...previousCards, createdCard])
+      } else {
+        const updatedCard = await updateStoryPlotCard({
+          token: authToken,
+          gameId: targetGameId,
+          cardId: editingPlotCardId,
+          title: normalizedTitle,
+          content: normalizedContent,
+        })
+        setPlotCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+      }
+
+      setPlotCardDialogOpen(false)
+      setEditingPlotCardId(null)
+      setPlotCardTitleDraft('')
+      setPlotCardContentDraft('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить карточку сюжета'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingPlotCard(false)
+      setIsCreatingGame(false)
+    }
+  }, [
+    activeGameId,
+    authToken,
+    editingPlotCardId,
+    isCreatingGame,
+    isSavingPlotCard,
+    onNavigate,
+    applyWorldCardEvents,
+    plotCardContentDraft,
+    plotCardTitleDraft,
+  ])
+
+  const handleDeletePlotCard = useCallback(
+    async (cardId: number) => {
+      if (!activeGameId || deletingPlotCardId !== null || isSavingPlotCard || isCreatingGame) {
+        return
+      }
+
+      setErrorMessage('')
+      setDeletingPlotCardId(cardId)
+      try {
+        await deleteStoryPlotCard({
+          token: authToken,
+          gameId: activeGameId,
+          cardId,
+        })
+        setPlotCards((previousCards) => previousCards.filter((card) => card.id !== cardId))
+        if (editingPlotCardId === cardId) {
+          setPlotCardDialogOpen(false)
+          setEditingPlotCardId(null)
+          setPlotCardTitleDraft('')
+          setPlotCardContentDraft('')
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось удалить карточку сюжета'
+        setErrorMessage(detail)
+      } finally {
+        setDeletingPlotCardId(null)
+      }
+    },
+    [activeGameId, authToken, deletingPlotCardId, editingPlotCardId, isCreatingGame, isSavingPlotCard],
+  )
+
   const handleOpenCreateWorldCardDialog = () => {
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
@@ -997,6 +1103,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setContextLimitChars(normalizedContextLimit)
         setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
+        setPlotCards([])
         setWorldCards([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
@@ -1141,7 +1248,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const updatedGame = await updateStoryGameSettings({
           token: authToken,
           gameId: targetGameId,
-          contextLimitChars: normalizedValue,
+          contextLimitTokens: normalizedValue,
         })
         const persistedValue = clampStoryContextLimit(updatedGame.context_limit_chars)
         setContextLimitChars(persistedValue)
@@ -1330,6 +1437,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setContextLimitChars(normalizedContextLimit)
         setContextLimitDraft(String(normalizedContextLimit))
         setInstructionCards([])
+        setPlotCards([])
         setWorldCards([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
@@ -1899,7 +2007,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             >
               <Typography sx={{ color: '#dfe6f2', fontSize: '0.9rem', fontWeight: 700 }}>Лимит контекста</Typography>
               <Typography sx={{ mt: 0.4, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.82rem', lineHeight: 1.38 }}>
-                Ограничивает размер отправляемого контекста в символах.
+                Ограничивает размер отправляемого контекста в токенах.
               </Typography>
 
               {!activeGameId ? (
@@ -1936,7 +2044,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         fontSize: '0.88rem',
                       }}
                     />
-                    <Typography sx={{ color: 'rgba(186, 202, 220, 0.68)', fontSize: '0.8rem' }}>символов</Typography>
+                    <Typography sx={{ color: 'rgba(186, 202, 220, 0.68)', fontSize: '0.8rem' }}>токенов</Typography>
                     {isSavingContextLimit ? <CircularProgress size={14} sx={{ color: 'rgba(205, 215, 231, 0.86)' }} /> : null}
                   </Stack>
 
@@ -2012,7 +2120,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>Инструкции</Typography>
                         <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
-                          {formatContextChars(instructionContextCharsUsed)}
+                          {formatContextChars(instructionContextTokensUsed)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>
+                          Карточки сюжета
+                        </Typography>
+                        <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
+                          {formatContextChars(plotContextTokensUsed)}
                         </Typography>
                       </Stack>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -2020,7 +2136,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           Карточки мира
                         </Typography>
                         <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
-                          {formatContextChars(worldContextCharsUsed)}
+                          {formatContextChars(worldContextTokensUsed)}
                         </Typography>
                       </Stack>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
@@ -2038,9 +2154,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Stack>
 
                     <Typography sx={{ mt: 0.72, color: 'rgba(176, 190, 211, 0.66)', fontSize: '0.73rem', lineHeight: 1.36 }}>
-                      {lastUserPromptForContext
-                        ? `По последнему ходу учтено карточек мира: ${activeWorldCardsForContext.length} из ${worldCards.length}.`
-                        : 'После первого хода покажем расход по сработавшим карточкам мира.'}
+                      Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length}, сюжет{' '}
+                      {normalizedPlotCardsForContext.length}, мир {normalizedWorldCardsForContext.length}.
                     </Typography>
 
                     {cardsContextOverflowChars > 0 ? (
@@ -2060,7 +2175,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           },
                         }}
                       >
-                        Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} символов.
+                        Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
                       </Alert>
                     ) : null}
                   </Box>
@@ -2070,18 +2185,144 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ) : null}
 
           {rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
-            <Box
-              sx={{
-                borderRadius: '12px',
-                border: '1px dashed rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(18, 22, 30, 0.52)',
-                px: 1.1,
-                py: 1.2,
-              }}
-            >
-              <Typography sx={{ color: 'rgba(190, 202, 220, 0.68)', fontSize: '0.9rem' }}>
-                Сюжетные заметки скоро появятся.
-              </Typography>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
+              {plotCards.length === 0 ? (
+                <>
+                  <Button
+                    onClick={handleOpenCreatePlotCardDialog}
+                    disabled={isGenerating || isSavingPlotCard || isCreatingGame}
+                    sx={{
+                      minHeight: 44,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      color: '#d9dee8',
+                      border: '1px dashed rgba(186, 202, 214, 0.28)',
+                      backgroundColor: 'rgba(20, 24, 32, 0.66)',
+                    }}
+                  >
+                    Добавить первую карточку
+                  </Button>
+                  <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
+                    Здесь хранятся сюжетные сводки и важные изменения истории.
+                  </Typography>
+                </>
+              ) : (
+                <>
+                  <Box
+                    className="morius-scrollbar"
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      overflowY: 'auto',
+                      pr: 0.25,
+                    }}
+                  >
+                    <Stack spacing={0.85}>
+                      {plotCards.map((card) => (
+                        <Box
+                          key={card.id}
+                          sx={{
+                            borderRadius: '12px',
+                            border: '1px solid rgba(186, 202, 214, 0.2)',
+                            backgroundColor: 'rgba(16, 20, 28, 0.68)',
+                            px: 1,
+                            py: 0.9,
+                          }}
+                        >
+                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                            <Typography
+                              sx={{
+                                color: '#e2e8f3',
+                                fontWeight: 700,
+                                fontSize: '0.95rem',
+                                lineHeight: 1.25,
+                              }}
+                            >
+                              {card.title}
+                            </Typography>
+                            {card.source === 'ai' ? (
+                              <Box
+                                sx={{
+                                  borderRadius: '999px',
+                                  px: 0.7,
+                                  py: 0.08,
+                                  border: '1px solid rgba(168, 201, 255, 0.36)',
+                                  color: 'rgba(192, 214, 255, 0.9)',
+                                  fontSize: '0.7rem',
+                                  lineHeight: 1.2,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                ИИ
+                              </Box>
+                            ) : null}
+                          </Stack>
+                          <Typography
+                            sx={{
+                              mt: 0.55,
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.86rem',
+                              lineHeight: 1.4,
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            {card.content}
+                          </Typography>
+                          <Stack direction="row" spacing={0.45} justifyContent="flex-end" sx={{ mt: 0.8 }}>
+                            <Button
+                              onClick={() => handleOpenEditPlotCardDialog(card)}
+                              disabled={isSavingPlotCard || deletingPlotCardId === card.id || isGenerating || isCreatingGame}
+                              sx={{
+                                minHeight: 30,
+                                borderRadius: '9px',
+                                textTransform: 'none',
+                                px: 1.1,
+                                color: 'rgba(208, 219, 235, 0.9)',
+                                fontSize: '0.8rem',
+                              }}
+                            >
+                              Редактировать
+                            </Button>
+                            <Button
+                              onClick={() => void handleDeletePlotCard(card.id)}
+                              disabled={isSavingPlotCard || deletingPlotCardId !== null || isGenerating || isCreatingGame}
+                              sx={{
+                                minHeight: 30,
+                                borderRadius: '9px',
+                                textTransform: 'none',
+                                px: 1.1,
+                                color: 'rgba(248, 176, 176, 0.9)',
+                                fontSize: '0.8rem',
+                                border: '1px solid rgba(236, 142, 142, 0.22)',
+                              }}
+                            >
+                              {deletingPlotCardId === card.id ? (
+                                <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.9)' }} />
+                              ) : (
+                                'Удалить'
+                              )}
+                            </Button>
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Box>
+                  <Button
+                    onClick={handleOpenCreatePlotCardDialog}
+                    disabled={isGenerating || isSavingPlotCard || deletingPlotCardId !== null || isCreatingGame}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      color: '#d9dee8',
+                      border: '1px dashed rgba(186, 202, 214, 0.3)',
+                      backgroundColor: 'rgba(18, 22, 30, 0.58)',
+                    }}
+                  >
+                    Добавить карточку
+                  </Button>
+                </>
+              )}
             </Box>
           ) : null}
 
@@ -2888,6 +3129,119 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             {isSavingInstruction || isCreatingGame ? (
               <CircularProgress size={16} sx={{ color: '#171716' }} />
             ) : editingInstructionId === null ? (
+              'Добавить'
+            ) : (
+              'Сохранить'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={plotCardDialogOpen}
+        onClose={handleClosePlotCardDialog}
+        maxWidth="sm"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: '1px solid rgba(186, 202, 214, 0.16)',
+            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
+            {editingPlotCardId === null ? 'Новая карточка сюжета' : 'Редактирование карточки сюжета'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.3 }}>
+          <Stack spacing={1.1}>
+            <Box
+              component="input"
+              value={plotCardTitleDraft}
+              placeholder="Название карточки сюжета"
+              maxLength={120}
+              autoFocus
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setPlotCardTitleDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault()
+                  void handleSavePlotCard()
+                }
+              }}
+              sx={{
+                width: '100%',
+                minHeight: 42,
+                borderRadius: '11px',
+                border: '1px solid rgba(186, 202, 214, 0.26)',
+                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                color: '#dfe6f2',
+                px: 1.1,
+                outline: 'none',
+                fontSize: '0.96rem',
+              }}
+            />
+            <Box
+              component="textarea"
+              value={plotCardContentDraft}
+              placeholder="Кратко сохраните важные сюжетные события и детали."
+              maxLength={STORY_PLOT_CARD_CONTENT_MAX_LENGTH}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setPlotCardContentDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  void handleSavePlotCard()
+                }
+              }}
+              sx={{
+                width: '100%',
+                minHeight: 140,
+                resize: 'vertical',
+                borderRadius: '11px',
+                border: '1px solid rgba(186, 202, 214, 0.22)',
+                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                color: '#dbe2ee',
+                px: 1.1,
+                py: 0.9,
+                outline: 'none',
+                fontSize: '0.96rem',
+                lineHeight: 1.45,
+                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+              }}
+            />
+            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
+              {plotCardContentDraft.length}/{STORY_PLOT_CARD_CONTENT_MAX_LENGTH}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
+          <Button onClick={handleClosePlotCardDialog} disabled={isSavingPlotCard || isCreatingGame} sx={{ color: 'text.secondary' }}>
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSavePlotCard()}
+            disabled={isSavingPlotCard || isCreatingGame}
+            sx={{
+              backgroundColor: '#d9e4f2',
+              color: '#171716',
+              minWidth: 118,
+              '&:hover': { backgroundColor: '#edf4fc' },
+            }}
+          >
+            {isSavingPlotCard || isCreatingGame ? (
+              <CircularProgress size={16} sx={{ color: '#171716' }} />
+            ) : editingPlotCardId === null ? (
               'Добавить'
             ) : (
               'Сохранить'

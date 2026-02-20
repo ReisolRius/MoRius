@@ -4,6 +4,7 @@ import type {
   StoryGameSummary,
   StoryInstructionCard,
   StoryMessage,
+  StoryPlotCard,
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
   StoryStreamStartPayload,
@@ -136,7 +137,7 @@ export async function getStoryGame(payload: {
 export async function updateStoryGameSettings(payload: {
   token: string
   gameId: number
-  contextLimitChars: number
+  contextLimitTokens: number
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
@@ -144,7 +145,7 @@ export async function updateStoryGameSettings(payload: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify({
-      context_limit_chars: payload.contextLimitChars,
+      context_limit_chars: payload.contextLimitTokens,
     }),
   })
 }
@@ -311,6 +312,79 @@ export async function deleteStoryInstructionCard(payload: {
   instructionId: number
 }): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
+  }
+}
+
+export async function listStoryPlotCards(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryPlotCard[]> {
+  return request<StoryPlotCard[]>(`/api/story/games/${payload.gameId}/plot-cards`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function createStoryPlotCard(payload: {
+  token: string
+  gameId: number
+  title: string
+  content: string
+}): Promise<StoryPlotCard> {
+  return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function updateStoryPlotCard(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  title: string
+  content: string
+}): Promise<StoryPlotCard> {
+  return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function deleteStoryPlotCard(payload: {
+  token: string
+  gameId: number
+  cardId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,

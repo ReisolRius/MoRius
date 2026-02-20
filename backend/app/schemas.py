@@ -81,11 +81,11 @@ class CoinTopUpSyncResponse(BaseModel):
 
 class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
-    context_limit_chars: int | None = Field(default=None, ge=9, le=32_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=5_000)
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int = Field(ge=9, le=32_000)
+    context_limit_chars: int = Field(ge=500, le=5_000)
 
 
 class StoryInstructionCardInput(BaseModel):
@@ -121,6 +121,16 @@ class StoryWorldCardUpdateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
 
 
+class StoryPlotCardCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=2_000)
+
+
+class StoryPlotCardUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=2_000)
+
+
 class StoryMessageUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
 
@@ -153,6 +163,18 @@ class StoryWorldCardOut(BaseModel):
     title: str
     content: str
     triggers: list[str]
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryPlotCardOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    title: str
+    content: str
     source: str
     created_at: datetime
     updated_at: datetime
@@ -194,5 +216,6 @@ class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
     instruction_cards: list[StoryInstructionCardOut]
+    plot_cards: list[StoryPlotCardOut]
     world_cards: list[StoryWorldCardOut]
     world_card_events: list[StoryWorldCardChangeEventOut]

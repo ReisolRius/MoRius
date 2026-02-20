@@ -66,6 +66,7 @@ class Settings:
     openrouter_model: str
     openrouter_world_card_model: str
     openrouter_translation_model: str
+    openrouter_plot_card_model: str
     openrouter_site_url: str
     openrouter_app_name: str
     story_translation_enabled: bool
@@ -120,6 +121,10 @@ settings = Settings(
     ).strip(),
     openrouter_translation_model=os.getenv(
         "OPENROUTER_TRANSLATION_MODEL",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+    ).strip(),
+    openrouter_plot_card_model=os.getenv(
+        "OPENROUTER_PLOT_CARD_MODEL",
         "qwen/qwen3-next-80b-a3b-instruct:free",
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
