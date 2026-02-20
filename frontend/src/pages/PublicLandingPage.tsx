@@ -47,7 +47,7 @@ const footerLinks: Array<{ label: string; href: string; external?: boolean }> = 
   { label: 'Вконтакте', href: 'https://vk.com/optrovert', external: true },
 ]
 
-const ctaButtonSx: SxProps<Theme> = {
+const ctaButtonSx = {
   minWidth: 140,
   minHeight: 40,
   borderRadius: '10px',
@@ -264,13 +264,11 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             <Button
               variant="contained"
               onClick={() => openAuthDialog('login')}
-              sx={[
-                ctaButtonSx,
-                {
-                  animation: 'morius-fade-up 760ms cubic-bezier(0.22, 1, 0.36, 1) both',
-                  animationDelay: '210ms',
-                },
-              ]}
+              sx={{
+                ...ctaButtonSx,
+                animation: 'morius-fade-up 760ms cubic-bezier(0.22, 1, 0.36, 1) both',
+                animationDelay: '210ms',
+              }}
             >
               Начать играть
             </Button>
@@ -627,7 +625,11 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             <Typography sx={{ color: 'rgba(214, 221, 231, 0.62)', fontSize: { xs: '0.92rem', md: '0.98rem' } }}>
               Зарегистрируйся и начни играть
             </Typography>
-            <Button variant="contained" onClick={() => openAuthDialog('register')} sx={[ctaButtonSx, { mt: 0.8 }]}>
+            <Button
+              variant="contained"
+              onClick={() => openAuthDialog('register')}
+              sx={{ ...ctaButtonSx, mt: 0.8 }}
+            >
               Начать играть
             </Button>
           </Stack>
