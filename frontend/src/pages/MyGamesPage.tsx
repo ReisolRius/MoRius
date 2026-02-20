@@ -51,6 +51,37 @@ const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'created_asc', label: 'Сначала старые игры' },
 ]
 
+const CARD_PALETTES = [
+  {
+    base: '214, 32%, 17%',
+    deep: '223, 40%, 11%',
+    accent: '198, 26%, 58%',
+    accentSoft: '186, 18%, 52%',
+    warm: '34, 22%, 56%',
+  },
+  {
+    base: '206, 30%, 16%',
+    deep: '215, 38%, 10%',
+    accent: '192, 24%, 56%',
+    accentSoft: '210, 20%, 60%',
+    warm: '26, 20%, 54%',
+  },
+  {
+    base: '220, 28%, 15%',
+    deep: '231, 34%, 9%',
+    accent: '208, 22%, 60%',
+    accentSoft: '174, 18%, 54%',
+    warm: '42, 18%, 52%',
+  },
+  {
+    base: '212, 26%, 14%',
+    deep: '222, 32%, 8%',
+    accent: '200, 20%, 57%',
+    accentSoft: '224, 18%, 62%',
+    warm: '30, 16%, 50%',
+  },
+] as const
+
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
     (left, right) =>
@@ -92,40 +123,38 @@ function normalizePreview(messages: StoryMessage[]): string {
 }
 
 function buildCardArtwork(gameId: number): string {
-  const hue = (gameId * 53) % 360
-  const accentHue = (hue + 72) % 360
-  const shadowHue = (hue + 210) % 360
-  const variant = gameId % 4
+  const palette = CARD_PALETTES[gameId % CARD_PALETTES.length]
+  const variant = Math.floor(gameId / CARD_PALETTES.length) % 4
 
   if (variant === 0) {
     return [
-      `repeating-radial-gradient(circle at 0 0, hsla(${accentHue}, 50%, 58%, 0.42) 0 4px, transparent 4px 18px)`,
-      `radial-gradient(circle at 78% 16%, hsla(${shadowHue}, 74%, 58%, 0.38), transparent 40%)`,
-      `linear-gradient(145deg, hsla(${hue}, 62%, 24%, 0.98) 0%, hsla(${shadowHue}, 60%, 15%, 0.98) 100%)`,
+      `repeating-radial-gradient(circle at 0 0, hsla(${palette.accent}, 0.18) 0 4px, transparent 4px 18px)`,
+      `radial-gradient(circle at 78% 16%, hsla(${palette.warm}, 0.12), transparent 42%)`,
+      `linear-gradient(145deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
     ].join(', ')
   }
 
   if (variant === 1) {
     return [
-      `repeating-linear-gradient(28deg, hsla(${accentHue}, 56%, 62%, 0.3) 0 10px, transparent 10px 22px)`,
-      `repeating-linear-gradient(118deg, hsla(${shadowHue}, 54%, 54%, 0.25) 0 12px, transparent 12px 24px)`,
-      `linear-gradient(160deg, hsla(${hue}, 54%, 26%, 0.98) 0%, hsla(${accentHue}, 46%, 20%, 0.95) 100%)`,
+      `repeating-linear-gradient(28deg, hsla(${palette.accentSoft}, 0.2) 0 10px, transparent 10px 24px)`,
+      `repeating-linear-gradient(118deg, hsla(${palette.warm}, 0.14) 0 12px, transparent 12px 26px)`,
+      `linear-gradient(160deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
     ].join(', ')
   }
 
   if (variant === 2) {
     return [
-      `repeating-conic-gradient(from 0deg at 84% 14%, hsla(${accentHue}, 64%, 56%, 0.26) 0deg 24deg, transparent 24deg 48deg)`,
-      `radial-gradient(circle at 12% 82%, hsla(${shadowHue}, 74%, 56%, 0.3), transparent 46%)`,
-      `linear-gradient(155deg, hsla(${hue}, 62%, 23%, 0.96) 0%, hsla(${shadowHue}, 58%, 14%, 0.98) 100%)`,
+      `repeating-conic-gradient(from 0deg at 84% 14%, hsla(${palette.accent}, 0.22) 0deg 22deg, transparent 22deg 46deg)`,
+      `radial-gradient(circle at 12% 82%, hsla(${palette.accentSoft}, 0.2), transparent 48%)`,
+      `linear-gradient(155deg, hsla(${palette.base}, 0.97) 0%, hsla(${palette.deep}, 0.99) 100%)`,
     ].join(', ')
   }
 
   return [
-    `repeating-linear-gradient(90deg, hsla(${accentHue}, 52%, 58%, 0.27) 0 2px, transparent 2px 14px)`,
-    `repeating-linear-gradient(0deg, hsla(${shadowHue}, 48%, 50%, 0.18) 0 16px, transparent 16px 30px)`,
-    `radial-gradient(circle at 70% 18%, hsla(${accentHue}, 64%, 62%, 0.28), transparent 44%)`,
-    `linear-gradient(165deg, hsla(${hue}, 60%, 24%, 0.98) 0%, hsla(${shadowHue}, 62%, 14%, 0.98) 100%)`,
+    `repeating-linear-gradient(90deg, hsla(${palette.accent}, 0.18) 0 2px, transparent 2px 14px)`,
+    `repeating-linear-gradient(0deg, hsla(${palette.warm}, 0.12) 0 16px, transparent 16px 32px)`,
+    `radial-gradient(circle at 70% 18%, hsla(${palette.accentSoft}, 0.18), transparent 46%)`,
+    `linear-gradient(165deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
   ].join(', ')
 }
 
@@ -438,7 +467,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
 
       <Box
         sx={{
-          pt: { xs: 82, md: 88 },
+          pt: { xs: '82px', md: '88px' },
           pb: { xs: 5, md: 6 },
           px: { xs: 2, md: 3.2 },
         }}

@@ -796,7 +796,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           zIndex: 45,
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1.2}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
           <IconButton
             aria-label={isRightPanelOpen ? 'Свернуть правую панель' : 'Развернуть правую панель'}
             onClick={() => setIsRightPanelOpen((previous) => !previous)}
@@ -822,55 +827,58 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
           </IconButton>
 
-          <Stack
-            direction="row"
-            spacing={1.2}
+          <Box
             sx={{
+              ml: isRightPanelOpen ? 1.2 : 0,
+              maxWidth: isRightPanelOpen ? 220 : 0,
               opacity: isRightPanelOpen ? 1 : 0,
-              transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(10px)',
+              transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
               pointerEvents: isRightPanelOpen ? 'auto' : 'none',
-              transition: 'opacity 220ms ease, transform 220ms ease',
+              overflow: 'hidden',
+              transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
             }}
           >
-            <IconButton
-              aria-label="Миры"
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: '14px',
-                border: '1px solid rgba(186, 202, 214, 0.14)',
-                backgroundColor: 'rgba(16, 20, 27, 0.82)',
-              }}
-            >
-              <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
-            <IconButton
-              aria-label="ИИ"
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: '14px',
-                border: '1px solid rgba(186, 202, 214, 0.14)',
-                backgroundColor: 'rgba(16, 20, 27, 0.82)',
-              }}
-            >
-              <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
-            <Button
-              variant="text"
-              onClick={() => setProfileDialogOpen(true)}
-              sx={{
-                minWidth: 0,
-                width: HEADER_AVATAR_SIZE,
-                height: HEADER_AVATAR_SIZE,
-                p: 0,
-                borderRadius: '50%',
-              }}
-            >
-              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-            </Button>
-          </Stack>
-        </Stack>
+            <Stack direction="row" spacing={1.2}>
+              <IconButton
+                aria-label="Миры"
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '14px',
+                  border: '1px solid rgba(186, 202, 214, 0.14)',
+                  backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                }}
+              >
+                <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <IconButton
+                aria-label="ИИ"
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '14px',
+                  border: '1px solid rgba(186, 202, 214, 0.14)',
+                  backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                }}
+              >
+                <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+              </IconButton>
+              <Button
+                variant="text"
+                onClick={() => setProfileDialogOpen(true)}
+                sx={{
+                  minWidth: 0,
+                  width: HEADER_AVATAR_SIZE,
+                  height: HEADER_AVATAR_SIZE,
+                  p: 0,
+                  borderRadius: '50%',
+                }}
+              >
+                <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
+              </Button>
+            </Stack>
+          </Box>
+        </Box>
       </Box>
 
       <Box
