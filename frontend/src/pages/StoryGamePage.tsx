@@ -6,6 +6,7 @@
   useRef,
   useState,
   type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type Ref,
 } from 'react'
@@ -263,11 +264,14 @@ function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps)
       sx={{
         width: size,
         height: size,
+        minWidth: size,
+        minHeight: size,
         borderRadius: '50%',
         border: '1px solid rgba(186, 202, 214, 0.28)',
         background: 'linear-gradient(180deg, rgba(38, 45, 57, 0.9), rgba(18, 22, 30, 0.96))',
         display: 'grid',
         placeItems: 'center',
+        flexShrink: 0,
       }}
     >
       <Stack alignItems="center" spacing={0.4}>
@@ -335,11 +339,17 @@ function CharacterAvatar({ avatarUrl, fallbackLabel, size = 44 }: CharacterAvata
         alt={fallbackLabel}
         onError={() => setFailedImageUrl(avatarUrl)}
         sx={{
+          display: 'block',
           width: size,
           height: size,
+          minWidth: size,
+          minHeight: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
           objectFit: 'cover',
+          objectPosition: 'center',
+          aspectRatio: '1 / 1',
+          flexShrink: 0,
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
       />
@@ -429,6 +439,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
+  const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
   const rightPanelResizingRef = useRef(false)
   const instructionDialogGameIdRef = useRef<number | null>(null)
@@ -575,27 +587,77 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
+  const charactersById = useMemo(() => {
+    const nextMap = new Map<number, StoryCharacter>()
+    characters.forEach((character) => {
+      nextMap.set(character.id, character)
+    })
+    return nextMap
+  }, [characters])
   const mainHeroCard = useMemo(
     () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
     [worldCards],
   )
-  const npcAvatarByName = useMemo(() => {
-    const map = new Map<string, string | null>()
+  const resolveWorldCardAvatar = useCallback(
+    (card: StoryWorldCard | null): string | null => {
+      if (!card) {
+        return null
+      }
+      if (card.avatar_url) {
+        return card.avatar_url
+      }
+      if (!card.character_id) {
+        return null
+      }
+      const linkedCharacter = charactersById.get(card.character_id)
+      return linkedCharacter?.avatar_url ?? null
+    },
+    [charactersById],
+  )
+  const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
+  const npcCardsForAvatar = useMemo(() => {
+    const entries: Array<{ name: string; avatar: string | null }> = []
     worldCards.forEach((card) => {
       if (card.kind !== 'npc') {
         return
       }
       const key = card.title.trim().toLowerCase()
-      if (!key || map.has(key)) {
+      if (!key) {
         return
       }
-      map.set(key, card.avatar_url ?? null)
+      entries.push({ name: key, avatar: resolveWorldCardAvatar(card) })
     })
-    return map
-  }, [worldCards])
+    return entries
+  }, [resolveWorldCardAvatar, worldCards])
+  const resolveNpcAvatar = useCallback(
+    (npcName: string): string | null => {
+      const normalizedName = npcName.replace(/\s+/g, ' ').trim().toLowerCase()
+      if (!normalizedName) {
+        return null
+      }
+
+      const exact = npcCardsForAvatar.find((entry) => entry.name === normalizedName)
+      if (exact) {
+        return exact.avatar
+      }
+
+      const fuzzy = npcCardsForAvatar.find(
+        (entry) => entry.name.startsWith(normalizedName) || normalizedName.startsWith(entry.name),
+      )
+      return fuzzy?.avatar ?? null
+    },
+    [npcCardsForAvatar],
+  )
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
     [cardMenuCardId, cardMenuType, worldCards],
+  )
+  const selectedCharacterMenuItem = useMemo(
+    () =>
+      characterMenuCharacterId !== null
+        ? characters.find((character) => character.id === characterMenuCharacterId) ?? null
+        : null,
+    [characterMenuCharacterId, characters],
   )
   const isSelectedMenuWorldCardLocked = Boolean(
     selectedMenuWorldCard &&
@@ -658,6 +720,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [authToken],
   )
 
+  useEffect(() => {
+    const needsLinkedCharacterAvatars = worldCards.some(
+      (card) =>
+        (card.kind === 'main_hero' || card.kind === 'npc') &&
+        !card.avatar_url &&
+        Boolean(card.character_id),
+    )
+    if (!needsLinkedCharacterAvatars || hasLoadedCharacters || isLoadingCharacters) {
+      return
+    }
+    void loadCharacters({ silent: true })
+  }, [hasLoadedCharacters, isLoadingCharacters, loadCharacters, worldCards])
+
   const resetCharacterDraft = useCallback(() => {
     setCharacterDraftMode('create')
     setEditingCharacterId(null)
@@ -697,6 +772,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isSavingCharacter || isSelectingCharacter) {
       return
     }
+    setCharacterMenuAnchorEl(null)
+    setCharacterMenuCharacterId(null)
     setCharacterDialogOpen(false)
     setCharacterAvatarError('')
     if (characterDialogMode === 'manage') {
@@ -750,14 +827,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setCharacterAvatarError(detail)
     }
   }, [])
-
-  const handleRemoveCharacterAvatar = useCallback(() => {
-    if (isSavingCharacter) {
-      return
-    }
-    setCharacterAvatarDraft(null)
-    setCharacterAvatarError('')
-  }, [isSavingCharacter])
 
   const handleSaveCharacter = useCallback(async () => {
     if (isSavingCharacter) {
@@ -847,6 +916,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [authToken, deletingCharacterId, editingCharacterId, isSavingCharacter, resetCharacterDraft],
   )
+
+  const handleOpenCharacterItemMenu = useCallback((event: ReactMouseEvent<HTMLElement>, characterId: number) => {
+    event.stopPropagation()
+    setCharacterMenuAnchorEl(event.currentTarget)
+    setCharacterMenuCharacterId(characterId)
+  }, [])
+
+  const handleCloseCharacterItemMenu = useCallback(() => {
+    setCharacterMenuAnchorEl(null)
+    setCharacterMenuCharacterId(null)
+  }, [])
+
+  const handleEditCharacterFromMenu = useCallback(() => {
+    if (!selectedCharacterMenuItem) {
+      return
+    }
+    handleStartEditCharacter(selectedCharacterMenuItem)
+    handleCloseCharacterItemMenu()
+  }, [handleCloseCharacterItemMenu, handleStartEditCharacter, selectedCharacterMenuItem])
+
+  const handleDeleteCharacterFromMenu = useCallback(async () => {
+    if (!selectedCharacterMenuItem) {
+      return
+    }
+    await handleDeleteCharacter(selectedCharacterMenuItem.id)
+    handleCloseCharacterItemMenu()
+  }, [handleCloseCharacterItemMenu, handleDeleteCharacter, selectedCharacterMenuItem])
 
   const ensureGameForCharacterSelection = useCallback(async (): Promise<number | null> => {
     if (activeGameId) {
@@ -2260,27 +2356,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }
 
-  const handleRemoveAvatar = async () => {
-    if (isAvatarSaving) {
-      return
-    }
-
-    setAvatarError('')
-    setIsAvatarSaving(true)
-    try {
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: null,
-      })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
-      setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
-    }
-  }
-
   const handleConfirmLogout = () => {
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
@@ -2351,6 +2426,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             borderRadius: '14px',
             border: '1px solid var(--morius-card-border)',
             backgroundColor: 'var(--morius-card-bg)',
+            transition: 'background-color 180ms ease',
+            '&:hover': {
+              backgroundColor: 'var(--morius-button-hover)',
+            },
           }}
         >
           <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -3043,20 +3122,55 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           {rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Stack direction="column" spacing={0.7}>
-                <Button
-                  onClick={() => void handleOpenCharacterSelectorForMainHero()}
-                  disabled={isGenerating || isCreatingGame || Boolean(mainHeroCard)}
-                  sx={{
-                    minHeight: 40,
-                    borderRadius: '12px',
-                    textTransform: 'none',
-                    color: '#d9dee8',
-                    border: '1px solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-card-bg)',
-                  }}
-                >
-                  {mainHeroCard ? `Главный герой: ${mainHeroCard.title}` : 'Выбрать главного героя'}
-                </Button>
+                {!mainHeroCard ? (
+                  <Button
+                    onClick={() => void handleOpenCharacterSelectorForMainHero()}
+                    disabled={isGenerating || isCreatingGame}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      color: '#d9dee8',
+                      border: '1px solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                    }}
+                  >
+                    Выбрать главного героя
+                  </Button>
+                ) : (
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={0.7}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: '12px',
+                      border: '1px solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      px: 0.8,
+                    }}
+                  >
+                    <CharacterAvatar avatarUrl={mainHeroAvatarUrl} fallbackLabel={mainHeroCard.title} size={28} />
+                    <Stack spacing={0.05} sx={{ minWidth: 0 }}>
+                      <Typography
+                        sx={{
+                          color: '#d9dee8',
+                          fontSize: '0.9rem',
+                          fontWeight: 700,
+                          lineHeight: 1.2,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {mainHeroCard.title}
+                      </Typography>
+                      <Typography sx={{ color: 'rgba(166, 186, 214, 0.74)', fontSize: '0.74rem', lineHeight: 1.1 }}>
+                        Главный герой выбран
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                )}
                 <Button
                   onClick={() => void handleOpenCharacterSelectorForNpc()}
                   disabled={isGenerating || isCreatingGame}
@@ -3111,13 +3225,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
                                 sx={{
                                   minWidth: 0,
+                                  minHeight: 0,
                                   p: 0,
                                   width: 30,
                                   height: 30,
                                   borderRadius: '50%',
+                                  flexShrink: 0,
+                                  lineHeight: 0,
                                 }}
                               >
-                                <CharacterAvatar avatarUrl={card.avatar_url} fallbackLabel={card.title} size={30} />
+                                <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} fallbackLabel={card.title} size={30} />
                               </Button>
                             ) : null}
                             <Typography
@@ -3442,7 +3559,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Stack spacing={1.5}>
                           {blocks.map((block, index) => {
                             if (block.type === 'npc') {
-                              const npcAvatar = npcAvatarByName.get(block.npcName.toLowerCase()) ?? null
+                              const npcAvatar = resolveNpcAvatar(block.npcName)
                               return (
                                 <Stack
                                   key={`${message.id}-${index}-npc`}
@@ -3787,7 +3904,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       }}
                     >
                       <CharacterAvatar
-                        avatarUrl={mainHeroCard?.avatar_url ?? null}
+                        avatarUrl={mainHeroAvatarUrl}
                         fallbackLabel={mainHeroCard?.title || user.display_name || 'Игрок'}
                         size={28}
                       />
@@ -4411,39 +4528,70 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 }}
               >
                 <Stack spacing={0.7} alignItems="center">
-                  <Button
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Изменить аватар персонажа"
                     onClick={handleChooseCharacterAvatar}
-                    disabled={isSavingCharacter}
-                    sx={{ minWidth: 0, p: 0, borderRadius: '50%', width: 76, height: 76 }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        handleChooseCharacterAvatar()
+                      }
+                    }}
+                    sx={{
+                      position: 'relative',
+                      width: 76,
+                      height: 76,
+                      borderRadius: '50%',
+                      overflow: 'hidden',
+                      cursor: isSavingCharacter ? 'default' : 'pointer',
+                      outline: 'none',
+                      '&:hover .morius-character-avatar-overlay': {
+                        opacity: isSavingCharacter ? 0 : 1,
+                      },
+                      '&:focus-visible .morius-character-avatar-overlay': {
+                        opacity: isSavingCharacter ? 0 : 1,
+                      },
+                    }}
                   >
                     <CharacterAvatar
                       avatarUrl={characterAvatarDraft}
                       fallbackLabel={characterNameDraft || 'Персонаж'}
                       size={76}
                     />
-                  </Button>
-                  <Stack direction="row" spacing={0.5}>
-                    <Button
-                      onClick={handleChooseCharacterAvatar}
-                      disabled={isSavingCharacter}
+                    <Box
+                      className="morius-character-avatar-overlay"
                       sx={{
-                        minHeight: 30,
-                        borderRadius: '9px',
-                        textTransform: 'none',
-                        border: '1px solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-card-bg)',
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(7, 11, 19, 0.58)',
+                        opacity: 0,
+                        transition: 'opacity 180ms ease',
                       }}
                     >
-                      Аватар
-                    </Button>
-                    <Button
-                      onClick={handleRemoveCharacterAvatar}
-                      disabled={isSavingCharacter || !characterAvatarDraft}
-                      sx={{ minHeight: 30, borderRadius: '9px', textTransform: 'none' }}
-                    >
-                      Убрать
-                    </Button>
-                  </Stack>
+                      <Box
+                        sx={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: '50%',
+                          border: '1px solid rgba(219, 221, 231, 0.5)',
+                          backgroundColor: 'rgba(17, 20, 27, 0.78)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--morius-text-primary)',
+                          fontSize: '1.08rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        ✎
+                      </Box>
+                    </Box>
+                  </Box>
                 </Stack>
                 <Stack spacing={0.8} sx={{ flex: 1 }}>
                   <Box
@@ -4561,22 +4709,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             {character.description}
                           </Typography>
                         </Stack>
-                        <Stack spacing={0.4}>
-                          <Button
-                            onClick={() => handleStartEditCharacter(character)}
-                            disabled={isSavingCharacter}
-                            sx={{ minHeight: 30, minWidth: 0, px: 1, textTransform: 'none' }}
-                          >
-                            Изм.
-                          </Button>
-                          <Button
-                            onClick={() => void handleDeleteCharacter(character.id)}
-                            disabled={isSavingCharacter || deletingCharacterId === character.id}
-                            sx={{ minHeight: 30, minWidth: 0, px: 1, textTransform: 'none', color: 'rgba(248, 176, 176, 0.94)' }}
-                          >
-                            {deletingCharacterId === character.id ? <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.94)' }} /> : 'Удалить'}
-                          </Button>
-                        </Stack>
+                        <IconButton
+                          onClick={(event) => handleOpenCharacterItemMenu(event, character.id)}
+                          disabled={isSavingCharacter || deletingCharacterId === character.id}
+                          sx={{ width: 28, height: 28, color: 'rgba(208, 219, 235, 0.84)', flexShrink: 0 }}
+                        >
+                          {deletingCharacterId === character.id ? (
+                            <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                          ) : (
+                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                          )}
+                        </IconButton>
                       </Stack>
                     </Box>
                   ))}
@@ -4608,14 +4751,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         backgroundColor: 'var(--morius-card-bg)',
                         color: '#d9dee8',
                         textTransform: 'none',
-                        alignItems: 'flex-start',
+                        alignItems: 'center',
                         textAlign: 'left',
                         px: 0.9,
                         py: 0.7,
                         justifyContent: 'flex-start',
                       }}
                     >
-                      <Stack direction="row" spacing={0.7} alignItems="flex-start" sx={{ width: '100%' }}>
+                      <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
                         <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
                         <Stack spacing={0.25} sx={{ minWidth: 0 }}>
                           <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: '#e2e8f3' }}>{character.name}</Typography>
@@ -4648,15 +4791,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.4 }}>
           <Button
-            onClick={() => {
-              void loadCharacters({ silent: false })
-            }}
-            disabled={isLoadingCharacters || isSavingCharacter || isSelectingCharacter}
-            sx={{ color: 'text.secondary' }}
-          >
-            Обновить
-          </Button>
-          <Button
             onClick={handleCloseCharacterDialog}
             disabled={isSavingCharacter || isSelectingCharacter}
             sx={{ color: 'text.secondary' }}
@@ -4665,6 +4799,87 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={characterMenuAnchorEl}
+        open={Boolean(characterMenuAnchorEl && selectedCharacterMenuItem)}
+        onClose={handleCloseCharacterItemMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        MenuListProps={{ disablePadding: true }}
+        PaperProps={{
+          sx: {
+            mt: 0.5,
+            borderRadius: '14px',
+            border: '1px solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
+            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.46)',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        {selectedCharacterMenuItem ? (
+          <Box sx={{ width: 336, maxWidth: 'calc(100vw - 32px)', p: 1.1 }}>
+            <Stack spacing={0.8}>
+              <Stack direction="row" spacing={0.7} alignItems="center">
+                <CharacterAvatar avatarUrl={selectedCharacterMenuItem.avatar_url} fallbackLabel={selectedCharacterMenuItem.name} size={34} />
+                <Typography sx={{ color: '#e2e8f3', fontWeight: 800, fontSize: '1rem', lineHeight: 1.24 }}>
+                  {selectedCharacterMenuItem.name}
+                </Typography>
+              </Stack>
+              <Typography
+                className="morius-scrollbar"
+                sx={{
+                  color: 'rgba(207, 217, 232, 0.9)',
+                  fontSize: '0.9rem',
+                  lineHeight: 1.42,
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 176,
+                  overflowY: 'auto',
+                  pr: 0.2,
+                }}
+              >
+                {selectedCharacterMenuItem.description}
+              </Typography>
+              <Typography sx={{ color: 'rgba(164, 173, 182, 0.92)', fontSize: '0.82rem', lineHeight: 1.3 }}>
+                Триггеры: {selectedCharacterMenuItem.triggers.join(', ')}
+              </Typography>
+              <Stack direction="row" justifyContent="flex-end" spacing={0.6}>
+                <IconButton
+                  onClick={handleEditCharacterFromMenu}
+                  disabled={isSavingCharacter || deletingCharacterId === selectedCharacterMenuItem.id}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '10px',
+                    border: '1px solid var(--morius-card-border)',
+                    color: 'rgba(223, 229, 239, 0.94)',
+                  }}
+                >
+                  <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>✎</Box>
+                </IconButton>
+                <IconButton
+                  onClick={() => void handleDeleteCharacterFromMenu()}
+                  disabled={isSavingCharacter || deletingCharacterId === selectedCharacterMenuItem.id}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: '10px',
+                    border: '1px solid rgba(228, 120, 120, 0.44)',
+                    color: 'rgba(251, 190, 190, 0.94)',
+                  }}
+                >
+                  {deletingCharacterId === selectedCharacterMenuItem.id ? (
+                    <CircularProgress size={15} sx={{ color: 'rgba(251, 190, 190, 0.94)' }} />
+                  ) : (
+                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⌦</Box>
+                  )}
+                </IconButton>
+              </Stack>
+            </Stack>
+          </Box>
+        ) : null}
+      </Menu>
 
       <Dialog
         open={profileDialogOpen}
@@ -4778,7 +4993,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onChange={handleAvatarChange}
               style={{ display: 'none' }}
             />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Stack direction="row" spacing={1}>
               <Button
                 variant="outlined"
                 onClick={() => {
@@ -4787,32 +5002,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 }}
                 disabled={isAvatarSaving}
                 sx={{
+                  width: '100%',
                   minHeight: 40,
                   borderColor: 'rgba(186, 202, 214, 0.28)',
                   color: 'rgba(223, 229, 239, 0.9)',
                 }}
               >
                 Мои персонажи
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={handleChooseAvatar}
-                disabled={isAvatarSaving}
-                sx={{
-                  minHeight: 40,
-                  borderColor: 'rgba(186, 202, 214, 0.28)',
-                  color: 'rgba(223, 229, 239, 0.9)',
-                }}
-              >
-                {isAvatarSaving ? <CircularProgress size={16} sx={{ color: 'rgba(223, 229, 239, 0.9)' }} /> : 'Изменить аватар'}
-              </Button>
-              <Button
-                variant="text"
-                onClick={handleRemoveAvatar}
-                disabled={isAvatarSaving || !user.avatar_url}
-                sx={{ minHeight: 40, color: 'rgba(223, 229, 239, 0.78)' }}
-              >
-                Удалить
               </Button>
             </Stack>
 

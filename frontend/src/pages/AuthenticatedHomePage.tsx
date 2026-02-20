@@ -133,6 +133,10 @@ const headerButtonSx = {
   borderRadius: '14px',
   border: `1px solid ${APP_BORDER_COLOR}`,
   backgroundColor: APP_CARD_BACKGROUND,
+  transition: 'background-color 180ms ease',
+  '&:hover': {
+    backgroundColor: APP_BUTTON_HOVER,
+  },
 }
 
 const menuItemSx = {
@@ -568,6 +572,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               borderRadius: '14px',
               border: `1px solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_CARD_BACKGROUND,
+              transition: 'background-color 180ms ease',
+              '&:hover': {
+                backgroundColor: APP_BUTTON_HOVER,
+              },
             }}
           >
             <Box
@@ -605,9 +613,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   borderRadius: '14px',
                   border: `1px solid ${APP_BORDER_COLOR}`,
                   backgroundColor: APP_CARD_BACKGROUND,
+                  transition: 'background-color 180ms ease',
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
                 }}
               >
-                <Box component="img" src={icons.reload} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+                <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
               </IconButton>
               <IconButton
                 aria-label="Оформление"
@@ -618,9 +630,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   borderRadius: '14px',
                   border: `1px solid ${APP_BORDER_COLOR}`,
                   backgroundColor: APP_CARD_BACKGROUND,
+                  transition: 'background-color 180ms ease',
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
                 }}
               >
-                <Box component="img" src={icons.settings} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+                <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
               </IconButton>
               <Button
                 variant="text"

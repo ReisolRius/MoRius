@@ -161,6 +161,8 @@ STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
     "weather",
     "ambient",
     "sound",
+    "action",
+    "event",
 }
 STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
     "РєРѕС„Рµ",
@@ -173,6 +175,15 @@ STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
     "Р·Р°РІС‚СЂР°Рє",
     "СѓС‚СЂРѕ",
     "РѕРєРЅРѕ",
+}
+STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS = {
+    "РІРёР·РёС‚",
+    "РІСЃС‚СЂРµС‡Р°",
+    "РїСЂРёС…РѕРґ",
+    "СЃС†РµРЅР°",
+    "СЌРїРёР·РѕРґ",
+    "РґРёР°Р»РѕРі",
+    "СЂР°Р·РіРѕРІРѕСЂ",
 }
 STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
     "РѕР±РЅРѕРІР»РµРЅС‹ РІР°Р¶РЅС‹Рµ РґРµС‚Р°Р»Рё",
@@ -1152,6 +1163,15 @@ def _is_story_world_card_title_mundane(value: str) -> bool:
     if len(tokens) == 2:
         return all(token in STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS for token in tokens)
     return False
+
+
+def _is_story_world_card_title_ephemeral(value: str) -> bool:
+    tokens = _normalize_story_match_tokens(value)
+    if not tokens:
+        return False
+    if len(tokens) > 4:
+        return False
+    return any(token in STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS for token in tokens)
 
 
 def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
@@ -2177,11 +2197,12 @@ def _build_story_world_card_change_messages(
                 "Rules:\n"
                 "1) Keep only significant details that matter in future turns.\n"
                 "2) Ignore mundane transient details (food, drinks, coffee, cups, generic furniture, routine background actions).\n"
-                "3) Prefer update for existing cards when new important details appear.\n"
-                "4) Never update or delete cards with \"is_locked\": true.\n"
-                "5) Delete only if a card became invalid/irrelevant.\n"
-                "6) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
-                f"7) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+                "3) Do not add one-off scene events (visits, greetings, short episode titles). Those belong to plot memory.\n"
+                "4) Prefer update for existing cards when new important details appear.\n"
+                "5) Never update or delete cards with \"is_locked\": true.\n"
+                "6) Delete only if a card became invalid/irrelevant.\n"
+                "7) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
+                f"8) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
         },
         {
@@ -2307,7 +2328,10 @@ def _normalize_story_world_card_change_operations(
             triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
 
             title_key = title.casefold()
-            if _is_story_world_card_title_mundane(title) and importance != "critical":
+            if (
+                _is_story_world_card_title_mundane(title)
+                or _is_story_world_card_title_ephemeral(title)
+            ) and importance != "critical":
                 continue
 
             if action == STORY_WORLD_CARD_EVENT_ADDED and target_card is None:
@@ -2349,7 +2373,10 @@ def _normalize_story_world_card_change_operations(
                 continue
             if not title or not content:
                 continue
-            if _is_story_world_card_title_mundane(title) and importance != "critical":
+            if (
+                _is_story_world_card_title_mundane(title)
+                or _is_story_world_card_title_ephemeral(title)
+            ) and importance != "critical":
                 continue
 
             current_title = " ".join(target_card.title.split()).strip()
