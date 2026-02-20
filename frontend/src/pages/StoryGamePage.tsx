@@ -577,18 +577,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   return (
     <Box
       sx={{
-        minHeight: '100svh',
+        height: '100svh',
         color: '#d6dbe4',
         background:
           'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
         position: 'relative',
-        overflowX: 'hidden',
+        overflow: 'hidden',
       }}
     >
       <Box
+        component="header"
         sx={{
           position: 'fixed',
-          top: 20,
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 74,
+          zIndex: 34,
+          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          backdropFilter: 'blur(8px)',
+          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+        }}
+      />
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 12,
           left: 20,
           zIndex: 35,
           display: 'flex',
@@ -615,7 +630,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         sx={{
           position: 'fixed',
-          top: 92,
+          top: 82,
           left: 20,
           zIndex: 30,
           width: { xs: 252, md: 276 },
@@ -647,7 +662,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         sx={{
           position: 'fixed',
-          top: 20,
+          top: 12,
           right: 20,
           zIndex: 45,
         }}
@@ -732,7 +747,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <Box
         sx={{
           position: 'fixed',
-          top: 90,
+          top: 82,
           right: 18,
           bottom: 20,
           width: 278,
@@ -812,8 +827,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
       <Box
         sx={{
-          pt: { xs: 70, md: 78 },
-          pb: { xs: 20, md: 22 },
+          height: '100%',
+          pt: { xs: 82, md: 84 },
+          pb: { xs: 18, md: 20 },
           px: { xs: 1.4, md: 3 },
           display: 'flex',
           justifyContent: 'center',
@@ -823,6 +839,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{
             width: '100%',
             maxWidth: 980,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
           {errorMessage ? (
@@ -838,7 +857,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Typography
             sx={{
               px: { xs: 0.3, md: 0.8 },
-              mb: 1.8,
+              mb: 1.1,
               color: '#e0e7f4',
               fontWeight: 700,
               fontSize: { xs: '1.18rem', md: '1.42rem' },
@@ -851,10 +870,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Box
             ref={messagesViewportRef}
             sx={{
+              flex: 1,
+              minHeight: 0,
               px: { xs: 0.3, md: 0.8 },
               pb: { xs: 2, md: 2.2 },
-              height: { xs: 'calc(100svh - 262px)', md: 'calc(100svh - 278px)' },
-              minHeight: 220,
               overflowY: 'auto',
             }}
           >

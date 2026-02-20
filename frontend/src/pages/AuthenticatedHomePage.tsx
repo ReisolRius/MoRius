@@ -62,6 +62,23 @@ const headerButtonSx = {
   backgroundColor: 'rgba(18, 22, 29, 0.52)',
 }
 
+const menuItemSx = {
+  width: '100%',
+  justifyContent: 'flex-start',
+  borderRadius: '14px',
+  minHeight: 52,
+  px: 1.8,
+  color: '#d8dee9',
+  textTransform: 'none',
+  fontWeight: 700,
+  fontSize: '1.02rem',
+  border: '1px solid rgba(186, 202, 214, 0.12)',
+  background: 'linear-gradient(90deg, rgba(54, 57, 62, 0.58), rgba(31, 34, 40, 0.52))',
+  '&:hover': {
+    background: 'linear-gradient(90deg, rgba(68, 71, 77, 0.62), rgba(38, 42, 49, 0.58))',
+  },
+}
+
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -168,7 +185,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
-  const [headerPanelOpen, setHeaderPanelOpen] = useState(true)
+  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
@@ -385,78 +402,68 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
         }}
       >
-        <Box component="img" src={brandLogo} alt="Morius" sx={{ width: { xs: 90, md: 102 } }} />
-
-        <Box sx={{ position: 'absolute', right: { xs: 10, md: 18 }, top: { xs: 10, md: 14 }, zIndex: 2 }}>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1.3}
-            sx={{
-              transform: headerPanelOpen ? 'translateX(0)' : 'translateX(calc(100% - 48px))',
-              transition: 'transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-              willChange: 'transform',
-            }}
-          >
+        <Stack direction="row" alignItems="center" justifyContent="space-between">
+          <Stack direction="row" alignItems="center" spacing={1.2}>
+            <Box component="img" src={brandLogo} alt="Morius" sx={{ width: { xs: 90, md: 102 } }} />
             <IconButton
-              aria-label={headerPanelOpen ? 'Свернуть блок управления' : 'Развернуть блок управления'}
-              onClick={() => setHeaderPanelOpen((prev) => !prev)}
+              aria-label={isPageMenuOpen ? 'Свернуть меню страниц' : 'Открыть меню страниц'}
+              onClick={() => setIsPageMenuOpen((prev) => !prev)}
               sx={headerButtonSx}
             >
-              <Box
-                component="img"
-                src={icons.back}
-                alt=""
-                sx={{
-                  width: 20,
-                  height: 20,
-                  transform: headerPanelOpen ? 'rotate(180deg)' : 'none',
-                  transition: 'transform 250ms ease',
-                  opacity: 0.86,
-                }}
-              />
+              <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
             </IconButton>
-
-            <Stack
-              direction="row"
-              alignItems="center"
-              spacing={1.3}
-              sx={{
-                opacity: headerPanelOpen ? 1 : 0,
-                pointerEvents: headerPanelOpen ? 'auto' : 'none',
-                transition: 'opacity 180ms ease',
-              }}
-            >
-              <IconButton aria-label="Быстрый переход" sx={headerButtonSx}>
-                <Box component="img" src={icons.send} alt="" sx={{ width: 19, height: 19, opacity: 0.85 }} />
-              </IconButton>
-              <IconButton aria-label="Настройки" sx={headerButtonSx}>
-                <Box component="img" src={icons.settings} alt="" sx={{ width: 20, height: 20, opacity: 0.85 }} />
-              </IconButton>
-              <IconButton aria-label="Монеты" sx={headerButtonSx}>
-                <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.85 }} />
-              </IconButton>
-
-              <Button
-                variant="text"
-                onClick={() => setProfileDialogOpen(true)}
-                aria-label="Открыть профиль"
-                sx={{
-                  minWidth: 0,
-                  width: 48,
-                  height: 48,
-                  p: 0,
-                  borderRadius: '50%',
-                }}
-              >
-                <UserAvatar user={user} />
-              </Button>
-            </Stack>
           </Stack>
-        </Box>
+
+          <Button
+            variant="text"
+            onClick={() => setProfileDialogOpen(true)}
+            aria-label="Открыть профиль"
+            sx={{
+              minWidth: 0,
+              width: 48,
+              height: 48,
+              p: 0,
+              borderRadius: '50%',
+            }}
+          >
+            <UserAvatar user={user} />
+          </Button>
+        </Stack>
       </Box>
 
-      <Container maxWidth="xl" sx={{ pt: { xs: 3, md: 4 }, pb: { xs: 6, md: 10 } }}>
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 92,
+          left: 20,
+          zIndex: 31,
+          width: { xs: 252, md: 276 },
+          borderRadius: '14px',
+          border: '1px solid rgba(186, 202, 214, 0.12)',
+          background:
+            'linear-gradient(180deg, rgba(17, 21, 29, 0.86) 0%, rgba(13, 16, 22, 0.93) 100%), radial-gradient(circle at 40% 0%, rgba(186, 202, 214, 0.06), transparent 60%)',
+          p: 1.3,
+          boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
+          transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
+          opacity: isPageMenuOpen ? 1 : 0,
+          pointerEvents: isPageMenuOpen ? 'auto' : 'none',
+          transition: 'transform 260ms ease, opacity 220ms ease',
+        }}
+      >
+        <Stack spacing={1.1}>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/dashboard')}>
+            Главная
+          </Button>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/games')}>
+            Мои игры
+          </Button>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/games/all')}>
+            Все игры
+          </Button>
+        </Stack>
+      </Box>
+
+      <Container maxWidth="xl" sx={{ pt: { xs: 3, md: 4 }, pb: { xs: 6, md: 10 }, position: 'relative', zIndex: 1 }}>
         {paymentNotice ? (
           <Alert
             severity={paymentNotice.severity}

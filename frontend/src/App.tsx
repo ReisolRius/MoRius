@@ -83,6 +83,9 @@ function App() {
   useEffect(() => {
     const handlePopState = () => setPath(normalizePath(window.location.pathname))
     window.addEventListener('popstate', handlePopState)
+    if ('scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual'
+    }
     return () => window.removeEventListener('popstate', handlePopState)
   }, [])
 
@@ -91,6 +94,7 @@ function App() {
     if (normalizePath(window.location.pathname) !== normalizedTarget) {
       window.history.pushState({}, '', normalizedTarget)
     }
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setPath(normalizedTarget)
   }, [])
 

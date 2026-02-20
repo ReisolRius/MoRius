@@ -60,6 +60,19 @@ function normalizePreview(messages: StoryMessage[]): string {
   return `${compact.slice(0, 177)}...`
 }
 
+function buildCardArtwork(gameId: number): string {
+  const hue = (gameId * 53) % 360
+  const accentHue = (hue + 72) % 360
+  const shadowHue = (hue + 210) % 360
+
+  return [
+    `radial-gradient(circle at 18% 15%, hsla(${accentHue}, 74%, 62%, 0.42), transparent 46%)`,
+    `radial-gradient(circle at 86% 28%, hsla(${shadowHue}, 66%, 56%, 0.34), transparent 42%)`,
+    `repeating-linear-gradient(132deg, hsla(${hue}, 44%, 58%, 0.24) 0 9px, transparent 9px 20px)`,
+    `linear-gradient(160deg, hsla(${hue}, 62%, 24%, 0.96) 0%, hsla(${shadowHue}, 58%, 13%, 0.97) 100%)`,
+  ].join(', ')
+}
+
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -245,9 +258,24 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       }}
     >
       <Box
+        component="header"
         sx={{
           position: 'fixed',
-          top: 20,
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 74,
+          zIndex: 34,
+          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          backdropFilter: 'blur(8px)',
+          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+        }}
+      />
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 12,
           left: 20,
           zIndex: 35,
           display: 'flex',
@@ -274,7 +302,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       <Box
         sx={{
           position: 'fixed',
-          top: 92,
+          top: 82,
           left: 20,
           zIndex: 30,
           width: { xs: 252, md: 276 },
@@ -306,69 +334,30 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       <Box
         sx={{
           position: 'fixed',
-          top: 20,
+          top: 12,
           right: 20,
           zIndex: 45,
         }}
       >
-        <Stack direction="row" alignItems="center" spacing={1.2}>
-          <IconButton
-            aria-label="Вернуться к игре"
-            onClick={() => onNavigate('/home')}
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: '14px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: 'rgba(16, 20, 27, 0.82)',
-            }}
-          >
-            <Box component="img" src={icons.arrowback} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-          </IconButton>
-          <IconButton
-            aria-label="Миры"
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: '14px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: 'rgba(16, 20, 27, 0.82)',
-            }}
-          >
-            <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-          </IconButton>
-          <IconButton
-            aria-label="ИИ"
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: '14px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: 'rgba(16, 20, 27, 0.82)',
-            }}
-          >
-            <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-          </IconButton>
-          <Button
-            variant="text"
-            onClick={() => setProfileDialogOpen(true)}
-            aria-label="Открыть профиль"
-            sx={{
-              minWidth: 0,
-              width: 44,
-              height: 44,
-              p: 0,
-              borderRadius: '50%',
-            }}
-          >
-            <UserAvatar user={user} />
-          </Button>
-        </Stack>
+        <Button
+          variant="text"
+          onClick={() => setProfileDialogOpen(true)}
+          aria-label="Открыть профиль"
+          sx={{
+            minWidth: 0,
+            width: 44,
+            height: 44,
+            p: 0,
+            borderRadius: '50%',
+          }}
+        >
+          <UserAvatar user={user} />
+        </Button>
       </Box>
 
       <Box
         sx={{
-          pt: { xs: 94, md: 104 },
+          pt: { xs: 82, md: 84 },
           pb: { xs: 5, md: 7 },
           px: { xs: 2, md: 3.2 },
           display: 'flex',
@@ -435,9 +424,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           ) : (
             <Box
               sx={{
-                display: 'grid',
-                gap: 1.6,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.4,
               }}
             >
               {games.map((game) => (
@@ -445,39 +434,65 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                   key={game.id}
                   onClick={() => onNavigate(`/home/${game.id}`)}
                   sx={{
-                    borderRadius: '14px',
-                    minHeight: 170,
-                    p: 1.8,
+                    borderRadius: '16px',
+                    minHeight: { xs: 220, md: 246 },
+                    p: 0,
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'stretch',
-                    gap: 1.1,
                     textTransform: 'none',
                     textAlign: 'left',
                     border: '1px solid rgba(186, 202, 214, 0.14)',
-                    background:
-                      'linear-gradient(180deg, rgba(24, 29, 39, 0.85), rgba(14, 18, 25, 0.92)), radial-gradient(circle at 20% 0%, rgba(186, 202, 214, 0.08), transparent 56%)',
+                    overflow: 'hidden',
+                    backgroundImage: buildCardArtwork(game.id),
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
                     color: '#dfe7f5',
                     '&:hover': {
                       borderColor: 'rgba(203, 216, 234, 0.38)',
-                      background:
-                        'linear-gradient(180deg, rgba(28, 34, 46, 0.88), rgba(17, 22, 30, 0.94)), radial-gradient(circle at 20% 0%, rgba(186, 202, 214, 0.11), transparent 56%)',
+                      transform: 'translateY(-1px)',
                     },
                   }}
                 >
-                  <Typography sx={{ fontSize: '1.1rem', fontWeight: 700, lineHeight: 1.3 }}>{game.title}</Typography>
-                  <Typography
+                  <Box
                     sx={{
-                      color: 'rgba(189, 201, 220, 0.84)',
-                      fontSize: '0.94rem',
-                      lineHeight: 1.5,
+                      mt: 'auto',
+                      width: '100%',
+                      px: { xs: 1.4, md: 1.7 },
+                      py: { xs: 1.3, md: 1.5 },
+                      background:
+                        'linear-gradient(180deg, rgba(6, 9, 14, 0.1) 0%, rgba(6, 9, 14, 0.86) 42%, rgba(6, 9, 14, 0.94) 100%)',
                     }}
                   >
-                    {gamePreviews[game.id] ?? 'Загружаем превью...'}
-                  </Typography>
-                  <Typography sx={{ mt: 'auto', color: 'rgba(176, 188, 206, 0.56)', fontSize: '0.82rem' }}>
-                    Обновлено {new Date(game.last_activity_at).toLocaleString('ru-RU')}
-                  </Typography>
+                    <Typography
+                      sx={{
+                        fontSize: { xs: '1.14rem', md: '1.22rem' },
+                        fontWeight: 800,
+                        lineHeight: 1.2,
+                        color: '#eef3fb',
+                        mb: 0.8,
+                      }}
+                    >
+                      {game.title}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: 'rgba(210, 222, 239, 0.9)',
+                        fontSize: { xs: '0.96rem', md: '1rem' },
+                        lineHeight: 1.48,
+                        mb: 1,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {gamePreviews[game.id] ?? 'Загружаем превью...'}
+                    </Typography>
+                    <Typography sx={{ color: 'rgba(176, 188, 206, 0.78)', fontSize: '0.84rem' }}>
+                      Обновлено {new Date(game.last_activity_at).toLocaleString('ru-RU')}
+                    </Typography>
+                  </Box>
                 </Button>
               ))}
             </Box>
