@@ -3,6 +3,7 @@ import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import PublicLandingPage from './pages/PublicLandingPage'
 import AuthenticatedHomePage from './pages/AuthenticatedHomePage'
 import StoryGamePage from './pages/StoryGamePage'
+import MyGamesPage from './pages/MyGamesPage'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
 import type { AuthResponse, AuthUser } from './types/auth'
@@ -22,7 +23,26 @@ function normalizePath(pathname: string): string {
 }
 
 function isAuthenticatedPath(pathname: string): boolean {
-  return pathname === '/home' || pathname.startsWith('/home/') || pathname === '/dashboard'
+  return (
+    pathname === '/home' ||
+    pathname.startsWith('/home/') ||
+    pathname === '/dashboard' ||
+    pathname === '/games' ||
+    pathname.startsWith('/games/')
+  )
+}
+
+function extractStoryGameId(pathname: string): number | null {
+  const match = /^\/home\/(\d+)$/.exec(pathname)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number.parseInt(match[1], 10)
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
 }
 
 function loadAuthSession(): AuthSession {
@@ -161,8 +181,10 @@ function App() {
   }, [])
 
   const isAuthenticated = Boolean(authToken && authUser)
+  const initialGameId = extractStoryGameId(path)
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
+  const shouldShowMyGamesPage = isAuthenticated && (path === '/games' || path === '/games/all')
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
   if (shouldShowBootScreen) {
@@ -226,9 +248,22 @@ function App() {
       <StoryGamePage
         user={authUser}
         authToken={authToken!}
+        initialGameId={initialGameId}
         onNavigate={navigate}
         onLogout={handleLogout}
         onUserUpdate={handleUserUpdate}
+      />
+    )
+  }
+
+  if (shouldShowMyGamesPage && authUser) {
+    return (
+      <MyGamesPage
+        user={authUser}
+        authToken={authToken!}
+        mode={path === '/games/all' ? 'all' : 'my'}
+        onNavigate={navigate}
+        onLogout={handleLogout}
       />
     )
   }

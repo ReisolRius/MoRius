@@ -33,12 +33,11 @@ import type { StoryGameSummary, StoryMessage } from '../types/story'
 type StoryGamePageProps = {
   user: AuthUser
   authToken: string
+  initialGameId: number | null
   onNavigate: (path: string) => void
   onLogout: () => void
   onUserUpdate: (user: AuthUser) => void
 }
-
-type MenuSection = 'home' | 'my' | 'all'
 
 type AvatarPlaceholderProps = {
   fallbackLabel: string
@@ -51,7 +50,7 @@ type UserAvatarProps = {
 }
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
-const INITIAL_STORY_PLACEHOLDER = 'Здесь пока пусто. Начни историю и сделай первый ход.'
+const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальше?'
 
@@ -162,18 +161,16 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
   return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
 }
 
-function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
+function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const [games, setGames] = useState<StoryGameSummary[]>([])
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [messages, setMessages] = useState<StoryMessage[]>([])
   const [inputValue, setInputValue] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
-  const [isLoadingGames, setIsLoadingGames] = useState(true)
   const [isLoadingGameMessages, setIsLoadingGameMessages] = useState(false)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
-  const [activeMenuSection, setActiveMenuSection] = useState<MenuSection>('home')
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -185,12 +182,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
-  const visibleGames = useMemo(() => {
-    if (activeMenuSection === 'home') {
-      return []
-    }
-    return games
-  }, [activeMenuSection, games])
+  const activeGame = useMemo(() => games.find((game) => game.id === activeGameId) ?? null, [activeGameId, games])
 
   const hasMessages = messages.length > 0
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
@@ -245,7 +237,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
     let isActive = true
 
     const bootstrap = async () => {
-      setIsLoadingGames(true)
       try {
         const loadedGames = await listStoryGames(authToken)
         if (!isActive) {
@@ -254,9 +245,10 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
         const sortedGames = sortGamesByActivity(loadedGames)
         setGames(sortedGames)
         if (sortedGames.length > 0) {
-          const firstGameId = sortedGames[0].id
-          setActiveGameId(firstGameId)
-          await loadGameById(firstGameId)
+          const preferredGameId =
+            initialGameId && sortedGames.some((game) => game.id === initialGameId) ? initialGameId : sortedGames[0].id
+          setActiveGameId(preferredGameId)
+          await loadGameById(preferredGameId)
         } else {
           setActiveGameId(null)
           setMessages([])
@@ -267,10 +259,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
         }
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
         setErrorMessage(detail)
-      } finally {
-        if (isActive) {
-          setIsLoadingGames(false)
-        }
       }
     }
 
@@ -280,7 +268,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
       isActive = false
       generationAbortRef.current?.abort()
     }
-  }, [authToken, loadGameById])
+  }, [authToken, initialGameId, loadGameById])
 
   useEffect(() => {
     adjustInputHeight()
@@ -313,26 +301,14 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
       setActiveGameId(game.id)
       setMessages([])
       setInputValue('')
-      setActiveMenuSection('my')
+      onNavigate(`/home/${game.id}`)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
       setErrorMessage(detail)
     } finally {
       setIsCreatingGame(false)
     }
-  }, [authToken, isCreatingGame, isGenerating])
-
-  const handleSelectGame = useCallback(
-    async (gameId: number) => {
-      if (isGenerating || gameId === activeGameId) {
-        return
-      }
-      setErrorMessage('')
-      setActiveGameId(gameId)
-      await loadGameById(gameId)
-    },
-    [activeGameId, isGenerating, loadGameById],
-  )
+  }, [authToken, isCreatingGame, isGenerating, onNavigate])
 
   const runStoryGeneration = useCallback(
     async (options: { gameId: number; prompt?: string; rerollLastResponse?: boolean }) => {
@@ -447,6 +423,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
+        onNavigate(`/home/${newGame.id}`)
         targetGameId = newGame.id
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
@@ -480,7 +457,7 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
       gameId: targetGameId,
       prompt: normalizedPrompt,
     })
-  }, [activeGameId, authToken, inputValue, isGenerating, runStoryGeneration])
+  }, [activeGameId, authToken, inputValue, isGenerating, onNavigate, runStoryGeneration])
 
   const handleStopGeneration = useCallback(() => {
     generationAbortRef.current?.abort()
@@ -505,15 +482,6 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
       rerollLastResponse: true,
     })
   }, [activeGameId, canReroll, runStoryGeneration])
-
-  const handleMenuSectionClick = (section: MenuSection) => {
-    if (section === 'home') {
-      onNavigate('/dashboard')
-      setIsPageMenuOpen(false)
-      return
-    }
-    setActiveMenuSection(section)
-  }
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -664,69 +632,16 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
         }}
       >
         <Stack spacing={1.1}>
-          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('home')}>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/dashboard')}>
             Главная
           </Button>
-          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('my')}>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/games')}>
             Мои игры
           </Button>
-          <Button sx={menuItemSx} onClick={() => handleMenuSectionClick('all')}>
+          <Button sx={menuItemSx} onClick={() => onNavigate('/games/all')}>
             Все игры
           </Button>
         </Stack>
-
-        {activeMenuSection !== 'home' ? (
-          <Box sx={{ mt: 1.2 }}>
-            {isLoadingGames ? (
-              <Stack alignItems="center" justifyContent="center" sx={{ py: 1.5 }}>
-                <CircularProgress size={18} />
-              </Stack>
-            ) : visibleGames.length === 0 ? (
-              <Button
-                fullWidth
-                onClick={() => void handleCreateGame()}
-                disabled={isCreatingGame || isGenerating}
-                sx={{
-                  borderRadius: '12px',
-                  minHeight: 44,
-                  color: '#dbe1eb',
-                  textTransform: 'none',
-                  border: '1px dashed rgba(186, 202, 214, 0.28)',
-                  backgroundColor: 'rgba(18, 22, 29, 0.5)',
-                }}
-              >
-                {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#dbe1eb' }} /> : 'Добавить первую игру'}
-              </Button>
-            ) : (
-              <Stack spacing={0.8}>
-                {visibleGames.slice(0, 4).map((game) => (
-                  <Button
-                    key={game.id}
-                    fullWidth
-                    onClick={() => void handleSelectGame(game.id)}
-                    disabled={isGenerating}
-                    sx={{
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
-                      textTransform: 'none',
-                      borderRadius: '12px',
-                      minHeight: 46,
-                      px: 1.2,
-                      color: game.id === activeGameId ? '#f4f7fd' : 'rgba(215, 222, 234, 0.82)',
-                      border: '1px solid rgba(186, 202, 214, 0.16)',
-                      background:
-                        game.id === activeGameId
-                          ? 'linear-gradient(90deg, rgba(186, 202, 214, 0.22), rgba(186, 202, 214, 0.1))'
-                          : 'rgba(16, 20, 27, 0.58)',
-                    }}
-                  >
-                    {game.title}
-                  </Button>
-                ))}
-              </Stack>
-            )}
-          </Box>
-        ) : null}
       </Box>
 
       <Box
@@ -834,14 +749,45 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
           overflow: 'hidden',
         }}
       >
-        <Box sx={{ px: 1.2, pt: 1.2, borderBottom: '1px solid rgba(186, 202, 214, 0.14)' }}>
-          <Stack direction="row" spacing={2.6}>
-            <Typography sx={{ color: '#d9dee8', fontSize: '1rem', lineHeight: 1.1 }}>Инструкции</Typography>
-            <Typography sx={{ color: 'rgba(186, 202, 214, 0.7)', fontSize: '1rem', lineHeight: 1.1 }}>
+        <Box sx={{ px: 1.1, pt: 1.1, borderBottom: '1px solid rgba(186, 202, 214, 0.14)' }}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              alignItems: 'center',
+            }}
+          >
+            <Typography sx={{ color: '#d9dee8', fontSize: '1rem', lineHeight: 1.1, textAlign: 'center', py: 0.65 }}>
+              Инструкции
+            </Typography>
+            <Typography
+              sx={{
+                color: 'rgba(186, 202, 214, 0.7)',
+                fontSize: '1rem',
+                lineHeight: 1.1,
+                textAlign: 'center',
+                py: 0.65,
+              }}
+            >
               Настройки
             </Typography>
-          </Stack>
-          <Box sx={{ mt: 0.9, width: 130, height: 2, backgroundColor: 'rgba(205, 216, 233, 0.75)' }} />
+          </Box>
+          <Box
+            sx={{
+              position: 'relative',
+              width: '100%',
+              height: 2,
+              backgroundColor: 'rgba(186, 202, 214, 0.18)',
+            }}
+          >
+            <Box
+              sx={{
+                width: '50%',
+                height: '100%',
+                backgroundColor: 'rgba(205, 216, 233, 0.78)',
+              }}
+            />
+          </Box>
         </Box>
         <Box sx={{ p: 1.2, display: 'flex', flexDirection: 'column', gap: 1.2 }}>
           <Button
@@ -866,8 +812,8 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
 
       <Box
         sx={{
-          pt: { xs: 80, md: 92 },
-          pb: { xs: 2, md: 3 },
+          pt: { xs: 70, md: 78 },
+          pb: { xs: 20, md: 22 },
           px: { xs: 1.4, md: 3 },
           display: 'flex',
           justifyContent: 'center',
@@ -889,11 +835,27 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
             </Alert>
           ) : null}
 
+          <Typography
+            sx={{
+              px: { xs: 0.3, md: 0.8 },
+              mb: 1.8,
+              color: '#e0e7f4',
+              fontWeight: 700,
+              fontSize: { xs: '1.18rem', md: '1.42rem' },
+              lineHeight: 1.25,
+            }}
+          >
+            {activeGame?.title ?? 'Новая игра'}
+          </Typography>
+
           <Box
             ref={messagesViewportRef}
             sx={{
               px: { xs: 0.3, md: 0.8 },
-              pb: { xs: 18, md: 20 },
+              pb: { xs: 2, md: 2.2 },
+              height: { xs: 'calc(100svh - 262px)', md: 'calc(100svh - 278px)' },
+              minHeight: 220,
+              overflowY: 'auto',
             }}
           >
             {isLoadingGameMessages ? (
@@ -903,26 +865,10 @@ function StoryGamePage({ user, authToken, onNavigate, onLogout, onUserUpdate }: 
             ) : null}
 
             {!isLoadingGameMessages && messages.length === 0 ? (
-              <Stack spacing={2.2} sx={{ color: 'rgba(210, 219, 234, 0.78)', mt: { xs: 4, md: 6 }, maxWidth: 820 }}>
+              <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
                 <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
                   {INITIAL_STORY_PLACEHOLDER}
                 </Typography>
-                <Button
-                  onClick={() => void handleCreateGame()}
-                  disabled={isCreatingGame || isGenerating}
-                  sx={{
-                    alignSelf: 'flex-start',
-                    minHeight: 42,
-                    borderRadius: '12px',
-                    px: 2.2,
-                    textTransform: 'none',
-                    color: '#d9dee8',
-                    border: '1px dashed rgba(186, 202, 214, 0.28)',
-                    backgroundColor: 'rgba(20, 24, 32, 0.52)',
-                  }}
-                >
-                  {isCreatingGame ? <CircularProgress size={16} sx={{ color: '#d9dee8' }} /> : 'Добавить первую игру'}
-                </Button>
               </Stack>
             ) : null}
 
