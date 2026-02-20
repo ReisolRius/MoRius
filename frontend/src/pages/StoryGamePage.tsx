@@ -75,6 +75,11 @@ type UserAvatarProps = {
 type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
+type StoryWorldCardContextEntry = {
+  title: string
+  content: string
+  triggers: string[]
+}
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
@@ -86,6 +91,9 @@ const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
 const STORY_CONTEXT_LIMIT_MIN = 9
 const STORY_CONTEXT_LIMIT_MAX = 32000
 const STORY_DEFAULT_CONTEXT_LIMIT = 12000
+const STORY_WORLD_CONTEXT_CARD_LIMIT = 10
+const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
+const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
   added: 'Добавлено',
   updated: 'Обновлено',
@@ -151,6 +159,116 @@ function clampStoryContextLimit(value: number): number {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
   return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+}
+
+function formatContextChars(value: number): string {
+  return CONTEXT_NUMBER_FORMATTER.format(Math.max(0, Math.round(value)))
+}
+
+function normalizeStoryMatchTokens(value: string): string[] {
+  const normalizedSource = value.toLowerCase().replace(/ё/g, 'е')
+  return normalizedSource.match(STORY_MATCH_TOKEN_PATTERN) ?? []
+}
+
+function isStoryTriggerMatch(trigger: string, promptTokens: string[]): boolean {
+  const triggerTokens = normalizeStoryMatchTokens(trigger)
+  if (triggerTokens.length === 0) {
+    return false
+  }
+
+  if (triggerTokens.length === 1) {
+    const triggerToken = triggerTokens[0]
+    if (triggerToken.length < 2) {
+      return false
+    }
+    for (const token of promptTokens) {
+      if (token === triggerToken || token.startsWith(triggerToken)) {
+        return true
+      }
+      if (token.length >= 4 && triggerToken.startsWith(token)) {
+        return true
+      }
+    }
+    return false
+  }
+
+  for (const triggerToken of triggerTokens) {
+    const isTokenMatched = promptTokens.some(
+      (token) => token === triggerToken || token.startsWith(triggerToken) || (token.length >= 4 && triggerToken.startsWith(token)),
+    )
+    if (!isTokenMatched) {
+      return false
+    }
+  }
+  return true
+}
+
+function normalizeStoryWorldCardTrigger(value: string): string {
+  const normalized = value.replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return ''
+  }
+  if (normalized.length > 80) {
+    return normalized.slice(0, 80).trimEnd()
+  }
+  return normalized
+}
+
+function normalizeStoryWorldCardTriggersForContext(values: string[], fallbackTitle: string): string[] {
+  const normalized: string[] = []
+  const seen = new Set<string>()
+
+  values.forEach((rawValue) => {
+    const trigger = normalizeStoryWorldCardTrigger(rawValue)
+    if (!trigger) {
+      return
+    }
+    const key = trigger.toLowerCase()
+    if (seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    normalized.push(trigger)
+  })
+
+  const fallbackTrigger = normalizeStoryWorldCardTrigger(fallbackTitle)
+  if (fallbackTrigger) {
+    const fallbackKey = fallbackTrigger.toLowerCase()
+    if (!seen.has(fallbackKey)) {
+      normalized.unshift(fallbackTrigger)
+    }
+  }
+
+  return normalized.slice(0, 40)
+}
+
+function selectStoryWorldCardsForContext(prompt: string, cards: StoryWorldCard[]): StoryWorldCardContextEntry[] {
+  const promptTokens = normalizeStoryMatchTokens(prompt)
+  if (promptTokens.length === 0) {
+    return []
+  }
+
+  const selectedCards: StoryWorldCardContextEntry[] = []
+  for (const card of cards) {
+    const title = card.title.replace(/\s+/g, ' ').trim()
+    const content = card.content.replace(/\r\n/g, '\n').trim()
+    if (!title || !content) {
+      continue
+    }
+
+    const triggers = normalizeStoryWorldCardTriggersForContext(card.triggers ?? [], title)
+    const isRelevant = triggers.some((trigger) => isStoryTriggerMatch(trigger, promptTokens))
+    if (!isRelevant) {
+      continue
+    }
+
+    selectedCards.push({ title, content, triggers })
+    if (selectedCards.length >= STORY_WORLD_CONTEXT_CARD_LIMIT) {
+      break
+    }
+  }
+
+  return selectedCards
 }
 
 const DialogTransition = forwardRef(function DialogTransition(
@@ -313,6 +431,52 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return nextMap
   }, [visibleWorldCardEvents])
+  const normalizedInstructionCardsForContext = useMemo(
+    () =>
+      instructionCards
+        .map((card) => ({
+          title: card.title.replace(/\s+/g, ' ').trim(),
+          content: card.content.replace(/\r\n/g, '\n').trim(),
+        }))
+        .filter((card) => card.title.length > 0 && card.content.length > 0),
+    [instructionCards],
+  )
+  const lastUserPromptForContext = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (message?.role === 'user') {
+        return message.content.replace(/\r\n/g, '\n').trim()
+      }
+    }
+    return ''
+  }, [messages])
+  const activeWorldCardsForContext = useMemo(
+    () => selectStoryWorldCardsForContext(lastUserPromptForContext, worldCards),
+    [lastUserPromptForContext, worldCards],
+  )
+  const instructionContextCharsUsed = useMemo(() => {
+    if (normalizedInstructionCardsForContext.length === 0) {
+      return 0
+    }
+    return normalizedInstructionCardsForContext.map((card, index) => `${index + 1}. ${card.title}: ${card.content}`).join('\n')
+      .length
+  }, [normalizedInstructionCardsForContext])
+  const worldContextCharsUsed = useMemo(() => {
+    if (activeWorldCardsForContext.length === 0) {
+      return 0
+    }
+    const lines: string[] = []
+    activeWorldCardsForContext.forEach((card, index) => {
+      lines.push(`${index + 1}. ${card.title}: ${card.content}`)
+      lines.push(`Триггеры: ${card.triggers.length > 0 ? card.triggers.join(', ') : 'нет'}`)
+    })
+    return lines.join('\n').length
+  }, [activeWorldCardsForContext])
+  const cardsContextCharsUsed = instructionContextCharsUsed + worldContextCharsUsed
+  const freeContextChars = Math.max(contextLimitChars - cardsContextCharsUsed, 0)
+  const cardsContextOverflowChars = Math.max(cardsContextCharsUsed - contextLimitChars, 0)
+  const cardsContextUsagePercent =
+    contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
 
   const adjustInputHeight = useCallback(() => {
     const node = textAreaRef.current
@@ -1804,6 +1968,102 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       {STORY_CONTEXT_LIMIT_MAX}
                     </Typography>
                   </Stack>
+
+                  <Box
+                    sx={{
+                      mt: 1.05,
+                      borderRadius: '10px',
+                      border: '1px solid rgba(186, 202, 214, 0.17)',
+                      backgroundColor: 'rgba(12, 16, 24, 0.64)',
+                      px: 0.9,
+                      py: 0.82,
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+                      <Typography sx={{ color: '#dfe7f4', fontSize: '0.8rem', fontWeight: 700 }}>
+                        Использование контекста
+                      </Typography>
+                      <Typography sx={{ color: 'rgba(194, 208, 227, 0.72)', fontSize: '0.76rem' }}>
+                        {formatContextChars(cardsContextCharsUsed)} / {formatContextChars(contextLimitChars)}
+                      </Typography>
+                    </Stack>
+
+                    <Box
+                      sx={{
+                        mt: 0.7,
+                        height: 7,
+                        borderRadius: '999px',
+                        backgroundColor: 'rgba(123, 145, 172, 0.22)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: `${cardsContextUsagePercent}%`,
+                          height: '100%',
+                          borderRadius: '999px',
+                          background: 'linear-gradient(90deg, rgba(127, 214, 255, 0.9), rgba(159, 190, 255, 0.86))',
+                          transition: 'width 180ms ease',
+                        }}
+                      />
+                    </Box>
+
+                    <Stack spacing={0.56} sx={{ mt: 0.85 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>Инструкции</Typography>
+                        <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
+                          {formatContextChars(instructionContextCharsUsed)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>
+                          Карточки мира
+                        </Typography>
+                        <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
+                          {formatContextChars(worldContextCharsUsed)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>Свободно</Typography>
+                        <Typography
+                          sx={{
+                            color: cardsContextOverflowChars > 0 ? 'rgba(255, 167, 167, 0.92)' : 'rgba(185, 241, 194, 0.92)',
+                            fontSize: '0.78rem',
+                            fontWeight: 700,
+                          }}
+                        >
+                          {formatContextChars(freeContextChars)}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+
+                    <Typography sx={{ mt: 0.72, color: 'rgba(176, 190, 211, 0.66)', fontSize: '0.73rem', lineHeight: 1.36 }}>
+                      {lastUserPromptForContext
+                        ? `По последнему ходу учтено карточек мира: ${activeWorldCardsForContext.length} из ${worldCards.length}.`
+                        : 'После первого хода покажем расход по сработавшим карточкам мира.'}
+                    </Typography>
+
+                    {cardsContextOverflowChars > 0 ? (
+                      <Alert
+                        severity="warning"
+                        sx={{
+                          mt: 0.78,
+                          py: 0.2,
+                          borderRadius: '8px',
+                          backgroundColor: 'rgba(76, 40, 28, 0.64)',
+                          color: 'rgba(255, 221, 189, 0.92)',
+                          border: '1px solid rgba(255, 188, 138, 0.26)',
+                          '& .MuiAlert-icon': {
+                            color: 'rgba(255, 201, 153, 0.95)',
+                            alignItems: 'center',
+                            py: 0.1,
+                          },
+                        }}
+                      >
+                        Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} символов.
+                      </Alert>
+                    ) : null}
+                  </Box>
                 </>
               )}
             </Box>
