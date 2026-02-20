@@ -98,7 +98,7 @@ const NEXT_INPUT_PLACEHOLDER = 'Что вы будете делать дальш
 const HEADER_AVATAR_SIZE = 44
 const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
 const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
-const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 2000
+const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 5000
 const STORY_DEFAULT_CONTEXT_LIMIT = 2000
@@ -1829,24 +1829,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     borderRadius: '14px',
     minHeight: 52,
     px: 1.8,
-    color: '#d8dee9',
+    color: 'var(--morius-text-primary)',
     textTransform: 'none',
     fontWeight: 600,
     fontSize: '1.02rem',
-    border: '1px solid rgba(186, 202, 214, 0.12)',
-    background: 'linear-gradient(90deg, rgba(54, 57, 62, 0.58), rgba(31, 34, 40, 0.52))',
+    border: '1px solid var(--morius-card-border)',
+    background: 'var(--morius-card-bg)',
     '&:hover': {
-      background: 'linear-gradient(90deg, rgba(68, 71, 77, 0.62), rgba(38, 42, 49, 0.58))',
+      background: 'var(--morius-button-hover)',
     },
   }
 
   return (
     <Box
+      className="morius-app-shell"
       sx={{
         height: '100svh',
-        color: '#d6dbe4',
-        background:
-          'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
+        color: 'var(--morius-text-primary)',
+        background: 'var(--morius-app-bg)',
         position: 'relative',
         overflow: 'hidden',
       }}
@@ -1860,9 +1860,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           right: 0,
           height: 74,
           zIndex: 34,
-          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          borderBottom: '1px solid var(--morius-card-border)',
           backdropFilter: 'blur(8px)',
-          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+          backgroundColor: 'var(--morius-card-bg)',
         }}
       />
 
@@ -1885,8 +1885,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             width: 44,
             height: 44,
             borderRadius: '14px',
-            border: '1px solid rgba(186, 202, 214, 0.14)',
-            backgroundColor: '#111821',
+            border: '1px solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
           }}
         >
           <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -1901,9 +1901,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           zIndex: 30,
           width: { xs: 252, md: 276 },
           borderRadius: '14px',
-          border: '1px solid rgba(186, 202, 214, 0.12)',
-          background:
-            'linear-gradient(180deg, #121a25 0%, #0d131d 100%)',
+          border: '1px solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
           p: 1.3,
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
@@ -1945,8 +1944,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               width: 44,
               height: 44,
               borderRadius: '14px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: '#111821',
+              border: '1px solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-card-bg)',
             }}
           >
             <Box
@@ -1985,11 +1984,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   border:
                     rightPanelMode === 'world'
                       ? '1px solid rgba(206, 219, 236, 0.38)'
-                      : '1px solid rgba(186, 202, 214, 0.14)',
+                      : '1px solid var(--morius-card-border)',
                   background:
                     rightPanelMode === 'world'
                       ? 'linear-gradient(180deg, #2d3b50, #243142)'
-                      : '#111821',
+                      : 'var(--morius-card-bg)',
                 }}
               >
                 <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -2004,11 +2003,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   border:
                     rightPanelMode === 'ai'
                       ? '1px solid rgba(206, 219, 236, 0.38)'
-                      : '1px solid rgba(186, 202, 214, 0.14)',
+                      : '1px solid var(--morius-card-border)',
                   background:
                     rightPanelMode === 'ai'
                       ? 'linear-gradient(180deg, #2d3b50, #243142)'
-                      : '#111821',
+                      : 'var(--morius-card-bg)',
                 }}
               >
                 <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -2040,8 +2039,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           width: { xs: 292, md: rightPanelWidth },
           zIndex: 25,
           borderRadius: '14px',
-          border: '1px solid rgba(186, 202, 214, 0.14)',
-          background: 'linear-gradient(180deg, #111927, #0d141f)',
+          border: '1px solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
           transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
           opacity: isRightPanelOpen ? 1 : 0,
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
@@ -2080,7 +2079,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             },
           }}
         />
-        <Box sx={{ px: 1.1, pt: 1.1, borderBottom: '1px solid rgba(186, 202, 214, 0.14)' }}>
+        <Box sx={{ px: 1.1, pt: 1.1, borderBottom: '1px solid var(--morius-card-border)' }}>
           <Box
             sx={{
               display: 'grid',
@@ -2172,7 +2171,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: '#142030',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить первую карточку
@@ -2198,8 +2197,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           key={card.id}
                           sx={{
                             borderRadius: '12px',
-                            border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: '#111b2a',
+                            border: '1px solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-card-bg)',
                             px: 1,
                             py: 0.85,
                             height: RIGHT_PANEL_CARD_HEIGHT,
@@ -2259,8 +2258,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       borderRadius: '12px',
                       textTransform: 'none',
                       color: '#d9dee8',
-                      border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: '#132030',
+                      border: '1px dashed var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить карточку
@@ -2353,7 +2352,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     sx={{
                       mt: 1.05,
                       pt: 0.92,
-                      borderTop: '1px solid rgba(186, 202, 214, 0.14)',
+                      borderTop: '1px solid var(--morius-card-border)',
                     }}
                   >
                     <Stack direction="row" justifyContent="space-between" alignItems="baseline">
@@ -2466,7 +2465,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: '#142030',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить первую карточку
@@ -2492,8 +2491,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           key={card.id}
                           sx={{
                             borderRadius: '12px',
-                            border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: '#111b2a',
+                            border: '1px solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-card-bg)',
                             px: 1,
                             py: 0.85,
                             height: RIGHT_PANEL_CARD_HEIGHT,
@@ -2566,8 +2565,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       borderRadius: '12px',
                       textTransform: 'none',
                       color: '#d9dee8',
-                      border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: '#132030',
+                      border: '1px dashed var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить карточку
@@ -2590,7 +2589,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       color: '#d9dee8',
                       border: '1px dashed rgba(186, 202, 214, 0.28)',
-                      backgroundColor: '#142030',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить первую карточку
@@ -2616,8 +2615,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           key={card.id}
                           sx={{
                             borderRadius: '12px',
-                            border: '1px solid rgba(186, 202, 214, 0.2)',
-                            backgroundColor: '#111b2a',
+                            border: '1px solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-card-bg)',
                             px: 1,
                             py: 0.85,
                             height: RIGHT_PANEL_CARD_HEIGHT,
@@ -2704,8 +2703,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       borderRadius: '12px',
                       textTransform: 'none',
                       color: '#d9dee8',
-                      border: '1px dashed rgba(186, 202, 214, 0.3)',
-                      backgroundColor: '#132030',
+                      border: '1px dashed var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   >
                     Добавить карточку
@@ -2861,7 +2860,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           mb: 2.2,
                           borderRadius: '12px',
                           border: '1px solid rgba(186, 202, 214, 0.22)',
-                          backgroundColor: 'rgba(13, 17, 24, 0.66)',
+                          backgroundColor: 'var(--morius-card-bg)',
                           p: 1.1,
                         }}
                       >
@@ -2995,7 +2994,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     onClick={(event) => event.stopPropagation()}
                                     sx={{
                                       borderRadius: '12px',
-                                      border: '1px solid rgba(186, 202, 214, 0.2)',
+                                      border: '1px solid var(--morius-card-border)',
                                       backgroundColor: 'rgba(26, 37, 56, 0.58)',
                                       px: 0.95,
                                       py: 0.62,
@@ -3120,7 +3119,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     onClick={(event) => event.stopPropagation()}
                                     sx={{
                                       borderRadius: '12px',
-                                      border: '1px solid rgba(186, 202, 214, 0.2)',
+                                      border: '1px solid var(--morius-card-border)',
                                       backgroundColor: 'rgba(26, 37, 56, 0.58)',
                                       px: 0.95,
                                       py: 0.62,
@@ -3272,8 +3271,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             sx={{
               width: '100%',
               borderRadius: '16px',
-              border: '1px solid rgba(186, 202, 214, 0.16)',
-              background: 'linear-gradient(180deg, rgba(19, 23, 31, 0.9), rgba(13, 16, 22, 0.95))',
+              border: '1px solid var(--morius-card-border)',
+              background: 'var(--morius-card-bg)',
               boxShadow: '0 14px 30px rgba(0, 0, 0, 0.28)',
               overflow: 'hidden',
             }}
@@ -3316,7 +3315,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               alignItems="center"
               justifyContent="space-between"
               sx={{
-                borderTop: '1px solid rgba(186, 202, 214, 0.14)',
+                borderTop: '1px solid var(--morius-card-border)',
                 px: 1,
                 py: 0.55,
               }}
@@ -3358,12 +3357,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 38,
                   height: 38,
                   borderRadius: '13px',
-                  backgroundColor: '#c8d4e3',
-                  border: '1px solid rgba(186, 202, 214, 0.3)',
-                  color: '#11151d',
+                  backgroundColor: 'var(--morius-button-active)',
+                  border: '1px solid var(--morius-card-border)',
+                  color: 'var(--morius-text-primary)',
                   '&:disabled': {
                     opacity: 0.5,
-                    backgroundColor: '#8796a9',
+                    backgroundColor: 'var(--morius-button-hover)',
                   },
                 }}
               >
@@ -3373,7 +3372,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       width: 11,
                       height: 11,
                       borderRadius: '2px',
-                      backgroundColor: '#11151d',
+                      backgroundColor: 'var(--morius-card-bg)',
                     }}
                   />
                 ) : (
@@ -3393,8 +3392,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '12px',
-            border: '1px solid rgba(186, 202, 214, 0.2)',
-            background: 'linear-gradient(180deg, #111927, #0d141f)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             minWidth: 154,
           },
         }}
@@ -3448,8 +3447,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -3480,7 +3479,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 42,
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.26)',
-                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dfe6f2',
                 px: 1.1,
                 outline: 'none',
@@ -3505,7 +3504,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 resize: 'vertical',
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dbe2ee',
                 px: 1.1,
                 py: 0.9,
@@ -3533,14 +3532,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             onClick={() => void handleSaveInstructionCard()}
             disabled={isSavingInstruction || isCreatingGame}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
+              backgroundColor: 'var(--morius-card-bg)',
+              color: 'var(--morius-text-primary)',
               minWidth: 118,
-              '&:hover': { backgroundColor: '#edf4fc' },
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
             }}
           >
             {isSavingInstruction || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: '#171716' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
             ) : editingInstructionId === null ? (
               'Добавить'
             ) : (
@@ -3565,8 +3564,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -3597,7 +3596,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 42,
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.26)',
-                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dfe6f2',
                 px: 1.1,
                 outline: 'none',
@@ -3622,7 +3621,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 resize: 'vertical',
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dbe2ee',
                 px: 1.1,
                 py: 0.9,
@@ -3646,14 +3645,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             onClick={() => void handleSavePlotCard()}
             disabled={isSavingPlotCard || isCreatingGame}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
+              backgroundColor: 'var(--morius-card-bg)',
+              color: 'var(--morius-text-primary)',
               minWidth: 118,
-              '&:hover': { backgroundColor: '#edf4fc' },
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
             }}
           >
             {isSavingPlotCard || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: '#171716' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
             ) : editingPlotCardId === null ? (
               'Добавить'
             ) : (
@@ -3678,8 +3677,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -3710,7 +3709,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 42,
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.26)',
-                backgroundColor: 'rgba(16, 20, 27, 0.82)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dfe6f2',
                 px: 1.1,
                 outline: 'none',
@@ -3735,7 +3734,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 resize: 'vertical',
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dbe2ee',
                 px: 1.1,
                 py: 0.9,
@@ -3755,7 +3754,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 40,
                 borderRadius: '11px',
                 border: '1px solid rgba(186, 202, 214, 0.22)',
-                backgroundColor: 'rgba(13, 17, 24, 0.8)',
+                backgroundColor: 'var(--morius-card-bg)',
                 color: '#dbe2ee',
                 px: 1.1,
                 outline: 'none',
@@ -3776,14 +3775,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             onClick={() => void handleSaveWorldCard()}
             disabled={isSavingWorldCard || isCreatingGame}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
+              backgroundColor: 'var(--morius-card-bg)',
+              color: 'var(--morius-text-primary)',
               minWidth: 118,
-              '&:hover': { backgroundColor: '#edf4fc' },
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
             }}
           >
             {isSavingWorldCard || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: '#171716' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
             ) : editingWorldCardId === null ? (
               'Добавить'
             ) : (
@@ -3808,8 +3807,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -3874,8 +3873,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box
               sx={{
                 borderRadius: '12px',
-                border: '1px solid rgba(186, 202, 214, 0.16)',
-                backgroundColor: 'rgba(12, 16, 22, 0.62)',
+                border: '1px solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
                 px: 1.5,
                 py: 1.2,
               }}
@@ -3927,8 +3926,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         PaperProps={{
           sx: {
             borderRadius: '16px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.98) 0%, rgba(10, 12, 18, 0.99) 100%)',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
             animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
         }}
@@ -3947,9 +3946,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             variant="contained"
             onClick={handleConfirmLogout}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
-              '&:hover': { backgroundColor: '#edf4fc' },
+              backgroundColor: 'var(--morius-card-bg)',
+              color: 'var(--morius-text-primary)',
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
             }}
           >
             Выйти
@@ -3961,4 +3960,5 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
 

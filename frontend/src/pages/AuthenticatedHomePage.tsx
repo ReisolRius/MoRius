@@ -48,8 +48,6 @@ type PaymentNotice = {
   text: string
 }
 
-type DashboardView = 'welcome' | 'updates'
-
 type DashboardNewsItem = {
   id: string
   category: string
@@ -68,11 +66,13 @@ type PresetWorld = {
 
 const HEADER_AVATAR_SIZE = 44
 const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
-const DASHBOARD_TABS: Array<{ value: DashboardView; label: string }> = [
-  { value: 'welcome', label: 'Приветствие' },
-  { value: 'updates', label: 'Обновления' },
-]
-
+const APP_PAGE_BACKGROUND = 'radial-gradient(circle at 50% -24%, #141F2D 0%, #111111 62%)'
+const APP_CARD_BACKGROUND = '#15181C'
+const APP_BORDER_COLOR = '#31302E'
+const APP_TEXT_PRIMARY = '#DBDDE7'
+const APP_TEXT_SECONDARY = '#A4ADB6'
+const APP_BUTTON_HOVER = '#1D2738'
+const APP_BUTTON_ACTIVE = '#25354D'
 const DASHBOARD_NEWS: DashboardNewsItem[] = [
   {
     id: 'news-1',
@@ -131,8 +131,8 @@ const headerButtonSx = {
   width: HEADER_AVATAR_SIZE,
   height: HEADER_AVATAR_SIZE,
   borderRadius: '14px',
-  border: '1px solid rgba(186, 202, 214, 0.14)',
-  backgroundColor: 'rgba(16, 20, 27, 0.82)',
+  border: `1px solid ${APP_BORDER_COLOR}`,
+  backgroundColor: APP_CARD_BACKGROUND,
 }
 
 const menuItemSx = {
@@ -141,14 +141,14 @@ const menuItemSx = {
   borderRadius: '14px',
   minHeight: 52,
   px: 1.8,
-  color: '#d8dee9',
+  color: APP_TEXT_PRIMARY,
   textTransform: 'none',
   fontWeight: 700,
   fontSize: '1.02rem',
-  border: '1px solid rgba(186, 202, 214, 0.12)',
-  background: 'linear-gradient(90deg, rgba(54, 57, 62, 0.58), rgba(31, 34, 40, 0.52))',
+  border: `1px solid ${APP_BORDER_COLOR}`,
+  backgroundColor: APP_CARD_BACKGROUND,
   '&:hover': {
-    background: 'linear-gradient(90deg, rgba(68, 71, 77, 0.62), rgba(38, 42, 49, 0.58))',
+    backgroundColor: APP_BUTTON_HOVER,
   },
 }
 
@@ -270,7 +270,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
-  const [dashboardView, setDashboardView] = useState<DashboardView>('welcome')
   const [quickStartTarget, setQuickStartTarget] = useState<string | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -492,15 +491,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
   const profileName = user.display_name || 'Игрок'
   const isQuickStartBusy = Boolean(quickStartTarget)
-  const welcomeNewsPreview = DASHBOARD_NEWS.slice(0, 3)
+  const dashboardView = 'welcome' as const
 
   return (
     <Box
+      className="morius-app-shell"
       sx={{
         minHeight: '100svh',
-        color: '#d6dbe4',
-        background:
-          'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
+        color: APP_TEXT_PRIMARY,
+        background: APP_PAGE_BACKGROUND,
         position: 'relative',
         overflowX: 'hidden',
       }}
@@ -514,9 +513,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           right: 0,
           height: 74,
           zIndex: 34,
-          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          borderBottom: `1px solid ${APP_BORDER_COLOR}`,
           backdropFilter: 'blur(8px)',
-          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+          backgroundColor: APP_CARD_BACKGROUND,
         }}
       />
 
@@ -573,9 +572,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           zIndex: 30,
           width: { xs: 252, md: 276 },
           borderRadius: '14px',
-          border: '1px solid rgba(186, 202, 214, 0.12)',
-          background:
-            'linear-gradient(180deg, rgba(17, 21, 29, 0.86) 0%, rgba(13, 16, 22, 0.93) 100%), radial-gradient(circle at 40% 0%, rgba(186, 202, 214, 0.06), transparent 60%)',
+          border: `1px solid ${APP_BORDER_COLOR}`,
+          background: APP_CARD_BACKGROUND,
           p: 1.3,
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
@@ -588,8 +586,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           <Button
             sx={{
               ...menuItemSx,
-              color: '#f5f8ff',
-              background: 'linear-gradient(90deg, rgba(77, 84, 96, 0.62), rgba(39, 44, 53, 0.56))',
+              backgroundColor: APP_BUTTON_ACTIVE,
             }}
             onClick={() => onNavigate('/dashboard')}
           >
@@ -618,45 +615,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Alert>
           ) : null}
 
-          <Box
-            sx={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 0.45,
-              p: 0.45,
-              borderRadius: '999px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
-              backgroundColor: 'rgba(13, 18, 26, 0.78)',
-              mb: 2.1,
-            }}
-          >
-            {DASHBOARD_TABS.map((tab) => {
-              const isActive = dashboardView === tab.value
-              return (
-                <Button
-                  key={tab.value}
-                  onClick={() => setDashboardView(tab.value)}
-                  sx={{
-                    minHeight: 36,
-                    px: 1.6,
-                    borderRadius: '999px',
-                    textTransform: 'none',
-                    fontWeight: 700,
-                    color: isActive ? '#f3f7ff' : 'rgba(198, 210, 228, 0.82)',
-                    background: isActive ? 'linear-gradient(90deg, rgba(52, 63, 80, 0.9), rgba(34, 42, 56, 0.88))' : 'transparent',
-                    '&:hover': {
-                      background: isActive
-                        ? 'linear-gradient(90deg, rgba(58, 69, 87, 0.92), rgba(38, 46, 61, 0.9))'
-                        : 'rgba(186, 202, 214, 0.1)',
-                    },
-                  }}
-                >
-                  {tab.label}
-                </Button>
-              )
-            })}
-          </Box>
-
           {dashboardView === 'welcome' ? (
             <Box
               sx={{
@@ -671,13 +629,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   position: 'relative',
                   overflow: 'hidden',
                   borderRadius: '18px',
-                  border: '1px solid rgba(186, 202, 214, 0.16)',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
                   minHeight: { xs: 286, md: 362 },
                   p: { xs: 2, md: 2.6 },
                   display: 'flex',
                   alignItems: 'flex-end',
-                  background:
-                    'linear-gradient(132deg, rgba(12, 18, 26, 0.98) 0%, rgba(10, 16, 23, 0.98) 34%, rgba(15, 22, 31, 0.98) 62%, rgba(8, 13, 20, 0.99) 100%)',
+                  background: APP_CARD_BACKGROUND,
                   boxShadow: '0 28px 44px rgba(0, 0, 0, 0.35)',
                 }}
               >
@@ -713,13 +670,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 />
 
                 <Stack spacing={1.05} sx={{ position: 'relative', zIndex: 1, maxWidth: { xs: '100%', lg: 560 } }}>
-                  <Typography sx={{ color: 'rgba(183, 197, 216, 0.72)', letterSpacing: '0.08em', fontWeight: 700, fontSize: '0.78rem' }}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, letterSpacing: '0.08em', fontWeight: 700, fontSize: '0.78rem' }}>
                     WELCOME
                   </Typography>
-                  <Typography sx={{ fontSize: { xs: '1.74rem', md: '2.38rem' }, fontWeight: 800, lineHeight: 1.14, color: '#e7edf8' }}>
+                  <Typography sx={{ fontSize: { xs: '1.74rem', md: '2.38rem' }, fontWeight: 800, lineHeight: 1.14, color: APP_TEXT_PRIMARY }}>
                     Добро пожаловать, {profileName}.
                   </Typography>
-                  <Typography sx={{ color: 'rgba(201, 212, 228, 0.86)', fontSize: { xs: '1rem', md: '1.06rem' }, lineHeight: 1.46 }}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: { xs: '1rem', md: '1.06rem' }, lineHeight: 1.46 }}>
                     Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.
                   </Typography>
                   <Button
@@ -732,45 +689,44 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       borderRadius: '12px',
                       textTransform: 'none',
                       fontWeight: 800,
-                      color: '#e7edf8',
-                      border: '1px solid rgba(186, 202, 214, 0.22)',
-                      background: 'linear-gradient(90deg, rgba(33, 45, 64, 0.94), rgba(27, 36, 52, 0.92))',
+                      color: APP_TEXT_PRIMARY,
+                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_BUTTON_ACTIVE,
                       '&:hover': {
-                        background: 'linear-gradient(90deg, rgba(39, 52, 72, 0.95), rgba(31, 41, 58, 0.93))',
+                        backgroundColor: APP_BUTTON_HOVER,
                       },
                     }}
                   >
-                    {quickStartTarget === 'blank' ? <CircularProgress size={18} sx={{ color: '#e7edf8' }} /> : 'Начать новую игру'}
+                    {quickStartTarget === 'blank' ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Начать новую игру'}
                   </Button>
                 </Stack>
               </Box>
 
               <Stack spacing={1.05}>
-                {welcomeNewsPreview.map((item) => (
+                {DASHBOARD_NEWS.map((item) => (
                   <Button
                     key={item.id}
-                    onClick={() => setDashboardView('updates')}
                     sx={{
                       minHeight: 112,
                       borderRadius: '14px',
                       p: 1.3,
-                      border: '1px solid rgba(186, 202, 214, 0.13)',
-                      background: 'linear-gradient(165deg, rgba(20, 26, 36, 0.9), rgba(14, 19, 27, 0.95))',
+                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      background: APP_CARD_BACKGROUND,
                       textTransform: 'none',
                       textAlign: 'left',
                       alignItems: 'flex-start',
                     }}
                   >
                     <Stack spacing={0.42}>
-                      <Typography sx={{ color: 'rgba(179, 194, 214, 0.72)', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em' }}>
                         {item.category}
                       </Typography>
-                      <Typography sx={{ color: '#e3ebf8', fontSize: '1.04rem', fontWeight: 700, lineHeight: 1.2 }}>
+                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 700, lineHeight: 1.2 }}>
                         {item.title}
                       </Typography>
                       <Typography
                         sx={{
-                          color: 'rgba(199, 210, 226, 0.8)',
+                          color: APP_TEXT_SECONDARY,
                           fontSize: '0.9rem',
                           lineHeight: 1.4,
                           display: '-webkit-box',
@@ -781,7 +737,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       >
                         {item.description}
                       </Typography>
-                      <Typography sx={{ color: 'rgba(165, 178, 198, 0.72)', fontSize: '0.78rem' }}>{item.dateLabel}</Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>{item.dateLabel}</Typography>
                     </Stack>
                   </Button>
                 ))}
@@ -824,10 +780,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           )}
 
           <Stack spacing={0.45} sx={{ mb: 1.35 }}>
-            <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: '#e4ebf7' }}>
+            <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
               Предустановленные миры
             </Typography>
-            <Typography sx={{ color: 'rgba(191, 202, 220, 0.78)', fontSize: '1.01rem' }}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
               Выберите сеттинг, получите заготовку контекста и сразу переходите к игре.
             </Typography>
           </Stack>
@@ -847,15 +803,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 sx={{
                   p: 0,
                   borderRadius: '16px',
-                  border: '1px solid rgba(186, 202, 214, 0.14)',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
                   textTransform: 'none',
                   textAlign: 'left',
                   alignItems: 'stretch',
-                  background: 'linear-gradient(180deg, rgba(13, 18, 26, 0.92), rgba(10, 14, 20, 0.96))',
-                  color: '#dce5f2',
+                  background: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
                   transition: 'transform 180ms ease, border-color 180ms ease',
                   '&:hover': {
                     transform: 'translateY(-2px)',
@@ -882,10 +838,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         'linear-gradient(180deg, rgba(6, 9, 14, 0.26) 0%, rgba(6, 9, 14, 0.94) 48%, rgba(6, 9, 14, 0.98) 100%)',
                     }}
                   >
-                    <Typography sx={{ color: '#ecf2fb', fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.16, mb: 0.42 }}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.16, mb: 0.42 }}>
                       {world.title}
                     </Typography>
-                    <Typography sx={{ color: 'rgba(210, 222, 239, 0.9)', fontSize: '0.95rem', lineHeight: 1.35 }}>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem', lineHeight: 1.35 }}>
                       {world.teaser}
                     </Typography>
                   </Box>
@@ -894,7 +850,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 <Box sx={{ px: 1.2, py: 1.05 }}>
                   <Typography
                     sx={{
-                      color: 'rgba(196, 208, 224, 0.86)',
+                      color: APP_TEXT_SECONDARY,
                       fontSize: '0.92rem',
                       lineHeight: 1.42,
                       display: '-webkit-box',
@@ -907,35 +863,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   </Typography>
                 </Box>
 
-                <Box
-                  sx={{
-                    mt: 'auto',
-                    px: 1.2,
-                    pb: 1.15,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Typography sx={{ color: 'rgba(178, 191, 209, 0.78)', fontSize: '0.84rem' }}>Быстрый старт</Typography>
-                  <Box
-                    sx={{
-                      minWidth: 98,
-                      minHeight: 34,
-                      borderRadius: '10px',
-                      border: '1px solid rgba(186, 202, 214, 0.2)',
-                      backgroundColor: 'rgba(26, 34, 49, 0.88)',
-                      color: '#dce5f2',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontWeight: 700,
-                      fontSize: '0.92rem',
-                    }}
-                  >
-                    {quickStartTarget === world.id ? <CircularProgress size={16} sx={{ color: '#dce5f2' }} /> : 'Играть'}
+                {quickStartTarget === world.id ? (
+                  <Box sx={{ mt: 'auto', px: 1.2, pb: 1.15 }}>
+                    <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} />
                   </Box>
-                </Box>
+                ) : null}
               </Button>
             ))}
           </Box>
@@ -957,8 +889,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -1002,12 +934,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 disabled={isAvatarSaving}
                 sx={{
                   minHeight: 40,
-                  borderColor: 'rgba(186, 202, 214, 0.28)',
-                  color: 'rgba(223, 229, 239, 0.9)',
+                  borderColor: APP_BORDER_COLOR,
+                  color: APP_TEXT_PRIMARY,
                 }}
               >
                 {isAvatarSaving ? (
-                  <CircularProgress size={16} sx={{ color: 'rgba(223, 229, 239, 0.9)' }} />
+                  <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} />
                 ) : (
                   'Изменить аватар'
                 )}
@@ -1016,7 +948,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 variant="text"
                 onClick={handleRemoveAvatar}
                 disabled={isAvatarSaving || !user.avatar_url}
-                sx={{ minHeight: 40, color: 'rgba(223, 229, 239, 0.78)' }}
+                sx={{ minHeight: 40, color: APP_TEXT_SECONDARY }}
               >
                 Удалить
               </Button>
@@ -1027,8 +959,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Box
               sx={{
                 borderRadius: '12px',
-                border: '1px solid rgba(186, 202, 214, 0.16)',
-                backgroundColor: 'rgba(12, 16, 22, 0.62)',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
                 px: 1.5,
                 py: 1.2,
               }}
@@ -1046,11 +978,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   sx={{
                     minHeight: 40,
                     borderRadius: '10px',
-                    backgroundColor: '#d9e4f2',
-                    color: '#171716',
+                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: APP_BUTTON_ACTIVE,
+                    color: APP_TEXT_PRIMARY,
                     fontWeight: 700,
                     '&:hover': {
-                      backgroundColor: '#edf4fc',
+                      backgroundColor: APP_BUTTON_HOVER,
                     },
                   }}
                 >
@@ -1098,8 +1031,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.98) 0%, rgba(9, 11, 16, 0.99) 100%)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -1133,8 +1066,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       key={plan.id}
                       sx={{
                         borderRadius: '14px',
-                        border: '1px solid rgba(186, 202, 214, 0.18)',
-                        background: 'linear-gradient(180deg, rgba(26, 31, 40, 0.9), rgba(14, 17, 23, 0.96))',
+                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        background: APP_CARD_BACKGROUND,
                         px: 2,
                         py: 2,
                         display: 'flex',
@@ -1145,7 +1078,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     >
                       <Stack spacing={0.7}>
                         <Typography sx={{ fontSize: '1.05rem', fontWeight: 700 }}>{plan.title}</Typography>
-                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: '#d9e4f2' }}>
+                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: APP_TEXT_PRIMARY }}>
                           {plan.price_rub} ₽
                         </Typography>
                         <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
@@ -1163,13 +1096,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                           mt: 2,
                           minHeight: 40,
                           borderRadius: '10px',
-                          backgroundColor: '#d9e4f2',
-                          color: '#171716',
+                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: APP_BUTTON_ACTIVE,
+                          color: APP_TEXT_PRIMARY,
                           fontWeight: 700,
-                          '&:hover': { backgroundColor: '#edf4fc' },
+                          '&:hover': { backgroundColor: APP_BUTTON_HOVER },
                         }}
                       >
-                        {isBuying ? <CircularProgress size={16} sx={{ color: '#171716' }} /> : 'Купить'}
+                        {isBuying ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Купить'}
                       </Button>
                     </Box>
                   )
@@ -1194,8 +1128,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         PaperProps={{
           sx: {
             borderRadius: '16px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.98) 0%, rgba(10, 12, 18, 0.99) 100%)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
             animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
         }}
@@ -1214,9 +1148,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             variant="contained"
             onClick={handleConfirmLogout}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
-              '&:hover': { backgroundColor: '#edf4fc' },
+              border: `1px solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_BUTTON_ACTIVE,
+              color: APP_TEXT_PRIMARY,
+              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
             }}
           >
             Выйти

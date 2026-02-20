@@ -3,6 +3,13 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  --morius-app-bg: radial-gradient(circle at 50% -24%, #141f2d 0%, #111111 62%);
+  --morius-card-bg: #15181c;
+  --morius-card-border: #31302e;
+  --morius-text-primary: #dbdde7;
+  --morius-text-secondary: #a4adb6;
+  --morius-button-hover: #1d2738;
+  --morius-button-active: #25354d;
 }
 
 *,
@@ -23,6 +30,27 @@ body,
 
 body {
   overflow-x: hidden;
+}
+
+.morius-app-shell {
+  background: var(--morius-app-bg);
+  color: var(--morius-text-primary);
+}
+
+.morius-app-shell .morius-surface-card {
+  background: var(--morius-card-bg) !important;
+  border-color: var(--morius-card-border) !important;
+  color: var(--morius-text-primary) !important;
+}
+
+.morius-app-shell .morius-surface-button {
+  background: var(--morius-card-bg) !important;
+  border-color: var(--morius-card-border) !important;
+  color: var(--morius-text-primary) !important;
+}
+
+.morius-app-shell .morius-surface-button:hover {
+  background: var(--morius-button-hover) !important;
 }
 
 .morius-scrollbar {

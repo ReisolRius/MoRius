@@ -116,7 +116,7 @@ STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_PLOT_CARD_SOURCE_USER = "user"
 STORY_PLOT_CARD_SOURCE_AI = "ai"
-STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 2_000
+STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 16_000
 STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
 STORY_WORLD_CARD_EVENT_ADDED = "added"
 STORY_WORLD_CARD_EVENT_UPDATED = "updated"
@@ -2521,8 +2521,9 @@ def _build_story_plot_card_memory_messages(
                 "Ты сжимаешь историю ответов мастера игры в короткую карточку памяти. "
                 "Сохраняй важные факты, имена, отношения, незавершенные конфликты, цели, открытия и текущую сцену. "
                 "Пиши компактно, но без потери смысла. "
+                "Заголовок должен быть конкретным по текущей сцене, без шаблонов вроде 'Сюжетная сводка'. "
                 "Верни строго JSON-объект без markdown: {\"title\": string, \"content\": string}. "
-                "title: до 120 символов. content: до 2000 символов."
+                "title: до 120 символов. content: до 16000 символов."
             ),
         },
         {
@@ -2593,7 +2594,24 @@ def _build_story_plot_card_fallback_payload(
 
     fallback_title = existing_card.title.strip() if existing_card is not None else ""
     if not fallback_title:
-        fallback_title = "Сюжетная сводка"
+        for message in reversed(assistant_messages[-8:]):
+            raw_candidate = message.content.replace("\r\n", "\n").strip()
+            if not raw_candidate:
+                continue
+            first_line = raw_candidate.split("\n", maxsplit=1)[0].strip(" .,:;!?-\"'«»()[]")
+            if not first_line:
+                continue
+            words = first_line.split()
+            if len(words) > 8:
+                first_line = " ".join(words[:8])
+            if len(first_line) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+                first_line = first_line[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip(" .,:;!?-")
+            if first_line:
+                fallback_title = first_line
+                break
+
+    if not fallback_title:
+        fallback_title = "Ключевые события эпизода"
 
     combined_content = "\n\n".join(history_parts[-4:])
     if len(combined_content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:

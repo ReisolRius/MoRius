@@ -123,12 +123,12 @@ class StoryWorldCardUpdateRequest(BaseModel):
 
 class StoryPlotCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=2_000)
+    content: str = Field(min_length=1, max_length=16_000)
 
 
 class StoryPlotCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=2_000)
+    content: str = Field(min_length=1, max_length=16_000)
 
 
 class StoryMessageUpdateRequest(BaseModel):

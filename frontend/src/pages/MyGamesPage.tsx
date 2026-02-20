@@ -41,6 +41,13 @@ type UserAvatarProps = {
 type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
 
 const HEADER_AVATAR_SIZE = 44
+const APP_PAGE_BACKGROUND = 'radial-gradient(circle at 50% -24%, #141F2D 0%, #111111 62%)'
+const APP_CARD_BACKGROUND = '#15181C'
+const APP_BORDER_COLOR = '#31302E'
+const APP_TEXT_PRIMARY = '#DBDDE7'
+const APP_TEXT_SECONDARY = '#A4ADB6'
+const APP_BUTTON_HOVER = '#1D2738'
+const APP_BUTTON_ACTIVE = '#25354D'
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 
@@ -343,26 +350,24 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
     borderRadius: '14px',
     minHeight: 52,
     px: 1.8,
-    color: isActive ? '#f5f8ff' : '#d8dee9',
+    color: APP_TEXT_PRIMARY,
     textTransform: 'none',
     fontWeight: 700,
     fontSize: '1.02rem',
-    border: '1px solid rgba(186, 202, 214, 0.12)',
-    background: isActive
-      ? 'linear-gradient(90deg, rgba(77, 84, 96, 0.62), rgba(39, 44, 53, 0.56))'
-      : 'linear-gradient(90deg, rgba(54, 57, 62, 0.58), rgba(31, 34, 40, 0.52))',
+    border: `1px solid ${APP_BORDER_COLOR}`,
+    backgroundColor: isActive ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
     '&:hover': {
-      background: 'linear-gradient(90deg, rgba(68, 71, 77, 0.62), rgba(38, 42, 49, 0.58))',
+      backgroundColor: APP_BUTTON_HOVER,
     },
   })
 
   return (
     <Box
+      className="morius-app-shell"
       sx={{
         minHeight: '100svh',
-        color: '#d6dbe4',
-        background:
-          'radial-gradient(circle at 68% -8%, rgba(173, 107, 44, 0.07), transparent 42%), linear-gradient(180deg, #04070d 0%, #02050a 100%)',
+        color: APP_TEXT_PRIMARY,
+        background: APP_PAGE_BACKGROUND,
         position: 'relative',
         overflowX: 'hidden',
       }}
@@ -376,9 +381,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           right: 0,
           height: 74,
           zIndex: 34,
-          borderBottom: '1px solid rgba(186, 202, 214, 0.12)',
+          borderBottom: `1px solid ${APP_BORDER_COLOR}`,
           backdropFilter: 'blur(8px)',
-          background: 'linear-gradient(180deg, rgba(5, 7, 11, 0.9) 0%, rgba(5, 7, 11, 0.8) 100%)',
+          backgroundColor: APP_CARD_BACKGROUND,
         }}
       />
 
@@ -401,8 +406,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             width: 44,
             height: 44,
             borderRadius: '14px',
-            border: '1px solid rgba(186, 202, 214, 0.14)',
-            backgroundColor: 'rgba(16, 20, 27, 0.82)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            backgroundColor: APP_CARD_BACKGROUND,
           }}
         >
           <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
@@ -417,9 +422,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           zIndex: 30,
           width: { xs: 252, md: 276 },
           borderRadius: '14px',
-          border: '1px solid rgba(186, 202, 214, 0.12)',
-          background:
-            'linear-gradient(180deg, rgba(17, 21, 29, 0.86) 0%, rgba(13, 16, 22, 0.93) 100%), radial-gradient(circle at 40% 0%, rgba(186, 202, 214, 0.06), transparent 60%)',
+          border: `1px solid ${APP_BORDER_COLOR}`,
+          background: APP_CARD_BACKGROUND,
           p: 1.3,
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
@@ -480,10 +484,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           ) : null}
 
           <Stack spacing={0.5} sx={{ mb: 2 }}>
-            <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: '#e4ebf7' }}>
+            <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
               {pageTitle}
             </Typography>
-            <Typography sx={{ color: 'rgba(191, 202, 220, 0.78)', fontSize: '1.02rem' }}>{pageDescription}</Typography>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.02rem' }}>{pageDescription}</Typography>
           </Stack>
 
           <Box
@@ -503,14 +507,14 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 width: '100%',
                 minHeight: 54,
                 borderRadius: '14px',
-                border: '1px solid rgba(186, 202, 214, 0.14)',
-                backgroundColor: 'rgba(23, 34, 52, 0.72)',
-                color: '#dce3ef',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                color: APP_TEXT_PRIMARY,
                 px: 1.4,
                 outline: 'none',
                 fontSize: '1.02rem',
                 '&::placeholder': {
-                  color: 'rgba(188, 200, 218, 0.62)',
+                  color: APP_TEXT_SECONDARY,
                 },
               }}
             />
@@ -523,9 +527,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 width: '100%',
                 minHeight: 54,
                 borderRadius: '14px',
-                border: '1px solid rgba(186, 202, 214, 0.14)',
-                backgroundColor: 'rgba(24, 35, 53, 0.72)',
-                color: '#dce4f2',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                color: APP_TEXT_PRIMARY,
                 px: 1.2,
                 outline: 'none',
                 fontSize: '1rem',
@@ -546,14 +550,17 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 minHeight: 54,
                 borderRadius: '14px',
                 textTransform: 'none',
-                color: '#e4ebf8',
-                border: '1px solid rgba(186, 202, 214, 0.2)',
-                background: 'linear-gradient(90deg, rgba(30, 41, 61, 0.92), rgba(26, 34, 49, 0.9))',
+                color: APP_TEXT_PRIMARY,
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_BUTTON_ACTIVE,
                 fontWeight: 700,
                 fontSize: '1.02rem',
+                '&:hover': {
+                  backgroundColor: APP_BUTTON_HOVER,
+                },
               }}
             >
-              {isCreatingGame ? <CircularProgress size={18} sx={{ color: '#e4ebf8' }} /> : '+ Создать игру'}
+              {isCreatingGame ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : '+ Создать игру'}
             </Button>
           </Box>
 
@@ -565,12 +572,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             <Box
               sx={{
                 borderRadius: '16px',
-                border: '1px solid rgba(186, 202, 214, 0.14)',
-                background: 'linear-gradient(180deg, rgba(16, 20, 27, 0.7), rgba(11, 14, 20, 0.84))',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                background: APP_CARD_BACKGROUND,
                 p: 2.4,
               }}
             >
-              <Typography sx={{ color: 'rgba(196, 206, 223, 0.72)', fontSize: '1rem' }}>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>
                 {searchQuery.trim()
                   ? 'По вашему запросу игры не найдены.'
                   : 'Здесь пока нет карточек. Создайте первую игру и начните историю.'}
@@ -602,12 +609,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     alignItems: 'stretch',
                     textTransform: 'none',
                     textAlign: 'left',
-                    border: '1px solid rgba(186, 202, 214, 0.14)',
+                    border: `1px solid ${APP_BORDER_COLOR}`,
                     overflow: 'hidden',
                     backgroundImage: buildCardArtwork(game.id),
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
-                    color: '#dfe7f5',
+                    color: APP_TEXT_PRIMARY,
                     transition: 'transform 180ms ease, border-color 180ms ease',
                     '&:hover': {
                       borderColor: 'rgba(203, 216, 234, 0.38)',
@@ -630,7 +637,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                         fontSize: { xs: '1.12rem', md: '1.16rem' },
                         fontWeight: 800,
                         lineHeight: 1.2,
-                        color: '#eef3fb',
+                        color: APP_TEXT_PRIMARY,
                         mb: 0.62,
                         display: '-webkit-box',
                         WebkitLineClamp: 2,
@@ -642,7 +649,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     </Typography>
                     <Typography
                       sx={{
-                        color: 'rgba(210, 222, 239, 0.9)',
+                        color: APP_TEXT_SECONDARY,
                         fontSize: { xs: '0.92rem', md: '0.95rem' },
                         lineHeight: 1.4,
                         mb: 0.85,
@@ -654,7 +661,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                     >
                       {gamePreviews[game.id] ?? 'Загружаем превью...'}
                     </Typography>
-                    <Typography sx={{ color: 'rgba(176, 188, 206, 0.78)', fontSize: '0.8rem' }}>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
                       Обновлено {new Date(game.last_activity_at).toLocaleString('ru-RU')}
                     </Typography>
                   </Box>
@@ -680,8 +687,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
         PaperProps={{
           sx: {
             borderRadius: '18px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -712,8 +719,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             <Box
               sx={{
                 borderRadius: '12px',
-                border: '1px solid rgba(186, 202, 214, 0.16)',
-                backgroundColor: 'rgba(12, 16, 22, 0.62)',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
                 px: 1.5,
                 py: 1.1,
               }}
@@ -758,8 +765,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
         PaperProps={{
           sx: {
             borderRadius: '16px',
-            border: '1px solid rgba(186, 202, 214, 0.16)',
-            background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.98) 0%, rgba(10, 12, 18, 0.99) 100%)',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
             animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
         }}
@@ -778,9 +785,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             variant="contained"
             onClick={handleConfirmLogout}
             sx={{
-              backgroundColor: '#d9e4f2',
-              color: '#171716',
-              '&:hover': { backgroundColor: '#edf4fc' },
+              border: `1px solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_BUTTON_ACTIVE,
+              color: APP_TEXT_PRIMARY,
+              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
             }}
           >
             Выйти

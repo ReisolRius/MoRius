@@ -14,18 +14,18 @@ const theme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#d9e4f2',
+      main: '#DBDDE7',
     },
     secondary: {
-      main: '#9c7a4c',
+      main: '#A4ADB6',
     },
     background: {
-      default: '#040507',
-      paper: '#0d1016',
+      default: '#111111',
+      paper: '#15181C',
     },
     text: {
-      primary: '#ecf1f8',
-      secondary: 'rgba(223, 229, 239, 0.74)',
+      primary: '#DBDDE7',
+      secondary: '#A4ADB6',
     },
   },
   shape: {
@@ -50,6 +50,13 @@ const theme = createTheme({
         root: {
           borderRadius: 12,
           padding: '10px 22px',
+          border: '1px solid #31302E',
+          backgroundColor: '#15181C',
+          color: '#DBDDE7',
+          '&:hover': {
+            backgroundColor: '#1D2738',
+            borderColor: '#445672',
+          },
         },
       },
     },
