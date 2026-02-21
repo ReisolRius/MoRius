@@ -118,6 +118,10 @@ STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 5_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
+STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 8
+STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 18
+STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS = 1_800
+STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES = 40
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_WORLD_CARD_KIND_WORLD = "world"
@@ -2062,7 +2066,7 @@ def _build_story_world_card_extraction_messages(
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
     existing_titles = [card.title.strip() for card in existing_cards if card.title.strip()]
-    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "РЅРµС‚"
+    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "нет"
     prompt_preview = prompt.strip()
     assistant_preview = assistant_text.strip()
     if len(prompt_preview) > 1200:
@@ -2074,9 +2078,9 @@ def _build_story_world_card_extraction_messages(
         {
             "role": "system",
             "content": (
-                "РўС‹ РёР·РІР»РµРєР°РµС€СЊ РІР°Р¶РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё РјРёСЂР° РёР· С…СѓРґРѕР¶РµСЃС‚РІРµРЅРЅРѕРіРѕ С„СЂР°РіРјРµРЅС‚Р°. "
-                "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РјР°СЃСЃРёРІ Р±РµР· markdown. "
-                "Р¤РѕСЂРјР°С‚ СЌР»РµРјРµРЅС‚Р°: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
+                "Ты извлекаешь важные сущности мира из художественного фрагмента. "
+                "Верни строго JSON-массив без markdown. "
+                "Формат элемента: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
                 "Добавляй только новые и действительно важные сущности (персонажи, предметы, места, организации). "
                 "Максимум 3 элемента. Если добавлять нечего, верни []"
             ),
@@ -2084,10 +2088,10 @@ def _build_story_world_card_extraction_messages(
         {
             "role": "user",
             "content": (
-                f"РџРѕСЃР»РµРґРЅРёР№ С…РѕРґ РёРіСЂРѕРєР°:\n{prompt_preview}\n\n"
-                f"РћС‚РІРµС‚ РјР°СЃС‚РµСЂР°:\n{assistant_preview}\n\n"
-                f"РЈР¶Рµ СЃСѓС‰РµСЃС‚РІСѓСЋС‰РёРµ РєР°СЂС‚РѕС‡РєРё: {existing_titles_preview}\n\n"
-                "Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ JSON-РјР°СЃСЃРёРІ."
+                f"Последний ход игрока:\n{prompt_preview}\n\n"
+                f"Ответ мастера:\n{assistant_preview}\n\n"
+                f"Уже существующие карточки: {existing_titles_preview}\n\n"
+                "Верни только JSON-массив."
             ),
         },
     ]
@@ -2458,10 +2462,6 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
 
     primary_model = settings.openrouter_world_card_model or settings.openrouter_model
     candidate_models = [primary_model]
-    if settings.openrouter_model and settings.openrouter_model not in candidate_models:
-        candidate_models.append(settings.openrouter_model)
-    if "openrouter/free" not in candidate_models:
-        candidate_models.append("openrouter/free")
 
     last_error: RuntimeError | None = None
 
@@ -2477,7 +2477,7 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
                 settings.openrouter_chat_url,
                 headers=headers,
                 json=payload,
-                timeout=(20, 60),
+                timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
             )
         except requests.RequestException as exc:
             raise RuntimeError("Failed to reach OpenRouter extraction endpoint") from exc
@@ -2643,10 +2643,36 @@ def _apply_story_world_card_change_operations(
             if not title_value or not content_value or not isinstance(triggers_value, list):
                 continue
             card_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
+            normalized_title = _normalize_story_world_card_title(title_value)
+            normalized_content = _normalize_story_world_card_content(content_value)
+            title_key = normalized_title.casefold()
+
+            duplicate_npc_exists = False
+            if card_kind == STORY_WORLD_CARD_KIND_NPC:
+                for existing_card in existing_by_id.values():
+                    if _normalize_story_world_card_kind(existing_card.kind) != STORY_WORLD_CARD_KIND_NPC:
+                        continue
+                    existing_title_key = " ".join(existing_card.title.split()).strip().casefold()
+                    if not existing_title_key:
+                        continue
+                    if title_key == existing_title_key:
+                        duplicate_npc_exists = True
+                        break
+                    shorter_key, longer_key = (
+                        (title_key, existing_title_key)
+                        if len(title_key) <= len(existing_title_key)
+                        else (existing_title_key, title_key)
+                    )
+                    if len(shorter_key) >= 4 and longer_key.startswith(shorter_key):
+                        duplicate_npc_exists = True
+                        break
+            if duplicate_npc_exists:
+                continue
+
             card = StoryWorldCard(
                 game_id=game.id,
-                title=_normalize_story_world_card_title(title_value),
-                content=_normalize_story_world_card_content(content_value),
+                title=normalized_title,
+                content=normalized_content,
                 triggers=_serialize_story_world_card_triggers(
                     _normalize_story_world_card_triggers(
                         [item for item in triggers_value if isinstance(item, str)],
@@ -2834,7 +2860,10 @@ def _build_story_plot_card_memory_messages(
     if existing_card is not None:
         current_memory = existing_card.content.replace("\r\n", "\n").strip()
 
-    history_limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    history_limit = min(
+        _normalize_story_context_limit_chars(context_limit_tokens),
+        STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS,
+    )
     history_items = _trim_story_history_to_context_limit(
         [{"role": STORY_ASSISTANT_ROLE, "content": message.content} for message in assistant_messages],
         history_limit,
@@ -2851,21 +2880,21 @@ def _build_story_plot_card_memory_messages(
         {
             "role": "system",
             "content": (
-                "РўС‹ СЃР¶РёРјР°РµС€СЊ РёСЃС‚РѕСЂРёСЋ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° РёРіСЂС‹ РІ РєРѕСЂРѕС‚РєСѓСЋ РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. "
-                "РЎРѕС…СЂР°РЅСЏР№ РІР°Р¶РЅС‹Рµ С„Р°РєС‚С‹, РёРјРµРЅР°, РѕС‚РЅРѕС€РµРЅРёСЏ, РЅРµР·Р°РІРµСЂС€РµРЅРЅС‹Рµ РєРѕРЅС„Р»РёРєС‚С‹, С†РµР»Рё, РѕС‚РєСЂС‹С‚РёСЏ Рё С‚РµРєСѓС‰СѓСЋ СЃС†РµРЅСѓ. "
-                "РџРёС€Рё РєРѕРјРїР°РєС‚РЅРѕ, РЅРѕ Р±РµР· РїРѕС‚РµСЂРё СЃРјС‹СЃР»Р°. "
-                "Р—Р°РіРѕР»РѕРІРѕРє РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РєРѕРЅРєСЂРµС‚РЅС‹Рј РїРѕ С‚РµРєСѓС‰РµР№ СЃС†РµРЅРµ, Р±РµР· С€Р°Р±Р»РѕРЅРѕРІ РІСЂРѕРґРµ 'Сюжетная сводка'. "
-                "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РѕР±СЉРµРєС‚ Р±РµР· markdown: {\"title\": string, \"content\": string}. "
+                "Ты сжимаешь историю ответов мастера игры в короткую карточку памяти. "
+                "Сохраняй важные факты, имена, отношения, незавершенные конфликты, цели, открытия и текущую сцену. "
+                "Пиши компактно, но без потери смысла. "
+                "Заголовок должен быть конкретным по текущей сцене, без шаблонов вроде 'Сюжетная сводка'. "
+                "Верни строго JSON-объект без markdown: {\"title\": string, \"content\": string}. "
                 "title: до 120 символов. content: до 16000 символов."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"РўРµРєСѓС‰Р°СЏ РєР°СЂС‚РѕС‡РєР° РїР°РјСЏС‚Рё (РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚Рѕ):\nР—Р°РіРѕР»РѕРІРѕРє: {current_title or 'нет'}\n"
-                f"РўРµРєСЃС‚:\n{current_memory or 'нет'}\n\n"
-                f"РСЃС‚РѕСЂРёСЏ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° JSON:\n{history_json}\n\n"
-                "РћР±РЅРѕРІРё РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ JSON."
+                f"Текущая карточка памяти (может быть пусто):\nЗаголовок: {current_title or 'нет'}\n"
+                f"Текст:\n{current_memory or 'нет'}\n\n"
+                f"История ответов мастера JSON:\n{history_json}\n\n"
+                "Обнови карточку памяти. Верни только JSON."
             ),
         },
     ]
@@ -2879,13 +2908,13 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
         raw_payload.get("title")
         or raw_payload.get("name")
         or raw_payload.get("heading")
-        or raw_payload.get("Р·Р°РіРѕР»РѕРІРѕРє")
+        or raw_payload.get("заголовок")
     )
     raw_content = (
         raw_payload.get("content")
         or raw_payload.get("summary")
         or raw_payload.get("text")
-        or raw_payload.get("С‚РµРєСЃС‚")
+        or raw_payload.get("текст")
     )
     if not isinstance(raw_title, str) or not isinstance(raw_content, str):
         nested_card = raw_payload.get("card")
@@ -2973,6 +3002,8 @@ def _upsert_story_plot_memory_card(
         )
         .order_by(StoryMessage.id.asc())
     ).all()
+    if len(assistant_messages) > STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES:
+        assistant_messages = assistant_messages[-STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES:]
     if not assistant_messages:
         return (False, [])
 
@@ -2998,6 +3029,7 @@ def _upsert_story_plot_memory_card(
             model_name=model_name,
             allow_free_fallback=False,
             temperature=0.1,
+            request_timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
         )
         parsed_payload = _extract_json_object_from_text(raw_response)
         normalized_payload = _normalize_story_plot_card_ai_payload(parsed_payload)
@@ -3739,6 +3771,7 @@ def _request_openrouter_story_text(
     model_name: str | None = None,
     allow_free_fallback: bool = True,
     temperature: float | None = None,
+    request_timeout: tuple[int, int] | None = None,
 ) -> str:
     headers = {
         "Authorization": f"Bearer {settings.openrouter_api_key}",
@@ -3759,6 +3792,7 @@ def _request_openrouter_story_text(
         candidate_models.append("openrouter/free")
 
     last_error: RuntimeError | None = None
+    timeout_value = request_timeout or (20, 120)
     for candidate_model in candidate_models:
         payload = {
             "model": candidate_model,
@@ -3772,7 +3806,7 @@ def _request_openrouter_story_text(
                 settings.openrouter_chat_url,
                 headers=headers,
                 json=payload,
-                timeout=(20, 120),
+                timeout=timeout_value,
             )
         except requests.RequestException as exc:
             raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
