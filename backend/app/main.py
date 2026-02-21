@@ -197,6 +197,7 @@ STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
 )
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
+STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(r"\[\[NPC:([^\]]+)\]\]\s*([\s\S]*?)\s*$", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -1175,6 +1176,124 @@ def _is_story_world_card_title_ephemeral(value: str) -> bool:
     if len(tokens) > 4:
         return False
     return any(token in STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS for token in tokens)
+
+
+def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, Any]]:
+    mentions_by_key: dict[str, dict[str, Any]] = {}
+    normalized_text = assistant_text.replace("\r\n", "\n")
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+        marker_match = STORY_NPC_DIALOGUE_MARKER_PATTERN.match(paragraph_value)
+        if marker_match is None:
+            continue
+        raw_name = " ".join(marker_match.group(1).split()).strip(" .,:;!?-\"'()[]")
+        if not raw_name:
+            continue
+        if len(raw_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
+            raw_name = raw_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+        if not raw_name:
+            continue
+
+        dialogue_text = " ".join(marker_match.group(2).replace("\r", " ").replace("\n", " ").split()).strip()
+        mention_key = raw_name.casefold()
+        mention = mentions_by_key.get(mention_key)
+        if mention is None:
+            mention = {"name": raw_name, "dialogues": []}
+            mentions_by_key[mention_key] = mention
+        if dialogue_text:
+            dialogues = mention["dialogues"]
+            if dialogue_text not in dialogues:
+                dialogues.append(dialogue_text)
+
+    return list(mentions_by_key.values())
+
+
+def _build_story_npc_fallback_content(name: str, assistant_text: str, dialogues: list[str]) -> str:
+    normalized_text = assistant_text.replace("\r\n", "\n")
+    name_key = name.casefold()
+    selected_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+        cleaned_paragraph = STORY_NPC_DIALOGUE_MARKER_PATTERN.sub(
+            lambda match: match.group(2).strip(),
+            paragraph_value,
+        ).strip()
+        if not cleaned_paragraph:
+            continue
+        if name_key not in cleaned_paragraph.casefold():
+            continue
+        selected_paragraphs.append(cleaned_paragraph)
+        if len(selected_paragraphs) >= 2:
+            break
+
+    if not selected_paragraphs and dialogues:
+        selected_paragraphs = [f"{name}: {dialogues[0]}"]
+        if len(dialogues) > 1:
+            selected_paragraphs.append(f"{name}: {dialogues[1]}")
+
+    if not selected_paragraphs:
+        selected_paragraphs = [f"{name} появляется в текущей сцене как новый NPC."]
+
+    return _normalize_story_world_card_content("\n\n".join(selected_paragraphs))
+
+
+def _append_missing_story_npc_card_operations(
+    *,
+    operations: list[dict[str, Any]],
+    assistant_text: str,
+    existing_cards: list[StoryWorldCard],
+) -> list[dict[str, Any]]:
+    if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
+        return operations
+
+    npc_mentions = _extract_story_npc_dialogue_mentions(assistant_text)
+    if not npc_mentions:
+        return operations
+
+    known_title_keys = {
+        " ".join(card.title.split()).strip().casefold()
+        for card in existing_cards
+        if " ".join(card.title.split()).strip()
+    }
+    pending_title_keys = {
+        " ".join(str(operation.get("title", "")).split()).strip().casefold()
+        for operation in operations
+        if _normalize_story_world_card_event_action(str(operation.get("action", "")))
+        in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}
+        and " ".join(str(operation.get("title", "")).split()).strip()
+    }
+
+    for mention in npc_mentions:
+        if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
+            break
+
+        name = " ".join(str(mention.get("name", "")).split()).strip()
+        if not name:
+            continue
+        title_key = name.casefold()
+        if title_key in known_title_keys or title_key in pending_title_keys:
+            continue
+
+        dialogues = mention.get("dialogues")
+        dialogue_values = [item for item in dialogues if isinstance(item, str)] if isinstance(dialogues, list) else []
+        content = _build_story_npc_fallback_content(name, assistant_text, dialogue_values)
+        operations.append(
+            {
+                "action": STORY_WORLD_CARD_EVENT_ADDED,
+                "title": name,
+                "content": content,
+                "triggers": _normalize_story_world_card_triggers([name], fallback_title=name),
+                "kind": STORY_WORLD_CARD_KIND_NPC,
+                "changed_text": content,
+            }
+        )
+        pending_title_keys.add(title_key)
+
+    return operations
 
 
 def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
@@ -2211,7 +2330,9 @@ def _build_story_world_card_change_messages(
                 "5) Never update or delete cards with \"is_locked\": true.\n"
                 "6) Delete only if a card became invalid/irrelevant.\n"
                 "7) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
-                f"8) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+                "8) If a new speaking character appears in format [[NPC:Name]] and there is no such NPC card yet, "
+                "add it as kind \"npc\".\n"
+                f"9) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
         },
         {
@@ -2610,7 +2731,12 @@ def _generate_story_world_card_change_operations(
     else:
         return []
 
-    return _normalize_story_world_card_change_operations(raw_operations, existing_cards)
+    normalized_operations = _normalize_story_world_card_change_operations(raw_operations, existing_cards)
+    return _append_missing_story_npc_card_operations(
+        operations=normalized_operations,
+        assistant_text=assistant_text,
+        existing_cards=existing_cards,
+    )
 
 
 def _apply_story_world_card_change_operations(
