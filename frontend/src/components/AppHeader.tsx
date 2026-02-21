@@ -123,7 +123,7 @@ function AppHeader({
           width: { xs: moriusThemeTokens.layout.headerMenuWidthXs, md: moriusThemeTokens.layout.headerMenuWidthMd },
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-panel-gradient)',
+          backgroundColor: 'var(--morius-card-bg)',
           p: '10px',
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',

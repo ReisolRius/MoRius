@@ -2967,7 +2967,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           zIndex: 25,
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-panel-gradient)',
+          backgroundColor: 'var(--morius-card-bg)',
           transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + var(--morius-interface-gap)))',
           opacity: isRightPanelOpen ? 1 : 0,
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
@@ -4129,14 +4129,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             )
                           })}
                           {isStreaming ? (
-                            <Box
-                              sx={{
-                                width: 34,
-                                height: 4,
-                                borderRadius: '999px',
-                                backgroundColor: 'rgba(195, 209, 228, 0.72)',
-                              }}
-                            />
+                            <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
+                              <Stack direction="row" spacing={0.45} alignItems="center">
+                                <Box className="morius-generating-dot" />
+                                <Box className="morius-generating-dot" />
+                                <Box className="morius-generating-dot" />
+                              </Stack>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
+                                ИИ генерирует ответ
+                              </Typography>
+                            </Stack>
                           ) : null}
                           {messagePlotCardEvents.length > 0 || messageWorldCardEvents.length > 0 ? (
                             <Stack spacing={0.75}>
@@ -4450,16 +4452,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
       >
           <Box
+            className={isGenerating ? 'morius-composer-waiting' : undefined}
             sx={{
               width: '100%',
               borderRadius: 'var(--morius-radius)',
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              background: 'var(--morius-panel-gradient)',
+              backgroundColor: 'var(--morius-card-bg)',
               boxShadow: '0 14px 30px rgba(0, 0, 0, 0.28)',
               overflow: 'hidden',
             }}
           >
-            <Box sx={{ px: 'var(--morius-interface-gap)', pt: 'var(--morius-story-right-padding)', pb: 'var(--morius-story-right-padding)' }}>
+            <Box sx={{ px: 1.35, pt: 'var(--morius-story-right-padding)', pb: 'var(--morius-story-right-padding)' }}>
               <Box
                 component="textarea"
                 ref={textAreaRef}
@@ -4498,18 +4501,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               justifyContent="space-between"
               sx={{
                 borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                px: 'var(--morius-interface-gap)',
+                px: 1.35,
                 py: 'var(--morius-story-right-padding)',
               }}
             >
-              <Stack direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
+              <Stack direction="row" alignItems="center" sx={{ gap: 1.1 }}>
                 <Stack direction="row" spacing={0.35} alignItems="center">
                   <Box component="img" src={icons.tabcoin} alt="" sx={{ width: 13, height: 13 }} />
                   <Typography sx={{ color: 'var(--morius-title-text)', fontSize: 'var(--morius-subheading-size)', lineHeight: 1 }}>
                     {user.coins}
                   </Typography>
                 </Stack>
-                <IconButton aria-label="Назад" onClick={(event) => event.preventDefault()}>
+                <IconButton
+                  aria-label="Назад"
+                  onClick={(event) => event.preventDefault()}
+                  sx={{
+                    p: 0,
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    '&:hover': { backgroundColor: 'transparent' },
+                    '&:active': { backgroundColor: 'transparent' },
+                  }}
+                >
                   <Box
                     component="img"
                     src={icons.back}
@@ -4517,7 +4530,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9 }}
                   />
                 </IconButton>
-                <IconButton aria-label="Отменить" onClick={(event) => event.preventDefault()}>
+                <IconButton
+                  aria-label="Отменить"
+                  onClick={(event) => event.preventDefault()}
+                  sx={{
+                    p: 0,
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    '&:hover': { backgroundColor: 'transparent' },
+                    '&:active': { backgroundColor: 'transparent' },
+                  }}
+                >
                   <Box
                     component="img"
                     src={icons.undo}
@@ -4529,7 +4552,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   aria-label="Перегенерировать"
                   onClick={() => void handleRerollLastResponse()}
                   disabled={!canReroll}
-                  sx={{ opacity: canReroll ? 1 : 0.45 }}
+                  sx={{
+                    opacity: canReroll ? 1 : 0.45,
+                    p: 0,
+                    backgroundColor: 'transparent',
+                    border: 'none',
+                    '&:hover': { backgroundColor: 'transparent' },
+                    '&:active': { backgroundColor: 'transparent' },
+                  }}
                 >
                   <Box
                     component="img"
@@ -4554,28 +4584,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  backgroundColor: 'var(--morius-send-button-bg)',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  backgroundColor: 'transparent',
+                  border: 'none',
                   color: 'var(--morius-accent)',
                   '&:hover': {
-                    backgroundColor: 'var(--morius-button-hover)',
+                    backgroundColor: 'transparent',
                   },
                   '&:active': {
-                    backgroundColor: 'var(--morius-button-active)',
+                    backgroundColor: 'transparent',
                   },
                   '&:disabled': {
                     opacity: 0.5,
-                    backgroundColor: 'var(--morius-button-hover)',
+                    backgroundColor: 'transparent',
                   },
                 }}
               >
                 {isGenerating ? (
                   <Box
+                    className="morius-stop-indicator"
                     sx={{
                       width: 12,
                       height: 12,
                       borderRadius: 'var(--morius-radius)',
-                      backgroundColor: 'var(--morius-elevated-bg)',
+                      backgroundColor: 'var(--morius-accent)',
                     }}
                   />
                 ) : (
@@ -5898,6 +5929,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
+
+
 
 
 
