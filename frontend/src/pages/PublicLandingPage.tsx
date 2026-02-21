@@ -200,7 +200,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           px: 3,
           pt: { xs: 10, md: 12 },
           pb: { xs: 13, md: 15 },
-          zIndex: 2,
+          zIndex: 1,
           backgroundImage: `linear-gradient(180deg, rgba(4, 5, 8, 0.52) 0%, rgba(4, 5, 9, 0.8) 56%, rgba(3, 4, 8, 0.98) 100%), url(${heroBackground})`,
           backgroundSize: 'cover',
           backgroundPosition: 'center',
@@ -222,9 +222,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             pointerEvents: 'none',
           },
         }}
-      >
-        <Container maxWidth="md" sx={{ position: 'relative', zIndex: 2 }}>
-          <Stack spacing={{ xs: 2.8, md: 3.4 }} alignItems="center">
+        >
+          <Container maxWidth="md" sx={{ position: 'relative', zIndex: 2 }}>
+            <Stack spacing={{ xs: 2.8, md: 3.4 }} alignItems="center">
             <Box
               component="img"
               src={brandLogo}
@@ -274,27 +274,23 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
             </Button>
           </Stack>
         </Container>
+      </Box>
 
+      <Box aria-hidden sx={{ position: 'relative', height: 0, zIndex: 3, pointerEvents: 'none' }}>
         <Box
-          aria-hidden
           sx={{
             position: 'absolute',
             left: '50%',
-            bottom: { xs: -116, sm: -128, md: -146, lg: -162 },
+            top: { xs: -182, sm: -198, md: -224, lg: -240 },
             transform: 'translateX(-50%)',
-            width: { xs: '182%', sm: '166%', md: '148%', lg: '136%' },
-            height: { xs: 430, sm: 470, md: 528, lg: 568 },
-            zIndex: 3,
-            pointerEvents: 'none',
+            width: { xs: '248%', sm: '216%', md: '184%', lg: '168%' },
+            height: { xs: 430, sm: 470, md: 528, lg: 560 },
             overflow: 'hidden',
-            '&::after': {
-              content: '""',
-              position: 'absolute',
-              inset: 0,
-              background:
-                'linear-gradient(180deg, rgba(4, 6, 10, 0) 18%, rgba(4, 6, 10, 0.24) 52%, rgba(2, 4, 9, 0.94) 100%)',
-              pointerEvents: 'none',
-            },
+            pointerEvents: 'none',
+            WebkitMaskImage:
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.3) 14%, #000 30%, #000 74%, rgba(0, 0, 0, 0.6) 90%, transparent 100%)',
+            maskImage:
+              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.3) 14%, #000 30%, #000 74%, rgba(0, 0, 0, 0.6) 90%, transparent 100%)',
           }}
         >
           <Box
@@ -307,9 +303,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 86%',
-              opacity: 0.68,
-              filter: 'grayscale(1) brightness(0.76) contrast(1.1)',
+              objectPosition: '50% 58%',
+              opacity: 0.86,
+              filter: 'grayscale(1) brightness(0.7) contrast(1.2)',
             }}
           />
           <Box
@@ -322,9 +318,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 92%',
-              opacity: 0.54,
-              filter: 'grayscale(1) blur(6px) brightness(0.9) contrast(1.06)',
+              objectPosition: '50% 64%',
+              opacity: 0.56,
+              filter: 'grayscale(1) blur(7px) brightness(0.9) contrast(1.1)',
             }}
           />
           <Box
@@ -337,9 +333,17 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 96%',
-              opacity: 0.28,
-              filter: 'grayscale(1) blur(12px) brightness(0.95)',
+              objectPosition: '50% 48%',
+              opacity: 0.34,
+              filter: 'grayscale(1) blur(14px) brightness(1.06)',
+            }}
+          />
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              background:
+                'linear-gradient(180deg, rgba(4, 6, 10, 0.06) 0%, rgba(4, 6, 10, 0.34) 54%, rgba(2, 4, 9, 0.9) 100%)',
             }}
           />
         </Box>
@@ -351,7 +355,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
         sx={{
           minHeight: '100svh',
           position: 'relative',
-          zIndex: 1,
+          zIndex: 2,
           display: 'flex',
           alignItems: 'center',
           pt: { xs: 12, sm: 14, md: 16 },
