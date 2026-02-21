@@ -46,6 +46,15 @@ class Settings:
     app_name: str
     debug: bool
     database_url: str
+    db_pool_size: int
+    db_max_overflow: int
+    db_pool_timeout_seconds: int
+    db_pool_recycle_seconds: int
+    db_pool_pre_ping: bool
+    sqlite_busy_timeout_ms: int
+    sqlite_enable_wal: bool
+    http_pool_connections: int
+    http_pool_maxsize: int
     jwt_secret_key: str
     jwt_algorithm: str
     access_token_ttl_minutes: int
@@ -96,6 +105,15 @@ settings = Settings(
     app_name=os.getenv("APP_NAME", "MoRius API"),
     debug=_to_bool(os.getenv("DEBUG"), default=True),
     database_url=_default_database_url(),
+    db_pool_size=max(int(os.getenv("DB_POOL_SIZE", "20")), 1),
+    db_max_overflow=max(int(os.getenv("DB_MAX_OVERFLOW", "40")), 0),
+    db_pool_timeout_seconds=max(int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30")), 1),
+    db_pool_recycle_seconds=max(int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")), 30),
+    db_pool_pre_ping=_to_bool(os.getenv("DB_POOL_PRE_PING"), default=True),
+    sqlite_busy_timeout_ms=max(int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "10000")), 1000),
+    sqlite_enable_wal=_to_bool(os.getenv("SQLITE_ENABLE_WAL"), default=True),
+    http_pool_connections=max(int(os.getenv("HTTP_POOL_CONNECTIONS", "32")), 1),
+    http_pool_maxsize=max(int(os.getenv("HTTP_POOL_MAXSIZE", "64")), 1),
     jwt_secret_key=os.getenv("JWT_SECRET_KEY", "replace_me_in_production"),
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     access_token_ttl_minutes=int(os.getenv("ACCESS_TOKEN_TTL_MINUTES", "10080")),

@@ -19,9 +19,12 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
-import { brandLogo, icons } from '../assets'
+import { icons } from '../assets'
+import AppHeader from '../components/AppHeader'
+import { OPEN_CHARACTER_MANAGER_FLAG_KEY } from '../constants/storageKeys'
 import { createStoryGame, getStoryGame, listStoryGames } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
+import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type { StoryGameSummary, StoryMessage } from '../types/story'
 
@@ -45,25 +48,14 @@ type UserAvatarProps = {
 
 type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
 
-const HEADER_AVATAR_SIZE = 44
-const APP_PAGE_BACKGROUND = 'radial-gradient(circle at 50% -24%, #141F2D 0%, #111111 62%)'
-const APP_CARD_BACKGROUND = '#15181C'
-const APP_BORDER_COLOR = '#31302E'
-const APP_TEXT_PRIMARY = '#DBDDE7'
-const APP_TEXT_SECONDARY = '#A4ADB6'
-const APP_BUTTON_HOVER = '#1D2738'
-const APP_BUTTON_ACTIVE = '#25354D'
-const APP_BUTTON_SHELL = {
-  width: 44,
-  height: 44,
-  borderRadius: '14px',
-  border: `1px solid ${APP_BORDER_COLOR}`,
-  backgroundColor: APP_CARD_BACKGROUND,
-  transition: 'background-color 180ms ease',
-  '&:hover': {
-    backgroundColor: APP_BUTTON_HOVER,
-  },
-} as const
+const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
+const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
+const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
+const APP_BORDER_COLOR = 'var(--morius-card-border)'
+const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
+const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
+const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
+const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 
@@ -359,6 +351,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
     onLogout()
   }
 
+  const handleOpenCharacterManager = () => {
+    localStorage.setItem(OPEN_CHARACTER_MANAGER_FLAG_KEY, '1')
+    setConfirmLogoutOpen(false)
+    setProfileDialogOpen(false)
+    onNavigate('/home')
+  }
+
   const resolveDisplayTitle = useCallback(
     (gameId: number) => getDisplayStoryTitle(gameId, customTitleMap),
     [customTitleMap],
@@ -381,23 +380,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
 
   const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
 
-  const menuButtonSx = (isActive: boolean) => ({
-    width: '100%',
-    justifyContent: 'flex-start',
-    borderRadius: '14px',
-    minHeight: 52,
-    px: 1.8,
-    color: APP_TEXT_PRIMARY,
-    textTransform: 'none',
-    fontWeight: 700,
-    fontSize: '1.02rem',
-    border: `1px solid ${APP_BORDER_COLOR}`,
-    backgroundColor: isActive ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-    '&:hover': {
-      backgroundColor: APP_BUTTON_HOVER,
-    },
-  })
-
   return (
     <Box
       className="morius-app-shell"
@@ -409,137 +391,77 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
         overflowX: 'hidden',
       }}
     >
-      <Box
-        component="header"
-        sx={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 74,
-          zIndex: 34,
-          borderBottom: `1px solid ${APP_BORDER_COLOR}`,
-          backdropFilter: 'blur(8px)',
-          backgroundColor: APP_CARD_BACKGROUND,
+      <AppHeader
+        isPageMenuOpen={isPageMenuOpen}
+        onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        menuItems={[
+          { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
+          { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
+          { key: 'games-all', label: 'Все игры', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
+        ]}
+        pageMenuLabels={{
+          expanded: 'Свернуть меню страниц',
+          collapsed: 'Открыть меню страниц',
         }}
-      />
-
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 12,
-          left: 20,
-          zIndex: 35,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.2,
+        isRightPanelOpen={isHeaderActionsOpen}
+        onToggleRightPanel={() => setIsHeaderActionsOpen((previous) => !previous)}
+        rightToggleLabels={{
+          expanded: 'Скрыть кнопки шапки',
+          collapsed: 'Показать кнопки шапки',
         }}
-      >
-        <Box component="img" src={brandLogo} alt="Morius" sx={{ width: 76, opacity: 0.96 }} />
-        <IconButton
-          aria-label={isPageMenuOpen ? 'Свернуть меню страниц' : 'Открыть меню страниц'}
-          onClick={() => setIsPageMenuOpen((previous) => !previous)}
-          sx={APP_BUTTON_SHELL}
-        >
-          <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-        </IconButton>
-      </Box>
-
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 82,
-          left: 20,
-          zIndex: 30,
-          width: { xs: 252, md: 276 },
-          borderRadius: '14px',
-          border: `1px solid ${APP_BORDER_COLOR}`,
-          background: APP_CARD_BACKGROUND,
-          p: 1.3,
-          boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
-          transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
-          opacity: isPageMenuOpen ? 1 : 0,
-          pointerEvents: isPageMenuOpen ? 'auto' : 'none',
-          transition: 'transform 260ms ease, opacity 220ms ease',
-        }}
-      >
-        <Stack spacing={1.1}>
-          <Button sx={menuButtonSx(false)} onClick={() => onNavigate('/dashboard')}>
-            Главная
-          </Button>
-          <Button sx={menuButtonSx(mode === 'my')} onClick={() => onNavigate('/games')}>
-            Мои игры
-          </Button>
-          <Button sx={menuButtonSx(mode === 'all')} onClick={() => onNavigate('/games/all')}>
-            Все игры
-          </Button>
-        </Stack>
-      </Box>
-
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 12,
-          right: 20,
-          zIndex: 45,
-        }}
-      >
-        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton
-            aria-label={isHeaderActionsOpen ? 'Скрыть кнопки шапки' : 'Показать кнопки шапки'}
-            onClick={() => setIsHeaderActionsOpen((previous) => !previous)}
-            sx={APP_BUTTON_SHELL}
-          >
-            <Box
-              component="img"
-              src={icons.arrowback}
-              alt=""
+        rightActions={
+          <Stack direction="row" spacing={1.2}>
+            <IconButton
+              aria-label="Поддержка"
+              onClick={(event) => event.preventDefault()}
               sx={{
-                width: 20,
-                height: 20,
-                opacity: 0.9,
-                transform: isHeaderActionsOpen ? 'none' : 'rotate(180deg)',
-                transition: 'transform 220ms ease',
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                transition: 'background-color 180ms ease',
+                '&:hover': {
+                  backgroundColor: APP_BUTTON_HOVER,
+                },
               }}
-            />
-          </IconButton>
-
-          <Box
-            sx={{
-              ml: isHeaderActionsOpen ? 1.2 : 0,
-              maxWidth: isHeaderActionsOpen ? 240 : 0,
-              opacity: isHeaderActionsOpen ? 1 : 0,
-              transform: isHeaderActionsOpen ? 'translateX(0)' : 'translateX(14px)',
-              pointerEvents: isHeaderActionsOpen ? 'auto' : 'none',
-              overflow: 'hidden',
-              transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
-            }}
-          >
-            <Stack direction="row" spacing={1.2}>
-              <IconButton aria-label="Поддержка" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
-                <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-              </IconButton>
-              <IconButton aria-label="Оформление" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
-                <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-              </IconButton>
-              <Button
-                variant="text"
-                onClick={() => setProfileDialogOpen(true)}
-                aria-label="Открыть профиль"
-                sx={{
-                  minWidth: 0,
-                  width: HEADER_AVATAR_SIZE,
-                  height: HEADER_AVATAR_SIZE,
-                  p: 0,
-                  borderRadius: '50%',
-                }}
-              >
-                <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-              </Button>
-            </Stack>
-          </Box>
-        </Box>
-      </Box>
+            >
+              <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <IconButton
+              aria-label="Оформление"
+              onClick={(event) => event.preventDefault()}
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border: `1px solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                transition: 'background-color 180ms ease',
+                '&:hover': {
+                  backgroundColor: APP_BUTTON_HOVER,
+                },
+              }}
+            >
+              <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <Button
+              variant="text"
+              onClick={() => setProfileDialogOpen(true)}
+              aria-label="Открыть профиль"
+              sx={{
+                minWidth: 0,
+                width: HEADER_AVATAR_SIZE,
+                height: HEADER_AVATAR_SIZE,
+                p: 0,
+                borderRadius: '50%',
+              }}
+            >
+              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
+            </Button>
+          </Stack>
+        }
+      />
 
       <Box
         sx={{
@@ -903,6 +825,21 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             </Box>
             <Button
               variant="outlined"
+              onClick={handleOpenCharacterManager}
+              sx={{
+                minHeight: 42,
+                borderColor: 'rgba(186, 202, 214, 0.38)',
+                color: APP_TEXT_PRIMARY,
+                '&:hover': {
+                  borderColor: 'rgba(206, 220, 237, 0.54)',
+                  backgroundColor: 'rgba(34, 45, 62, 0.32)',
+                },
+              }}
+            >
+              Мои персонажи
+            </Button>
+            <Button
+              variant="outlined"
               onClick={() => setConfirmLogoutOpen(true)}
               sx={{
                 minHeight: 42,
@@ -969,4 +906,3 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
 }
 
 export default MyGamesPage
-

@@ -18,6 +18,7 @@ from typing import Any
 from uuid import uuid4
 
 import requests
+from requests.adapters import HTTPAdapter
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -203,6 +204,15 @@ STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(r"\[\[NPC:([^\]]+)\]\]\s*([\s\S]*
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
+HTTP_SESSION = requests.Session()
+HTTP_ADAPTER = HTTPAdapter(
+    pool_connections=max(settings.http_pool_connections, 1),
+    pool_maxsize=max(settings.http_pool_maxsize, 1),
+)
+HTTP_SESSION.mount("https://", HTTP_ADAPTER)
+HTTP_SESSION.mount("http://", HTTP_ADAPTER)
+STORY_STREAM_PERSIST_MIN_CHARS = 900
+STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
 STORY_SYSTEM_PROMPT = (
     "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
     "Отвечай только на русском языке. "
@@ -292,6 +302,32 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
             connection.execute(text(statement))
 
 
+def _ensure_performance_indexes_exist() -> None:
+    index_statements = (
+        "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
+        f"ON {StoryGame.__tablename__} (user_id, last_activity_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_messages_game_id_id "
+        f"ON {StoryMessage.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
+        f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_plot_cards_game_id_id "
+        f"ON {StoryPlotCard.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "
+        f"ON {StoryWorldCard.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_characters_user_id_id "
+        f"ON {StoryCharacter.__tablename__} (user_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_id_id "
+        f"ON {StoryWorldCardChangeEvent.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_plot_events_game_id_id "
+        f"ON {StoryPlotCardChangeEvent.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
+        f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
+    )
+    with engine.begin() as connection:
+        for statement in index_statements:
+            connection.execute(text(statement))
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     if settings.database_url.startswith("sqlite:///"):
@@ -304,6 +340,12 @@ def on_startup() -> None:
     _ensure_user_coins_column_exists()
     _ensure_story_game_context_limit_column_exists()
     _ensure_story_world_card_extended_columns_exist()
+    _ensure_performance_indexes_exist()
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    HTTP_SESSION.close()
 
 
 def _normalize_email(email: str) -> str:
@@ -417,7 +459,7 @@ def _send_email_verification_code_via_resend(
     }
 
     try:
-        response = requests.post(
+        response = HTTP_SESSION.post(
             settings.resend_api_url,
             json=payload,
             headers=headers,
@@ -596,7 +638,7 @@ def _perform_yookassa_request(
         headers["Idempotence-Key"] = idempotence_key
 
     try:
-        response = requests.request(
+        response = HTTP_SESSION.request(
             method=method,
             url=url,
             json=json_payload,
@@ -2803,7 +2845,7 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
             "temperature": 0.1,
         }
         try:
-            response = requests.post(
+            response = HTTP_SESSION.post(
                 settings.openrouter_chat_url,
                 headers=headers,
                 json=payload,
@@ -2875,7 +2917,7 @@ def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str
     }
 
     try:
-        response = requests.post(
+        response = HTTP_SESSION.post(
             settings.gigachat_chat_url,
             headers=headers,
             json=payload,
@@ -3757,7 +3799,7 @@ def _get_gigachat_access_token() -> str:
     data = {"scope": settings.gigachat_scope}
 
     try:
-        response = requests.post(
+        response = HTTP_SESSION.post(
             settings.gigachat_oauth_url,
             headers=headers,
             data=data,
@@ -3832,7 +3874,7 @@ def _iter_gigachat_story_stream_chunks(
     }
 
     try:
-        response = requests.post(
+        response = HTTP_SESSION.post(
             settings.gigachat_chat_url,
             headers=headers,
             json=payload,
@@ -3947,7 +3989,7 @@ def _iter_openrouter_story_stream_chunks(
 
         for attempt_index in range(2):
             try:
-                response = requests.post(
+                response = HTTP_SESSION.post(
                     settings.openrouter_chat_url,
                     headers=headers,
                     json=payload,
@@ -4071,7 +4113,7 @@ def _request_gigachat_story_text(messages_payload: list[dict[str, str]]) -> str:
     }
 
     try:
-        response = requests.post(
+        response = HTTP_SESSION.post(
             settings.gigachat_chat_url,
             headers=headers,
             json=payload,
@@ -4150,7 +4192,7 @@ def _request_openrouter_story_text(
         if temperature is not None:
             payload["temperature"] = temperature
         try:
-            response = requests.post(
+            response = HTTP_SESSION.post(
                 settings.openrouter_chat_url,
                 headers=headers,
                 json=payload,
@@ -4328,7 +4370,7 @@ def _stream_story_response(
 
     produced = ""
     persisted_length = 0
-    persist_interval = 220
+    last_persisted_at = time.monotonic()
     aborted = False
     stream_error: str | None = None
     try:
@@ -4342,12 +4384,16 @@ def _stream_story_response(
             context_limit_chars=context_limit_chars,
         ):
             produced += chunk
-            if len(produced) - persisted_length >= persist_interval:
+            current_time = time.monotonic()
+            if (
+                len(produced) - persisted_length >= STORY_STREAM_PERSIST_MIN_CHARS
+                or current_time - last_persisted_at >= STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS
+            ):
                 assistant_message.content = produced
                 _touch_story_game(game)
                 db.commit()
-                db.refresh(assistant_message)
                 persisted_length = len(produced)
+                last_persisted_at = current_time
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
     except GeneratorExit:
         aborted = True

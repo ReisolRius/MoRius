@@ -10,5 +10,11 @@ if __name__ == "__main__":
     raw_port = os.getenv("PORT", "8000").strip()
     port = int(raw_port) if raw_port.isdigit() else 8000
     reload_enabled = os.getenv("UVICORN_RELOAD", "0").strip().lower() in {"1", "true", "yes", "on"}
+    raw_workers = os.getenv("WEB_CONCURRENCY", "1").strip()
+    workers = int(raw_workers) if raw_workers.isdigit() else 1
+    if workers < 1:
+        workers = 1
+    if reload_enabled:
+        workers = 1
 
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload_enabled)
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload_enabled, workers=workers)

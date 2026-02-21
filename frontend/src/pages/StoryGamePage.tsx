@@ -28,7 +28,9 @@ import {
   Typography,
   type GrowProps,
 } from '@mui/material'
-import { brandLogo, icons } from '../assets'
+import { icons } from '../assets'
+import AppHeader from '../components/AppHeader'
+import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import { updateCurrentUserAvatar } from '../services/authApi'
 import {
   createStoryCharacter,
@@ -76,6 +78,7 @@ import type {
   StoryWorldCardEvent,
 } from '../types/story'
 import { compressImageFileToDataUrl } from '../utils/avatar'
+import { moriusThemeTokens } from '../theme'
 
 type StoryGamePageProps = {
   user: AuthUser
@@ -111,8 +114,7 @@ const CHARACTER_AVATAR_MAX_BYTES = 200 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
-const HEADER_AVATAR_SIZE = 44
-const QUICK_START_WORLD_STORAGE_KEY = 'morius.quickstart.world'
+const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const WORLD_CARD_CONTENT_MAX_LENGTH = 1000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
 const STORY_CONTEXT_LIMIT_MIN = 500
@@ -1401,6 +1403,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId, isLoadingGameMessages, messages.length])
 
   useEffect(() => {
+    if (!activeGameId) {
+      return
+    }
+    const shouldOpenCharacterManager = localStorage.getItem(OPEN_CHARACTER_MANAGER_FLAG_KEY)
+    if (shouldOpenCharacterManager !== '1') {
+      return
+    }
+    localStorage.removeItem(OPEN_CHARACTER_MANAGER_FLAG_KEY)
+    void handleOpenCharacterManager()
+  }, [activeGameId, handleOpenCharacterManager])
+
+  useEffect(() => {
     if (isEditingTitle) {
       return
     }
@@ -2506,23 +2520,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     onLogout()
   }
 
-  const menuItemSx = {
-    width: '100%',
-    justifyContent: 'flex-start',
-    borderRadius: '14px',
-    minHeight: 52,
-    px: 1.8,
-    color: 'var(--morius-text-primary)',
-    textTransform: 'none',
-    fontWeight: 600,
-    fontSize: '1.02rem',
-    border: '1px solid var(--morius-card-border)',
-    background: 'var(--morius-card-bg)',
-    '&:hover': {
-      background: 'var(--morius-button-hover)',
-    },
-  }
-
   return (
     <Box
       className="morius-app-shell"
@@ -2534,188 +2531,81 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         overflow: 'hidden',
       }}
     >
-      <Box
-        component="header"
-        sx={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 74,
-          zIndex: 34,
-          borderBottom: '1px solid var(--morius-card-border)',
-          backdropFilter: 'blur(8px)',
-          backgroundColor: 'var(--morius-card-bg)',
+      <AppHeader
+        isPageMenuOpen={isPageMenuOpen}
+        onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        menuItems={[
+          { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
+          { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
+          { key: 'games-all', label: 'Все игры', isActive: false, onClick: () => onNavigate('/games/all') },
+        ]}
+        pageMenuLabels={{
+          expanded: 'Свернуть меню страниц',
+          collapsed: 'Открыть меню страниц',
         }}
-      />
-
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 12,
-          left: 20,
-          zIndex: 35,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.2,
+        isRightPanelOpen={isRightPanelOpen}
+        onToggleRightPanel={() => setIsRightPanelOpen((previous) => !previous)}
+        rightToggleLabels={{
+          expanded: 'Свернуть правую панель',
+          collapsed: 'Развернуть правую панель',
         }}
-      >
-        <Box component="img" src={brandLogo} alt="Morius" sx={{ width: 76, opacity: 0.96 }} />
-        <IconButton
-          aria-label={isPageMenuOpen ? 'Свернуть меню страниц' : 'Открыть меню страниц'}
-          onClick={() => setIsPageMenuOpen((previous) => !previous)}
-          sx={{
-            width: 44,
-            height: 44,
-            borderRadius: '14px',
-            border: '1px solid var(--morius-card-border)',
-            backgroundColor: 'var(--morius-card-bg)',
-            transition: 'background-color 180ms ease',
-            '&:hover': {
-              backgroundColor: 'var(--morius-button-hover)',
-            },
-          }}
-        >
-          <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-        </IconButton>
-      </Box>
-
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 82,
-          left: 20,
-          zIndex: 30,
-          width: { xs: 252, md: 276 },
-          borderRadius: '14px',
-          border: '1px solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
-          p: 1.3,
-          boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
-          transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
-          opacity: isPageMenuOpen ? 1 : 0,
-          pointerEvents: isPageMenuOpen ? 'auto' : 'none',
-          transition: 'transform 260ms ease, opacity 220ms ease',
-        }}
-      >
-        <Stack spacing={1.1}>
-          <Button sx={menuItemSx} onClick={() => onNavigate('/dashboard')}>
-            Главная
-          </Button>
-          <Button sx={menuItemSx} onClick={() => onNavigate('/games')}>
-            Мои игры
-          </Button>
-          <Button sx={menuItemSx} onClick={() => onNavigate('/games/all')}>
-            Все игры
-          </Button>
-        </Stack>
-      </Box>
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 12,
-          right: 20,
-          zIndex: 45,
-        }}
-      >
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
-          <IconButton
-            aria-label={isRightPanelOpen ? 'Свернуть правую панель' : 'Развернуть правую панель'}
-            onClick={() => setIsRightPanelOpen((previous) => !previous)}
-            sx={{
-              width: 44,
-              height: 44,
-              borderRadius: '14px',
-              border: '1px solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-card-bg)',
-            }}
-          >
-            <Box
-              component="img"
-              src={icons.arrowback}
-              alt=""
+        rightActionsWidth={220}
+        rightActions={
+          <Stack direction="row" spacing={1.2}>
+            <IconButton
+              aria-label="Миры"
+              onClick={() => setRightPanelMode('world')}
               sx={{
-                width: 20,
-                height: 20,
-                opacity: 0.9,
-                transform: isRightPanelOpen ? 'none' : 'rotate(180deg)',
-                transition: 'transform 220ms ease',
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border:
+                  rightPanelMode === 'world'
+                    ? '1px solid rgba(206, 219, 236, 0.38)'
+                    : '1px solid var(--morius-card-border)',
+                background:
+                  rightPanelMode === 'world'
+                    ? 'linear-gradient(180deg, #2d3b50, #243142)'
+                    : 'var(--morius-card-bg)',
               }}
-            />
-          </IconButton>
-
-          <Box
-            sx={{
-              ml: isRightPanelOpen ? 1.2 : 0,
-              maxWidth: isRightPanelOpen ? 220 : 0,
-              opacity: isRightPanelOpen ? 1 : 0,
-              transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
-              pointerEvents: isRightPanelOpen ? 'auto' : 'none',
-              overflow: 'hidden',
-              transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
-            }}
-          >
-            <Stack direction="row" spacing={1.2}>
-              <IconButton
-                aria-label="Миры"
-                onClick={() => setRightPanelMode('world')}
-                sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '14px',
-                  border:
-                    rightPanelMode === 'world'
-                      ? '1px solid rgba(206, 219, 236, 0.38)'
-                      : '1px solid var(--morius-card-border)',
-                  background:
-                    rightPanelMode === 'world'
-                      ? 'linear-gradient(180deg, #2d3b50, #243142)'
-                      : 'var(--morius-card-bg)',
-                }}
-              >
-                <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-              </IconButton>
-              <IconButton
-                aria-label="ИИ"
-                onClick={() => setRightPanelMode('ai')}
-                sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: '14px',
-                  border:
-                    rightPanelMode === 'ai'
-                      ? '1px solid rgba(206, 219, 236, 0.38)'
-                      : '1px solid var(--morius-card-border)',
-                  background:
-                    rightPanelMode === 'ai'
-                      ? 'linear-gradient(180deg, #2d3b50, #243142)'
-                      : 'var(--morius-card-bg)',
-                }}
-              >
-                <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-              </IconButton>
-              <Button
-                variant="text"
-                onClick={() => setProfileDialogOpen(true)}
-                sx={{
-                  minWidth: 0,
-                  width: HEADER_AVATAR_SIZE,
-                  height: HEADER_AVATAR_SIZE,
-                  p: 0,
-                  borderRadius: '50%',
-                }}
-              >
-                <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-              </Button>
-            </Stack>
-          </Box>
-        </Box>
-      </Box>
+            >
+              <Box component="img" src={icons.world} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <IconButton
+              aria-label="ИИ"
+              onClick={() => setRightPanelMode('ai')}
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '14px',
+                border:
+                  rightPanelMode === 'ai'
+                    ? '1px solid rgba(206, 219, 236, 0.38)'
+                    : '1px solid var(--morius-card-border)',
+                background:
+                  rightPanelMode === 'ai'
+                    ? 'linear-gradient(180deg, #2d3b50, #243142)'
+                    : 'var(--morius-card-bg)',
+              }}
+            >
+              <Box component="img" src={icons.ai} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <Button
+              variant="text"
+              onClick={() => setProfileDialogOpen(true)}
+              sx={{
+                minWidth: 0,
+                width: HEADER_AVATAR_SIZE,
+                height: HEADER_AVATAR_SIZE,
+                p: 0,
+                borderRadius: '50%',
+              }}
+            >
+              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
+            </Button>
+          </Stack>
+        }
+      />
 
       <Box
         sx={{

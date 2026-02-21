@@ -3,13 +3,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  --morius-app-bg: radial-gradient(circle at 50% -24%, #141f2d 0%, #111111 62%);
-  --morius-card-bg: #15181c;
-  --morius-card-border: #31302e;
-  --morius-text-primary: #dbdde7;
-  --morius-text-secondary: #a4adb6;
-  --morius-button-hover: #1d2738;
-  --morius-button-active: #25354d;
 }
 
 *,
@@ -24,8 +17,6 @@ body,
   margin: 0;
   min-width: 320px;
   min-height: 100%;
-  background-color: #040507;
-  color: #ecf1f8;
 }
 
 body {
