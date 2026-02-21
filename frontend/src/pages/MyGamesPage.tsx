@@ -1,4 +1,4 @@
-﻿import { forwardRef, useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement, type Ref } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement, type Ref } from 'react'
 import {
   Alert,
   Box,
@@ -258,7 +258,7 @@ function AvatarPlaceholder({ fallbackLabel, size = HEADER_AVATAR_SIZE }: AvatarP
         width: size,
         height: size,
         borderRadius: '50%',
-        border: '1px solid rgba(186, 202, 214, 0.28)',
+        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
         background: 'linear-gradient(180deg, rgba(38, 45, 57, 0.9), rgba(18, 22, 30, 0.96))',
         display: 'grid',
         placeItems: 'center',
@@ -298,7 +298,7 @@ function UserAvatar({ user, size = HEADER_AVATAR_SIZE }: UserAvatarProps) {
           width: size,
           height: size,
           borderRadius: '50%',
-          border: '1px solid rgba(186, 202, 214, 0.28)',
+          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
@@ -783,8 +783,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               sx={{
                 width: 44,
                 height: 44,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 transition: 'background-color 180ms ease',
                 '&:hover': {
@@ -800,8 +800,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               sx={{
                 width: 44,
                 height: 44,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 transition: 'background-color 180ms ease',
                 '&:hover': {
@@ -831,7 +831,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
 
       <Box
         sx={{
-          pt: { xs: '82px', md: '88px' },
+          pt: 'var(--morius-header-menu-top)',
           pb: { xs: 5, md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
@@ -864,8 +864,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             <Box
               sx={{
                 position: 'relative',
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 minHeight: 54,
               }}
@@ -878,7 +878,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 sx={{
                   width: '100%',
                   minHeight: 54,
-                  borderRadius: '14px',
+                  borderRadius: 'var(--morius-radius)',
                   border: 'none',
                   backgroundColor: 'transparent',
                   color: APP_TEXT_PRIMARY,
@@ -910,8 +910,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               sx={{
                 position: 'relative',
                 minHeight: 54,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
               }}
             >
@@ -921,7 +921,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 IconComponent={() => null}
                 sx={{
                   minHeight: 54,
-                  borderRadius: '14px',
+                  borderRadius: 'var(--morius-radius)',
                   color: APP_TEXT_PRIMARY,
                   pl: 0.2,
                   pr: 4.4,
@@ -939,7 +939,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                     sx: {
                       mt: 0.5,
                       borderRadius: '12px',
-                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: APP_CARD_BACKGROUND,
                       color: APP_TEXT_PRIMARY,
                       boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
@@ -998,7 +998,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 borderRadius: '12px',
                 textTransform: 'none',
                 color: APP_TEXT_PRIMARY,
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_BUTTON_ACTIVE,
                 fontWeight: 700,
                 '&:hover': {
@@ -1017,8 +1017,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           ) : visibleGames.length === 0 ? (
             <Box
               sx={{
-                borderRadius: '16px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 background: APP_CARD_BACKGROUND,
                 p: 2.4,
               }}
@@ -1049,7 +1049,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                     <Button
                       onClick={() => onNavigate(`/home/${game.id}`)}
                       sx={{
-                        borderRadius: '20px',
+                        borderRadius: 'var(--morius-radius)',
                         minHeight: { xs: 320, md: 340 },
                         p: 0,
                         width: '100%',
@@ -1058,7 +1058,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         alignItems: 'stretch',
                         textTransform: 'none',
                         textAlign: 'left',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         overflow: 'hidden',
                         background: APP_CARD_BACKGROUND,
                         color: APP_TEXT_PRIMARY,
@@ -1094,7 +1094,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                           px: { xs: 1.2, md: 1.35 },
                           py: { xs: 1.05, md: 1.2 },
                           background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
-                          borderTop: '1px solid rgba(88, 116, 156, 0.42)',
+                          borderTop: 'var(--morius-border-width) solid rgba(88, 116, 156, 0.42)',
                         }}
                       >
                         <Typography
@@ -1150,10 +1150,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                                 minHeight: 28,
                                 px: 1,
                                 py: 0.2,
-                                borderRadius: '8px',
+                                borderRadius: 'var(--morius-radius)',
                                 textTransform: 'none',
                                 color: APP_TEXT_PRIMARY,
-                                border: `1px solid ${APP_BORDER_COLOR}`,
+                                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                                 backgroundColor: 'rgba(34, 51, 79, 0.44)',
                                 fontSize: '0.78rem',
                               }}
@@ -1179,8 +1179,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         zIndex: 2,
                         width: 32,
                         height: 32,
-                        borderRadius: '10px',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         backgroundColor: 'rgba(8, 12, 18, 0.6)',
                         color: APP_TEXT_PRIMARY,
                         fontSize: '1rem',
@@ -1203,7 +1203,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         PaperProps={{
           sx: {
             borderRadius: '12px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
           },
         }}
@@ -1226,8 +1226,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '16px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
           },
         }}
@@ -1248,8 +1248,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   sx={{
                     minWidth: 42,
                     minHeight: 42,
-                    borderRadius: '10px',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: value <= ratingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
                     fontSize: '1.15rem',
@@ -1275,7 +1275,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             sx={{
               textTransform: 'none',
               color: APP_TEXT_PRIMARY,
-              border: `1px solid ${APP_BORDER_COLOR}`,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_BUTTON_ACTIVE,
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },
             }}
@@ -1299,8 +1299,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         }}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1360,7 +1360,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      border: '1px solid rgba(219, 221, 231, 0.5)',
+                      border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
                       backgroundColor: 'rgba(17, 20, 27, 0.78)',
                       display: 'flex',
                       alignItems: 'center',
@@ -1417,7 +1417,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             <Box
               sx={{
                 borderRadius: '12px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 px: 1.5,
                 py: 1.2,
@@ -1435,8 +1435,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   onClick={handleOpenTopUpDialog}
                   sx={{
                     minHeight: 40,
-                    borderRadius: '10px',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_ACTIVE,
                     color: APP_TEXT_PRIMARY,
                     fontWeight: 700,
@@ -1498,8 +1498,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1533,8 +1533,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                     <Box
                       key={plan.id}
                       sx={{
-                        borderRadius: '14px',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         background: APP_CARD_BACKGROUND,
                         px: 2,
                         py: 2,
@@ -1563,8 +1563,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         sx={{
                           mt: 2,
                           minHeight: 40,
-                          borderRadius: '10px',
-                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          borderRadius: 'var(--morius-radius)',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                           backgroundColor: APP_BUTTON_ACTIVE,
                           color: APP_TEXT_PRIMARY,
                           fontWeight: 700,
@@ -1595,8 +1595,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '16px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -1616,7 +1616,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             variant="contained"
             onClick={handleConfirmLogout}
             sx={{
-              border: `1px solid ${APP_BORDER_COLOR}`,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_BUTTON_ACTIVE,
               color: APP_TEXT_PRIMARY,
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },

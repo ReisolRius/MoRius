@@ -94,7 +94,7 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
           width: size,
           height: size,
           borderRadius: '50%',
-          border: '1px solid rgba(186, 202, 214, 0.28)',
+          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
@@ -124,7 +124,7 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
         width: size,
         height: size,
         borderRadius: '50%',
-        border: '1px solid rgba(186, 202, 214, 0.28)',
+        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
         background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
         display: 'grid',
         placeItems: 'center',
@@ -425,8 +425,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
       fullWidth
       PaperProps={{
         sx: {
-          borderRadius: '18px',
-          border: '1px solid var(--morius-card-border)',
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
           background: 'var(--morius-card-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
         },
@@ -443,7 +443,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             <Box
               sx={{
                 borderRadius: '12px',
-                border: '1px solid var(--morius-card-border)',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 backgroundColor: 'rgba(12, 17, 25, 0.7)',
                 px: 1.1,
                 py: 1.1,
@@ -497,7 +497,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                           width: 30,
                           height: 30,
                           borderRadius: '50%',
-                          border: '1px solid rgba(219, 221, 231, 0.5)',
+                          border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
                           backgroundColor: 'rgba(17, 20, 27, 0.78)',
                           display: 'flex',
                           alignItems: 'center',
@@ -578,8 +578,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                     disabled={isSavingCharacter}
                     sx={{
                       minHeight: 38,
-                      borderRadius: '10px',
-                      border: '1px solid var(--morius-card-border)',
+                      borderRadius: 'var(--morius-radius)',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-button-active)',
                       color: 'var(--morius-text-primary)',
                       textTransform: 'none',
@@ -606,7 +606,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
               sx={{
                 minHeight: 40,
                 borderRadius: '12px',
-                border: '1px solid var(--morius-card-border)',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 color: 'var(--morius-text-primary)',
                 textTransform: 'none',
                 alignSelf: 'flex-start',
@@ -628,7 +628,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                     key={character.id}
                     sx={{
                       borderRadius: '12px',
-                      border: '1px solid var(--morius-card-border)',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-card-bg)',
                       px: 1,
                       py: 0.9,
@@ -651,8 +651,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                           sx={{
                             width: 32,
                             height: 32,
-                            borderRadius: '10px',
-                            border: '1px solid var(--morius-card-border)',
+                            borderRadius: 'var(--morius-radius)',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
                             color: 'rgba(208, 219, 235, 0.84)',
                             flexShrink: 0,
                           }}
@@ -691,7 +691,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
           sx: {
             mt: 0.5,
             borderRadius: '12px',
-            border: '1px solid var(--morius-card-border)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             minWidth: 178,
           },
@@ -734,8 +734,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: '16px',
-            border: '1px solid var(--morius-card-border)',
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
           },
         }}
@@ -757,7 +757,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             onClick={() => void handleConfirmCharacterDeletion()}
             disabled={deletingCharacterId !== null}
             sx={{
-              border: '1px solid rgba(228, 120, 120, 0.44)',
+              border: 'var(--morius-border-width) solid rgba(228, 120, 120, 0.44)',
               backgroundColor: 'rgba(184, 78, 78, 0.3)',
               color: 'rgba(251, 190, 190, 0.94)',
               '&:hover': { backgroundColor: 'rgba(196, 88, 88, 0.4)' },

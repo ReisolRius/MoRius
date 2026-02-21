@@ -78,8 +78,8 @@ const COVER_MAX_BYTES = 200 * 1024
 const CARD_WIDTH = 286
 
 const dialogPaperSx = {
-  borderRadius: '18px',
-  border: `1px solid ${APP_BORDER_COLOR}`,
+  borderRadius: 'var(--morius-radius)',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
   background: APP_CARD_BACKGROUND,
   boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
 }
@@ -128,13 +128,13 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
 function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: string | null; avatarScale: number; label: string; size?: number }) {
   if (!avatarUrl) {
     return (
-      <Box sx={{ width: size, height: size, borderRadius: '50%', border: `1px solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
+      <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
         {label.trim().charAt(0).toUpperCase() || '•'}
       </Box>
     )
   }
   return (
-    <Box sx={{ width: size, height: size, borderRadius: '50%', border: `1px solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', overflow: 'hidden', flexShrink: 0 }}>
+    <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', overflow: 'hidden', flexShrink: 0 }}>
       <Box component="img" src={avatarUrl} alt={label} sx={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${clamp(avatarScale, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)})`, transformOrigin: 'center center' }} />
     </Box>
   )
@@ -142,12 +142,12 @@ function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: s
 
 function CompactCard({ title, content, badge, avatar, actions }: { title: string; content: string; badge?: string; avatar?: ReactNode; actions?: ReactNode }) {
   return (
-    <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: '14px', border: `1px solid ${APP_BORDER_COLOR}`, background: 'linear-gradient(180deg, rgba(17, 24, 35, 0.96) 0%, rgba(11, 16, 24, 0.97) 100%)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 1.1, py: 0.85, borderBottom: `1px solid rgba(108, 130, 160, 0.22)`, background: 'linear-gradient(180deg, rgba(17, 31, 51, 0.84) 0%, rgba(11, 22, 39, 0.68) 100%)' }}>
+    <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'linear-gradient(180deg, rgba(17, 24, 35, 0.96) 0%, rgba(11, 16, 24, 0.97) 100%)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ px: 1.1, py: 0.85, borderBottom: `var(--morius-border-width) solid rgba(108, 130, 160, 0.22)`, background: 'linear-gradient(180deg, rgba(17, 31, 51, 0.84) 0%, rgba(11, 22, 39, 0.68) 100%)' }}>
         <Stack direction="row" spacing={0.7} alignItems="center">
           {avatar}
           <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', lineHeight: 1.2, minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
-          {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: '1px solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18 }}>{badge}</Typography> : null}
+          {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18 }}>{badge}</Typography> : null}
         </Stack>
       </Box>
       <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -473,7 +473,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   }, [authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, persistTitleForGame, plotCards, title, visibility])
 
   const helpEmpty = (text: string) => (
-    <Box sx={{ borderRadius: '12px', border: `1px dashed rgba(170, 188, 214, 0.34)`, background: 'rgba(11, 16, 24, 0.52)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
+    <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'rgba(11, 16, 24, 0.52)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
   )
 
   const heroTitle = title.trim() ? title.trim() : isEditMode ? 'Редактирование мира' : 'Создание мира'
@@ -495,7 +495,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         rightActions={<Button onClick={() => onNavigate('/games')} sx={{ minWidth: 48, minHeight: 48, p: 0, borderRadius: '50%' }}><Box component="img" src={user.avatar_url ?? icons.home} alt="" sx={{ width: moriusThemeTokens.layout.headerButtonSize, height: moriusThemeTokens.layout.headerButtonSize, borderRadius: '50%' }} /></Button>}
       />
       <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: 4 }}>
-        <Box sx={{ maxWidth: 1160, mx: 'auto', border: `1px solid ${APP_BORDER_COLOR}`, borderRadius: '18px', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
+        <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={1.5}>
             <Stack spacing={0.35}><Typography sx={{ fontSize: { xs: '1.65rem', md: '1.9rem' }, fontWeight: 800 }}>{heroTitle}</Typography><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Заполните мир и добавьте карточки. После создания он сразу откроется в игре.</Typography></Stack>
@@ -505,7 +505,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Stack spacing={0.95}>
               <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
-              <Box sx={{ minHeight: 208, borderRadius: '16px', border: `1px solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
+              <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 200 KB. Изображение автоматически сжимается перед сохранением.</Typography>
             </Stack>
             <Divider />
@@ -517,8 +517,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Divider />
             <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>NPC</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 36 }}>Добавить вручную</Button></Stack></Stack>{npcs.length === 0 ? helpEmpty('Пока NPC не добавлены. Можно начать игру только с главным героем и добавить NPC позже.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{npcs.map((npc) => <CompactCard key={npc.localId} title={npc.name} content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`} badge="npc" avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
             <Divider />
-            <Stack spacing={0.75}><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Видимость мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setVisibility('private')} sx={{ minHeight: 38, border: `1px solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Приватный</Button><Button onClick={() => setVisibility('public')} sx={{ minHeight: 38, border: `1px solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Публичный</Button></Stack></Stack>
-            <Stack direction="row" spacing={0.8} justifyContent="flex-end"><Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button><Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `1px solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button></Stack>
+            <Stack spacing={0.75}><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Видимость мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setVisibility('private')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Приватный</Button><Button onClick={() => setVisibility('public')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Публичный</Button></Stack></Stack>
+            <Stack direction="row" spacing={0.8} justifyContent="flex-end"><Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button><Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button></Stack>
           </Stack>}
         </Box>
       </Box>
@@ -539,7 +539,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
           <Button onClick={() => setCardDialogOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Отмена</Button>
-          <Button onClick={saveCardDialog} disabled={!cardTitleDraft.trim() || !cardContentDraft.trim()} sx={{ border: `1px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
+          <Button onClick={saveCardDialog} disabled={!cardTitleDraft.trim() || !cardContentDraft.trim()} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
         </DialogActions>
       </Dialog>
 
@@ -555,7 +555,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             {sortedCharacters.length === 0 ? helpEmpty('У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».') : sortedCharacters.map((character) => {
               const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character.id, characterPickerTarget) : null
               return (
-                <Box key={character.id} sx={{ borderRadius: '12px', border: `1px solid ${APP_BORDER_COLOR}`, background: 'rgba(13, 19, 29, 0.78)', px: 0.85, py: 0.75 }}>
+                <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(13, 19, 29, 0.78)', px: 0.85, py: 0.75 }}>
                   <Button onClick={() => applyTemplate(character)} disabled={Boolean(disabledReason)} sx={{ width: '100%', p: 0, textTransform: 'none', justifyContent: 'flex-start', border: 'none', '&:hover': { background: 'transparent' } }}>
                     <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', textAlign: 'left' }}>
                       <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={42} />
@@ -591,7 +591,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                 event.preventDefault()
                 characterAvatarInputRef.current?.click()
               }
-            }} sx={{ width: 176, height: 176, mx: 'auto', borderRadius: '50%', border: `1px solid ${APP_BORDER_COLOR}`, overflow: 'hidden', cursor: 'pointer', outline: 'none', background: 'rgba(12, 17, 25, 0.72)' }}>
+            }} sx={{ width: 176, height: 176, mx: 'auto', borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, overflow: 'hidden', cursor: 'pointer', outline: 'none', background: 'rgba(12, 17, 25, 0.72)' }}>
               <MiniAvatar avatarUrl={characterAvatarDraft} avatarScale={characterAvatarScaleDraft} label={characterNameDraft || 'Персонаж'} size={176} />
             </Box>
             <Stack direction="row" justifyContent="center" spacing={0.8}>
@@ -610,7 +610,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
           <Button onClick={() => setCharacterDialogOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Отмена</Button>
-          <Button onClick={saveCharacterDialog} disabled={!characterNameDraft.trim() || !characterDescriptionDraft.trim()} sx={{ border: `1px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
+          <Button onClick={saveCharacterDialog} disabled={!characterNameDraft.trim() || !characterDescriptionDraft.trim()} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
         </DialogActions>
       </Dialog>
 
@@ -623,7 +623,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogTitle>
         <DialogContent sx={{ pt: 0.45 }}>
           <Stack spacing={1}>
-            <Box sx={{ height: { xs: 210, sm: 290 }, borderRadius: '14px', border: `1px solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScaleDraft * 100}%` : 'cover', backgroundPosition: `${coverPositionXDraft}% ${coverPositionYDraft}%` }} />
+            <Box sx={{ height: { xs: 210, sm: 290 }, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScaleDraft * 100}%` : 'cover', backgroundPosition: `${coverPositionXDraft}% ${coverPositionYDraft}%` }} />
             {!coverImageUrl ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>Пока нет обложки. Сначала загрузите изображение.</Typography> : <>
               <Box>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Масштаб: {coverScaleDraft.toFixed(2)}x</Typography>
@@ -642,7 +642,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
           <Button onClick={() => setCoverEditorOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Назад</Button>
-          <Button onClick={saveCoverEditor} disabled={!coverImageUrl} sx={{ border: `1px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
+          <Button onClick={saveCoverEditor} disabled={!coverImageUrl} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
         </DialogActions>
       </Dialog>
     </Box>

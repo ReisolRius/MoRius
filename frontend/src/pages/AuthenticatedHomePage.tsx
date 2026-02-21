@@ -170,7 +170,7 @@ function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps)
         width: size,
         height: size,
         borderRadius: '50%',
-        border: '1px solid rgba(186, 202, 214, 0.28)',
+        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
         background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
         display: 'grid',
         placeItems: 'center',
@@ -215,7 +215,7 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
           width: size,
           height: size,
           borderRadius: '50%',
-          border: '1px solid rgba(186, 202, 214, 0.28)',
+          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
           overflow: 'hidden',
         }}
@@ -705,8 +705,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               sx={{
                 width: 44,
                 height: 44,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 transition: 'background-color 180ms ease',
                 '&:hover': {
@@ -722,8 +722,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               sx={{
                 width: 44,
                 height: 44,
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 transition: 'background-color 180ms ease',
                 '&:hover': {
@@ -753,7 +753,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
       <Box
         sx={{
-          pt: { xs: '82px', md: '88px' },
+          pt: 'var(--morius-header-menu-top)',
           pb: { xs: 5, md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
@@ -778,8 +778,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 sx={{
                   position: 'relative',
                   overflow: 'hidden',
-                  borderRadius: '18px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  borderRadius: 'var(--morius-radius)',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   minHeight: { xs: 286, md: 362 },
                   p: { xs: 2, md: 2.6 },
                   display: 'flex',
@@ -839,7 +839,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       textTransform: 'none',
                       fontWeight: 800,
                       color: APP_TEXT_PRIMARY,
-                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: APP_BUTTON_ACTIVE,
                       '&:hover': {
                         backgroundColor: APP_BUTTON_HOVER,
@@ -858,9 +858,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     onClick={() => handleOpenNewsDetails(item)}
                     sx={{
                       minHeight: 112,
-                      borderRadius: '14px',
+                      borderRadius: 'var(--morius-radius)',
                       p: 1.3,
-                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       background: APP_CARD_BACKGROUND,
                       textTransform: 'none',
                       textAlign: 'left',
@@ -906,8 +906,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 <Box
                   key={item.id}
                   sx={{
-                    borderRadius: '14px',
-                    border: '1px solid rgba(186, 202, 214, 0.14)',
+                    borderRadius: 'var(--morius-radius)',
+                    border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.14)',
                     background: 'linear-gradient(166deg, rgba(20, 27, 37, 0.9), rgba(13, 18, 25, 0.95))',
                     p: 1.4,
                     minHeight: 182,
@@ -929,7 +929,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           )}
 
-          <Stack spacing={0.45} sx={{ mb: 1.35 }}>
+          <Stack spacing={0.45} sx={{ mb: 'var(--morius-cards-title-gap)' }}>
             <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
               Предустановленные миры
             </Typography>
@@ -941,7 +941,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           <Box
             sx={{
               display: 'grid',
-              gap: 1.3,
+              gap: 'var(--morius-interface-gap)',
               gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
             }}
           >
@@ -952,8 +952,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 disabled={isQuickStartBusy}
                 sx={{
                   p: 0,
-                  borderRadius: '16px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  borderRadius: 'var(--morius-radius)',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   overflow: 'hidden',
                   display: 'flex',
                   flexDirection: 'column',
@@ -1024,7 +1024,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             justifyContent="space-between"
             alignItems={{ xs: 'flex-start', md: 'flex-end' }}
             spacing={1}
-            sx={{ mb: 1.35, mt: 2.2 }}
+            sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}
           >
             <Stack spacing={0.45}>
               <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
@@ -1034,56 +1034,75 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
               </Typography>
             </Stack>
-            <Stack direction="row" spacing={0.75} alignItems="center">
+            <Stack direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
               <IconButton
                 aria-label="Прокрутить миры влево"
                 onClick={() => handleScrollCommunityWorlds('left')}
                 disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
                 sx={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: '10px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
+                  width: 'var(--morius-action-size)',
+                  height: 'var(--morius-action-size)',
+                  borderRadius: 'var(--morius-radius)',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: 'var(--morius-elevated-bg)',
+                  color: 'var(--morius-accent)',
                   '&:hover': {
                     backgroundColor: APP_BUTTON_HOVER,
                   },
+                  '&:active': {
+                    backgroundColor: APP_BUTTON_ACTIVE,
+                  },
                 }}
               >
-                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9, transform: 'rotate(180deg)' }} />
+                <Box
+                  component="img"
+                  src={icons.arrowback}
+                  alt=""
+                  sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9, transform: 'rotate(180deg)' }}
+                />
               </IconButton>
               <IconButton
                 aria-label="Прокрутить миры вправо"
                 onClick={() => handleScrollCommunityWorlds('right')}
                 disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
                 sx={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: '10px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
+                  width: 'var(--morius-action-size)',
+                  height: 'var(--morius-action-size)',
+                  borderRadius: 'var(--morius-radius)',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: 'var(--morius-elevated-bg)',
+                  color: 'var(--morius-accent)',
                   '&:hover': {
                     backgroundColor: APP_BUTTON_HOVER,
                   },
+                  '&:active': {
+                    backgroundColor: APP_BUTTON_ACTIVE,
+                  },
                 }}
               >
-                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
+                <Box
+                  component="img"
+                  src={icons.arrowback}
+                  alt=""
+                  sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9 }}
+                />
               </IconButton>
               <Button
                 onClick={() => onNavigate('/games/all')}
                 sx={{
-                  minHeight: 38,
+                  minHeight: 'var(--morius-action-size)',
                   px: 1.35,
-                  borderRadius: '10px',
+                  borderRadius: 'var(--morius-radius)',
                   textTransform: 'none',
                   fontWeight: 700,
-                  border: `1px solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: 'var(--morius-elevated-bg)',
+                  color: 'var(--morius-accent)',
                   '&:hover': {
                     backgroundColor: APP_BUTTON_HOVER,
+                  },
+                  '&:active': {
+                    backgroundColor: APP_BUTTON_ACTIVE,
                   },
                 }}
               >
@@ -1105,8 +1124,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           ) : communityWorlds.length === 0 ? (
             <Box
               sx={{
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 background: APP_CARD_BACKGROUND,
                 p: 1.4,
               }}
@@ -1126,10 +1145,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   md: 'minmax(308px, 34vw)',
                   xl: 'minmax(330px, 25vw)',
                 },
-                gap: 1.3,
+                gap: 'var(--morius-interface-gap)',
                 overflowX: 'auto',
-                pb: 0.7,
-                pr: 0.2,
+                pb: 'var(--morius-story-right-padding)',
+                pr: 'var(--morius-scrollbar-offset)',
                 scrollSnapType: 'x mandatory',
                 overscrollBehaviorX: 'contain',
                 '&::-webkit-scrollbar': {
@@ -1148,8 +1167,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   disabled={isCommunityWorldDialogLoading}
                   sx={{
                     p: 0,
-                    borderRadius: '16px',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
@@ -1237,8 +1256,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1276,8 +1295,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1315,7 +1334,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               <Box
                 sx={{
                   borderRadius: '12px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   backgroundColor: APP_CARD_BACKGROUND,
                   px: 1.2,
                   py: 1,
@@ -1332,8 +1351,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         sx={{
                           minWidth: 40,
                           minHeight: 38,
-                          borderRadius: '10px',
-                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          borderRadius: 'var(--morius-radius)',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                           backgroundColor: value <= communityRatingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                           color: APP_TEXT_PRIMARY,
                           fontSize: '1.05rem',
@@ -1347,9 +1366,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       disabled={communityRatingDraft < 1 || isCommunityRatingSaving || isLaunchingCommunityWorld}
                       sx={{
                         minHeight: 38,
-                        borderRadius: '10px',
+                        borderRadius: 'var(--morius-radius)',
                         textTransform: 'none',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         backgroundColor: APP_BUTTON_ACTIVE,
                         color: APP_TEXT_PRIMARY,
                         '&:hover': { backgroundColor: APP_BUTTON_HOVER },
@@ -1367,7 +1386,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
                 ) : (
                   selectedCommunityWorld.instruction_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
                     </Box>
@@ -1381,7 +1400,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
                 ) : (
                   selectedCommunityWorld.plot_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
                     </Box>
@@ -1395,7 +1414,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
                 ) : (
                   selectedCommunityWorld.world_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>
                         {card.title} {card.kind === 'main_hero' ? '(ГГ)' : card.kind === 'npc' ? '(NPC)' : '(Мир)'}
                       </Typography>
@@ -1416,7 +1435,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             disabled={!selectedCommunityWorld || isLaunchingCommunityWorld || isCommunityWorldDialogLoading}
             sx={{
               textTransform: 'none',
-              border: `1px solid ${APP_BORDER_COLOR}`,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_BUTTON_ACTIVE,
               color: APP_TEXT_PRIMARY,
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },
@@ -1441,8 +1460,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1502,7 +1521,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       width: 34,
                       height: 34,
                       borderRadius: '50%',
-                      border: '1px solid rgba(219, 221, 231, 0.5)',
+                      border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
                       backgroundColor: 'rgba(17, 20, 27, 0.78)',
                       display: 'flex',
                       alignItems: 'center',
@@ -1555,7 +1574,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Box
               sx={{
                 borderRadius: '12px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 px: 1.5,
                 py: 1.2,
@@ -1573,8 +1592,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   onClick={handleOpenTopUpDialog}
                   sx={{
                     minHeight: 40,
-                    borderRadius: '10px',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_ACTIVE,
                     color: APP_TEXT_PRIMARY,
                     fontWeight: 700,
@@ -1642,8 +1661,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
             animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -1677,8 +1696,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     <Box
                       key={plan.id}
                       sx={{
-                        borderRadius: '14px',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         background: APP_CARD_BACKGROUND,
                         px: 2,
                         py: 2,
@@ -1707,8 +1726,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         sx={{
                           mt: 2,
                           minHeight: 40,
-                          borderRadius: '10px',
-                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          borderRadius: 'var(--morius-radius)',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                           backgroundColor: APP_BUTTON_ACTIVE,
                           color: APP_TEXT_PRIMARY,
                           fontWeight: 700,
@@ -1739,8 +1758,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         TransitionComponent={DialogTransition}
         PaperProps={{
           sx: {
-            borderRadius: '16px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
           },
@@ -1760,7 +1779,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             variant="contained"
             onClick={handleConfirmLogout}
             sx={{
-              border: `1px solid ${APP_BORDER_COLOR}`,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_BUTTON_ACTIVE,
               color: APP_TEXT_PRIMARY,
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },

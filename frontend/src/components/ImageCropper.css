@@ -10,9 +10,9 @@
 
 .image-cropper-modal {
   width: min(92vw, 960px);
-  border-radius: 16px;
-  border: 1px solid rgba(153, 173, 198, 0.3);
-  background: linear-gradient(180deg, rgba(15, 20, 30, 0.98), rgba(11, 16, 24, 0.98));
+  border-radius: var(--morius-radius);
+  border: var(--morius-border-width) solid var(--morius-card-border);
+  background: var(--morius-card-bg);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5);
   overflow: hidden;
 }
@@ -21,7 +21,7 @@
   position: relative;
   width: 100%;
   height: min(70vh, 620px);
-  background: rgba(6, 10, 16, 0.98);
+  background: var(--morius-app-base);
   overflow: hidden;
   user-select: none;
   touch-action: none;
@@ -92,23 +92,23 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: rgba(207, 220, 239, 0.84);
+  color: var(--morius-text-secondary);
   font-size: 0.96rem;
 }
 
 .image-cropper-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--morius-icon-gap);
   padding: 14px;
-  border-top: 1px solid rgba(153, 173, 198, 0.22);
+  border-top: var(--morius-border-width) solid var(--morius-card-border);
 }
 
 .image-cropper-button {
   min-width: 100px;
   min-height: 38px;
-  border-radius: 10px;
-  border: 1px solid rgba(153, 173, 198, 0.34);
+  border-radius: var(--morius-radius);
+  border: var(--morius-border-width) solid var(--morius-card-border);
   font-size: 0.92rem;
   font-weight: 700;
   cursor: pointer;
@@ -120,21 +120,21 @@
 }
 
 .image-cropper-button--ghost {
-  color: rgba(214, 224, 238, 0.9);
-  background: rgba(22, 30, 42, 0.72);
+  color: var(--morius-accent);
+  background: var(--morius-elevated-bg);
 }
 
 .image-cropper-button--ghost:hover:not(:disabled) {
-  background: rgba(34, 47, 67, 0.84);
+  background: var(--morius-button-hover);
 }
 
 .image-cropper-button--primary {
-  color: #f4f7fb;
-  background: linear-gradient(180deg, #2d4467, #273c5b);
+  color: var(--morius-accent);
+  background: var(--morius-send-button-bg);
 }
 
 .image-cropper-button--primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #35527c, #2e4970);
+  background: var(--morius-button-hover);
 }
 
 @media (max-width: 640px) {

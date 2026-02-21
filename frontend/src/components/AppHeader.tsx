@@ -32,29 +32,36 @@ const HEADER_BUTTON_SIZE = moriusThemeTokens.layout.headerButtonSize
 const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
   height: HEADER_BUTTON_SIZE,
-  borderRadius: '14px',
-  border: '1px solid var(--morius-card-border)',
-  backgroundColor: 'var(--morius-card-bg)',
+  borderRadius: 'var(--morius-radius)',
+  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+  backgroundColor: 'var(--morius-elevated-bg)',
+  color: 'var(--morius-accent)',
   transition: 'background-color 180ms ease',
   '&:hover': {
     backgroundColor: 'var(--morius-button-hover)',
+  },
+  '&:active': {
+    backgroundColor: 'var(--morius-button-active)',
   },
 } as const
 
 const menuItemSx = (isActive: boolean) => ({
   width: '100%',
   justifyContent: 'flex-start',
-  borderRadius: '14px',
-  minHeight: 52,
-  px: 1.8,
-  color: 'var(--morius-text-primary)',
+  borderRadius: 'var(--morius-radius)',
+  minHeight: 'var(--morius-action-size)',
+  px: 1.6,
+  color: 'var(--morius-accent)',
   textTransform: 'none',
   fontWeight: 700,
-  fontSize: '1.02rem',
-  border: '1px solid var(--morius-card-border)',
-  backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-card-bg)',
+  fontSize: 'var(--morius-body-size)',
+  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+  backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
   '&:hover': {
     backgroundColor: 'var(--morius-button-hover)',
+  },
+  '&:active': {
+    backgroundColor: 'var(--morius-button-active)',
   },
 })
 
@@ -80,9 +87,9 @@ function AppHeader({
           right: 0,
           height: 'var(--morius-header-height)',
           zIndex: 34,
-          borderBottom: '1px solid var(--morius-card-border)',
+          borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
           backdropFilter: 'blur(8px)',
-          backgroundColor: 'var(--morius-card-bg)',
+          backgroundColor: 'var(--morius-app-base)',
         }}
       />
 
@@ -94,7 +101,7 @@ function AppHeader({
           zIndex: 35,
           display: 'flex',
           alignItems: 'center',
-          gap: 1.2,
+          gap: 'var(--morius-icon-gap)',
         }}
       >
         <Box component="img" src={brandLogo} alt="Morius" sx={{ width: moriusThemeTokens.layout.headerLogoWidth, opacity: 0.96 }} />
@@ -114,10 +121,10 @@ function AppHeader({
           left: 'var(--morius-header-side-offset)',
           zIndex: 30,
           width: { xs: moriusThemeTokens.layout.headerMenuWidthXs, md: moriusThemeTokens.layout.headerMenuWidthMd },
-          borderRadius: '14px',
-          border: '1px solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
-          p: 1.3,
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-panel-gradient)',
+          p: '10px',
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
           opacity: isPageMenuOpen ? 1 : 0,

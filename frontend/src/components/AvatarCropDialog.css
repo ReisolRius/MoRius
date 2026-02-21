@@ -11,8 +11,8 @@
 
 .avatar-crop-modal {
   width: min(94vw, 860px);
-  border-radius: 18px;
-  border: 1px solid var(--morius-card-border);
+  border-radius: var(--morius-radius);
+  border: var(--morius-border-width) solid var(--morius-card-border);
   background: var(--morius-card-bg);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.52);
   overflow: hidden;
@@ -29,7 +29,7 @@
   position: relative;
   width: 100%;
   height: min(70vh, 620px);
-  background: rgba(7, 11, 16, 0.95);
+  background: var(--morius-app-base);
   overflow: hidden;
   user-select: none;
   touch-action: none;
@@ -108,16 +108,16 @@
 .avatar-crop-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
+  gap: var(--morius-icon-gap);
   padding: 12px 14px 14px;
-  border-top: 1px solid var(--morius-card-border);
+  border-top: var(--morius-border-width) solid var(--morius-card-border);
 }
 
 .avatar-crop-button {
   min-height: 40px;
   min-width: 110px;
-  border-radius: 10px;
-  border: 1px solid var(--morius-card-border);
+  border-radius: var(--morius-radius);
+  border: var(--morius-border-width) solid var(--morius-card-border);
   font-weight: 700;
   font-size: 0.92rem;
 }
@@ -128,8 +128,8 @@
 }
 
 .avatar-crop-button--ghost {
-  background: var(--morius-card-bg);
-  color: var(--morius-text-secondary);
+  background: var(--morius-elevated-bg);
+  color: var(--morius-accent);
 }
 
 .avatar-crop-button--ghost:hover:not(:disabled) {
@@ -137,8 +137,8 @@
 }
 
 .avatar-crop-button--primary {
-  background: var(--morius-button-active);
-  color: var(--morius-text-primary);
+  background: var(--morius-send-button-bg);
+  color: var(--morius-accent);
 }
 
 .avatar-crop-button--primary:hover:not(:disabled) {

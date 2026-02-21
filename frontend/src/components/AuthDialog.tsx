@@ -335,8 +335,8 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
       }}
       PaperProps={{
         sx: {
-          borderRadius: '18px',
-          border: '1px solid rgba(186, 202, 214, 0.16)',
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.16)',
           background:
             'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
@@ -362,8 +362,8 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
             sx={{
               width: 34,
               height: 34,
-              borderRadius: '10px',
-              border: '1px solid rgba(186, 202, 214, 0.14)',
+              borderRadius: 'var(--morius-radius)',
+              border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.14)',
               color: 'rgba(223, 229, 239, 0.84)',
               fontSize: '1.35rem',
               lineHeight: 1,
@@ -382,7 +382,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
             sx={{
               p: 0.6,
               borderRadius: '12px',
-              border: '1px solid rgba(186, 202, 214, 0.12)',
+              border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.12)',
               backgroundColor: 'rgba(12, 16, 22, 0.64)',
             }}
           >

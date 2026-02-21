@@ -50,7 +50,7 @@ const footerLinks: Array<{ label: string; href: string; external?: boolean }> = 
 const ctaButtonSx = {
   minWidth: 140,
   minHeight: 40,
-  borderRadius: '10px',
+  borderRadius: 'var(--morius-radius)',
   px: 2.2,
   fontWeight: 700,
   fontSize: '0.9rem',
@@ -400,7 +400,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                 <Box
                   sx={{
                     borderRadius: '12px',
-                    border: '1px solid rgba(185, 198, 214, 0.18)',
+                    border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.18)',
                     background: 'linear-gradient(180deg, rgba(18, 21, 28, 0.9) 0%, rgba(14, 17, 23, 0.86) 100%)',
                     boxShadow: '0 18px 30px rgba(0, 0, 0, 0.34)',
                   }}
@@ -436,7 +436,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                     alignItems="center"
                     spacing={0.1}
                     sx={{
-                      borderTop: '1px solid rgba(185, 198, 214, 0.14)',
+                      borderTop: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.14)',
                       p: '5px 9px',
                     }}
                   >
@@ -535,9 +535,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                   <Card
                     sx={{
                       background: 'linear-gradient(180deg, rgba(16, 19, 26, 0.94) 0%, rgba(13, 16, 22, 0.92) 100%)',
-                      border: '1px solid rgba(185, 198, 214, 0.16)',
+                      border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.16)',
                       minHeight: { xs: 222, md: 236 },
-                      borderRadius: '10px',
+                      borderRadius: 'var(--morius-radius)',
                       transition:
                         'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), border-color 280ms ease, box-shadow 280ms ease, background-color 280ms ease',
                       boxShadow: '0 12px 24px rgba(0, 0, 0, 0.2)',
@@ -612,7 +612,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
         </RevealOnView>
       </Box>
 
-      <Box component="footer" sx={{ borderTop: '1px solid rgba(185, 198, 214, 0.14)', py: 4.5 }}>
+      <Box component="footer" sx={{ borderTop: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.14)', py: 4.5 }}>
         <Container maxWidth="lg">
           <RevealOnView>
             <Stack

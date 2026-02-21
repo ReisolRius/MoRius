@@ -188,7 +188,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                 borderRadius: '12px',
                 textTransform: 'none',
                 color: APP_TEXT_PRIMARY,
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 '&:hover': {
                   backgroundColor: APP_BUTTON_HOVER,
@@ -203,7 +203,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
 
       <Box
         sx={{
-          pt: { xs: '82px', md: '88px' },
+          pt: 'var(--morius-header-menu-top)',
           pb: { xs: 5, md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
@@ -236,10 +236,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
               sx={{
                 minHeight: 38,
                 px: 1.35,
-                borderRadius: '10px',
+                borderRadius: 'var(--morius-radius)',
                 textTransform: 'none',
                 fontWeight: 700,
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 color: APP_TEXT_PRIMARY,
                 '&:hover': {
@@ -264,8 +264,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
           ) : communityWorlds.length === 0 ? (
             <Box
               sx={{
-                borderRadius: '14px',
-                border: `1px solid ${APP_BORDER_COLOR}`,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 background: APP_CARD_BACKGROUND,
                 p: 1.4,
               }}
@@ -287,8 +287,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                   disabled={isCommunityWorldDialogLoading}
                   sx={{
                     p: 0,
-                    borderRadius: '16px',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
@@ -374,8 +374,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
         fullWidth
         PaperProps={{
           sx: {
-            borderRadius: '18px',
-            border: `1px solid ${APP_BORDER_COLOR}`,
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
             background: APP_CARD_BACKGROUND,
             boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           },
@@ -412,7 +412,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
               <Box
                 sx={{
                   borderRadius: '12px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   backgroundColor: APP_CARD_BACKGROUND,
                   px: 1.2,
                   py: 1,
@@ -429,8 +429,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                         sx={{
                           minWidth: 40,
                           minHeight: 38,
-                          borderRadius: '10px',
-                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          borderRadius: 'var(--morius-radius)',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                           backgroundColor: value <= communityRatingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                           color: APP_TEXT_PRIMARY,
                           fontSize: '1.05rem',
@@ -444,9 +444,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                       disabled={communityRatingDraft < 1 || isCommunityRatingSaving || isLaunchingCommunityWorld}
                       sx={{
                         minHeight: 38,
-                        borderRadius: '10px',
+                        borderRadius: 'var(--morius-radius)',
                         textTransform: 'none',
-                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         backgroundColor: APP_BUTTON_ACTIVE,
                         color: APP_TEXT_PRIMARY,
                         '&:hover': { backgroundColor: APP_BUTTON_HOVER },
@@ -464,7 +464,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
                 ) : (
                   selectedCommunityWorld.instruction_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
                     </Box>
@@ -478,7 +478,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
                 ) : (
                   selectedCommunityWorld.plot_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
                     </Box>
@@ -492,7 +492,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
                 ) : (
                   selectedCommunityWorld.world_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: '10px', border: `1px solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
+                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
                       <Typography sx={{ fontWeight: 700 }}>
                         {card.title} {card.kind === 'main_hero' ? '(ГГ)' : card.kind === 'npc' ? '(NPC)' : '(Мир)'}
                       </Typography>
@@ -513,7 +513,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
             disabled={!selectedCommunityWorld || isLaunchingCommunityWorld || isCommunityWorldDialogLoading}
             sx={{
               textTransform: 'none',
-              border: `1px solid ${APP_BORDER_COLOR}`,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
               backgroundColor: APP_BUTTON_ACTIVE,
               color: APP_TEXT_PRIMARY,
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },

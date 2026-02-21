@@ -40,7 +40,7 @@ export default function ImageCropperExample() {
         <img
           src={avatarImage}
           alt="Cropped avatar preview"
-          style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: '1px solid rgba(255,255,255,0.24)' }}
+          style={{ width: 120, height: 120, borderRadius: '50%', objectFit: 'cover', border: 'var(--morius-border-width) solid rgba(255,255,255,0.24)' }}
         />
       ) : null}
 
