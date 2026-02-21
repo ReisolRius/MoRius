@@ -26,7 +26,8 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
-import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
+import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -238,6 +239,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
@@ -274,16 +276,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const handleConfirmLogout = () => {
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
+    setCharacterManagerOpen(false)
     setTopUpDialogOpen(false)
     onLogout()
   }
 
   const handleOpenCharacterManager = () => {
-    localStorage.setItem(OPEN_CHARACTER_MANAGER_FLAG_KEY, '1')
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpDialogOpen(false)
-    onNavigate('/home')
+    setCharacterManagerOpen(true)
   }
 
   const handleChooseAvatar = () => {
@@ -1224,6 +1226,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CharacterManagerDialog
+        open={characterManagerOpen}
+        authToken={authToken}
+        onClose={() => setCharacterManagerOpen(false)}
+      />
     </Box>
   )
 }

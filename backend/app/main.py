@@ -1071,12 +1071,6 @@ def _normalize_story_character_triggers(values: list[str], *, fallback_name: str
     return _normalize_story_world_card_triggers(values, fallback_title=fallback_name)[:STORY_CHARACTER_MAX_TRIGGERS]
 
 
-def _is_story_world_card_user_character(card: StoryWorldCard) -> bool:
-    card_kind = _normalize_story_world_card_kind(card.kind)
-    card_source = _normalize_story_world_card_source(card.source)
-    return card_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC} and card_source != STORY_WORLD_CARD_SOURCE_AI
-
-
 def _story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
     return StoryCharacterOut(
         id=character.id,
@@ -2799,6 +2793,11 @@ def _normalize_story_world_card_change_operations(
             if target_card.id in seen_target_ids:
                 continue
             if bool(target_card.is_locked):
+                continue
+            if _normalize_story_world_card_kind(target_card.kind) in {
+                STORY_WORLD_CARD_KIND_MAIN_HERO,
+                STORY_WORLD_CARD_KIND_NPC,
+            }:
                 continue
             if target_card.source != STORY_WORLD_CARD_SOURCE_AI:
                 continue
@@ -5028,6 +5027,19 @@ def select_story_main_hero(
 ) -> StoryWorldCardOut:
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
+    existing_npc = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.game_id == game.id,
+            StoryWorldCard.kind == STORY_WORLD_CARD_KIND_NPC,
+            StoryWorldCard.character_id == payload.character_id,
+        )
+    )
+    if existing_npc is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This character is already selected as NPC",
+        )
+
     existing_main_hero = _get_story_main_hero_card(db, game.id)
     if existing_main_hero is not None:
         if existing_main_hero.character_id == payload.character_id:
@@ -5042,7 +5054,7 @@ def select_story_main_hero(
         game_id=game.id,
         character=character,
         kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
-        lock_card=True,
+        lock_card=False,
     )
     db.add(main_hero_card)
     _touch_story_game(game)
@@ -5060,12 +5072,32 @@ def create_story_npc_from_character(
 ) -> StoryWorldCardOut:
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
+    existing_main_hero = _get_story_main_hero_card(db, game.id)
+    if existing_main_hero is not None and existing_main_hero.character_id == payload.character_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Main hero cannot be added as NPC",
+        )
+
+    existing_npc = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.game_id == game.id,
+            StoryWorldCard.kind == STORY_WORLD_CARD_KIND_NPC,
+            StoryWorldCard.character_id == payload.character_id,
+        )
+    )
+    if existing_npc is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This character is already selected as NPC",
+        )
+
     character = _get_story_character_for_user_or_404(db, user.id, payload.character_id)
     npc_card = _build_story_world_card_from_character(
         game_id=game.id,
         character=character,
         kind=STORY_WORLD_CARD_KIND_NPC,
-        lock_card=True,
+        lock_card=False,
     )
     db.add(npc_card)
     _touch_story_game(game)
@@ -5150,10 +5182,10 @@ def update_story_world_card(
     )
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
-    if bool(world_card.is_locked) or _is_story_world_card_user_character(world_card):
+    if bool(world_card.is_locked):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This character card cannot be edited",
+            detail="This world card cannot be edited",
         )
 
     normalized_title = _normalize_story_world_card_title(payload.title)
@@ -5186,10 +5218,7 @@ def delete_story_world_card(
     )
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
-    if (
-        _normalize_story_world_card_kind(world_card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
-        and bool(world_card.is_locked)
-    ):
+    if _normalize_story_world_card_kind(world_card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Main hero cannot be removed once selected",

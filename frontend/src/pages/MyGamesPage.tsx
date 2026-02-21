@@ -23,7 +23,7 @@ import { useRef } from 'react'
 import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
-import { OPEN_CHARACTER_MANAGER_FLAG_KEY } from '../constants/storageKeys'
+import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -313,6 +313,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
@@ -405,16 +406,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const handleConfirmLogout = () => {
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
+    setCharacterManagerOpen(false)
     setTopUpDialogOpen(false)
     onLogout()
   }
 
   const handleOpenCharacterManager = () => {
-    localStorage.setItem(OPEN_CHARACTER_MANAGER_FLAG_KEY, '1')
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
     setTopUpDialogOpen(false)
-    onNavigate('/home')
+    setCharacterManagerOpen(true)
   }
 
   const handleChooseAvatar = () => {
@@ -1322,6 +1323,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CharacterManagerDialog
+        open={characterManagerOpen}
+        authToken={authToken}
+        onClose={() => setCharacterManagerOpen(false)}
+      />
     </Box>
   )
 }

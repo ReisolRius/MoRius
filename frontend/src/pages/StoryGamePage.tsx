@@ -750,13 +750,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
-  const charactersById = useMemo(() => {
-    const nextMap = new Map<number, StoryCharacter>()
-    characters.forEach((character) => {
-      nextMap.set(character.id, character)
-    })
-    return nextMap
-  }, [characters])
   const mainHeroCard = useMemo(
     () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
     [worldCards],
@@ -770,18 +763,44 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (!card) {
         return null
       }
-      if (card.avatar_url) {
-        return card.avatar_url
-      }
-      if (!card.character_id) {
-        return null
-      }
-      const linkedCharacter = charactersById.get(card.character_id)
-      return linkedCharacter?.avatar_url ?? null
+      return card.avatar_url
     },
-    [charactersById],
+    [],
   )
   const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
+  const mainHeroCharacterId = useMemo(
+    () => (mainHeroCard && mainHeroCard.character_id && mainHeroCard.character_id > 0 ? mainHeroCard.character_id : null),
+    [mainHeroCard],
+  )
+  const npcCharacterIds = useMemo(() => {
+    const selectedIds = new Set<number>()
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc' || !card.character_id || card.character_id <= 0) {
+        return
+      }
+      selectedIds.add(card.character_id)
+    })
+    return selectedIds
+  }, [worldCards])
+  const getCharacterSelectionDisabledReason = useCallback(
+    (characterId: number, mode: CharacterDialogMode): string | null => {
+      if (mode === 'select-main-hero') {
+        if (npcCharacterIds.has(characterId)) {
+          return 'Уже выбран как NPC'
+        }
+        return null
+      }
+
+      if (mainHeroCharacterId !== null && characterId === mainHeroCharacterId) {
+        return 'Уже выбран как ГГ'
+      }
+      if (npcCharacterIds.has(characterId)) {
+        return 'Уже выбран как NPC'
+      }
+      return null
+    },
+    [mainHeroCharacterId, npcCharacterIds],
+  )
   const npcCardsForAvatar = useMemo(() => {
     const entries: Array<{ name: string; avatar: string | null }> = []
     worldCards.forEach((card) => {
@@ -827,14 +846,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [characterMenuCharacterId, characters],
   )
   const isSelectedMenuWorldCardLocked = Boolean(
-    selectedMenuWorldCard &&
-      (selectedMenuWorldCard.is_locked ||
-        (selectedMenuWorldCard.kind === 'main_hero' || selectedMenuWorldCard.kind === 'npc') &&
-          selectedMenuWorldCard.source !== 'ai'),
+    selectedMenuWorldCard && selectedMenuWorldCard.is_locked,
   )
   const canDeleteSelectedMenuWorldCard = Boolean(
-    selectedMenuWorldCard &&
-      !(selectedMenuWorldCard.kind === 'main_hero' && selectedMenuWorldCard.is_locked),
+    selectedMenuWorldCard && selectedMenuWorldCard.kind !== 'main_hero',
   )
 
   const adjustInputHeight = useCallback(() => {
@@ -886,19 +901,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [authToken],
   )
-
-  useEffect(() => {
-    const needsLinkedCharacterAvatars = worldCards.some(
-      (card) =>
-        (card.kind === 'main_hero' || card.kind === 'npc') &&
-        !card.avatar_url &&
-        Boolean(card.character_id),
-    )
-    if (!needsLinkedCharacterAvatars || hasLoadedCharacters || isLoadingCharacters) {
-      return
-    }
-    void loadCharacters({ silent: true })
-  }, [hasLoadedCharacters, isLoadingCharacters, loadCharacters, worldCards])
 
   const resetCharacterDraft = useCallback(() => {
     setCharacterDraftMode('create')
@@ -1144,6 +1146,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (isSelectingCharacter) {
         return
       }
+      const disabledReason = getCharacterSelectionDisabledReason(character.id, characterDialogMode)
+      if (disabledReason) {
+        setErrorMessage(disabledReason)
+        return
+      }
       setIsSelectingCharacter(true)
       setErrorMessage('')
       try {
@@ -1180,7 +1187,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setIsSelectingCharacter(false)
       }
     },
-    [authToken, characterDialogMode, ensureGameForCharacterSelection, isSelectingCharacter],
+    [
+      authToken,
+      characterDialogMode,
+      ensureGameForCharacterSelection,
+      getCharacterSelectionDisabledReason,
+      isSelectingCharacter,
+    ],
   )
 
   const handleOpenWorldCardAvatarPicker = useCallback((cardId: number) => {
@@ -2035,7 +2048,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCardMenuCardId(null)
   }, [])
 
-  const handleCardMenuEdit = useCallback(() => {
+  const handleCardMenuEdit = () => {
     if (cardMenuCardId === null || cardMenuType === null) {
       handleCloseCardMenu()
       return
@@ -2053,23 +2066,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     } else {
       const card = worldCards.find((item) => item.id === cardMenuCardId)
-      const isLockedCharacterCard =
-        card !== undefined &&
-        (card.is_locked || ((card.kind === 'main_hero' || card.kind === 'npc') && card.source !== 'ai'))
-      if (card && !isLockedCharacterCard) {
+      if (card && !card.is_locked) {
         handleOpenEditWorldCardDialog(card)
       }
     }
 
     handleCloseCardMenu()
-  }, [
-    cardMenuCardId,
-    cardMenuType,
-    handleCloseCardMenu,
-    instructionCards,
-    plotCards,
-    worldCards,
-  ])
+  }
 
   const handleCardMenuDelete = useCallback(async () => {
     if (cardMenuCardId === null || cardMenuType === null) {
@@ -2091,7 +2094,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     if (targetType === 'world') {
       const worldCard = worldCards.find((card) => card.id === targetCardId)
-      if (worldCard?.kind === 'main_hero' && worldCard.is_locked) {
+      if (worldCard?.kind === 'main_hero') {
         setErrorMessage('Главного героя нельзя удалить после выбора')
         return
       }
@@ -5070,45 +5073,55 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Typography>
               <Box className="morius-scrollbar" sx={{ maxHeight: 360, overflowY: 'auto', pr: 0.2 }}>
                 <Stack spacing={0.75}>
-                  {characters.map((character) => (
-                    <Button
-                      key={character.id}
-                      onClick={() => void handleSelectCharacterForGame(character)}
-                      disabled={isSelectingCharacter}
-                      sx={{
-                        borderRadius: '12px',
-                        border: '1px solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-card-bg)',
-                        color: '#d9dee8',
-                        textTransform: 'none',
-                        alignItems: 'center',
-                        textAlign: 'left',
-                        px: 0.9,
-                        py: 0.7,
-                        justifyContent: 'flex-start',
-                      }}
-                    >
-                      <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
-                        <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
-                        <Stack spacing={0.25} sx={{ minWidth: 0 }}>
-                          <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: '#e2e8f3' }}>{character.name}</Typography>
-                          <Typography
-                            sx={{
-                              color: 'rgba(207, 217, 232, 0.86)',
-                              fontSize: '0.84rem',
-                              lineHeight: 1.36,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {character.description}
-                          </Typography>
+                  {characters.map((character) => {
+                    const disabledReason = getCharacterSelectionDisabledReason(character.id, characterDialogMode)
+                    const isCharacterDisabled = Boolean(disabledReason)
+                    return (
+                      <Button
+                        key={character.id}
+                        onClick={() => void handleSelectCharacterForGame(character)}
+                        disabled={isSelectingCharacter || isCharacterDisabled}
+                        sx={{
+                          borderRadius: '12px',
+                          border: '1px solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-card-bg)',
+                          color: '#d9dee8',
+                          textTransform: 'none',
+                          alignItems: 'center',
+                          textAlign: 'left',
+                          px: 0.9,
+                          py: 0.7,
+                          justifyContent: 'flex-start',
+                          opacity: isCharacterDisabled ? 0.64 : 1,
+                        }}
+                      >
+                        <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
+                          <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
+                          <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: '#e2e8f3' }}>{character.name}</Typography>
+                            <Typography
+                              sx={{
+                                color: 'rgba(207, 217, 232, 0.86)',
+                                fontSize: '0.84rem',
+                                lineHeight: 1.36,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {character.description}
+                            </Typography>
+                            {disabledReason ? (
+                              <Typography sx={{ color: 'rgba(241, 189, 159, 0.9)', fontSize: '0.74rem', lineHeight: 1.25 }}>
+                                {disabledReason}
+                              </Typography>
+                            ) : null}
+                          </Stack>
                         </Stack>
-                      </Stack>
-                    </Button>
-                  ))}
+                      </Button>
+                    )
+                  })}
                   {characters.length === 0 ? (
                     <Typography sx={{ color: 'rgba(186, 202, 214, 0.68)', fontSize: '0.9rem' }}>
                       Сначала создайте персонажей в разделе «Мои персонажи».
