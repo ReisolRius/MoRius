@@ -153,6 +153,8 @@ STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 1_000
 STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
+STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
+STORY_WORLD_CARD_PROMPT_MAX_CARDS = 10
 STORY_WORLD_CARD_LOW_IMPORTANCE = {"low", "minor", "trivial"}
 STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
     "food",
@@ -1831,77 +1833,77 @@ def _list_story_world_card_events(
 
 
 def _select_story_world_cards_for_prompt(
-    prompt: str,
+    context_messages: list[StoryMessage],
     world_cards: list[StoryWorldCard],
 ) -> list[dict[str, Any]]:
-    prompt_tokens = _normalize_story_match_tokens(prompt)
-    selected_cards: list[dict[str, Any]] = []
-    selected_card_ids: set[int] = set()
+    user_turn_tokens: list[list[str]] = [
+        _normalize_story_match_tokens(message.content)
+        for message in context_messages
+        if message.role == STORY_USER_ROLE
+    ]
+    current_turn_index = len(user_turn_tokens)
+    if current_turn_index <= 0:
+        return []
 
-    def append_card(card: StoryWorldCard, *, force_include: bool = False) -> None:
-        if card.id in selected_card_ids:
-            return
-        if len(selected_cards) >= 10:
-            return
+    ranked_cards: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
+    kind_rank = {
+        STORY_WORLD_CARD_KIND_MAIN_HERO: 0,
+        STORY_WORLD_CARD_KIND_NPC: 1,
+        STORY_WORLD_CARD_KIND_WORLD: 2,
+    }
 
+    for card in world_cards:
         title = " ".join(card.title.split()).strip()
         content = card.content.replace("\r\n", "\n").strip()
         if not title or not content:
-            return
+            continue
 
         triggers = _deserialize_story_world_card_triggers(card.triggers)
         if not triggers:
             triggers = _normalize_story_world_card_triggers([], fallback_title=title)
-
-        if prompt_tokens and not force_include:
-            is_relevant = any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers)
-            if not is_relevant:
-                return
-
-        selected_cards.append(
-            {
-                "id": card.id,
-                "title": title,
-                "content": content,
-                "triggers": triggers,
-                "kind": _normalize_story_world_card_kind(card.kind),
-                "avatar_url": _normalize_avatar_value(card.avatar_url),
-                "character_id": card.character_id,
-                "is_locked": bool(card.is_locked),
-                "source": _normalize_story_world_card_source(card.source),
-            }
-        )
-        selected_card_ids.add(card.id)
-
-    main_hero_card = next(
-        (
-            card
-            for card in world_cards
-            if _normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
-        ),
-        None,
-    )
-    if main_hero_card is not None:
-        append_card(main_hero_card, force_include=True)
-
-    npc_cards = [
-        card
-        for card in world_cards
-        if _normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_NPC
-    ]
-    for card in npc_cards[:4]:
-        append_card(card, force_include=True)
-        if len(selected_cards) >= 10:
-            break
-
-    for card in world_cards:
-        if len(selected_cards) >= 10:
-            break
-        if card.id in selected_card_ids:
+        if not triggers:
             continue
-        append_card(card)
 
-    return selected_cards
+        last_trigger_turn = 0
+        for turn_index, prompt_tokens in enumerate(user_turn_tokens, start=1):
+            if not prompt_tokens:
+                continue
+            if any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers):
+                last_trigger_turn = turn_index
+
+        if last_trigger_turn <= 0:
+            continue
+
+        turns_since_trigger = current_turn_index - last_trigger_turn
+        if turns_since_trigger > STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS:
+            continue
+
+        card_kind = _normalize_story_world_card_kind(card.kind)
+        rank_key = (
+            0 if turns_since_trigger == 0 else 1,
+            turns_since_trigger,
+            kind_rank.get(card_kind, 3),
+            card.id,
+        )
+        ranked_cards.append(
+            (
+                rank_key,
+                {
+                    "id": card.id,
+                    "title": title,
+                    "content": content,
+                    "triggers": triggers,
+                    "kind": card_kind,
+                    "avatar_url": _normalize_avatar_value(card.avatar_url),
+                    "character_id": card.character_id,
+                    "is_locked": bool(card.is_locked),
+                    "source": _normalize_story_world_card_source(card.source),
+                },
+            )
+        )
+
+    ranked_cards.sort(key=lambda item: item[0])
+    return [payload for _, payload in ranked_cards[:STORY_WORLD_CARD_PROMPT_MAX_CARDS]]
 
 
 def _build_story_system_prompt(
@@ -1925,7 +1927,7 @@ def _build_story_system_prompt(
             lines.append(f"{index}. {card['title']}: {card['content']}")
 
     if world_cards:
-        lines.extend(["", "World cards relevant to the current player action:"])
+        lines.extend(["", "World cards active for this turn (triggered now or recently):"])
         for index, card in enumerate(world_cards, start=1):
             lines.append(f"{index}. {card['title']}: {card['content']}")
             trigger_line = ", ".join(card["triggers"]) if card["triggers"] else "none"
@@ -5240,7 +5242,8 @@ def generate_story_response(
 
     plot_cards = _list_story_plot_cards(db, game.id)
     world_cards = _list_story_world_cards(db, game.id)
-    active_world_cards = _select_story_world_cards_for_prompt(prompt_text, world_cards)
+    context_messages = _list_story_messages(db, game.id)
+    active_world_cards = _select_story_world_cards_for_prompt(context_messages, world_cards)
     active_plot_cards = [
         {
             "title": card.title.replace("\r\n", " ").strip(),
@@ -5249,7 +5252,6 @@ def generate_story_response(
         for card in plot_cards[:40]
         if card.title.strip() and card.content.strip()
     ]
-    context_messages = _list_story_messages(db, game.id)
     assistant_turn_index = (
         len([message for message in context_messages if message.role == STORY_ASSISTANT_ROLE]) + 1
     )

@@ -123,6 +123,8 @@ const RIGHT_PANEL_WIDTH_MAX = 460
 const RIGHT_PANEL_WIDTH_DEFAULT = 332
 const RIGHT_PANEL_CARD_HEIGHT = 198
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
+const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
+const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
   added: 'Добавлено',
@@ -130,6 +132,12 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
   deleted: 'Удалено',
 }
 const NPC_DIALOGUE_MARKER_PATTERN = /^\[\[NPC:([^\]]+)\]\]\s*([\s\S]*)$/i
+type WorldCardContextState = {
+  isActive: boolean
+  turnsRemaining: number
+  lastTriggerTurn: number | null
+  isTriggeredThisTurn: boolean
+}
 
 function splitAssistantParagraphs(content: string): string[] {
   const paragraphs = content
@@ -241,6 +249,113 @@ function estimateTextTokens(value: string): number {
     return matches.length
   }
   return Math.max(1, Math.ceil(normalized.length / 4))
+}
+
+function normalizeStoryMatchTokens(value: string): string[] {
+  const normalized = value.toLowerCase().replace(/ё/g, 'е')
+  return normalized.match(STORY_MATCH_TOKEN_PATTERN) ?? []
+}
+
+function isStoryTriggerMatch(trigger: string, promptTokens: string[]): boolean {
+  const triggerTokens = normalizeStoryMatchTokens(trigger)
+  if (triggerTokens.length === 0) {
+    return false
+  }
+
+  if (triggerTokens.length === 1) {
+    const [triggerToken] = triggerTokens
+    if (triggerToken.length < 2) {
+      return false
+    }
+    return promptTokens.some((token) => {
+      if (token === triggerToken || token.startsWith(triggerToken)) {
+        return true
+      }
+      return token.length >= 4 && triggerToken.startsWith(token)
+    })
+  }
+
+  return triggerTokens.every((triggerToken) =>
+    promptTokens.some(
+      (token) =>
+        token === triggerToken || token.startsWith(triggerToken) || (token.length >= 4 && triggerToken.startsWith(token)),
+    ),
+  )
+}
+
+function formatTurnsWord(value: number): string {
+  const absValue = Math.abs(Math.trunc(value))
+  const mod10 = absValue % 10
+  const mod100 = absValue % 100
+  if (mod10 === 1 && mod100 !== 11) {
+    return 'ход'
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return 'хода'
+  }
+  return 'ходов'
+}
+
+function formatWorldCardContextStatus(state: WorldCardContextState | undefined): string {
+  if (!state || !state.isActive) {
+    return 'неактивна'
+  }
+  if (state.isTriggeredThisTurn) {
+    return `активна · +${WORLD_CARD_TRIGGER_ACTIVE_TURNS} ${formatTurnsWord(WORLD_CARD_TRIGGER_ACTIVE_TURNS)}`
+  }
+  return `активна · ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
+}
+
+function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: StoryMessage[]): Map<number, WorldCardContextState> {
+  const userTurnTokens = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => normalizeStoryMatchTokens(message.content.replace(/\r\n/g, '\n').trim()))
+  const currentTurnIndex = userTurnTokens.length
+
+  const stateById = new Map<number, WorldCardContextState>()
+  worldCards.forEach((card) => {
+    const fallbackTrigger = card.title.replace(/\s+/g, ' ').trim()
+    const triggers = card.triggers
+      .map((trigger) => trigger.replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+    if (fallbackTrigger.length > 0 && !triggers.some((trigger) => trigger.toLowerCase() === fallbackTrigger.toLowerCase())) {
+      triggers.unshift(fallbackTrigger)
+    }
+
+    let lastTriggerTurn = 0
+    if (triggers.length > 0) {
+      userTurnTokens.forEach((tokens, index) => {
+        if (tokens.length === 0) {
+          return
+        }
+        const matched = triggers.some((trigger) => isStoryTriggerMatch(trigger, tokens))
+        if (matched) {
+          lastTriggerTurn = index + 1
+        }
+      })
+    }
+
+    let isActive = false
+    let turnsRemaining = 0
+    let isTriggeredThisTurn = false
+    if (lastTriggerTurn > 0 && currentTurnIndex > 0) {
+      const turnsSinceTrigger = currentTurnIndex - lastTriggerTurn
+      if (turnsSinceTrigger <= WORLD_CARD_TRIGGER_ACTIVE_TURNS) {
+        isActive = true
+        turnsRemaining = Math.max(WORLD_CARD_TRIGGER_ACTIVE_TURNS - turnsSinceTrigger, 0)
+        isTriggeredThisTurn = turnsSinceTrigger === 0
+      }
+    }
+
+    stateById.set(card.id, {
+      isActive,
+      turnsRemaining,
+      lastTriggerTurn: lastTriggerTurn > 0 ? lastTriggerTurn : null,
+      isTriggeredThisTurn,
+    })
+  })
+
+  return stateById
 }
 
 const DialogTransition = forwardRef(function DialogTransition(
@@ -518,16 +633,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         .filter((card) => card.title.length > 0 && card.content.length > 0),
     [plotCards],
   )
+  const worldCardContextStateById = useMemo(
+    () => buildWorldCardContextStateById(worldCards, messages),
+    [messages, worldCards],
+  )
+  const activeWorldCardsForContext = useMemo(
+    () => worldCards.filter((card) => worldCardContextStateById.get(card.id)?.isActive),
+    [worldCardContextStateById, worldCards],
+  )
   const normalizedWorldCardsForContext = useMemo(
     () =>
-      worldCards
+      activeWorldCardsForContext
         .map((card) => ({
           title: card.title.replace(/\s+/g, ' ').trim(),
           content: card.content.replace(/\r\n/g, '\n').trim(),
           triggers: card.triggers.map((trigger) => trigger.replace(/\s+/g, ' ').trim()).filter(Boolean),
         }))
         .filter((card) => card.title.length > 0 && card.content.length > 0),
-    [worldCards],
+    [activeWorldCardsForContext],
   )
   const instructionContextTokensUsed = useMemo(() => {
     if (normalizedInstructionCardsForContext.length === 0) {
@@ -2766,6 +2889,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             >
                               {card.title}
                             </Typography>
+                            <Typography
+                              sx={{
+                                color: 'rgba(170, 238, 191, 0.96)',
+                                fontSize: '0.66rem',
+                                lineHeight: 1,
+                                letterSpacing: 0.25,
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                border: '1px solid rgba(128, 213, 162, 0.48)',
+                                borderRadius: '999px',
+                                px: 0.55,
+                                py: 0.18,
+                                flexShrink: 0,
+                              }}
+                            >
+                              активна
+                            </Typography>
                             <IconButton
                               onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
                               disabled={isInstructionCardActionLocked}
@@ -2944,7 +3084,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Stack>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
                         <Typography sx={{ color: 'rgba(196, 208, 226, 0.82)', fontSize: '0.76rem' }}>
-                          Карточки мира
+                          Карточки мира (активные)
                         </Typography>
                         <Typography sx={{ color: '#dbe5f4', fontSize: '0.78rem', fontWeight: 600 }}>
                           {formatContextChars(worldContextTokensUsed)}
@@ -2966,7 +3106,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
                     <Typography sx={{ mt: 0.72, color: 'rgba(176, 190, 211, 0.66)', fontSize: '0.73rem', lineHeight: 1.36 }}>
                       {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length},
-                      сюжет {normalizedPlotCardsForContext.length}, мир {normalizedWorldCardsForContext.length}.
+                      сюжет {normalizedPlotCardsForContext.length}, мир {normalizedWorldCardsForContext.length} из {worldCards.length}.
                     </Typography>
 
                     {cardsContextOverflowChars > 0 ? (
@@ -3059,6 +3199,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               }}
                             >
                               {card.title}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                color: 'rgba(170, 238, 191, 0.96)',
+                                fontSize: '0.66rem',
+                                lineHeight: 1,
+                                letterSpacing: 0.25,
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                border: '1px solid rgba(128, 213, 162, 0.48)',
+                                borderRadius: '999px',
+                                px: 0.55,
+                                py: 0.18,
+                                flexShrink: 0,
+                              }}
+                            >
+                              активна
                             </Typography>
                             {card.source === 'ai' ? (
                               <Typography
@@ -3186,6 +3343,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   Добавить NPC из персонажей
                 </Button>
               </Stack>
+              <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
+                Карточка мира активируется по триггеру и остается в контексте еще на 5 ходов.
+              </Typography>
 
               {worldCards.length === 0 ? (
                 <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
@@ -3202,109 +3362,135 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 >
                   <Stack spacing={0.85}>
-                    {worldCards.map((card) => (
-                      <Box
-                        key={card.id}
-                        sx={{
-                          borderRadius: '12px',
-                          border: '1px solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-card-bg)',
-                          px: 1,
-                          py: 0.85,
-                          height: RIGHT_PANEL_CARD_HEIGHT,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
-                          <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                            {card.kind === 'npc' || card.kind === 'main_hero' ? (
-                              <Button
-                                onClick={() => handleOpenWorldCardAvatarPicker(card.id)}
-                                disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
+                    {worldCards.map((card) => {
+                      const contextState = worldCardContextStateById.get(card.id)
+                      const isCardContextActive = Boolean(contextState?.isActive)
+                      return (
+                        <Box
+                          key={card.id}
+                          sx={{
+                            borderRadius: '12px',
+                            border: isCardContextActive
+                              ? '1px solid rgba(131, 213, 164, 0.62)'
+                              : '1px solid var(--morius-card-border)',
+                            backgroundColor: isCardContextActive ? 'rgba(18, 30, 24, 0.54)' : 'var(--morius-card-bg)',
+                            boxShadow: isCardContextActive ? '0 0 0 1px rgba(79, 164, 116, 0.22) inset' : 'none',
+                            px: 1,
+                            py: 0.85,
+                            height: RIGHT_PANEL_CARD_HEIGHT,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                              {card.kind === 'npc' || card.kind === 'main_hero' ? (
+                                <Button
+                                  onClick={() => handleOpenWorldCardAvatarPicker(card.id)}
+                                  disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
+                                  sx={{
+                                    minWidth: 0,
+                                    minHeight: 0,
+                                    p: 0,
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: '50%',
+                                    flexShrink: 0,
+                                    lineHeight: 0,
+                                  }}
+                                >
+                                  <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} fallbackLabel={card.title} size={30} />
+                                </Button>
+                              ) : null}
+                              <Typography
                                 sx={{
+                                  color: '#e2e8f3',
+                                  fontWeight: 700,
+                                  fontSize: '0.95rem',
+                                  lineHeight: 1.25,
+                                  flex: 1,
                                   minWidth: 0,
-                                  minHeight: 0,
-                                  p: 0,
-                                  width: 30,
-                                  height: 30,
-                                  borderRadius: '50%',
-                                  flexShrink: 0,
-                                  lineHeight: 0,
+                                  whiteSpace: 'nowrap',
+                                  textOverflow: 'ellipsis',
+                                  overflow: 'hidden',
                                 }}
                               >
-                                <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} fallbackLabel={card.title} size={30} />
-                              </Button>
-                            ) : null}
+                                {card.title}
+                              </Typography>
+                            </Stack>
                             <Typography
                               sx={{
-                                color: '#e2e8f3',
-                                fontWeight: 700,
-                                fontSize: '0.95rem',
-                                lineHeight: 1.25,
-                                flex: 1,
-                                minWidth: 0,
-                                whiteSpace: 'nowrap',
-                                textOverflow: 'ellipsis',
-                                overflow: 'hidden',
-                              }}
-                            >
-                              {card.title}
-                            </Typography>
-                          </Stack>
-                          {card.source === 'ai' ? (
-                            <Typography
-                              sx={{
-                                color: 'rgba(165, 188, 224, 0.66)',
-                                fontSize: '0.68rem',
+                                color: isCardContextActive ? 'rgba(170, 238, 191, 0.96)' : 'rgba(155, 172, 196, 0.84)',
+                                fontSize: '0.64rem',
                                 lineHeight: 1,
-                                letterSpacing: 0.2,
+                                letterSpacing: 0.22,
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                border: isCardContextActive
+                                  ? '1px solid rgba(128, 213, 162, 0.48)'
+                                  : '1px solid rgba(137, 154, 178, 0.38)',
+                                borderRadius: '999px',
+                                px: 0.55,
+                                py: 0.18,
                                 flexShrink: 0,
                               }}
                             >
-                              ии
+                              {formatWorldCardContextStatus(contextState)}
                             </Typography>
-                          ) : null}
-                          <IconButton
-                            onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
-                            disabled={isWorldCardActionLocked}
-                            sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                            {card.source === 'ai' ? (
+                              <Typography
+                                sx={{
+                                  color: 'rgba(165, 188, 224, 0.66)',
+                                  fontSize: '0.68rem',
+                                  lineHeight: 1,
+                                  letterSpacing: 0.2,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                ии
+                              </Typography>
+                            ) : null}
+                            <IconButton
+                              onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
+                              disabled={isWorldCardActionLocked}
+                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                            >
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            </IconButton>
+                          </Stack>
+                          <Typography
+                            sx={{
+                              mt: 0.55,
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.86rem',
+                              lineHeight: 1.4,
+                              whiteSpace: 'pre-wrap',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 5,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
                           >
-                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
-                          </IconButton>
-                        </Stack>
-                        <Typography
-                          sx={{
-                            mt: 0.55,
-                            color: 'rgba(207, 217, 232, 0.86)',
-                            fontSize: '0.86rem',
-                            lineHeight: 1.4,
-                            whiteSpace: 'pre-wrap',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 5,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {card.content}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            mt: 0.45,
-                            color: 'rgba(178, 195, 221, 0.7)',
-                            fontSize: '0.78rem',
-                            lineHeight: 1.3,
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
-                        </Typography>
-                      </Box>
-                    ))}
+                            {card.content}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              mt: 0.45,
+                              color: 'rgba(178, 195, 221, 0.7)',
+                              fontSize: '0.78rem',
+                              lineHeight: 1.3,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
+                          </Typography>
+                        </Box>
+                      )
+                    })}
                   </Stack>
                 </Box>
               )}
