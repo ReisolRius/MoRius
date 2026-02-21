@@ -1730,6 +1730,12 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
 
 
 def _is_story_translation_enabled() -> bool:
+    # For Russian UI + OpenRouter we keep native generation in Russian:
+    # this avoids extra translation latency and prevents English fallbacks
+    # when translation model is unavailable.
+    if settings.story_llm_provider == "openrouter" and settings.story_user_language == "ru":
+        return False
+
     return (
         settings.story_translation_enabled
         and bool(settings.openrouter_api_key)

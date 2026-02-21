@@ -148,7 +148,7 @@ settings = Settings(
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
-    story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=True),
+    story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=False),
     story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
-    story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
+    story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "ru").strip().lower() or "ru",
 )
