@@ -1178,6 +1178,81 @@ def _is_story_world_card_title_ephemeral(value: str) -> bool:
     return any(token in STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS for token in tokens)
 
 
+def _normalize_story_identity_key(value: str) -> str:
+    return " ".join(value.split()).strip().casefold()
+
+
+def _build_story_identity_keys(title: str, triggers: list[str]) -> set[str]:
+    keys: set[str] = set()
+
+    title_key = _normalize_story_identity_key(title)
+    if title_key:
+        keys.add(title_key)
+
+    title_tokens = _normalize_story_match_tokens(title)
+    if title_tokens and len(title_tokens[0]) >= 4:
+        keys.add(title_tokens[0])
+
+    for trigger in triggers:
+        trigger_key = _normalize_story_identity_key(trigger)
+        if trigger_key:
+            keys.add(trigger_key)
+        trigger_tokens = _normalize_story_match_tokens(trigger)
+        if trigger_tokens and len(trigger_tokens[0]) >= 4:
+            keys.add(trigger_tokens[0])
+
+    return keys
+
+
+def _are_story_identity_keys_related(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    if left == right:
+        return True
+
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
+    if len(shorter) >= 4 and longer.startswith(shorter):
+        return True
+
+    shorter_tokens = _normalize_story_match_tokens(shorter)
+    longer_tokens = _normalize_story_match_tokens(longer)
+    if shorter_tokens and longer_tokens:
+        first_short = shorter_tokens[0]
+        first_long = longer_tokens[0]
+        if len(first_short) >= 4 and first_short == first_long:
+            return True
+
+    return False
+
+
+def _is_story_npc_identity_duplicate(
+    *,
+    candidate_name: str,
+    candidate_triggers: list[str],
+    known_identity_keys: set[str],
+) -> bool:
+    candidate_keys = _build_story_identity_keys(candidate_name, candidate_triggers)
+    if not candidate_keys:
+        return False
+
+    for candidate_key in candidate_keys:
+        for known_key in known_identity_keys:
+            if _are_story_identity_keys_related(candidate_key, known_key):
+                return True
+    return False
+
+
+def _build_story_known_npc_identity_keys(cards: list[StoryWorldCard]) -> set[str]:
+    known_keys: set[str] = set()
+    for card in cards:
+        card_kind = _normalize_story_world_card_kind(card.kind)
+        if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+            continue
+        triggers = _deserialize_story_world_card_triggers(card.triggers)
+        known_keys.update(_build_story_identity_keys(card.title, triggers))
+    return known_keys
+
+
 def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, Any]]:
     mentions_by_key: dict[str, dict[str, Any]] = {}
     normalized_text = assistant_text.replace("\r\n", "\n")
@@ -1254,18 +1329,25 @@ def _append_missing_story_npc_card_operations(
     if not npc_mentions:
         return operations
 
-    known_title_keys = {
-        " ".join(card.title.split()).strip().casefold()
-        for card in existing_cards
-        if " ".join(card.title.split()).strip()
-    }
-    pending_title_keys = {
-        " ".join(str(operation.get("title", "")).split()).strip().casefold()
-        for operation in operations
-        if _normalize_story_world_card_event_action(str(operation.get("action", "")))
-        in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}
-        and " ".join(str(operation.get("title", "")).split()).strip()
-    }
+    known_identity_keys = _build_story_known_npc_identity_keys(existing_cards)
+    pending_identity_keys: set[str] = set()
+    for operation in operations:
+        action = _normalize_story_world_card_event_action(str(operation.get("action", "")))
+        if action not in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}:
+            continue
+        op_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
+        if op_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+            continue
+        operation_title = " ".join(str(operation.get("title", "")).split()).strip()
+        if not operation_title:
+            continue
+        raw_operation_triggers = operation.get("triggers")
+        operation_triggers = (
+            [item for item in raw_operation_triggers if isinstance(item, str)]
+            if isinstance(raw_operation_triggers, list)
+            else []
+        )
+        pending_identity_keys.update(_build_story_identity_keys(operation_title, operation_triggers))
 
     for mention in npc_mentions:
         if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
@@ -1274,8 +1356,18 @@ def _append_missing_story_npc_card_operations(
         name = " ".join(str(mention.get("name", "")).split()).strip()
         if not name:
             continue
-        title_key = name.casefold()
-        if title_key in known_title_keys or title_key in pending_title_keys:
+        mention_triggers = _normalize_story_world_card_triggers([name], fallback_title=name)
+        if _is_story_npc_identity_duplicate(
+            candidate_name=name,
+            candidate_triggers=mention_triggers,
+            known_identity_keys=known_identity_keys,
+        ):
+            continue
+        if _is_story_npc_identity_duplicate(
+            candidate_name=name,
+            candidate_triggers=mention_triggers,
+            known_identity_keys=pending_identity_keys,
+        ):
             continue
 
         dialogues = mention.get("dialogues")
@@ -1286,12 +1378,12 @@ def _append_missing_story_npc_card_operations(
                 "action": STORY_WORLD_CARD_EVENT_ADDED,
                 "title": name,
                 "content": content,
-                "triggers": _normalize_story_world_card_triggers([name], fallback_title=name),
+                "triggers": mention_triggers,
                 "kind": STORY_WORLD_CARD_KIND_NPC,
                 "changed_text": content,
             }
         )
-        pending_title_keys.add(title_key)
+        pending_identity_keys.update(_build_story_identity_keys(name, mention_triggers))
 
     return operations
 
@@ -1308,11 +1400,7 @@ def _ensure_story_npc_cards_from_dialogue(
         return []
 
     existing_cards = _list_story_world_cards(db, game.id)
-    existing_title_keys = {
-        " ".join(card.title.split()).strip().casefold()
-        for card in existing_cards
-        if " ".join(card.title.split()).strip()
-    }
+    existing_identity_keys = _build_story_known_npc_identity_keys(existing_cards)
 
     events: list[StoryWorldCardChangeEvent] = []
     for mention in npc_mentions:
@@ -1320,14 +1408,17 @@ def _ensure_story_npc_cards_from_dialogue(
         if not raw_name:
             continue
         title_value = _normalize_story_world_card_title(raw_name)
-        title_key = title_value.casefold()
-        if title_key in existing_title_keys:
+        triggers_value = _normalize_story_world_card_triggers([title_value], fallback_title=title_value)
+        if _is_story_npc_identity_duplicate(
+            candidate_name=title_value,
+            candidate_triggers=triggers_value,
+            known_identity_keys=existing_identity_keys,
+        ):
             continue
 
         dialogues = mention.get("dialogues")
         dialogue_values = [item for item in dialogues if isinstance(item, str)] if isinstance(dialogues, list) else []
         content_value = _build_story_npc_fallback_content(title_value, assistant_text, dialogue_values)
-        triggers_value = _normalize_story_world_card_triggers([title_value], fallback_title=title_value)
 
         card = StoryWorldCard(
             game_id=game.id,
@@ -1362,7 +1453,7 @@ def _ensure_story_npc_cards_from_dialogue(
         )
         db.add(event)
         events.append(event)
-        existing_title_keys.add(title_key)
+        existing_identity_keys.update(_build_story_identity_keys(title_value, triggers_value))
 
     if not events:
         return []
@@ -2849,25 +2940,25 @@ def _apply_story_world_card_change_operations(
             card_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
             normalized_title = _normalize_story_world_card_title(title_value)
             normalized_content = _normalize_story_world_card_content(content_value)
-            title_key = normalized_title.casefold()
+            normalized_triggers = _normalize_story_world_card_triggers(
+                [item for item in triggers_value if isinstance(item, str)],
+                fallback_title=title_value,
+            )
 
             duplicate_npc_exists = False
             if card_kind == STORY_WORLD_CARD_KIND_NPC:
+                candidate_name = normalized_title
                 for existing_card in existing_by_id.values():
-                    if _normalize_story_world_card_kind(existing_card.kind) != STORY_WORLD_CARD_KIND_NPC:
+                    existing_kind = _normalize_story_world_card_kind(existing_card.kind)
+                    if existing_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
                         continue
-                    existing_title_key = " ".join(existing_card.title.split()).strip().casefold()
-                    if not existing_title_key:
-                        continue
-                    if title_key == existing_title_key:
-                        duplicate_npc_exists = True
-                        break
-                    shorter_key, longer_key = (
-                        (title_key, existing_title_key)
-                        if len(title_key) <= len(existing_title_key)
-                        else (existing_title_key, title_key)
-                    )
-                    if len(shorter_key) >= 4 and longer_key.startswith(shorter_key):
+                    existing_triggers = _deserialize_story_world_card_triggers(existing_card.triggers)
+                    existing_identity_keys = _build_story_identity_keys(existing_card.title, existing_triggers)
+                    if _is_story_npc_identity_duplicate(
+                        candidate_name=candidate_name,
+                        candidate_triggers=normalized_triggers,
+                        known_identity_keys=existing_identity_keys,
+                    ):
                         duplicate_npc_exists = True
                         break
             if duplicate_npc_exists:
@@ -2878,10 +2969,7 @@ def _apply_story_world_card_change_operations(
                 title=normalized_title,
                 content=normalized_content,
                 triggers=_serialize_story_world_card_triggers(
-                    _normalize_story_world_card_triggers(
-                        [item for item in triggers_value if isinstance(item, str)],
-                        fallback_title=title_value,
-                    )
+                    normalized_triggers
                 ),
                 kind=card_kind,
                 avatar_url=None,
