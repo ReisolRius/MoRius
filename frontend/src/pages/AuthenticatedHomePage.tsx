@@ -1046,24 +1046,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Stack>
             <Stack direction="row" spacing={0.75} alignItems="center">
               <IconButton
-                aria-label="Прокрутить миры влево"
-                onClick={() => handleScrollCommunityWorlds('left')}
-                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
-                sx={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: '10px',
-                  border: `1px solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
-                  '&:hover': {
-                    backgroundColor: APP_BUTTON_HOVER,
-                  },
-                }}
-              >
-                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
-              </IconButton>
-              <IconButton
                 aria-label="Прокрутить миры вправо"
                 onClick={() => handleScrollCommunityWorlds('right')}
                 disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
@@ -1080,6 +1062,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 }}
               >
                 <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9, transform: 'rotate(180deg)' }} />
+              </IconButton>
+              <IconButton
+                aria-label="Прокрутить миры влево"
+                onClick={() => handleScrollCommunityWorlds('left')}
+                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '10px',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
+                }}
+              >
+                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
               </IconButton>
               <Button
                 onClick={() => onNavigate('/games/all')}

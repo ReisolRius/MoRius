@@ -152,6 +152,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
+          { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
           { key: 'community-worlds', label: 'Комьюнити миры', isActive: true, onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
