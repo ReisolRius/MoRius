@@ -454,23 +454,34 @@ function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps)
 function UserAvatar({ user, size = 44 }: UserAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const fallbackLabel = user.display_name || user.email
+  const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
 
   if (user.avatar_url && user.avatar_url !== failedImageUrl) {
     return (
       <Box
-        component="img"
-        src={user.avatar_url}
-        alt={fallbackLabel}
-        onError={() => setFailedImageUrl(user.avatar_url)}
         sx={{
           width: size,
           height: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
-          objectFit: 'cover',
+          overflow: 'hidden',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={user.avatar_url}
+          alt={fallbackLabel}
+          onError={() => setFailedImageUrl(user.avatar_url)}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${avatarScale})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </Box>
     )
   }
 
@@ -479,20 +490,17 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
 
 type CharacterAvatarProps = {
   avatarUrl: string | null
+  avatarScale?: number
   fallbackLabel: string
   size?: number
 }
 
-function CharacterAvatar({ avatarUrl, fallbackLabel, size = 44 }: CharacterAvatarProps) {
+function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 }: CharacterAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
 
   if (avatarUrl && avatarUrl !== failedImageUrl) {
     return (
       <Box
-        component="img"
-        src={avatarUrl}
-        alt={fallbackLabel}
-        onError={() => setFailedImageUrl(avatarUrl)}
         sx={{
           display: 'block',
           width: size,
@@ -501,13 +509,27 @@ function CharacterAvatar({ avatarUrl, fallbackLabel, size = 44 }: CharacterAvata
           minHeight: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
-          objectFit: 'cover',
-          objectPosition: 'center',
+          overflow: 'hidden',
           aspectRatio: '1 / 1',
           flexShrink: 0,
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={avatarUrl}
+          alt={fallbackLabel}
+          onError={() => setFailedImageUrl(avatarUrl)}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            objectPosition: 'center',
+            transform: `scale(${Math.max(1, Math.min(3, avatarScale))})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </Box>
     )
   }
 
@@ -3523,7 +3545,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       },
                     }}
                   >
-                    <CharacterAvatar avatarUrl={mainHeroAvatarUrl} fallbackLabel={mainHeroCard.title} size={28} />
+                    <CharacterAvatar avatarUrl={mainHeroAvatarUrl} avatarScale={mainHeroCard.avatar_scale} fallbackLabel={mainHeroCard.title} size={28} />
                     <Stack spacing={0.05} sx={{ minWidth: 0 }}>
                       <Typography
                         sx={{
@@ -3632,7 +3654,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     lineHeight: 0,
                                   }}
                                 >
-                                  <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} fallbackLabel={card.title} size={30} />
+                                  <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} avatarScale={card.avatar_scale} fallbackLabel={card.title} size={30} />
                                 </Button>
                               ) : null}
                               <Typography
@@ -5139,6 +5161,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   >
                     <CharacterAvatar
                       avatarUrl={characterAvatarDraft}
+                      avatarScale={1}
                       fallbackLabel={characterNameDraft || 'Персонаж'}
                       size={76}
                     />
@@ -5274,7 +5297,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       }}
                     >
                       <Stack direction="row" spacing={0.7} alignItems="flex-start">
-                        <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
+                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
                         <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.28}>
                           <Typography sx={{ color: '#e2e8f3', fontWeight: 700, fontSize: '0.94rem' }}>{character.name}</Typography>
                           <Typography
@@ -5345,7 +5368,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         }}
                       >
                         <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
-                          <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={34} />
+                          <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
                           <Stack spacing={0.25} sx={{ minWidth: 0 }}>
                             <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: '#e2e8f3' }}>{character.name}</Typography>
                             <Typography

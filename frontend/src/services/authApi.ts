@@ -115,13 +115,17 @@ export async function getCurrentUser(token: string): Promise<AuthUser> {
 export async function updateCurrentUserAvatar(payload: {
   token: string
   avatar_url: string | null
+  avatar_scale?: number
 }): Promise<AuthUser> {
   return request<AuthUser>('/api/auth/me/avatar', {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({ avatar_url: payload.avatar_url }),
+    body: JSON.stringify({
+      avatar_url: payload.avatar_url,
+      avatar_scale: payload.avatar_scale ?? null,
+    }),
   })
 }
 

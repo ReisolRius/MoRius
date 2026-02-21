@@ -30,12 +30,26 @@ function isAuthenticatedPath(pathname: string): boolean {
     pathname === '/dashboard' ||
     pathname === '/games' ||
     pathname.startsWith('/games/') ||
-    pathname === '/worlds/new'
+    pathname === '/worlds/new' ||
+    /^\/worlds\/\d+\/edit$/.test(pathname)
   )
 }
 
 function extractStoryGameId(pathname: string): number | null {
   const match = /^\/home\/(\d+)$/.exec(pathname)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number.parseInt(match[1], 10)
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
+}
+
+function extractWorldEditGameId(pathname: string): number | null {
+  const match = /^\/worlds\/(\d+)\/edit$/.exec(pathname)
   if (!match) {
     return null
   }
@@ -188,10 +202,11 @@ function App() {
 
   const isAuthenticated = Boolean(authToken && authUser)
   const initialGameId = extractStoryGameId(path)
+  const worldEditGameId = extractWorldEditGameId(path)
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowMyGamesPage = isAuthenticated && (path === '/games' || path === '/games/all')
-  const shouldShowWorldCreatePage = isAuthenticated && path === '/worlds/new'
+  const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
   if (shouldShowBootScreen) {
@@ -293,6 +308,7 @@ function App() {
       <WorldCreatePage
         user={authUser}
         authToken={authToken!}
+        editingGameId={worldEditGameId}
         onNavigate={navigate}
       />
     )

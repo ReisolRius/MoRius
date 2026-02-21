@@ -12,6 +12,7 @@ class UserOut(BaseModel):
     email: EmailStr
     display_name: str | None
     avatar_url: str | None
+    avatar_scale: float
     auth_provider: str
     coins: int
     created_at: datetime
@@ -38,6 +39,7 @@ class GoogleAuthRequest(BaseModel):
 
 class AvatarUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
 class AuthResponse(BaseModel):
@@ -83,11 +85,25 @@ class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4_000)
     visibility: str | None = Field(default=None, max_length=16)
+    cover_image_url: str | None = Field(default=None, max_length=2_000_000)
+    cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
+    cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
     context_limit_chars: int | None = Field(default=None, ge=500, le=5_000)
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
     context_limit_chars: int = Field(ge=500, le=5_000)
+
+
+class StoryGameMetaUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=4_000)
+    visibility: str | None = Field(default=None, max_length=16)
+    cover_image_url: str | None = Field(default=None, max_length=2_000_000)
+    cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
+    cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
 
 
 class StoryInstructionCardInput(BaseModel):
@@ -117,6 +133,7 @@ class StoryWorldCardCreateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     character_id: int | None = Field(default=None, ge=1)
 
 
@@ -128,6 +145,7 @@ class StoryWorldCardUpdateRequest(BaseModel):
 
 class StoryWorldCardAvatarUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
 class StoryWorldCardAiEditUpdateRequest(BaseModel):
@@ -139,6 +157,7 @@ class StoryCharacterCreateRequest(BaseModel):
     description: str = Field(min_length=1, max_length=4_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
 class StoryCharacterUpdateRequest(BaseModel):
@@ -146,6 +165,7 @@ class StoryCharacterUpdateRequest(BaseModel):
     description: str = Field(min_length=1, max_length=4_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
 class StoryCharacterAssignRequest(BaseModel):
@@ -200,6 +220,7 @@ class StoryWorldCardOut(BaseModel):
     triggers: list[str]
     kind: str
     avatar_url: str | None
+    avatar_scale: float
     character_id: int | None
     is_locked: bool
     ai_edit_enabled: bool
@@ -215,6 +236,7 @@ class StoryCharacterOut(BaseModel):
     description: str
     triggers: list[str]
     avatar_url: str | None
+    avatar_scale: float
     source: str
     created_at: datetime
     updated_at: datetime
@@ -259,6 +281,7 @@ class StoryWorldCardSnapshotOut(BaseModel):
     triggers: list[str]
     kind: str
     avatar_url: str | None
+    avatar_scale: float
     character_id: int | None
     is_locked: bool
     ai_edit_enabled: bool
@@ -283,6 +306,10 @@ class StoryGameSummaryOut(BaseModel):
     title: str
     description: str
     visibility: str
+    cover_image_url: str | None
+    cover_scale: float
+    cover_position_x: float
+    cover_position_y: float
     source_world_id: int | None
     community_views: int
     community_launches: int
@@ -299,6 +326,10 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     title: str
     description: str
     author_name: str
+    cover_image_url: str | None
+    cover_scale: float
+    cover_position_x: float
+    cover_position_y: float
     community_views: int
     community_launches: int
     community_rating_avg: float

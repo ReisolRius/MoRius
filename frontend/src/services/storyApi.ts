@@ -52,6 +52,7 @@ export type StoryCharacterInput = {
   description: string
   triggers: string[]
   avatar_url: string | null
+  avatar_scale?: number
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -230,6 +231,10 @@ export async function createStoryGame(payload: {
   title?: string
   description?: string
   visibility?: StoryGameVisibility
+  cover_image_url?: string | null
+  cover_scale?: number
+  cover_position_x?: number
+  cover_position_y?: number
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
     method: 'POST',
@@ -240,6 +245,10 @@ export async function createStoryGame(payload: {
       title: payload.title ?? null,
       description: payload.description ?? null,
       visibility: payload.visibility ?? null,
+      cover_image_url: payload.cover_image_url ?? null,
+      cover_scale: payload.cover_scale ?? null,
+      cover_position_x: payload.cover_position_x ?? null,
+      cover_position_y: payload.cover_position_y ?? null,
     }),
   })
 }
@@ -270,6 +279,56 @@ export async function updateStoryGameSettings(payload: {
       context_limit_chars: payload.contextLimitTokens,
     }),
   })
+}
+
+export async function updateStoryGameMeta(payload: {
+  token: string
+  gameId: number
+  title?: string
+  description?: string
+  visibility?: StoryGameVisibility
+  cover_image_url?: string | null
+  cover_scale?: number
+  cover_position_x?: number
+  cover_position_y?: number
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/meta`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title ?? null,
+      description: payload.description ?? null,
+      visibility: payload.visibility ?? null,
+      cover_image_url: payload.cover_image_url ?? null,
+      cover_scale: payload.cover_scale ?? null,
+      cover_position_x: payload.cover_position_x ?? null,
+      cover_position_y: payload.cover_position_y ?? null,
+    }),
+  })
+}
+
+export async function deleteStoryGame(payload: {
+  token: string
+  gameId: number
+}): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+  if (!response.ok) {
+    let detail = 'Request failed'
+    try {
+      const errorPayload = (await response.json()) as { detail?: string }
+      detail = errorPayload.detail || detail
+    } catch {
+      // Keep fallback detail.
+    }
+    throw new Error(detail)
+  }
 }
 
 export async function updateStoryMessage(payload: {
@@ -544,6 +603,8 @@ export async function createStoryWorldCard(payload: {
   content: string
   triggers: string[]
   kind?: 'world' | 'npc' | 'main_hero'
+  avatar_url?: string | null
+  avatar_scale?: number
 }): Promise<StoryWorldCard> {
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
     method: 'POST',
@@ -555,6 +616,8 @@ export async function createStoryWorldCard(payload: {
       content: payload.content,
       triggers: payload.triggers,
       kind: payload.kind ?? 'world',
+      avatar_url: payload.avatar_url ?? null,
+      avatar_scale: payload.avatar_scale ?? null,
     }),
   })
 }
@@ -596,6 +659,7 @@ export async function updateStoryWorldCardAvatar(payload: {
   gameId: number
   cardId: number
   avatar_url: string | null
+  avatar_scale?: number
 }): Promise<StoryWorldCard> {
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/avatar`, {
     method: 'PATCH',
@@ -604,6 +668,7 @@ export async function updateStoryWorldCardAvatar(payload: {
     },
     body: JSON.stringify({
       avatar_url: payload.avatar_url,
+      avatar_scale: payload.avatar_scale ?? null,
     }),
   })
 }

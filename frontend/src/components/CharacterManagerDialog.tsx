@@ -11,6 +11,7 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  Slider,
   Stack,
   TextField,
   Typography,
@@ -77,30 +78,41 @@ function normalizeCharacterTriggersDraft(value: string, fallbackName: string): s
 
 type CharacterAvatarProps = {
   avatarUrl: string | null
+  avatarScale?: number
   fallbackLabel: string
   size?: number
 }
 
-function CharacterAvatar({ avatarUrl, fallbackLabel, size = 44 }: CharacterAvatarProps) {
+function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 }: CharacterAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const firstSymbol = fallbackLabel.trim().charAt(0).toUpperCase() || '•'
 
   if (avatarUrl && avatarUrl !== failedImageUrl) {
     return (
       <Box
-        component="img"
-        src={avatarUrl}
-        alt={fallbackLabel}
-        onError={() => setFailedImageUrl(avatarUrl)}
         sx={{
           width: size,
           height: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
-          objectFit: 'cover',
+          overflow: 'hidden',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={avatarUrl}
+          alt={fallbackLabel}
+          onError={() => setFailedImageUrl(avatarUrl)}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${Math.max(1, Math.min(3, avatarScale))})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </Box>
     )
   }
 
@@ -139,6 +151,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
   const [descriptionDraft, setDescriptionDraft] = useState('')
   const [triggersDraft, setTriggersDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
+  const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
@@ -164,6 +177,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setDescriptionDraft('')
     setTriggersDraft('')
     setAvatarDraft(null)
+    setAvatarScaleDraft(1)
     setAvatarError('')
   }, [])
 
@@ -225,6 +239,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setDescriptionDraft(character.description)
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
+    setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
     setAvatarError('')
     setIsEditorOpen(true)
   }, [deletingCharacterId, isSavingCharacter])
@@ -300,6 +315,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             description: normalizedDescription,
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
+            avatar_scale: avatarScaleDraft,
           },
         })
         setCharacters((previous) => [...previous, createdCharacter])
@@ -312,6 +328,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             description: normalizedDescription,
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
+            avatar_scale: avatarScaleDraft,
           },
         })
         setCharacters((previous) =>
@@ -327,7 +344,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     } finally {
       setIsSavingCharacter(false)
     }
-  }, [authToken, avatarDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, nameDraft, resetDraft, triggersDraft])
+  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, nameDraft, resetDraft, triggersDraft])
 
   const handleDeleteCharacter = useCallback(
     async (characterId: number) => {
@@ -461,7 +478,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                       },
                     }}
                   >
-                    <CharacterAvatar avatarUrl={avatarDraft} fallbackLabel={nameDraft || 'Персонаж'} size={64} />
+                    <CharacterAvatar avatarUrl={avatarDraft} avatarScale={avatarScaleDraft} fallbackLabel={nameDraft || 'Персонаж'} size={64} />
                     <Box
                       className="morius-character-avatar-overlay"
                       sx={{
@@ -498,6 +515,19 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                     Нажмите на аватар, чтобы заменить изображение
                   </Typography>
                 </Stack>
+                <Box>
+                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                    Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
+                  </Typography>
+                  <Slider
+                    min={1}
+                    max={3}
+                    step={0.05}
+                    value={avatarScaleDraft}
+                    onChange={(_, value) => setAvatarScaleDraft(value as number)}
+                    disabled={isSavingCharacter}
+                  />
+                </Box>
 
                 <input
                   ref={avatarInputRef}
@@ -606,7 +636,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                   >
                     <Stack spacing={0.6}>
                       <Stack direction="row" spacing={0.9} alignItems="center">
-                        <CharacterAvatar avatarUrl={character.avatar_url} fallbackLabel={character.name} size={38} />
+                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={38} />
                         <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.05}>
                           <Typography sx={{ color: '#e2e8f3', fontWeight: 700, fontSize: '0.94rem' }}>
                             {character.name}

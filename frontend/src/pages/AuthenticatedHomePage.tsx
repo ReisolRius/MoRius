@@ -19,6 +19,7 @@ import {
   DialogTitle,
   Grow,
   IconButton,
+  Slider,
   Stack,
   Typography,
   type AlertColor,
@@ -204,23 +205,34 @@ type UserAvatarProps = {
 function UserAvatar({ user, size = 44 }: UserAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const fallbackLabel = user.display_name || user.email
+  const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
 
   if (user.avatar_url && user.avatar_url !== failedImageUrl) {
     return (
       <Box
-        component="img"
-        src={user.avatar_url}
-        alt={fallbackLabel}
-        onError={() => setFailedImageUrl(user.avatar_url)}
         sx={{
           width: size,
           height: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
-          objectFit: 'cover',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
+          overflow: 'hidden',
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={user.avatar_url}
+          alt={fallbackLabel}
+          onError={() => setFailedImageUrl(user.avatar_url)}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${avatarScale})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </Box>
     )
   }
 
@@ -256,6 +268,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
+  const [avatarScaleDraft, setAvatarScaleDraft] = useState(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
   const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
@@ -273,6 +286,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    setAvatarScaleDraft(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
+  }, [user.avatar_scale])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -339,6 +356,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: dataUrl,
+        avatar_scale: avatarScaleDraft,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
@@ -360,10 +378,33 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: null,
+        avatar_scale: avatarScaleDraft,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleSaveAvatarScale = async () => {
+    if (isAvatarSaving) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: user.avatar_url,
+        avatar_scale: avatarScaleDraft,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить масштаб аватара'
       setAvatarError(detail)
     } finally {
       setIsAvatarSaving(false)
@@ -1008,23 +1049,56 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   onClick={() => void handleOpenCommunityWorld(world.id)}
                   disabled={isCommunityWorldDialogLoading}
                   sx={{
-                    p: 1.2,
+                    p: 0,
                     borderRadius: '16px',
                     border: `1px solid ${APP_BORDER_COLOR}`,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
                     textTransform: 'none',
                     textAlign: 'left',
                     alignItems: 'stretch',
                     background: APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
-                    minHeight: 206,
+                    minHeight: 256,
                     '&:hover': {
                       borderColor: 'rgba(203, 216, 234, 0.36)',
-                      backgroundColor: 'rgba(24, 36, 56, 0.46)',
+                      transform: 'translateY(-2px)',
                     },
                   }}
                 >
-                  <Stack spacing={0.6}>
-                    <Typography sx={{ fontSize: '1.2rem', fontWeight: 800, lineHeight: 1.2 }}>{world.title}</Typography>
+                  <Box
+                    sx={{
+                      minHeight: { xs: 168, md: 186 },
+                      backgroundImage: world.cover_image_url
+                        ? `url(${world.cover_image_url})`
+                        : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
+                      backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
+                      backgroundPosition: world.cover_image_url
+                        ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
+                        : 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        mt: 'auto',
+                        px: 1.2,
+                        py: 1,
+                        background:
+                          'linear-gradient(180deg, rgba(6, 9, 14, 0.22) 0%, rgba(6, 9, 14, 0.92) 50%, rgba(6, 9, 14, 0.98) 100%)',
+                      }}
+                    >
+                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.14rem', fontWeight: 800, lineHeight: 1.18 }}>
+                        {world.title}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Stack spacing={0.6} sx={{ px: 1.2, py: 1.05 }}>
+                    <Typography sx={{ fontSize: '0.001rem', lineHeight: 0, opacity: 0 }} aria-hidden>
+                      {world.title}
+                    </Typography>
                     <Typography
                       sx={{
                         color: APP_TEXT_SECONDARY,
@@ -1376,6 +1450,30 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 Удалить
               </Button>
             </Stack>
+
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={() => void handleSaveAvatarScale()}
+                disabled={isAvatarSaving}
+                sx={{ minHeight: 40, borderColor: APP_BORDER_COLOR, color: APP_TEXT_SECONDARY }}
+              >
+                Сохранить масштаб
+              </Button>
+            </Stack>
+            <Box>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>
+                Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
+              </Typography>
+              <Slider
+                min={1}
+                max={3}
+                step={0.05}
+                value={avatarScaleDraft}
+                onChange={(_, value) => setAvatarScaleDraft(value as number)}
+                disabled={isAvatarSaving}
+              />
+            </Box>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 

@@ -3,6 +3,7 @@ export type AuthUser = {
   email: string
   display_name: string | null
   avatar_url: string | null
+  avatar_scale: number
   auth_provider: string
   coins: number
   created_at: string

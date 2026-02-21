@@ -6,6 +6,10 @@ export type StoryGameSummary = {
   title: string
   description: string
   visibility: StoryGameVisibility
+  cover_image_url: string | null
+  cover_scale: number
+  cover_position_x: number
+  cover_position_y: number
   source_world_id: number | null
   community_views: number
   community_launches: number
@@ -80,6 +84,7 @@ export type StoryWorldCard = {
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
+  avatar_scale: number
   character_id: number | null
   is_locked: boolean
   ai_edit_enabled: boolean
@@ -97,6 +102,7 @@ export type StoryWorldCardSnapshot = {
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
+  avatar_scale: number
   character_id: number | null
   is_locked: boolean
   ai_edit_enabled: boolean
@@ -125,6 +131,7 @@ export type StoryCharacter = {
   description: string
   triggers: string[]
   avatar_url: string | null
+  avatar_scale: number
   source: StoryCharacterSource
   created_at: string
   updated_at: string
@@ -145,6 +152,10 @@ export type StoryCommunityWorldSummary = {
   title: string
   description: string
   author_name: string
+  cover_image_url: string | null
+  cover_scale: number
+  cover_position_x: number
+  cover_position_y: number
   community_views: number
   community_launches: number
   community_rating_avg: number

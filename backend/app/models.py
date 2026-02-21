@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -16,6 +16,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
     coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -70,6 +71,10 @@ class StoryGame(Base):
     context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=2000, server_default="2000")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
+    cover_image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    cover_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
+    cover_position_x: Mapped[float] = mapped_column(Float, nullable=False, default=50.0, server_default="50.0")
+    cover_position_y: Mapped[float] = mapped_column(Float, nullable=False, default=50.0, server_default="50.0")
     source_world_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     community_views: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_launches: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -100,6 +105,18 @@ class StoryCommunityWorldRating(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StoryCommunityWorldView(Base):
+    __tablename__ = "story_community_world_views"
+    __table_args__ = (
+        UniqueConstraint("world_id", "user_id", name="uq_story_community_world_views_world_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class StoryMessage(Base):
@@ -141,6 +158,7 @@ class StoryCharacter(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -160,6 +178,7 @@ class StoryWorldCard(Base):
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="world", server_default="world")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")

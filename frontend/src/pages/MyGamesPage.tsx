@@ -11,8 +11,10 @@ import {
   FormControl,
   Grow,
   IconButton,
+  Menu,
   MenuItem,
   Select,
+  Slider,
   Stack,
   SvgIcon,
   Typography,
@@ -32,7 +34,7 @@ import {
   updateCurrentUserAvatar,
   type CoinTopUpPlan,
 } from '../services/authApi'
-import { getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
+import { deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
@@ -287,23 +289,34 @@ function AvatarPlaceholder({ fallbackLabel, size = HEADER_AVATAR_SIZE }: AvatarP
 function UserAvatar({ user, size = HEADER_AVATAR_SIZE }: UserAvatarProps) {
   const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
   const fallbackLabel = user.display_name || user.email
+  const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
 
   if (user.avatar_url && user.avatar_url !== failedImageUrl) {
     return (
       <Box
-        component="img"
-        src={user.avatar_url}
-        alt={fallbackLabel}
-        onError={() => setFailedImageUrl(user.avatar_url)}
         sx={{
           width: size,
           height: size,
           borderRadius: '50%',
           border: '1px solid rgba(186, 202, 214, 0.28)',
-          objectFit: 'cover',
+          overflow: 'hidden',
           backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
-      />
+      >
+        <Box
+          component="img"
+          src={user.avatar_url}
+          alt={fallbackLabel}
+          onError={() => setFailedImageUrl(user.avatar_url)}
+          sx={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            transform: `scale(${avatarScale})`,
+            transformOrigin: 'center center',
+          }}
+        />
+      </Box>
     )
   }
 
@@ -327,6 +340,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
+  const [avatarScaleDraft, setAvatarScaleDraft] = useState(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
   const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
@@ -336,11 +350,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [searchQuery, setSearchQuery] = useState('')
   const [sortMode, setSortMode] = useState<GamesSortMode>('updated_desc')
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
+  const [gameMenuAnchorEl, setGameMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [gameMenuGameId, setGameMenuGameId] = useState<number | null>(null)
+  const [deletingGameId, setDeletingGameId] = useState<number | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
   }, [])
+
+  useEffect(() => {
+    setAvatarScaleDraft(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
+  }, [user.avatar_scale])
 
   const loadGames = useCallback(async () => {
     setErrorMessage('')
@@ -387,6 +408,53 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const handleOpenWorldCreator = useCallback(() => {
     onNavigate('/worlds/new')
   }, [onNavigate])
+
+  const handleOpenGameMenu = useCallback((event: MouseEvent<HTMLButtonElement>, gameId: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setGameMenuAnchorEl(event.currentTarget)
+    setGameMenuGameId(gameId)
+  }, [])
+
+  const handleCloseGameMenu = useCallback(() => {
+    setGameMenuAnchorEl(null)
+    setGameMenuGameId(null)
+  }, [])
+
+  const handleEditGameFromMenu = useCallback(() => {
+    if (!gameMenuGameId) {
+      return
+    }
+    onNavigate(`/worlds/${gameMenuGameId}/edit`)
+    handleCloseGameMenu()
+  }, [gameMenuGameId, handleCloseGameMenu, onNavigate])
+
+  const handleDeleteGameFromMenu = useCallback(async () => {
+    if (!gameMenuGameId || deletingGameId !== null) {
+      return
+    }
+    setDeletingGameId(gameMenuGameId)
+    setErrorMessage('')
+    try {
+      await deleteStoryGame({
+        token: authToken,
+        gameId: gameMenuGameId,
+      })
+      setGames((previous) => previous.filter((game) => game.id !== gameMenuGameId))
+      setGamePreviews((previous) => {
+        const next = { ...previous }
+        delete next[gameMenuGameId]
+        return next
+      })
+      setGameMenuAnchorEl(null)
+      setGameMenuGameId(null)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось удалить мир'
+      setErrorMessage(detail)
+    } finally {
+      setDeletingGameId(null)
+    }
+  }, [authToken, deletingGameId, gameMenuGameId])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -453,6 +521,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: dataUrl,
+        avatar_scale: avatarScaleDraft,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
@@ -474,10 +543,32 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: null,
+        avatar_scale: avatarScaleDraft,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleSaveAvatarScale = async () => {
+    if (isAvatarSaving) {
+      return
+    }
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: user.avatar_url,
+        avatar_scale: avatarScaleDraft,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить масштаб аватара'
       setAvatarError(detail)
     } finally {
       setIsAvatarSaving(false)
@@ -936,130 +1027,176 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             >
               {visibleGames.map((game) => {
                 const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
+                const hasCover = Boolean(game.cover_image_url)
                 return (
-                  <Button
-                    key={game.id}
-                    onClick={() => onNavigate(`/home/${game.id}`)}
-                    sx={{
-                      borderRadius: '20px',
-                      minHeight: { xs: 300, md: 330 },
-                      p: 0,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'stretch',
-                      textTransform: 'none',
-                      textAlign: 'left',
-                      border: `1px solid ${APP_BORDER_COLOR}`,
-                      overflow: 'hidden',
-                      background: APP_CARD_BACKGROUND,
-                      color: APP_TEXT_PRIMARY,
-                      transition: 'transform 180ms ease, border-color 180ms ease',
-                      '&:hover': {
-                        borderColor: 'rgba(203, 216, 234, 0.38)',
-                        transform: 'translateY(-2px)',
-                      },
-                    }}
-                  >
-                    <Box
+                  <Box key={game.id} sx={{ position: 'relative' }}>
+                    <Button
+                      onClick={() => onNavigate(`/home/${game.id}`)}
                       sx={{
-                        minHeight: { xs: 174, md: 194 },
-                        backgroundImage: buildCardArtwork(game.id),
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
-                        position: 'relative',
+                        borderRadius: '20px',
+                        minHeight: { xs: 320, md: 340 },
+                        p: 0,
+                        width: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'stretch',
+                        textTransform: 'none',
+                        textAlign: 'left',
+                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        overflow: 'hidden',
+                        background: APP_CARD_BACKGROUND,
+                        color: APP_TEXT_PRIMARY,
+                        transition: 'transform 180ms ease, border-color 180ms ease',
+                        '&:hover': {
+                          borderColor: 'rgba(203, 216, 234, 0.38)',
+                          transform: 'translateY(-2px)',
+                        },
                       }}
                     >
                       <Box
-                        aria-hidden
                         sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          background:
-                            'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
+                          minHeight: { xs: 174, md: 194 },
+                          backgroundImage: hasCover ? `url(${game.cover_image_url})` : buildCardArtwork(game.id),
+                          backgroundSize: hasCover ? `${Math.max(1, game.cover_scale || 1) * 100}%` : 'cover',
+                          backgroundPosition: hasCover ? `${game.cover_position_x || 50}% ${game.cover_position_y || 50}%` : 'center',
+                          position: 'relative',
                         }}
-                      />
-                    </Box>
-                    <Box
+                      >
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            background:
+                              'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
+                          }}
+                        />
+                      </Box>
+                      <Box
+                        sx={{
+                          width: '100%',
+                          px: { xs: 1.2, md: 1.35 },
+                          py: { xs: 1.05, md: 1.2 },
+                          background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
+                          borderTop: '1px solid rgba(88, 116, 156, 0.42)',
+                        }}
+                      >
+                        <Typography
+                          sx={{
+                            fontSize: { xs: '1.12rem', md: '1.16rem' },
+                            fontWeight: 800,
+                            lineHeight: 1.2,
+                            color: APP_TEXT_PRIMARY,
+                            mb: 0.62,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {resolveDisplayTitle(game.id)}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            color: APP_TEXT_SECONDARY,
+                            fontSize: { xs: '0.92rem', md: '0.95rem' },
+                            lineHeight: 1.4,
+                            mb: 0.95,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {gamePreviews[game.id] ?? 'Загружаем превью...'}
+                        </Typography>
+                        <Stack spacing={0.25} sx={{ mb: 0.8, minHeight: 60 }}>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
+                            {game.source_world_id
+                              ? sourceWorld
+                                ? `Комьюнити: просмотры ${sourceWorld.community_views}, запуски ${sourceWorld.community_launches}`
+                                : 'Комьюнити мир'
+                              : 'Приватный мир'}
+                          </Typography>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
+                            {game.source_world_id
+                              ? sourceWorld
+                                ? `Рейтинг ${sourceWorld.community_rating_avg.toFixed(1)} (${sourceWorld.community_rating_count})`
+                                : 'Рейтинг: откройте оценку'
+                              : 'Рейтинг недоступен'}
+                          </Typography>
+                          {game.source_world_id ? (
+                            <Button
+                              onClick={(event) => handleOpenRatingDialog(event, game)}
+                              disabled={isRatingSaving}
+                              sx={{
+                                alignSelf: 'flex-start',
+                                minHeight: 28,
+                                px: 1,
+                                py: 0.2,
+                                borderRadius: '8px',
+                                textTransform: 'none',
+                                color: APP_TEXT_PRIMARY,
+                                border: `1px solid ${APP_BORDER_COLOR}`,
+                                backgroundColor: 'rgba(34, 51, 79, 0.44)',
+                                fontSize: '0.78rem',
+                              }}
+                            >
+                              {sourceWorld?.user_rating ? `Ваша оценка: ${toStarLabel(sourceWorld.user_rating)}` : 'Оценить мир'}
+                            </Button>
+                          ) : (
+                            <Box sx={{ minHeight: 28 }} />
+                          )}
+                        </Stack>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
+                          {formatUpdatedAtLabel(game.last_activity_at)}
+                        </Typography>
+                      </Box>
+                    </Button>
+
+                    <IconButton
+                      onClick={(event) => handleOpenGameMenu(event, game.id)}
                       sx={{
-                        width: '100%',
-                        px: { xs: 1.2, md: 1.35 },
-                        py: { xs: 1.05, md: 1.2 },
-                        background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
-                        borderTop: '1px solid rgba(88, 116, 156, 0.42)',
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        zIndex: 2,
+                        width: 32,
+                        height: 32,
+                        borderRadius: '10px',
+                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'rgba(8, 12, 18, 0.6)',
+                        color: APP_TEXT_PRIMARY,
+                        fontSize: '1rem',
                       }}
                     >
-                      <Typography
-                        sx={{
-                          fontSize: { xs: '1.12rem', md: '1.16rem' },
-                          fontWeight: 800,
-                          lineHeight: 1.2,
-                          color: APP_TEXT_PRIMARY,
-                          mb: 0.62,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {resolveDisplayTitle(game.id)}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: APP_TEXT_SECONDARY,
-                          fontSize: { xs: '0.92rem', md: '0.95rem' },
-                          lineHeight: 1.4,
-                          mb: 0.95,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {gamePreviews[game.id] ?? 'Загружаем превью...'}
-                      </Typography>
-                      {game.source_world_id ? (
-                        <Stack spacing={0.3} sx={{ mb: 0.8 }}>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                            {sourceWorld
-                              ? `Комьюнити: просмотры ${sourceWorld.community_views}, запуски ${sourceWorld.community_launches}`
-                              : 'Комьюнити мир'}
-                          </Typography>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                            {sourceWorld
-                              ? `Рейтинг ${sourceWorld.community_rating_avg.toFixed(1)} (${sourceWorld.community_rating_count})`
-                              : 'Рейтинг: откройте оценку'}
-                          </Typography>
-                          <Button
-                            onClick={(event) => handleOpenRatingDialog(event, game)}
-                            disabled={isRatingSaving}
-                            sx={{
-                              alignSelf: 'flex-start',
-                              minHeight: 28,
-                              px: 1,
-                              py: 0.2,
-                              borderRadius: '8px',
-                              textTransform: 'none',
-                              color: APP_TEXT_PRIMARY,
-                              border: `1px solid ${APP_BORDER_COLOR}`,
-                              backgroundColor: 'rgba(34, 51, 79, 0.44)',
-                              fontSize: '0.78rem',
-                            }}
-                          >
-                            {sourceWorld?.user_rating ? `Ваша оценка: ${toStarLabel(sourceWorld.user_rating)}` : 'Оценить мир'}
-                          </Button>
-                        </Stack>
-                      ) : null}
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                        {formatUpdatedAtLabel(game.last_activity_at)}
-                      </Typography>
-                    </Box>
-                  </Button>
+                      ⋯
+                    </IconButton>
+                  </Box>
                 )
               })}
             </Box>
           )}
         </Box>
       </Box>
+
+      <Menu
+        anchorEl={gameMenuAnchorEl}
+        open={Boolean(gameMenuAnchorEl && gameMenuGameId !== null)}
+        onClose={handleCloseGameMenu}
+        PaperProps={{
+          sx: {
+            borderRadius: '12px',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+          },
+        }}
+      >
+        <MenuItem onClick={handleEditGameFromMenu}>Редактировать</MenuItem>
+        <MenuItem onClick={() => void handleDeleteGameFromMenu()} disabled={deletingGameId !== null}>
+          {deletingGameId === gameMenuGameId ? 'Удаляем...' : 'Удалить'}
+        </MenuItem>
+      </Menu>
 
       <Dialog
         open={Boolean(ratingDialogGame)}
@@ -1257,7 +1394,32 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               >
                 {isAvatarSaving ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Удалить'}
               </Button>
+              <Button
+                variant="outlined"
+                onClick={() => void handleSaveAvatarScale()}
+                disabled={isAvatarSaving}
+                sx={{
+                  minHeight: 40,
+                  borderColor: APP_BORDER_COLOR,
+                  color: APP_TEXT_SECONDARY,
+                }}
+              >
+                Сохранить масштаб
+              </Button>
             </Stack>
+            <Box>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>
+                Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
+              </Typography>
+              <Slider
+                min={1}
+                max={3}
+                step={0.05}
+                value={avatarScaleDraft}
+                onChange={(_, value) => setAvatarScaleDraft(value as number)}
+                disabled={isAvatarSaving}
+              />
+            </Box>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 

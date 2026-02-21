@@ -24,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from sqlalchemy import and_, inspect, or_, select, text
+from sqlalchemy import and_, delete as sa_delete, inspect, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -34,6 +34,7 @@ from app.models import (
     EmailVerification,
     StoryCharacter,
     StoryCommunityWorldRating,
+    StoryCommunityWorldView,
     StoryGame,
     StoryInstructionCard,
     StoryMessage,
@@ -60,6 +61,7 @@ from app.schemas import (
     StoryCommunityWorldRatingRequest,
     StoryCommunityWorldSummaryOut,
     StoryGameCreateRequest,
+    StoryGameMetaUpdateRequest,
     StoryGameSettingsUpdateRequest,
     StoryGameOut,
     StoryGameSummaryOut,
@@ -151,6 +153,16 @@ STORY_CHARACTER_SOURCE_AI = "ai"
 STORY_CHARACTER_MAX_NAME_LENGTH = 120
 STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 4_000
 STORY_CHARACTER_MAX_TRIGGERS = 40
+STORY_AVATAR_SCALE_MIN = 1.0
+STORY_AVATAR_SCALE_MAX = 3.0
+STORY_AVATAR_SCALE_DEFAULT = 1.0
+STORY_COVER_SCALE_MIN = 1.0
+STORY_COVER_SCALE_MAX = 3.0
+STORY_COVER_SCALE_DEFAULT = 1.0
+STORY_IMAGE_POSITION_MIN = 0.0
+STORY_IMAGE_POSITION_MAX = 100.0
+STORY_IMAGE_POSITION_DEFAULT = 50.0
+STORY_COVER_MAX_BYTES = 200 * 1024
 STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 16_000
 STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
 STORY_WORLD_CARD_EVENT_ADDED = "added"
@@ -251,11 +263,18 @@ def _ensure_user_coins_column_exists() -> None:
         return
 
     user_columns = {column["name"] for column in inspector.get_columns(User.__tablename__)}
-    if "coins" in user_columns:
+    alter_statements: list[str] = []
+    if "coins" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
+    if "avatar_scale" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0")
+
+    if not alter_statements:
         return
 
     with engine.begin() as connection:
-        connection.execute(text("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0"))
+        for statement in alter_statements:
+            connection.execute(text(statement))
 
 
 def _ensure_story_game_context_limit_column_exists() -> None:
@@ -293,6 +312,26 @@ def _ensure_story_game_community_columns_exist() -> None:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             f"ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT '{STORY_GAME_VISIBILITY_PRIVATE}'"
+        )
+    if "cover_image_url" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN cover_image_url VARCHAR(2048)"
+        )
+    if "cover_scale" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN cover_scale FLOAT NOT NULL DEFAULT 1.0"
+        )
+    if "cover_position_x" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN cover_position_x FLOAT NOT NULL DEFAULT 50.0"
+        )
+    if "cover_position_y" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN cover_position_y FLOAT NOT NULL DEFAULT 50.0"
         )
     if "source_world_id" not in existing_columns:
         alter_statements.append(
@@ -346,6 +385,11 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN avatar_url VARCHAR(2048)"
         )
+    if "avatar_scale" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0"
+        )
     if "character_id" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -368,6 +412,24 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
     with engine.begin() as connection:
         for statement in alter_statements:
             connection.execute(text(statement))
+
+
+def _ensure_story_character_avatar_scale_column_exists() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryCharacter.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryCharacter.__tablename__)}
+    if "avatar_scale" in existing_columns:
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"ALTER TABLE {StoryCharacter.__tablename__} "
+                "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0"
+            )
+        )
 
 
 def _ensure_performance_indexes_exist() -> None:
@@ -394,6 +456,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryPlotCardChangeEvent.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_ratings_world_user_id "
         f"ON {StoryCommunityWorldRating.__tablename__} (world_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_views_world_user_id "
+        f"ON {StoryCommunityWorldView.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
     )
@@ -415,6 +479,7 @@ def on_startup() -> None:
     _ensure_story_game_context_limit_column_exists()
     _ensure_story_game_community_columns_exist()
     _ensure_story_world_card_extended_columns_exist()
+    _ensure_story_character_avatar_scale_column_exists()
     _ensure_performance_indexes_exist()
 
 
@@ -615,6 +680,33 @@ def _normalize_avatar_value(raw_value: str | None) -> str | None:
     return cleaned
 
 
+def _normalize_media_scale(
+    raw_value: float | int | str | None,
+    *,
+    default: float,
+    min_value: float,
+    max_value: float,
+) -> float:
+    if raw_value is None:
+        return default
+    try:
+        numeric = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric):
+        return default
+    return round(min(max(numeric, min_value), max_value), 2)
+
+
+def _normalize_media_position(raw_value: float | int | str | None, *, default: float = STORY_IMAGE_POSITION_DEFAULT) -> float:
+    return _normalize_media_scale(
+        raw_value,
+        default=default,
+        min_value=STORY_IMAGE_POSITION_MIN,
+        max_value=STORY_IMAGE_POSITION_MAX,
+    )
+
+
 def _validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str:
     if avatar_url.startswith(("https://", "http://")):
         if len(avatar_url) > 1024:
@@ -666,6 +758,13 @@ def _validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> st
         )
 
     return avatar_url
+
+
+def _normalize_story_cover_image_url(raw_value: str | None) -> str | None:
+    normalized = _normalize_avatar_value(raw_value)
+    if normalized is None:
+        return None
+    return _validate_avatar_url(normalized, max_bytes=STORY_COVER_MAX_BYTES)
 
 
 def _is_payments_configured() -> bool:
@@ -1142,6 +1241,24 @@ def _normalize_story_character_avatar_url(raw_value: str | None) -> str | None:
     return _validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
 
 
+def _normalize_story_avatar_scale(raw_value: float | int | str | None) -> float:
+    return _normalize_media_scale(
+        raw_value,
+        default=STORY_AVATAR_SCALE_DEFAULT,
+        min_value=STORY_AVATAR_SCALE_MIN,
+        max_value=STORY_AVATAR_SCALE_MAX,
+    )
+
+
+def _normalize_story_cover_scale(raw_value: float | int | str | None) -> float:
+    return _normalize_media_scale(
+        raw_value,
+        default=STORY_COVER_SCALE_DEFAULT,
+        min_value=STORY_COVER_SCALE_MIN,
+        max_value=STORY_COVER_SCALE_MAX,
+    )
+
+
 def _normalize_story_character_triggers(values: list[str], *, fallback_name: str) -> list[str]:
     return _normalize_story_world_card_triggers(values, fallback_title=fallback_name)[:STORY_CHARACTER_MAX_TRIGGERS]
 
@@ -1154,6 +1271,7 @@ def _story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
         description=character.description,
         triggers=_deserialize_story_world_card_triggers(character.triggers),
         avatar_url=character.avatar_url,
+        avatar_scale=_normalize_story_avatar_scale(character.avatar_scale),
         source=_normalize_story_character_source(character.source),
         created_at=character.created_at,
         updated_at=character.updated_at,
@@ -1169,6 +1287,7 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         triggers=_deserialize_story_world_card_triggers(card.triggers),
         kind=_normalize_story_world_card_kind(card.kind),
         avatar_url=_normalize_avatar_value(card.avatar_url),
+        avatar_scale=_normalize_story_avatar_scale(card.avatar_scale),
         character_id=card.character_id,
         is_locked=bool(card.is_locked),
         ai_edit_enabled=bool(card.ai_edit_enabled),
@@ -1588,6 +1707,7 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
         "kind": _normalize_story_world_card_kind(card.kind),
         "avatar_url": _normalize_avatar_value(card.avatar_url),
+        "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
         "character_id": card.character_id,
         "is_locked": bool(card.is_locked),
         "ai_edit_enabled": bool(card.ai_edit_enabled),
@@ -1637,6 +1757,7 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
     kind_value = _normalize_story_world_card_kind(str(parsed.get("kind", "")))
     raw_avatar_value = parsed.get("avatar_url")
     avatar_value = _normalize_avatar_value(raw_avatar_value) if isinstance(raw_avatar_value, str) else None
+    avatar_scale_value = _normalize_story_avatar_scale(parsed.get("avatar_scale"))
     raw_is_locked = parsed.get("is_locked")
     if isinstance(raw_is_locked, bool):
         is_locked_value = raw_is_locked
@@ -1682,6 +1803,7 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         "triggers": triggers_value,
         "kind": kind_value,
         "avatar_url": avatar_value,
+        "avatar_scale": avatar_scale_value,
         "character_id": character_id,
         "is_locked": is_locked_value,
         "ai_edit_enabled": ai_edit_enabled_value,
@@ -1862,6 +1984,10 @@ def _story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         title=game.title,
         description=(game.description or "").strip(),
         visibility=_coerce_story_game_visibility(game.visibility),
+        cover_image_url=_normalize_avatar_value(game.cover_image_url),
+        cover_scale=_normalize_story_cover_scale(game.cover_scale),
+        cover_position_x=_normalize_media_position(game.cover_position_x),
+        cover_position_y=_normalize_media_position(game.cover_position_y),
         source_world_id=game.source_world_id,
         community_views=max(int(game.community_views or 0), 0),
         community_launches=max(int(game.community_launches or 0), 0),
@@ -1894,6 +2020,10 @@ def _story_community_world_summary_to_out(
         title=summary.title,
         description=summary.description,
         author_name=author_name,
+        cover_image_url=summary.cover_image_url,
+        cover_scale=summary.cover_scale,
+        cover_position_x=summary.cover_position_x,
+        cover_position_y=summary.cover_position_y,
         community_views=summary.community_views,
         community_launches=summary.community_launches,
         community_rating_avg=summary.community_rating_avg,
@@ -1967,6 +2097,7 @@ def _clone_story_world_cards_to_game(
             triggers=card.triggers,
             kind=_normalize_story_world_card_kind(card.kind),
             avatar_url=_normalize_story_character_avatar_url(card.avatar_url),
+            avatar_scale=_normalize_story_avatar_scale(card.avatar_scale),
             character_id=None,
             is_locked=bool(card.is_locked),
             ai_edit_enabled=bool(card.ai_edit_enabled),
@@ -2056,6 +2187,7 @@ def _build_story_world_card_from_character(
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
         kind=_normalize_story_world_card_kind(kind),
         avatar_url=_normalize_story_character_avatar_url(character.avatar_url),
+        avatar_scale=_normalize_story_avatar_scale(character.avatar_scale),
         character_id=character.id,
         is_locked=lock_card,
         ai_edit_enabled=True,
@@ -2140,6 +2272,7 @@ def _select_story_world_cards_for_prompt(
                         "triggers": triggers,
                         "kind": STORY_WORLD_CARD_KIND_MAIN_HERO,
                         "avatar_url": _normalize_avatar_value(main_hero_card.avatar_url),
+                        "avatar_scale": _normalize_story_avatar_scale(main_hero_card.avatar_scale),
                         "character_id": main_hero_card.character_id,
                         "is_locked": bool(main_hero_card.is_locked),
                         "source": _normalize_story_world_card_source(main_hero_card.source),
@@ -2196,6 +2329,7 @@ def _select_story_world_cards_for_prompt(
                     "triggers": triggers,
                     "kind": card_kind,
                     "avatar_url": _normalize_avatar_value(card.avatar_url),
+                    "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
                     "character_id": card.character_id,
                     "is_locked": bool(card.is_locked),
                     "source": _normalize_story_world_card_source(card.source),
@@ -3751,6 +3885,7 @@ def _restore_story_world_card_from_snapshot(
     avatar_url = _normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
     if avatar_url is not None and avatar_url.startswith("data:image/"):
         avatar_url = _normalize_story_character_avatar_url(avatar_url)
+    avatar_scale = _normalize_story_avatar_scale(snapshot.get("avatar_scale"))
     raw_triggers = snapshot.get("triggers")
     trigger_values: list[str] = []
     if isinstance(raw_triggers, list):
@@ -3807,6 +3942,7 @@ def _restore_story_world_card_from_snapshot(
             triggers=_serialize_story_world_card_triggers(triggers),
             kind=kind,
             avatar_url=avatar_url,
+            avatar_scale=avatar_scale,
             character_id=character_id,
             is_locked=is_locked,
             ai_edit_enabled=ai_edit_enabled,
@@ -3821,6 +3957,7 @@ def _restore_story_world_card_from_snapshot(
     world_card.triggers = _serialize_story_world_card_triggers(triggers)
     world_card.kind = kind
     world_card.avatar_url = avatar_url
+    world_card.avatar_scale = avatar_scale
     world_card.character_id = character_id
     world_card.is_locked = is_locked
     if has_ai_edit_enabled:
@@ -4923,6 +5060,8 @@ def update_avatar(
     user = _get_current_user(db, authorization)
     avatar_value = _normalize_avatar_value(payload.avatar_url)
     user.avatar_url = _validate_avatar_url(avatar_value) if avatar_value else None
+    if payload.avatar_scale is not None:
+        user.avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
 
     db.commit()
     db.refresh(user)
@@ -4950,12 +5089,14 @@ def create_story_character(
     normalized_description = _normalize_story_character_description(payload.description)
     normalized_triggers = _normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
     character = StoryCharacter(
         user_id=user.id,
         name=normalized_name,
         description=normalized_description,
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
         avatar_url=avatar_url,
+        avatar_scale=avatar_scale,
         source=STORY_CHARACTER_SOURCE_USER,
     )
     db.add(character)
@@ -4977,10 +5118,12 @@ def update_story_character(
     normalized_description = _normalize_story_character_description(payload.description)
     normalized_triggers = _normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
     character.name = normalized_name
     character.description = normalized_description
     character.triggers = _serialize_story_world_card_triggers(normalized_triggers)
     character.avatar_url = avatar_url
+    character.avatar_scale = avatar_scale
     character.source = _normalize_story_character_source(character.source)
     db.commit()
     db.refresh(character)
@@ -5073,9 +5216,22 @@ def get_story_community_world(
 ) -> StoryCommunityWorldOut:
     user = _get_current_user(db, authorization)
     world = _get_public_story_world_or_404(db, world_id)
-    world.community_views = max(int(world.community_views or 0), 0) + 1
-    db.commit()
-    db.refresh(world)
+    existing_view = db.scalar(
+        select(StoryCommunityWorldView).where(
+            StoryCommunityWorldView.world_id == world.id,
+            StoryCommunityWorldView.user_id == user.id,
+        )
+    )
+    if existing_view is None:
+        db.add(
+            StoryCommunityWorldView(
+                world_id=world.id,
+                user_id=user.id,
+            )
+        )
+        world.community_views = max(int(world.community_views or 0), 0) + 1
+        db.commit()
+        db.refresh(world)
 
     author = db.scalar(select(User).where(User.id == world.user_id))
     user_rating = db.scalar(
@@ -5116,6 +5272,10 @@ def launch_story_community_world(
         title=title,
         description=world.description or "",
         visibility=STORY_GAME_VISIBILITY_PRIVATE,
+        cover_image_url=_normalize_avatar_value(world.cover_image_url),
+        cover_scale=_normalize_story_cover_scale(world.cover_scale),
+        cover_position_x=_normalize_media_position(world.cover_position_x),
+        cover_position_y=_normalize_media_position(world.cover_position_y),
         source_world_id=world.id,
         community_views=0,
         community_launches=0,
@@ -5196,6 +5356,10 @@ def create_story_game(
         title = STORY_DEFAULT_TITLE
     description = _normalize_story_game_description(payload.description)
     visibility = _normalize_story_game_visibility(payload.visibility)
+    cover_image_url = _normalize_story_cover_image_url(payload.cover_image_url)
+    cover_scale = _normalize_story_cover_scale(payload.cover_scale)
+    cover_position_x = _normalize_media_position(payload.cover_position_x)
+    cover_position_y = _normalize_media_position(payload.cover_position_y)
     context_limit_chars = _normalize_story_context_limit_chars(payload.context_limit_chars)
 
     game = StoryGame(
@@ -5203,6 +5367,10 @@ def create_story_game(
         title=title,
         description=description,
         visibility=visibility,
+        cover_image_url=cover_image_url,
+        cover_scale=cover_scale,
+        cover_position_x=cover_position_x,
+        cover_position_y=cover_position_y,
         source_world_id=None,
         community_views=0,
         community_launches=0,
@@ -5256,6 +5424,92 @@ def update_story_game_settings(
     db.commit()
     db.refresh(game)
     return _story_game_summary_to_out(game)
+
+
+@app.patch("/api/story/games/{game_id}/meta", response_model=StoryGameSummaryOut)
+def update_story_game_meta(
+    game_id: int,
+    payload: StoryGameMetaUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryGameSummaryOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+
+    if payload.title is not None:
+        normalized_title = payload.title.strip()
+        game.title = normalized_title or STORY_DEFAULT_TITLE
+    if payload.description is not None:
+        game.description = _normalize_story_game_description(payload.description)
+    if payload.visibility is not None:
+        game.visibility = _normalize_story_game_visibility(payload.visibility)
+    if payload.cover_image_url is not None:
+        game.cover_image_url = _normalize_story_cover_image_url(payload.cover_image_url)
+    if payload.cover_scale is not None:
+        game.cover_scale = _normalize_story_cover_scale(payload.cover_scale)
+    if payload.cover_position_x is not None:
+        game.cover_position_x = _normalize_media_position(payload.cover_position_x)
+    if payload.cover_position_y is not None:
+        game.cover_position_y = _normalize_media_position(payload.cover_position_y)
+
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(game)
+    return _story_game_summary_to_out(game)
+
+
+@app.delete("/api/story/games/{game_id}", response_model=MessageResponse)
+def delete_story_game(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+
+    db.execute(
+        sa_delete(StoryWorldCardChangeEvent).where(
+            StoryWorldCardChangeEvent.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryPlotCardChangeEvent).where(
+            StoryPlotCardChangeEvent.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryMessage).where(
+            StoryMessage.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryInstructionCard).where(
+            StoryInstructionCard.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryPlotCard).where(
+            StoryPlotCard.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryWorldCard).where(
+            StoryWorldCard.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldRating).where(
+            StoryCommunityWorldRating.world_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldView).where(
+            StoryCommunityWorldView.world_id == game.id,
+        )
+    )
+    db.delete(game)
+    db.commit()
+    return MessageResponse(message="Game deleted")
 
 
 @app.get("/api/story/games/{game_id}/instructions", response_model=list[StoryInstructionCardOut])
@@ -5547,6 +5801,8 @@ def update_story_world_card_avatar(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
 
     world_card.avatar_url = _normalize_story_character_avatar_url(payload.avatar_url)
+    if payload.avatar_scale is not None:
+        world_card.avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
     _touch_story_game(game)
     db.commit()
     db.refresh(world_card)
@@ -5593,6 +5849,7 @@ def create_story_world_card(
     normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = _normalize_story_world_card_kind(payload.kind)
     normalized_avatar = _normalize_story_character_avatar_url(payload.avatar_url)
+    normalized_avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
         existing_main_hero = _get_story_main_hero_card(db, game.id)
         if existing_main_hero is not None:
@@ -5608,6 +5865,7 @@ def create_story_world_card(
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         avatar_url=normalized_avatar,
+        avatar_scale=normalized_avatar_scale,
         character_id=None,
         is_locked=False,
         ai_edit_enabled=True,
