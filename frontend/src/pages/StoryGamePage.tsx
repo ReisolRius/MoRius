@@ -134,6 +134,7 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
 const NPC_DIALOGUE_MARKER_PATTERN = /^\[\[NPC:([^\]]+)\]\]\s*([\s\S]*)$/i
 type WorldCardContextState = {
   isActive: boolean
+  isAlwaysActive: boolean
   turnsRemaining: number
   lastTriggerTurn: number | null
   isTriggeredThisTurn: boolean
@@ -300,6 +301,9 @@ function formatWorldCardContextStatus(state: WorldCardContextState | undefined):
   if (!state || !state.isActive) {
     return 'неактивна'
   }
+  if (state.isAlwaysActive) {
+    return 'активна'
+  }
   if (state.isTriggeredThisTurn) {
     return `активна · +${WORLD_CARD_TRIGGER_ACTIVE_TURNS} ${formatTurnsWord(WORLD_CARD_TRIGGER_ACTIVE_TURNS)}`
   }
@@ -314,6 +318,17 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
 
   const stateById = new Map<number, WorldCardContextState>()
   worldCards.forEach((card) => {
+    if (card.kind === 'main_hero') {
+      stateById.set(card.id, {
+        isActive: true,
+        isAlwaysActive: true,
+        turnsRemaining: 0,
+        lastTriggerTurn: null,
+        isTriggeredThisTurn: false,
+      })
+      return
+    }
+
     const fallbackTrigger = card.title.replace(/\s+/g, ' ').trim()
     const triggers = card.triggers
       .map((trigger) => trigger.replace(/\s+/g, ' ').trim())
@@ -349,6 +364,7 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
 
     stateById.set(card.id, {
       isActive,
+      isAlwaysActive: false,
       turnsRemaining,
       lastTriggerTurn: lastTriggerTurn > 0 ? lastTriggerTurn : null,
       isTriggeredThisTurn,
@@ -548,6 +564,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
+  const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
@@ -719,6 +736,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [characters])
   const mainHeroCard = useMemo(
     () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
+    [worldCards],
+  )
+  const displayedWorldCards = useMemo(
+    () => worldCards.filter((card) => card.kind !== 'main_hero'),
     [worldCards],
   )
   const resolveWorldCardAvatar = useCallback(
@@ -3295,16 +3316,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     Выбрать главного героя
                   </Button>
                 ) : (
-                  <Stack
-                    direction="row"
-                    alignItems="center"
-                    spacing={0.7}
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Открыть описание главного героя"
+                    onClick={() => setMainHeroPreviewOpen(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        setMainHeroPreviewOpen(true)
+                      }
+                    }}
                     sx={{
                       minHeight: 40,
                       borderRadius: '12px',
                       border: '1px solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-card-bg)',
                       px: 0.8,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 0.7,
+                      cursor: 'pointer',
+                      transition: 'border-color 180ms ease, background-color 180ms ease',
+                      '&:hover': {
+                        borderColor: 'rgba(143, 169, 199, 0.52)',
+                        backgroundColor: 'rgba(20, 25, 34, 0.92)',
+                      },
+                      '&:focus-visible': {
+                        outline: 'none',
+                        borderColor: 'rgba(168, 196, 231, 0.72)',
+                        boxShadow: '0 0 0 1px rgba(168, 196, 231, 0.42) inset',
+                      },
                     }}
                   >
                     <CharacterAvatar avatarUrl={mainHeroAvatarUrl} fallbackLabel={mainHeroCard.title} size={28} />
@@ -3326,7 +3368,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         Главный герой выбран
                       </Typography>
                     </Stack>
-                  </Stack>
+                  </Box>
                 )}
                 <Button
                   onClick={() => void handleOpenCharacterSelectorForNpc()}
@@ -3344,12 +3386,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Карточка мира активируется по триггеру и остается в контексте еще на 5 ходов.
+                Главный герой всегда активен. Остальные карточки мира активируются по триггеру и остаются в контексте еще на 5 ходов.
               </Typography>
 
-              {worldCards.length === 0 ? (
+              {displayedWorldCards.length === 0 ? (
                 <Typography sx={{ color: 'rgba(186, 202, 214, 0.64)', fontSize: '0.9rem' }}>
-                  Здесь живут персонажи, предметы и важные детали мира. Для NPC используйте выбор из «Моих персонажей».
+                  Здесь живут NPC, предметы и важные детали мира. Главный герой отображается выше.
                 </Typography>
               ) : (
                 <Box
@@ -3362,7 +3404,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 >
                   <Stack spacing={0.85}>
-                    {worldCards.map((card) => {
+                    {displayedWorldCards.map((card) => {
                       const contextState = worldCardContextStateById.get(card.id)
                       const isCardContextActive = Boolean(contextState?.isActive)
                       return (
@@ -4529,6 +4571,60 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ) : (
               'Сохранить'
             )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={mainHeroPreviewOpen && Boolean(mainHeroCard)}
+        onClose={() => setMainHeroPreviewOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
+            {mainHeroCard?.title || 'Главный герой'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.3 }}>
+          <Stack spacing={1}>
+            <Typography
+              sx={{
+                color: '#dbe2ee',
+                fontSize: '0.95rem',
+                lineHeight: 1.45,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {mainHeroCard?.content || 'Описание недоступно.'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(178, 195, 221, 0.7)', fontSize: '0.82rem', lineHeight: 1.4 }}>
+              Триггеры: {mainHeroCard?.triggers.length ? mainHeroCard.triggers.join(', ') : '—'}
+            </Typography>
+            <Typography sx={{ color: 'rgba(170, 238, 191, 0.86)', fontSize: '0.8rem', lineHeight: 1.35 }}>
+              Главный герой всегда активен и всегда учитывается в контексте.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
+          <Button onClick={() => setMainHeroPreviewOpen(false)} sx={{ color: 'text.secondary' }}>
+            Закрыть
           </Button>
         </DialogActions>
       </Dialog>

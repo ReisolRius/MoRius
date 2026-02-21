@@ -1852,7 +1852,43 @@ def _select_story_world_cards_for_prompt(
         STORY_WORLD_CARD_KIND_WORLD: 2,
     }
 
+    main_hero_card = next(
+        (
+            card
+            for card in world_cards
+            if _normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        ),
+        None,
+    )
+    if main_hero_card is not None:
+        title = " ".join(main_hero_card.title.split()).strip()
+        content = main_hero_card.content.replace("\r\n", "\n").strip()
+        if title and content:
+            triggers = _deserialize_story_world_card_triggers(main_hero_card.triggers)
+            if not triggers:
+                triggers = _normalize_story_world_card_triggers([], fallback_title=title)
+            ranked_cards.append(
+                (
+                    (-1, 0, kind_rank[STORY_WORLD_CARD_KIND_MAIN_HERO], main_hero_card.id),
+                    {
+                        "id": main_hero_card.id,
+                        "title": title,
+                        "content": content,
+                        "triggers": triggers,
+                        "kind": STORY_WORLD_CARD_KIND_MAIN_HERO,
+                        "avatar_url": _normalize_avatar_value(main_hero_card.avatar_url),
+                        "character_id": main_hero_card.character_id,
+                        "is_locked": bool(main_hero_card.is_locked),
+                        "source": _normalize_story_world_card_source(main_hero_card.source),
+                    },
+                )
+            )
+
     for card in world_cards:
+        card_kind = _normalize_story_world_card_kind(card.kind)
+        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+            continue
+
         title = " ".join(card.title.split()).strip()
         content = card.content.replace("\r\n", "\n").strip()
         if not title or not content:
@@ -1862,6 +1898,9 @@ def _select_story_world_cards_for_prompt(
         if not triggers:
             triggers = _normalize_story_world_card_triggers([], fallback_title=title)
         if not triggers:
+            continue
+
+        if current_turn_index <= 0:
             continue
 
         last_trigger_turn = 0
@@ -1878,7 +1917,6 @@ def _select_story_world_cards_for_prompt(
         if turns_since_trigger > STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS:
             continue
 
-        card_kind = _normalize_story_world_card_kind(card.kind)
         rank_key = (
             0 if turns_since_trigger == 0 else 1,
             turns_since_trigger,
