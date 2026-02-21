@@ -115,8 +115,15 @@ type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type PanelCardMenuType = 'instruction' | 'plot' | 'world'
+type DeletionTargetType = 'instruction' | 'plot' | 'world' | 'character'
 type CharacterDialogMode = 'manage' | 'select-main-hero' | 'select-npc'
 type CharacterDraftMode = 'create' | 'edit'
+type DeletionPrompt = {
+  type: DeletionTargetType
+  targetId: number
+  title: string
+  message: string
+}
 type AssistantMessageBlock =
   | { type: 'narrative'; text: string }
   | { type: 'npc'; npcName: string; text: string }
@@ -594,6 +601,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
+  const [deletionPrompt, setDeletionPrompt] = useState<DeletionPrompt | null>(null)
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
@@ -750,6 +758,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
+  const isDeletionPromptInProgress = Boolean(
+    deletionPrompt &&
+      ((deletionPrompt.type === 'instruction' && deletingInstructionId === deletionPrompt.targetId) ||
+        (deletionPrompt.type === 'plot' && deletingPlotCardId === deletionPrompt.targetId) ||
+        (deletionPrompt.type === 'world' && deletingWorldCardId === deletionPrompt.targetId) ||
+        (deletionPrompt.type === 'character' && deletingCharacterId === deletionPrompt.targetId)),
+  )
   const mainHeroCard = useMemo(
     () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
     [worldCards],
@@ -943,6 +958,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
+    setDeletionPrompt((previous) => (previous?.type === 'character' ? null : previous))
     setCharacterDialogOpen(false)
     setCharacterAvatarError('')
     if (characterDialogMode === 'manage') {
@@ -1109,9 +1125,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!selectedCharacterMenuItem) {
       return
     }
-    await handleDeleteCharacter(selectedCharacterMenuItem.id)
+    setDeletionPrompt({
+      type: 'character',
+      targetId: selectedCharacterMenuItem.id,
+      title: 'Удалить персонажа?',
+      message: `Персонаж «${selectedCharacterMenuItem.name}» будет удален из «Мои персонажи». Это действие нельзя отменить.`,
+    })
     handleCloseCharacterItemMenu()
-  }, [handleCloseCharacterItemMenu, handleDeleteCharacter, selectedCharacterMenuItem])
+  }, [handleCloseCharacterItemMenu, selectedCharacterMenuItem, setDeletionPrompt])
+
+  const handleEditMainHeroFromPreview = () => {
+    if (!mainHeroCard || isWorldCardActionLocked) {
+      return
+    }
+    handleOpenEditWorldCardDialog(mainHeroCard)
+    setMainHeroPreviewOpen(false)
+  }
 
   const ensureGameForCharacterSelection = useCallback(async (): Promise<number | null> => {
     if (activeGameId) {
@@ -2085,11 +2114,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     handleCloseCardMenu()
 
     if (targetType === 'instruction') {
-      await handleDeleteInstructionCard(targetCardId)
+      const card = instructionCards.find((item) => item.id === targetCardId)
+      const normalizedTitle = card?.title?.trim() || 'без названия'
+      setDeletionPrompt({
+        type: 'instruction',
+        targetId: targetCardId,
+        title: 'Удалить инструкцию?',
+        message: `Инструкция «${normalizedTitle}» будет удалена без возможности восстановления.`,
+      })
       return
     }
     if (targetType === 'plot') {
-      await handleDeletePlotCard(targetCardId)
+      const card = plotCards.find((item) => item.id === targetCardId)
+      const normalizedTitle = card?.title?.trim() || 'без названия'
+      setDeletionPrompt({
+        type: 'plot',
+        targetId: targetCardId,
+        title: 'Удалить карточку сюжета?',
+        message: `Карточка сюжета «${normalizedTitle}» будет удалена без возможности восстановления.`,
+      })
       return
     }
     if (targetType === 'world') {
@@ -2098,17 +2141,60 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setErrorMessage('Главного героя нельзя удалить после выбора')
         return
       }
+      const normalizedTitle = worldCard?.title?.trim() || 'без названия'
+      const worldCardLabel =
+        worldCard?.kind === 'npc' ? 'NPC-карточку' : 'карточку мира'
+      setDeletionPrompt({
+        type: 'world',
+        targetId: targetCardId,
+        title: 'Удалить карточку мира?',
+        message: `${worldCardLabel} «${normalizedTitle}» будет удалена без возможности восстановления.`,
+      })
+      return
     }
-    await handleDeleteWorldCard(targetCardId)
   }, [
     cardMenuCardId,
     cardMenuType,
     handleCloseCardMenu,
+    instructionCards,
+    plotCards,
+    setDeletionPrompt,
+    worldCards,
+    setErrorMessage,
+  ])
+
+  const handleCancelDeletionPrompt = useCallback(() => {
+    if (deletingInstructionId !== null || deletingPlotCardId !== null || deletingWorldCardId !== null || deletingCharacterId !== null) {
+      return
+    }
+    setDeletionPrompt(null)
+  }, [deletingCharacterId, deletingInstructionId, deletingPlotCardId, deletingWorldCardId])
+
+  const handleConfirmDeletionPrompt = useCallback(async () => {
+    if (!deletionPrompt) {
+      return
+    }
+    const prompt = deletionPrompt
+    setDeletionPrompt(null)
+    if (prompt.type === 'instruction') {
+      await handleDeleteInstructionCard(prompt.targetId)
+      return
+    }
+    if (prompt.type === 'plot') {
+      await handleDeletePlotCard(prompt.targetId)
+      return
+    }
+    if (prompt.type === 'world') {
+      await handleDeleteWorldCard(prompt.targetId)
+      return
+    }
+    await handleDeleteCharacter(prompt.targetId)
+  }, [
+    deletionPrompt,
+    handleDeleteCharacter,
     handleDeleteInstructionCard,
     handleDeletePlotCard,
     handleDeleteWorldCard,
-    worldCards,
-    setErrorMessage,
   ])
 
   const handleStartRightPanelResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -4397,6 +4483,53 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       </Menu>
 
       <Dialog
+        open={Boolean(deletionPrompt)}
+        onClose={handleCancelDeletionPrompt}
+        maxWidth="xs"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        PaperProps={{
+          sx: {
+            borderRadius: '16px',
+            border: '1px solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>{deletionPrompt?.title || 'Подтвердите удаление'}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'text.secondary' }}>
+            {deletionPrompt?.message || 'Это действие нельзя отменить.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={handleCancelDeletionPrompt} disabled={isDeletionPromptInProgress} sx={{ color: 'text.secondary' }}>
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleConfirmDeletionPrompt()}
+            disabled={isDeletionPromptInProgress}
+            sx={{
+              border: '1px solid rgba(228, 120, 120, 0.44)',
+              backgroundColor: 'rgba(184, 78, 78, 0.3)',
+              color: 'rgba(251, 190, 190, 0.94)',
+              '&:hover': {
+                backgroundColor: 'rgba(196, 88, 88, 0.4)',
+              },
+            }}
+          >
+            {isDeletionPromptInProgress ? (
+              <CircularProgress size={16} sx={{ color: 'rgba(251, 190, 190, 0.94)' }} />
+            ) : (
+              'Удалить'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={instructionDialogOpen}
         onClose={handleCloseInstructionDialog}
         maxWidth="sm"
@@ -4674,6 +4807,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
+          <Button
+            onClick={handleEditMainHeroFromPreview}
+            disabled={!mainHeroCard || isWorldCardActionLocked}
+            sx={{ color: 'var(--morius-text-primary)' }}
+          >
+            Редактировать
+          </Button>
           <Button onClick={() => setMainHeroPreviewOpen(false)} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
@@ -5149,79 +5289,44 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onClose={handleCloseCharacterItemMenu}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-        MenuListProps={{ disablePadding: true }}
         PaperProps={{
           sx: {
             mt: 0.5,
-            borderRadius: '14px',
+            borderRadius: '12px',
             border: '1px solid var(--morius-card-border)',
-            backgroundColor: 'var(--morius-card-bg)',
-            boxShadow: '0 20px 40px rgba(0, 0, 0, 0.46)',
-            overflow: 'hidden',
+            background: 'var(--morius-card-bg)',
+            minWidth: 176,
           },
         }}
       >
-        {selectedCharacterMenuItem ? (
-          <Box sx={{ width: 336, maxWidth: 'calc(100vw - 32px)', p: 1.1 }}>
-            <Stack spacing={0.8}>
-              <Stack direction="row" spacing={0.7} alignItems="center">
-                <CharacterAvatar avatarUrl={selectedCharacterMenuItem.avatar_url} fallbackLabel={selectedCharacterMenuItem.name} size={34} />
-                <Typography sx={{ color: '#e2e8f3', fontWeight: 800, fontSize: '1rem', lineHeight: 1.24 }}>
-                  {selectedCharacterMenuItem.name}
-                </Typography>
-              </Stack>
-              <Typography
-                className="morius-scrollbar"
-                sx={{
-                  color: 'rgba(207, 217, 232, 0.9)',
-                  fontSize: '0.9rem',
-                  lineHeight: 1.42,
-                  whiteSpace: 'pre-wrap',
-                  maxHeight: 176,
-                  overflowY: 'auto',
-                  pr: 0.2,
-                }}
-              >
-                {selectedCharacterMenuItem.description}
-              </Typography>
-              <Typography sx={{ color: 'rgba(164, 173, 182, 0.92)', fontSize: '0.82rem', lineHeight: 1.3 }}>
-                Триггеры: {selectedCharacterMenuItem.triggers.join(', ')}
-              </Typography>
-              <Stack direction="row" justifyContent="flex-end" spacing={0.6}>
-                <IconButton
-                  onClick={handleEditCharacterFromMenu}
-                  disabled={isSavingCharacter || deletingCharacterId === selectedCharacterMenuItem.id}
-                  sx={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: '10px',
-                    border: '1px solid var(--morius-card-border)',
-                    color: 'rgba(223, 229, 239, 0.94)',
-                  }}
-                >
-                  <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>✎</Box>
-                </IconButton>
-                <IconButton
-                  onClick={() => void handleDeleteCharacterFromMenu()}
-                  disabled={isSavingCharacter || deletingCharacterId === selectedCharacterMenuItem.id}
-                  sx={{
-                    width: 34,
-                    height: 34,
-                    borderRadius: '10px',
-                    border: '1px solid rgba(228, 120, 120, 0.44)',
-                    color: 'rgba(251, 190, 190, 0.94)',
-                  }}
-                >
-                  {deletingCharacterId === selectedCharacterMenuItem.id ? (
-                    <CircularProgress size={15} sx={{ color: 'rgba(251, 190, 190, 0.94)' }} />
-                  ) : (
-                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⌦</Box>
-                  )}
-                </IconButton>
-              </Stack>
-            </Stack>
-          </Box>
-        ) : null}
+        <MenuItem
+          onClick={handleEditCharacterFromMenu}
+          disabled={
+            !selectedCharacterMenuItem ||
+            isSavingCharacter ||
+            (selectedCharacterMenuItem !== null && deletingCharacterId === selectedCharacterMenuItem.id)
+          }
+          sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+        >
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
+            <Box component="span">Редактировать</Box>
+          </Stack>
+        </MenuItem>
+        <MenuItem
+          onClick={() => void handleDeleteCharacterFromMenu()}
+          disabled={
+            !selectedCharacterMenuItem ||
+            isSavingCharacter ||
+            (selectedCharacterMenuItem !== null && deletingCharacterId === selectedCharacterMenuItem.id)
+          }
+          sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+        >
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
+            <Box component="span">Удалить</Box>
+          </Stack>
+        </MenuItem>
       </Menu>
 
       <Dialog
