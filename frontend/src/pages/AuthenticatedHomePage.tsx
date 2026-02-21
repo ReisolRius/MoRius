@@ -910,7 +910,66 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         <DialogContent sx={{ pt: 0.2 }}>
           <Stack spacing={2.2}>
             <Stack direction="row" spacing={1.8} alignItems="center">
-              <UserAvatar user={user} size={84} />
+              <Box
+                role="button"
+                tabIndex={0}
+                aria-label="Изменить аватар"
+                onClick={handleChooseAvatar}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleChooseAvatar()
+                  }
+                }}
+                sx={{
+                  position: 'relative',
+                  width: 84,
+                  height: 84,
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  cursor: isAvatarSaving ? 'default' : 'pointer',
+                  outline: 'none',
+                  '&:hover .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                  '&:focus-visible .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                }}
+              >
+                <UserAvatar user={user} size={84} />
+                <Box
+                  className="morius-profile-avatar-overlay"
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(7, 11, 19, 0.58)',
+                    opacity: 0,
+                    transition: 'opacity 180ms ease',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      border: '1px solid rgba(219, 221, 231, 0.5)',
+                      backgroundColor: 'rgba(17, 20, 27, 0.78)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: APP_TEXT_PRIMARY,
+                      fontSize: '1.12rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✎
+                  </Box>
+                </Box>
+              </Box>
               <Stack spacing={0.3} sx={{ minWidth: 0 }}>
                 <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{profileName}</Typography>
                 <Typography
@@ -934,28 +993,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               onChange={handleAvatarChange}
               style={{ display: 'none' }}
             />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Stack direction="row" spacing={1}>
               <Button
                 variant="outlined"
-                onClick={handleChooseAvatar}
-                disabled={isAvatarSaving}
-                sx={{
-                  minHeight: 40,
-                  borderColor: APP_BORDER_COLOR,
-                  color: APP_TEXT_PRIMARY,
-                }}
-              >
-                {isAvatarSaving ? (
-                  <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} />
-                ) : (
-                  'Изменить аватар'
-                )}
-              </Button>
-              <Button
-                variant="text"
                 onClick={handleRemoveAvatar}
                 disabled={isAvatarSaving || !user.avatar_url}
-                sx={{ minHeight: 40, color: APP_TEXT_SECONDARY }}
+                sx={{ minHeight: 40, borderColor: APP_BORDER_COLOR, color: APP_TEXT_SECONDARY }}
               >
                 Удалить
               </Button>

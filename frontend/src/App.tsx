@@ -267,6 +267,7 @@ function App() {
         authToken={authToken!}
         mode={path === '/games/all' ? 'all' : 'my'}
         onNavigate={navigate}
+        onUserUpdate={handleUserUpdate}
         onLogout={handleLogout}
       />
     )

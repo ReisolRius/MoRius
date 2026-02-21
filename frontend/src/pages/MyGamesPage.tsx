@@ -19,9 +19,18 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
+import { useRef } from 'react'
+import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import { OPEN_CHARACTER_MANAGER_FLAG_KEY } from '../constants/storageKeys'
+import {
+  createCoinTopUpPayment,
+  getCoinTopUpPlans,
+  syncCoinTopUpPayment,
+  updateCurrentUserAvatar,
+  type CoinTopUpPlan,
+} from '../services/authApi'
 import { createStoryGame, getStoryGame, listStoryGames } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
@@ -33,7 +42,13 @@ type MyGamesPageProps = {
   authToken: string
   mode: 'my' | 'all'
   onNavigate: (path: string) => void
+  onUserUpdate: (user: AuthUser) => void
   onLogout: () => void
+}
+
+type PaymentNotice = {
+  severity: AlertColor
+  text: string
 }
 
 type AvatarPlaceholderProps = {
@@ -58,6 +73,9 @@ const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
+const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'updated_desc', label: 'Недавние' },
@@ -119,6 +137,21 @@ function sortGames(games: StoryGameSummary[], mode: GamesSortMode): StoryGameSum
     return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
   })
   return sorted
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Некорректный формат файла'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 function normalizePreview(messages: StoryMessage[]): string {
@@ -271,7 +304,7 @@ function UserAvatar({ user, size = HEADER_AVATAR_SIZE }: UserAvatarProps) {
   return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
 }
 
-function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPageProps) {
+function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout }: MyGamesPageProps) {
   const [games, setGames] = useState<StoryGameSummary[]>([])
   const [gamePreviews, setGamePreviews] = useState<Record<number, string>>({})
   const [isLoadingGames, setIsLoadingGames] = useState(true)
@@ -280,10 +313,20 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
+  const [isAvatarSaving, setIsAvatarSaving] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+  const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
+  const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
+  const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
+  const [topUpError, setTopUpError] = useState('')
+  const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
+  const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortMode, setSortMode] = useState<GamesSortMode>('updated_desc')
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
@@ -343,11 +386,26 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
+    setAvatarError('')
+  }
+
+  const handleCloseTopUpDialog = () => {
+    setTopUpDialogOpen(false)
+    setTopUpError('')
+    setActivePlanPurchaseId(null)
+  }
+
+  const handleOpenTopUpDialog = () => {
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setTopUpError('')
+    setTopUpDialogOpen(true)
   }
 
   const handleConfirmLogout = () => {
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
+    setTopUpDialogOpen(false)
     onLogout()
   }
 
@@ -355,7 +413,161 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
     localStorage.setItem(OPEN_CHARACTER_MANAGER_FLAG_KEY, '1')
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
+    setTopUpDialogOpen(false)
     onNavigate('/home')
+  }
+
+  const handleChooseAvatar = () => {
+    if (isAvatarSaving) {
+      return
+    }
+    avatarInputRef.current?.click()
+  }
+
+  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setAvatarError('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+
+    if (selectedFile.size > AVATAR_MAX_BYTES) {
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: dataUrl,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleRemoveAvatar = async () => {
+    if (isAvatarSaving) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: null,
+      })
+      onUserUpdate(updatedUser)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const loadTopUpPlans = useCallback(async () => {
+    setIsTopUpPlansLoading(true)
+    setTopUpError('')
+    try {
+      const plans = await getCoinTopUpPlans()
+      setTopUpPlans(plans)
+      setHasTopUpPlansLoaded(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить тарифы пополнения'
+      setTopUpError(detail)
+    } finally {
+      setIsTopUpPlansLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!topUpDialogOpen || hasTopUpPlansLoaded || isTopUpPlansLoading) {
+      return
+    }
+    void loadTopUpPlans()
+  }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
+
+  const syncPendingPayment = useCallback(
+    async (paymentId: string) => {
+      try {
+        const response = await syncCoinTopUpPayment({
+          token: authToken,
+          payment_id: paymentId,
+        })
+
+        onUserUpdate(response.user)
+        if (response.status === 'succeeded') {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+          setPaymentNotice({
+            severity: 'success',
+            text: `Баланс пополнен: +${response.coins} монет.`,
+          })
+          return
+        }
+
+        if (response.status === 'canceled') {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+          setPaymentNotice({
+            severity: 'error',
+            text: 'Оплата не прошла. Можно попробовать снова.',
+          })
+          return
+        }
+
+        if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
+          setPaymentNotice({
+            severity: 'info',
+            text: 'Платеж обрабатывается. Монеты будут начислены после подтверждения оплаты.',
+          })
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось проверить статус оплаты'
+        setPaymentNotice({
+          severity: 'error',
+          text: detail,
+        })
+      }
+    },
+    [authToken, onUserUpdate],
+  )
+
+  useEffect(() => {
+    const pendingPaymentId = localStorage.getItem(PENDING_PAYMENT_STORAGE_KEY)
+    if (!pendingPaymentId) {
+      return
+    }
+    void syncPendingPayment(pendingPaymentId)
+  }, [syncPendingPayment])
+
+  const handlePurchasePlan = async (planId: string) => {
+    setTopUpError('')
+    setActivePlanPurchaseId(planId)
+    try {
+      const response = await createCoinTopUpPayment({
+        token: authToken,
+        plan_id: planId,
+      })
+      localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
+      window.location.assign(response.confirmation_url)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось создать оплату'
+      setTopUpError(detail)
+      setActivePlanPurchaseId(null)
+    }
   }
 
   const resolveDisplayTitle = useCallback(
@@ -377,6 +589,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
   }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
 
   const pageTitle = mode === 'all' ? 'Все игры' : 'Мои игры'
+  const profileName = user.display_name || 'Игрок'
 
   const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
 
@@ -474,6 +687,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           {errorMessage ? (
             <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 2.2, borderRadius: '12px' }}>
               {errorMessage}
+            </Alert>
+          ) : null}
+          {paymentNotice ? (
+            <Alert severity={paymentNotice.severity} onClose={() => setPaymentNotice(null)} sx={{ mb: 2.2, borderRadius: '12px' }}>
+              {paymentNotice.text}
             </Alert>
           ) : null}
 
@@ -785,19 +1003,79 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           },
         }}
       >
-        <DialogTitle sx={{ pb: 1.2 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Профиль</Typography>
+        <DialogTitle sx={{ pb: 1.4 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.6rem' }}>Профиль</Typography>
         </DialogTitle>
+
         <DialogContent sx={{ pt: 0.2 }}>
-          <Stack spacing={2}>
-            <Stack direction="row" spacing={1.6} alignItems="center">
-              <UserAvatar user={user} size={72} />
+          <Stack spacing={2.2}>
+            <Stack direction="row" spacing={1.8} alignItems="center">
+              <Box
+                role="button"
+                tabIndex={0}
+                aria-label="Изменить аватар"
+                onClick={handleChooseAvatar}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleChooseAvatar()
+                  }
+                }}
+                sx={{
+                  position: 'relative',
+                  width: 84,
+                  height: 84,
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  cursor: isAvatarSaving ? 'default' : 'pointer',
+                  outline: 'none',
+                  '&:hover .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                  '&:focus-visible .morius-profile-avatar-overlay': {
+                    opacity: isAvatarSaving ? 0 : 1,
+                  },
+                }}
+              >
+                <UserAvatar user={user} size={84} />
+                <Box
+                  className="morius-profile-avatar-overlay"
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: 'rgba(7, 11, 19, 0.58)',
+                    opacity: 0,
+                    transition: 'opacity 180ms ease',
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      border: '1px solid rgba(219, 221, 231, 0.5)',
+                      backgroundColor: 'rgba(17, 20, 27, 0.78)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: APP_TEXT_PRIMARY,
+                      fontSize: '1.12rem',
+                      fontWeight: 700,
+                    }}
+                  >
+                    ✎
+                  </Box>
+                </Box>
+              </Box>
               <Stack spacing={0.3} sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: '1.2rem', fontWeight: 700 }}>{user.display_name || 'Игрок'}</Typography>
+                <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{profileName}</Typography>
                 <Typography
                   sx={{
                     color: 'text.secondary',
-                    fontSize: '0.92rem',
+                    fontSize: '0.94rem',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
@@ -807,22 +1085,67 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 </Typography>
               </Stack>
             </Stack>
+
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={handleAvatarChange}
+              style={{ display: 'none' }}
+            />
+            <Stack direction="row" spacing={1}>
+              <Button
+                variant="outlined"
+                onClick={handleRemoveAvatar}
+                disabled={isAvatarSaving || !user.avatar_url}
+                sx={{
+                  minHeight: 40,
+                  borderColor: APP_BORDER_COLOR,
+                  color: APP_TEXT_SECONDARY,
+                }}
+              >
+                {isAvatarSaving ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Удалить'}
+              </Button>
+            </Stack>
+
+            {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
+
             <Box
               sx={{
                 borderRadius: '12px',
                 border: `1px solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
                 px: 1.5,
-                py: 1.1,
+                py: 1.2,
               }}
             >
-              <Stack direction="row" spacing={1.1} alignItems="center">
-                <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
-                <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
-                  Монеты: {user.coins.toLocaleString('ru-RU')}
-                </Typography>
+              <Stack spacing={1.3}>
+                <Stack direction="row" spacing={1.1} alignItems="center">
+                  <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
+                  <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
+                    Монеты: {user.coins.toLocaleString('ru-RU')}
+                  </Typography>
+                </Stack>
+                <Button
+                  variant="contained"
+                  onClick={handleOpenTopUpDialog}
+                  sx={{
+                    minHeight: 40,
+                    borderRadius: '10px',
+                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: APP_BUTTON_ACTIVE,
+                    color: APP_TEXT_PRIMARY,
+                    fontWeight: 700,
+                    '&:hover': {
+                      backgroundColor: APP_BUTTON_HOVER,
+                    },
+                  }}
+                >
+                  Пополнить баланс
+                </Button>
               </Stack>
             </Box>
+
             <Button
               variant="outlined"
               onClick={handleOpenCharacterManager}
@@ -855,9 +1178,107 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             </Button>
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.6 }}>
+
+        <DialogActions sx={{ px: 3, pb: 2.4, pt: 0.6 }}>
           <Button onClick={handleCloseProfileDialog} sx={{ color: 'text.secondary' }}>
             Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={topUpDialogOpen}
+        onClose={handleCloseTopUpDialog}
+        maxWidth="md"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 0.8 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Пополнение монет</Typography>
+          <Typography sx={{ color: 'text.secondary', mt: 0.6 }}>
+            Выберите пакет и нажмите «Купить», чтобы перейти к оплате.
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={1.8}>
+            {topUpError ? <Alert severity="error">{topUpError}</Alert> : null}
+            {isTopUpPlansLoading ? (
+              <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
+                <CircularProgress size={30} />
+              </Stack>
+            ) : (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1.6,
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                }}
+              >
+                {topUpPlans.map((plan) => {
+                  const isBuying = activePlanPurchaseId === plan.id
+                  return (
+                    <Box
+                      key={plan.id}
+                      sx={{
+                        borderRadius: '14px',
+                        border: `1px solid ${APP_BORDER_COLOR}`,
+                        background: APP_CARD_BACKGROUND,
+                        px: 2,
+                        py: 2,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        minHeight: 210,
+                      }}
+                    >
+                      <Stack spacing={0.7}>
+                        <Typography sx={{ fontSize: '1.05rem', fontWeight: 700 }}>{plan.title}</Typography>
+                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+                          {plan.price_rub} ₽
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
+                          {plan.description}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
+                          +{plan.coins.toLocaleString('ru-RU')} монет
+                        </Typography>
+                      </Stack>
+                      <Button
+                        variant="contained"
+                        disabled={Boolean(activePlanPurchaseId)}
+                        onClick={() => void handlePurchasePlan(plan.id)}
+                        sx={{
+                          mt: 2,
+                          minHeight: 40,
+                          borderRadius: '10px',
+                          border: `1px solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: APP_BUTTON_ACTIVE,
+                          color: APP_TEXT_PRIMARY,
+                          fontWeight: 700,
+                          '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                        }}
+                      >
+                        {isBuying ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Купить'}
+                      </Button>
+                    </Box>
+                  )
+                })}
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button onClick={handleCloseTopUpDialog} sx={{ color: 'text.secondary' }}>
+            Назад
           </Button>
         </DialogActions>
       </Dialog>
