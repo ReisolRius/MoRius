@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from 'react'
@@ -26,13 +27,20 @@ type Selection = {
   radius: number
 }
 
-type DragState = {
-  pointerId: number
-  startPointerX: number
-  startPointerY: number
-  startCenterX: number
-  startCenterY: number
-}
+type InteractionState =
+  | {
+      type: 'move'
+      pointerId: number
+      startPointerX: number
+      startPointerY: number
+      startSelection: Selection
+    }
+  | {
+      type: 'resize'
+      pointerId: number
+      startSelection: Selection
+      startPointerDistance: number
+    }
 
 type AvatarCropDialogProps = {
   open: boolean
@@ -81,6 +89,22 @@ function getContainedImageLayout(container: Size, natural: Size): Layout {
   }
 }
 
+function getRadiusBounds(layout: Layout, centerX: number, centerY: number): { min: number; max: number } {
+  const max = Math.max(
+    12,
+    Math.min(
+      centerX - layout.x,
+      layout.x + layout.width - centerX,
+      centerY - layout.y,
+      layout.y + layout.height - centerY,
+    ),
+  )
+
+  const preferredMin = MIN_RADIUS
+  const min = Math.min(max, Math.max(12, Math.min(preferredMin, max - 2)))
+  return { min, max }
+}
+
 function AvatarCropDialog({
   open,
   imageSrc,
@@ -95,7 +119,7 @@ function AvatarCropDialog({
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 })
   const [naturalImageSize, setNaturalImageSize] = useState<Size | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
-  const [dragState, setDragState] = useState<DragState | null>(null)
+  const [interaction, setInteraction] = useState<InteractionState | null>(null)
 
   useEffect(() => {
     if (!open) {
@@ -103,7 +127,7 @@ function AvatarCropDialog({
     }
     setNaturalImageSize(null)
     setSelection(null)
-    setDragState(null)
+    setInteraction(null)
     imageRef.current = null
   }, [imageSrc, open])
 
@@ -163,9 +187,11 @@ function AvatarCropDialog({
     }
 
     setSelection((previous) => {
-      const maxRadius = Math.max(10, Math.min(imageLayout.width, imageLayout.height) / 2 - 2)
-      const initialRadius = clamp(Math.min(imageLayout.width, imageLayout.height) * 0.28, MIN_RADIUS, maxRadius)
-      const radius = previous ? clamp(previous.radius, 10, maxRadius) : initialRadius
+      const centerX = previous ? previous.centerX : imageLayout.x + imageLayout.width / 2
+      const centerY = previous ? previous.centerY : imageLayout.y + imageLayout.height / 2
+      const bounds = getRadiusBounds(imageLayout, centerX, centerY)
+      const initialRadius = clamp(Math.min(imageLayout.width, imageLayout.height) * 0.28, bounds.min, bounds.max)
+      const radius = previous ? clamp(previous.radius, bounds.min, bounds.max) : initialRadius
 
       return {
         centerX: previous
@@ -192,17 +218,12 @@ function AvatarCropDialog({
   }, [])
 
   useEffect(() => {
-    if (!dragState || !selection || !imageLayout) {
+    if (!interaction || !selection || !imageLayout) {
       return
     }
 
-    const minX = imageLayout.x + selection.radius
-    const maxX = imageLayout.x + imageLayout.width - selection.radius
-    const minY = imageLayout.y + selection.radius
-    const maxY = imageLayout.y + imageLayout.height - selection.radius
-
     const handlePointerMove = (event: PointerEvent) => {
-      if (event.pointerId !== dragState.pointerId) {
+      if (event.pointerId !== interaction.pointerId) {
         return
       }
 
@@ -211,19 +232,43 @@ function AvatarCropDialog({
         return
       }
 
-      const dx = point.x - dragState.startPointerX
-      const dy = point.y - dragState.startPointerY
+      if (interaction.type === 'move') {
+        const dx = point.x - interaction.startPointerX
+        const dy = point.y - interaction.startPointerY
+        const minX = imageLayout.x + interaction.startSelection.radius
+        const maxX = imageLayout.x + imageLayout.width - interaction.startSelection.radius
+        const minY = imageLayout.y + interaction.startSelection.radius
+        const maxY = imageLayout.y + imageLayout.height - interaction.startSelection.radius
+
+        setSelection({
+          ...interaction.startSelection,
+          centerX: clamp(interaction.startSelection.centerX + dx, minX, maxX),
+          centerY: clamp(interaction.startSelection.centerY + dy, minY, maxY),
+        })
+        return
+      }
+
+      const distanceFromCenter = Math.hypot(
+        point.x - interaction.startSelection.centerX,
+        point.y - interaction.startSelection.centerY,
+      )
+      const radiusDelta = distanceFromCenter - interaction.startPointerDistance
+      const bounds = getRadiusBounds(
+        imageLayout,
+        interaction.startSelection.centerX,
+        interaction.startSelection.centerY,
+      )
+      const nextRadius = clamp(interaction.startSelection.radius + radiusDelta, bounds.min, bounds.max)
 
       setSelection({
-        ...selection,
-        centerX: clamp(dragState.startCenterX + dx, minX, maxX),
-        centerY: clamp(dragState.startCenterY + dy, minY, maxY),
+        ...interaction.startSelection,
+        radius: nextRadius,
       })
     }
 
     const handlePointerUp = (event: PointerEvent) => {
-      if (event.pointerId === dragState.pointerId) {
-        setDragState(null)
+      if (event.pointerId === interaction.pointerId) {
+        setInteraction(null)
       }
     }
 
@@ -236,7 +281,7 @@ function AvatarCropDialog({
       window.removeEventListener('pointerup', handlePointerUp)
       window.removeEventListener('pointercancel', handlePointerUp)
     }
-  }, [dragState, getPointerInStage, imageLayout, selection])
+  }, [getPointerInStage, imageLayout, interaction, selection])
 
   const handleImageLoad = (event: SyntheticEvent<HTMLImageElement>) => {
     const image = event.currentTarget
@@ -258,12 +303,32 @@ function AvatarCropDialog({
     }
 
     event.preventDefault()
-    setDragState({
+    setInteraction({
+      type: 'move',
       pointerId: event.pointerId,
       startPointerX: point.x,
       startPointerY: point.y,
-      startCenterX: selection.centerX,
-      startCenterY: selection.centerY,
+      startSelection: selection,
+    })
+  }
+
+  const handleResizePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!selection || isSaving) {
+      return
+    }
+
+    const point = getPointerInStage(event.clientX, event.clientY)
+    if (!point) {
+      return
+    }
+
+    event.preventDefault()
+    const startDistance = Math.hypot(point.x - selection.centerX, point.y - selection.centerY)
+    setInteraction({
+      type: 'resize',
+      pointerId: event.pointerId,
+      startSelection: selection,
+      startPointerDistance: Math.max(1, startDistance),
     })
   }
 
@@ -322,6 +387,19 @@ function AvatarCropDialog({
   const holeLeft = selection ? selection.centerX - selection.radius : 0
   const holeTop = selection ? selection.centerY - selection.radius : 0
   const holeSize = selection ? selection.radius * 2 : 0
+  const overlayStyle = selection
+    ? ({
+        '--crop-center-x': `${selection.centerX}px`,
+        '--crop-center-y': `${selection.centerY}px`,
+        '--crop-radius': `${selection.radius}px`,
+      } as CSSProperties)
+    : undefined
+  const resizeHandleStyle = selection
+    ? ({
+        left: selection.centerX + selection.radius * Math.SQRT1_2,
+        top: selection.centerY + selection.radius * Math.SQRT1_2,
+      } as CSSProperties)
+    : undefined
 
   return (
     <div
@@ -356,24 +434,7 @@ function AvatarCropDialog({
 
           {selection ? (
             <>
-              <div className="avatar-crop-overlay" style={{ left: 0, top: 0, width: '100%', height: holeTop }} />
-              <div
-                className="avatar-crop-overlay"
-                style={{ left: 0, top: holeTop, width: holeLeft, height: holeSize }}
-              />
-              <div
-                className="avatar-crop-overlay"
-                style={{
-                  left: holeLeft + holeSize,
-                  top: holeTop,
-                  width: `calc(100% - ${holeLeft + holeSize}px)`,
-                  height: holeSize,
-                }}
-              />
-              <div
-                className="avatar-crop-overlay"
-                style={{ left: 0, top: holeTop + holeSize, width: '100%', height: `calc(100% - ${holeTop + holeSize}px)` }}
-              />
+              <div className="avatar-crop-overlay" style={overlayStyle} />
               <button
                 type="button"
                 className="avatar-crop-selection"
@@ -386,6 +447,14 @@ function AvatarCropDialog({
                   height: holeSize,
                 }}
                 aria-label="Область кадрирования аватара"
+              />
+              <button
+                type="button"
+                className="avatar-crop-resize-handle"
+                onPointerDown={handleResizePointerDown}
+                disabled={isSaving}
+                style={resizeHandleStyle}
+                aria-label="Изменить размер области кадрирования"
               />
             </>
           ) : (

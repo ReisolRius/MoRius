@@ -45,7 +45,21 @@
 
 .avatar-crop-overlay {
   position: absolute;
+  inset: 0;
+  --crop-center-x: 50%;
+  --crop-center-y: 50%;
+  --crop-radius: 120px;
   background: rgba(2, 6, 10, 0.64);
+  -webkit-mask-image: radial-gradient(
+    circle at var(--crop-center-x) var(--crop-center-y),
+    transparent calc(var(--crop-radius) - 1px),
+    #000 var(--crop-radius)
+  );
+  mask-image: radial-gradient(
+    circle at var(--crop-center-x) var(--crop-center-y),
+    transparent calc(var(--crop-radius) - 1px),
+    #000 var(--crop-radius)
+  );
   pointer-events: none;
 }
 
@@ -64,6 +78,21 @@
 }
 
 .avatar-crop-selection:disabled {
+  cursor: default;
+}
+
+.avatar-crop-resize-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(241, 246, 255, 0.94);
+  background: rgba(9, 15, 23, 0.94);
+  transform: translate(-50%, -50%);
+  cursor: nwse-resize;
+}
+
+.avatar-crop-resize-handle:disabled {
   cursor: default;
 }
 
