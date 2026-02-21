@@ -31,6 +31,7 @@ import {
 import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import AvatarCropDialog from '../components/AvatarCropDialog'
 import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createCoinTopUpPayment,
@@ -558,6 +559,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
   const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
@@ -2672,6 +2674,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
+    setAvatarCropSource(null)
     setAvatarError('')
   }
 
@@ -2713,19 +2716,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     setAvatarError('')
-    setIsAvatarSaving(true)
     try {
       const dataUrl = await readFileAsDataUrl(selectedFile)
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: dataUrl,
-      })
-      onUserUpdate(updatedUser)
+      setAvatarCropSource(dataUrl)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -2740,10 +2736,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: null,
+        avatar_scale: 1,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleSaveCroppedAvatar = async (croppedDataUrl: string) => {
+    if (isAvatarSaving) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: croppedDataUrl,
+        avatar_scale: 1,
+      })
+      onUserUpdate(updatedUser)
+      setAvatarCropSource(null)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
       setAvatarError(detail)
     } finally {
       setIsAvatarSaving(false)
@@ -5834,6 +5854,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
         </DialogActions>
       </Dialog>
+
+      <AvatarCropDialog
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource}
+        isSaving={isAvatarSaving}
+        onCancel={() => {
+          if (!isAvatarSaving) {
+            setAvatarCropSource(null)
+          }
+        }}
+        onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
     </Box>
   )
 }

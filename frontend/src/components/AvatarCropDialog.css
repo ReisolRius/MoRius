@@ -1,0 +1,131 @@
+.avatar-crop-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(2, 5, 9, 0.78);
+  backdrop-filter: blur(5px);
+}
+
+.avatar-crop-modal {
+  width: min(94vw, 860px);
+  border-radius: 18px;
+  border: 1px solid var(--morius-card-border);
+  background: var(--morius-card-bg);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.52);
+  overflow: hidden;
+}
+
+.avatar-crop-title {
+  padding: 14px 16px 10px;
+  color: var(--morius-text-primary);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.avatar-crop-stage {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 620px);
+  background: rgba(7, 11, 16, 0.95);
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+
+.avatar-crop-image {
+  position: absolute;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.avatar-crop-overlay {
+  position: absolute;
+  background: rgba(2, 6, 10, 0.64);
+  pointer-events: none;
+}
+
+.avatar-crop-selection {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(241, 246, 255, 0.94);
+  background: transparent;
+  padding: 0;
+  cursor: grab;
+  box-shadow: inset 0 0 0 1px rgba(212, 224, 241, 0.35);
+}
+
+.avatar-crop-selection:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-selection:disabled {
+  cursor: default;
+}
+
+.avatar-crop-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--morius-text-secondary);
+  font-size: 0.95rem;
+}
+
+.avatar-crop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--morius-card-border);
+}
+
+.avatar-crop-button {
+  min-height: 40px;
+  min-width: 110px;
+  border-radius: 10px;
+  border: 1px solid var(--morius-card-border);
+  font-weight: 700;
+  font-size: 0.92rem;
+}
+
+.avatar-crop-button:disabled {
+  opacity: 0.56;
+  cursor: not-allowed;
+}
+
+.avatar-crop-button--ghost {
+  background: var(--morius-card-bg);
+  color: var(--morius-text-secondary);
+}
+
+.avatar-crop-button--ghost:hover:not(:disabled) {
+  background: var(--morius-button-hover);
+}
+
+.avatar-crop-button--primary {
+  background: var(--morius-button-active);
+  color: var(--morius-text-primary);
+}
+
+.avatar-crop-button--primary:hover:not(:disabled) {
+  background: var(--morius-button-hover);
+}
+
+@media (max-width: 640px) {
+  .avatar-crop-stage {
+    height: min(62vh, 500px);
+  }
+
+  .avatar-crop-actions {
+    justify-content: stretch;
+  }
+
+  .avatar-crop-button {
+    flex: 1 1 auto;
+  }
+}

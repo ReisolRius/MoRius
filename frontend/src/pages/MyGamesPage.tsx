@@ -14,7 +14,6 @@ import {
   Menu,
   MenuItem,
   Select,
-  Slider,
   Stack,
   SvgIcon,
   Typography,
@@ -26,6 +25,7 @@ import { useRef } from 'react'
 import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import {
   createCoinTopUpPayment,
@@ -340,7 +340,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
-  const [avatarScaleDraft, setAvatarScaleDraft] = useState(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
   const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
@@ -358,10 +358,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
   }, [])
-
-  useEffect(() => {
-    setAvatarScaleDraft(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
-  }, [user.avatar_scale])
 
   const loadGames = useCallback(async () => {
     setErrorMessage('')
@@ -484,6 +480,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
+    setAvatarCropSource(null)
     setAvatarError('')
   }
 
@@ -540,20 +537,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
 
     setAvatarError('')
-    setIsAvatarSaving(true)
     try {
       const dataUrl = await readFileAsDataUrl(selectedFile)
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: dataUrl,
-        avatar_scale: avatarScaleDraft,
-      })
-      onUserUpdate(updatedUser)
+      setAvatarCropSource(dataUrl)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -568,7 +557,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: null,
-        avatar_scale: avatarScaleDraft,
+        avatar_scale: 1,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
@@ -579,21 +568,23 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
   }
 
-  const handleSaveAvatarScale = async () => {
+  const handleSaveCroppedAvatar = async (croppedDataUrl: string) => {
     if (isAvatarSaving) {
       return
     }
+
     setAvatarError('')
     setIsAvatarSaving(true)
     try {
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
-        avatar_url: user.avatar_url,
-        avatar_scale: avatarScaleDraft,
+        avatar_url: croppedDataUrl,
+        avatar_scale: 1,
       })
       onUserUpdate(updatedUser)
+      setAvatarCropSource(null)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить масштаб аватара'
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
       setAvatarError(detail)
     } finally {
       setIsAvatarSaving(false)
@@ -1419,32 +1410,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               >
                 {isAvatarSaving ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Удалить'}
               </Button>
-              <Button
-                variant="outlined"
-                onClick={() => void handleSaveAvatarScale()}
-                disabled={isAvatarSaving}
-                sx={{
-                  minHeight: 40,
-                  borderColor: APP_BORDER_COLOR,
-                  color: APP_TEXT_SECONDARY,
-                }}
-              >
-                Сохранить масштаб
-              </Button>
             </Stack>
-            <Box>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>
-                Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
-              </Typography>
-              <Slider
-                min={1}
-                max={3}
-                step={0.05}
-                value={avatarScaleDraft}
-                onChange={(_, value) => setAvatarScaleDraft(value as number)}
-                disabled={isAvatarSaving}
-              />
-            </Box>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 
@@ -1660,6 +1626,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           </Button>
         </DialogActions>
       </Dialog>
+
+      <AvatarCropDialog
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource}
+        isSaving={isAvatarSaving}
+        onCancel={() => {
+          if (!isAvatarSaving) {
+            setAvatarCropSource(null)
+          }
+        }}
+        onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
 
       <CharacterManagerDialog
         open={characterManagerOpen}

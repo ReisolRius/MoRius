@@ -20,7 +20,6 @@ import {
   DialogTitle,
   Grow,
   IconButton,
-  Slider,
   Stack,
   Typography,
   type AlertColor,
@@ -28,6 +27,7 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
@@ -269,7 +269,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
-  const [avatarScaleDraft, setAvatarScaleDraft] = useState(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
   const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
@@ -289,13 +289,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const communityWorldsSliderRef = useRef<HTMLDivElement | null>(null)
 
-  useEffect(() => {
-    setAvatarScaleDraft(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
-  }, [user.avatar_scale])
-
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
+    setAvatarCropSource(null)
     setAvatarError('')
   }
 
@@ -352,20 +349,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
 
     setAvatarError('')
-    setIsAvatarSaving(true)
     try {
       const dataUrl = await readFileAsDataUrl(selectedFile)
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: dataUrl,
-        avatar_scale: avatarScaleDraft,
-      })
-      onUserUpdate(updatedUser)
+      setAvatarCropSource(dataUrl)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -380,7 +369,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
         avatar_url: null,
-        avatar_scale: avatarScaleDraft,
+        avatar_scale: 1,
       })
       onUserUpdate(updatedUser)
     } catch (error) {
@@ -391,7 +380,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }
 
-  const handleSaveAvatarScale = async () => {
+  const handleSaveCroppedAvatar = async (croppedDataUrl: string) => {
     if (isAvatarSaving) {
       return
     }
@@ -401,12 +390,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     try {
       const updatedUser = await updateCurrentUserAvatar({
         token: authToken,
-        avatar_url: user.avatar_url,
-        avatar_scale: avatarScaleDraft,
+        avatar_url: croppedDataUrl,
+        avatar_scale: 1,
       })
       onUserUpdate(updatedUser)
+      setAvatarCropSource(null)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить масштаб аватара'
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
       setAvatarError(detail)
     } finally {
       setIsAvatarSaving(false)
@@ -1046,8 +1036,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Stack>
             <Stack direction="row" spacing={0.75} alignItems="center">
               <IconButton
-                aria-label="Прокрутить миры вправо"
-                onClick={() => handleScrollCommunityWorlds('right')}
+                aria-label="Прокрутить миры влево"
+                onClick={() => handleScrollCommunityWorlds('left')}
                 disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
                 sx={{
                   width: 38,
@@ -1064,8 +1054,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9, transform: 'rotate(180deg)' }} />
               </IconButton>
               <IconButton
-                aria-label="Прокрутить миры влево"
-                onClick={() => handleScrollCommunityWorlds('left')}
+                aria-label="Прокрутить миры вправо"
+                onClick={() => handleScrollCommunityWorlds('right')}
                 disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
                 sx={{
                   width: 38,
@@ -1560,30 +1550,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               </Button>
             </Stack>
 
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                onClick={() => void handleSaveAvatarScale()}
-                disabled={isAvatarSaving}
-                sx={{ minHeight: 40, borderColor: APP_BORDER_COLOR, color: APP_TEXT_SECONDARY }}
-              >
-                Сохранить масштаб
-              </Button>
-            </Stack>
-            <Box>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>
-                Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
-              </Typography>
-              <Slider
-                min={1}
-                max={3}
-                step={0.05}
-                value={avatarScaleDraft}
-                onChange={(_, value) => setAvatarScaleDraft(value as number)}
-                disabled={isAvatarSaving}
-              />
-            </Box>
-
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 
             <Box
@@ -1804,6 +1770,18 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           </Button>
         </DialogActions>
       </Dialog>
+
+      <AvatarCropDialog
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource}
+        isSaving={isAvatarSaving}
+        onCancel={() => {
+          if (!isAvatarSaving) {
+            setAvatarCropSource(null)
+          }
+        }}
+        onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
 
       <CharacterManagerDialog
         open={characterManagerOpen}
