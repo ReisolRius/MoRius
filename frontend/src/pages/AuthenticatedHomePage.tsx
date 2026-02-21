@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type ReactElement,
   type Ref,
+  type WheelEvent,
 } from 'react'
 import {
   Alert,
@@ -286,6 +287,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const communityWorldsSliderRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     setAvatarScaleDraft(Math.max(1, Math.min(3, user.avatar_scale ?? 1)))
@@ -649,8 +651,31 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setSelectedNewsItem(null)
   }
 
+  const handleScrollCommunityWorlds = useCallback((direction: 'left' | 'right') => {
+    const slider = communityWorldsSliderRef.current
+    if (!slider) {
+      return
+    }
+
+    const scrollStep = Math.max(300, slider.clientWidth * 0.9)
+    slider.scrollBy({
+      left: direction === 'left' ? -scrollStep : scrollStep,
+      behavior: 'smooth',
+    })
+  }, [])
+
+  const handleCommunityWorldsWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+      return
+    }
+
+    event.preventDefault()
+    event.currentTarget.scrollLeft += event.deltaY
+  }, [])
+
   const profileName = user.display_name || 'Игрок'
   const isQuickStartBusy = Boolean(quickStartTarget)
+  const communityWorldsPreview = communityWorlds.slice(0, 9)
   const dashboardView = 'welcome' as const
 
   return (
@@ -670,7 +695,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Все игры', onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Комьюнити миры', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',
@@ -815,8 +840,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.
                   </Typography>
                   <Button
-                    onClick={() => void handleStartQuickGame()}
-                    disabled={isQuickStartBusy}
+                    onClick={() => onNavigate('/worlds/new')}
                     sx={{
                       mt: 0.6,
                       minHeight: 46,
@@ -832,7 +856,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       },
                     }}
                   >
-                    {quickStartTarget === 'blank' ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Начать новую игру'}
+                    Начать новую игру
                   </Button>
                 </Stack>
               </Box>
@@ -1005,13 +1029,77 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             ))}
           </Box>
 
-          <Stack spacing={0.45} sx={{ mb: 1.35, mt: 2.2 }}>
-            <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-              Комьюнити миры
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
-              Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
-            </Typography>
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            justifyContent="space-between"
+            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+            spacing={1}
+            sx={{ mb: 1.35, mt: 2.2 }}
+          >
+            <Stack spacing={0.45}>
+              <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+                Комьюнити миры
+              </Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
+                Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
+              </Typography>
+            </Stack>
+            <Stack direction="row" spacing={0.75} alignItems="center">
+              <IconButton
+                aria-label="Прокрутить миры влево"
+                onClick={() => handleScrollCommunityWorlds('left')}
+                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '10px',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
+                }}
+              >
+                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
+              </IconButton>
+              <IconButton
+                aria-label="Прокрутить миры вправо"
+                onClick={() => handleScrollCommunityWorlds('right')}
+                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: '10px',
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
+                }}
+              >
+                <Box component="img" src={icons.arrowback} alt="" sx={{ width: 18, height: 18, opacity: 0.9, transform: 'rotate(180deg)' }} />
+              </IconButton>
+              <Button
+                onClick={() => onNavigate('/games/all')}
+                sx={{
+                  minHeight: 38,
+                  px: 1.35,
+                  borderRadius: '10px',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  border: `1px solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
+                  '&:hover': {
+                    backgroundColor: APP_BUTTON_HOVER,
+                  },
+                }}
+              >
+                Показать все
+              </Button>
+            </Stack>
           </Stack>
 
           {communityWorldsError ? (
@@ -1037,13 +1125,33 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           ) : (
             <Box
+              ref={communityWorldsSliderRef}
+              onWheel={handleCommunityWorldsWheel}
               sx={{
                 display: 'grid',
+                gridAutoFlow: 'column',
+                gridAutoColumns: {
+                  xs: 'minmax(268px, 86vw)',
+                  sm: 'minmax(284px, 46vw)',
+                  md: 'minmax(308px, 34vw)',
+                  xl: 'minmax(330px, 25vw)',
+                },
                 gap: 1.3,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
+                overflowX: 'auto',
+                pb: 0.7,
+                pr: 0.2,
+                scrollSnapType: 'x mandatory',
+                overscrollBehaviorX: 'contain',
+                '&::-webkit-scrollbar': {
+                  height: 8,
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  backgroundColor: 'rgba(154, 172, 196, 0.32)',
+                  borderRadius: '999px',
+                },
               }}
             >
-              {communityWorlds.map((world) => (
+              {communityWorldsPreview.map((world) => (
                 <Button
                   key={world.id}
                   onClick={() => void handleOpenCommunityWorld(world.id)}
@@ -1061,6 +1169,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     background: APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
                     minHeight: 256,
+                    scrollSnapAlign: 'start',
                     '&:hover': {
                       borderColor: 'rgba(203, 216, 234, 0.36)',
                       transform: 'translateY(-2px)',

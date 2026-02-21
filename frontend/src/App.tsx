@@ -4,6 +4,7 @@ import PublicLandingPage from './pages/PublicLandingPage'
 import AuthenticatedHomePage from './pages/AuthenticatedHomePage'
 import StoryGamePage from './pages/StoryGamePage'
 import MyGamesPage from './pages/MyGamesPage'
+import CommunityWorldsPage from './pages/CommunityWorldsPage'
 import WorldCreatePage from './pages/WorldCreatePage'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
@@ -205,7 +206,8 @@ function App() {
   const worldEditGameId = extractWorldEditGameId(path)
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
-  const shouldShowMyGamesPage = isAuthenticated && (path === '/games' || path === '/games/all')
+  const shouldShowMyGamesPage = isAuthenticated && path === '/games'
+  const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
@@ -283,9 +285,20 @@ function App() {
       <MyGamesPage
         user={authUser}
         authToken={authToken!}
-        mode={path === '/games/all' ? 'all' : 'my'}
+        mode="my"
         onNavigate={navigate}
         onUserUpdate={handleUserUpdate}
+        onLogout={handleLogout}
+      />
+    )
+  }
+
+  if (shouldShowCommunityWorldsPage && authUser) {
+    return (
+      <CommunityWorldsPage
+        user={authUser}
+        authToken={authToken!}
+        onNavigate={navigate}
         onLogout={handleLogout}
       />
     )

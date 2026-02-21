@@ -750,7 +750,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     return sortGames(filtered, sortMode)
   }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
 
-  const pageTitle = mode === 'all' ? 'Все игры' : 'Мои игры'
+  const pageTitle = mode === 'all' ? 'Комьюнити миры' : 'Мои игры'
   const profileName = user.display_name || 'Игрок'
 
   const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
@@ -772,7 +772,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Все игры', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Комьюнити миры', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',
