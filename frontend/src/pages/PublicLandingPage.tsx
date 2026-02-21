@@ -144,7 +144,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           observer.disconnect()
         }
       },
-      { threshold: 0.4 },
+      { threshold: 0.2 },
     )
 
     observer.observe(sectionNode)
@@ -280,28 +280,20 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           sx={{
             position: 'absolute',
             left: '50%',
-            bottom: { xs: -68, sm: -74, md: -86, lg: -98 },
+            bottom: { xs: -116, sm: -128, md: -146, lg: -162 },
             transform: 'translateX(-50%)',
-            width: { xs: '284%', sm: '236%', md: '192%', lg: '172%' },
-            height: { xs: 314, sm: 344, md: 404, lg: 438 },
-            overflow: 'hidden',
+            width: { xs: '182%', sm: '166%', md: '148%', lg: '136%' },
+            height: { xs: 430, sm: 470, md: 528, lg: 568 },
             zIndex: 3,
             pointerEvents: 'none',
-            WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.26) 8%, #000 28%, #000 72%, rgba(0, 0, 0, 0.34) 92%, transparent 100%)',
-            maskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.26) 8%, #000 28%, #000 72%, rgba(0, 0, 0, 0.34) 92%, transparent 100%)',
-            '&::before': {
+            overflow: 'hidden',
+            '&::after': {
               content: '""',
               position: 'absolute',
-              left: '-4%',
-              right: '-4%',
-              top: { xs: '44%', md: '46%' },
-              height: { xs: 34, md: 50 },
+              inset: 0,
               background:
-                'linear-gradient(90deg, transparent 0%, rgba(214, 224, 238, 0.2) 14%, rgba(214, 224, 238, 0.34) 50%, rgba(214, 224, 238, 0.2) 86%, transparent 100%)',
-              filter: 'blur(10px)',
-              mixBlendMode: 'screen',
+                'linear-gradient(180deg, rgba(4, 6, 10, 0) 18%, rgba(4, 6, 10, 0.24) 52%, rgba(2, 4, 9, 0.94) 100%)',
+              pointerEvents: 'none',
             },
           }}
         >
@@ -315,9 +307,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 50%',
-              opacity: 0.98,
-              filter: 'grayscale(1) brightness(0.93) contrast(1.28) saturate(0.72)',
+              objectPosition: '50% 86%',
+              opacity: 0.68,
+              filter: 'grayscale(1) brightness(0.76) contrast(1.1)',
             }}
           />
           <Box
@@ -330,10 +322,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 66%',
-              opacity: 0.92,
-              mixBlendMode: 'screen',
-              filter: 'grayscale(1) blur(4.4px) brightness(1.3) contrast(1.22)',
+              objectPosition: '50% 92%',
+              opacity: 0.54,
+              filter: 'grayscale(1) blur(6px) brightness(0.9) contrast(1.06)',
             }}
           />
           <Box
@@ -346,10 +337,9 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              objectPosition: '50% 76%',
-              opacity: 0.42,
-              mixBlendMode: 'screen',
-              filter: 'grayscale(1) blur(12px) brightness(1.45)',
+              objectPosition: '50% 96%',
+              opacity: 0.28,
+              filter: 'grayscale(1) blur(12px) brightness(0.95)',
             }}
           />
         </Box>
@@ -362,45 +352,16 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
           minHeight: '100svh',
           position: 'relative',
           zIndex: 1,
-          mt: { xs: -94, sm: -108, md: -132 },
           display: 'flex',
           alignItems: 'center',
-          pt: { xs: 24, sm: 26, md: 30 },
+          pt: { xs: 12, sm: 14, md: 16 },
           pb: { xs: 10, md: 12 },
           background:
-            'linear-gradient(180deg, rgba(7, 10, 15, 0.88) 0%, #02040a 30%, #02040a 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.009) 0, rgba(255,255,255,0.009) 1px, transparent 1px, transparent 30px)',
-          '&::before': {
-            content: '""',
-            position: 'absolute',
-            left: '50%',
-            top: { xs: -88, md: -106 },
-            transform: 'translateX(-50%)',
-            width: { xs: '282%', sm: '230%', md: '186%', lg: '164%' },
-            height: { xs: 238, sm: 280, md: 332 },
-            backgroundImage: `url(${heroClouds})`,
-            backgroundRepeat: 'no-repeat',
-            backgroundSize: 'cover',
-            backgroundPosition: '50% 62%',
-            opacity: 0.56,
-            filter: 'grayscale(1) blur(12px) brightness(1.18)',
-            mixBlendMode: 'screen',
-            pointerEvents: 'none',
-          },
-          '&::after': {
-            content: '""',
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            top: 0,
-            height: { xs: 210, md: 250 },
-            background: 'linear-gradient(180deg, rgba(214, 224, 238, 0.18) 0%, rgba(6, 9, 14, 0.72) 26%, #02040a 100%)',
-            pointerEvents: 'none',
-          },
+            'linear-gradient(180deg, rgba(4, 7, 12, 0.98) 0%, #02040a 24%, #02040a 100%), repeating-linear-gradient(120deg, rgba(255,255,255,0.008) 0, rgba(255,255,255,0.008) 1px, transparent 1px, transparent 32px)',
         }}
       >
         <Container maxWidth="lg" sx={{ width: '100%', position: 'relative', zIndex: 2 }}>
-          <RevealOnView>
-            <Stack spacing={{ xs: 5, md: 7 }} alignItems="center">
+          <Stack spacing={{ xs: 5, md: 7 }} alignItems="center">
               <Typography
                 variant="h2"
                 sx={{
@@ -529,8 +490,7 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                   </Button>
                 </Box>
               </Box>
-            </Stack>
-          </RevealOnView>
+          </Stack>
         </Container>
       </Box>
 
