@@ -141,7 +141,7 @@ const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
 const STORY_CONTEXT_LIMIT_MIN = 500
-const STORY_CONTEXT_LIMIT_MAX = 5000
+const STORY_CONTEXT_LIMIT_MAX = 6000
 const STORY_DEFAULT_CONTEXT_LIMIT = 2000
 const RIGHT_PANEL_WIDTH_MIN = 300
 const RIGHT_PANEL_WIDTH_MAX = 460
@@ -5289,6 +5289,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Box
                     component="textarea"
                     value={characterDescriptionDraft}
+                    maxLength={6000}
                     placeholder="Описание персонажа"
                     onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setCharacterDescriptionDraft(event.target.value)}
                     sx={{
@@ -5897,5 +5898,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
+
+
+
+
 
 

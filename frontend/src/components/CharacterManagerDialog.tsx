@@ -554,7 +554,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                   minRows={4}
                   maxRows={8}
                   disabled={isSavingCharacter}
-                  inputProps={{ maxLength: 1000 }}
+                  inputProps={{ maxLength: 6000 }}
                 />
                 <TextField
                   label="Триггеры"

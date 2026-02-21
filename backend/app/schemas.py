@@ -89,11 +89,11 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=500, le=5_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=6_000)
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int = Field(ge=500, le=5_000)
+    context_limit_chars: int = Field(ge=500, le=6_000)
 
 
 class StoryGameMetaUpdateRequest(BaseModel):
@@ -129,7 +129,7 @@ class StoryInstructionCardUpdateRequest(BaseModel):
 
 class StoryWorldCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=1_000)
+    content: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
@@ -139,7 +139,7 @@ class StoryWorldCardCreateRequest(BaseModel):
 
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=1_000)
+    content: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
 
 
@@ -154,7 +154,7 @@ class StoryWorldCardAiEditUpdateRequest(BaseModel):
 
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=4_000)
+    description: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -162,7 +162,7 @@ class StoryCharacterCreateRequest(BaseModel):
 
 class StoryCharacterUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=4_000)
+    description: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)

@@ -603,7 +603,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               <Slider min={AVATAR_SCALE_MIN} max={AVATAR_SCALE_MAX} step={0.05} value={characterAvatarScaleDraft} onChange={(_, value) => setCharacterAvatarScaleDraft(value as number)} />
             </Box>
             <TextField label="Имя" value={characterNameDraft} onChange={(e) => setCharacterNameDraft(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
-            <TextField label="Описание" value={characterDescriptionDraft} onChange={(e) => setCharacterDescriptionDraft(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 1400 }} />
+            <TextField label="Описание" value={characterDescriptionDraft} onChange={(e) => setCharacterDescriptionDraft(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 6000 }} />
             <TextField label="Триггеры (через запятую)" value={characterTriggersDraft} onChange={(e) => setCharacterTriggersDraft(e.target.value)} fullWidth inputProps={{ maxLength: 600 }} />
             {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Имя и описание обязательны для сохранения персонажа.</Typography> : null}
           </Stack>
