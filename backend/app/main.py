@@ -1296,6 +1296,84 @@ def _append_missing_story_npc_card_operations(
     return operations
 
 
+def _ensure_story_npc_cards_from_dialogue(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    assistant_text: str,
+) -> list[StoryWorldCardChangeEvent]:
+    npc_mentions = _extract_story_npc_dialogue_mentions(assistant_text)
+    if not npc_mentions:
+        return []
+
+    existing_cards = _list_story_world_cards(db, game.id)
+    existing_title_keys = {
+        " ".join(card.title.split()).strip().casefold()
+        for card in existing_cards
+        if " ".join(card.title.split()).strip()
+    }
+
+    events: list[StoryWorldCardChangeEvent] = []
+    for mention in npc_mentions:
+        raw_name = " ".join(str(mention.get("name", "")).split()).strip()
+        if not raw_name:
+            continue
+        title_value = _normalize_story_world_card_title(raw_name)
+        title_key = title_value.casefold()
+        if title_key in existing_title_keys:
+            continue
+
+        dialogues = mention.get("dialogues")
+        dialogue_values = [item for item in dialogues if isinstance(item, str)] if isinstance(dialogues, list) else []
+        content_value = _build_story_npc_fallback_content(title_value, assistant_text, dialogue_values)
+        triggers_value = _normalize_story_world_card_triggers([title_value], fallback_title=title_value)
+
+        card = StoryWorldCard(
+            game_id=game.id,
+            title=title_value,
+            content=content_value,
+            triggers=_serialize_story_world_card_triggers(triggers_value),
+            kind=STORY_WORLD_CARD_KIND_NPC,
+            avatar_url=None,
+            character_id=None,
+            is_locked=False,
+            source=STORY_WORLD_CARD_SOURCE_AI,
+        )
+        db.add(card)
+        db.flush()
+
+        after_snapshot = _story_world_card_snapshot_from_card(card)
+        changed_text_fallback = _derive_story_changed_text_from_snapshots(
+            action=STORY_WORLD_CARD_EVENT_ADDED,
+            before_snapshot=None,
+            after_snapshot=after_snapshot,
+        )
+        changed_text = _normalize_story_world_card_changed_text("", fallback=changed_text_fallback)
+        event = StoryWorldCardChangeEvent(
+            game_id=game.id,
+            assistant_message_id=assistant_message.id,
+            world_card_id=card.id,
+            action=STORY_WORLD_CARD_EVENT_ADDED,
+            title=card.title,
+            changed_text=changed_text,
+            before_snapshot=None,
+            after_snapshot=_serialize_story_world_card_snapshot(after_snapshot),
+        )
+        db.add(event)
+        events.append(event)
+        existing_title_keys.add(title_key)
+
+    if not events:
+        return []
+
+    _touch_story_game(game)
+    db.commit()
+    for event in events:
+        db.refresh(event)
+    return events
+
+
 def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
     return {
         "id": card.id,
@@ -2962,18 +3040,34 @@ def _persist_generated_story_world_cards(
         )
     except Exception as exc:
         logger.warning("World card extraction failed: %s", exc)
-        return []
+        operations = []
 
+    persisted_events: list[StoryWorldCardChangeEvent] = []
     try:
-        return _apply_story_world_card_change_operations(
-            db=db,
-            game=game,
-            assistant_message=assistant_message,
-            operations=operations,
+        persisted_events.extend(
+            _apply_story_world_card_change_operations(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                operations=operations,
+            )
         )
     except Exception as exc:
         logger.warning("World card persistence failed: %s", exc)
-        return []
+
+    try:
+        persisted_events.extend(
+            _ensure_story_npc_cards_from_dialogue(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                assistant_text=assistant_text,
+            )
+        )
+    except Exception as exc:
+        logger.warning("NPC dialogue world card fallback failed: %s", exc)
+
+    return persisted_events
 
 
 def _build_story_plot_card_memory_messages(
