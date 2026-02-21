@@ -91,28 +91,28 @@ FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
 COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
-        "title": "РЎС‚Р°РЅРґР°СЂС‚",
-        "description": "500 РјРѕРЅРµС‚",
+        "title": "Стандарт",
+        "description": "500 монет",
         "price_rub": 50,
         "coins": 500,
     },
     {
         "id": "pro",
-        "title": "РџСЂРѕ",
-        "description": "1500 РјРѕРЅРµС‚",
+        "title": "Про",
+        "description": "1500 монет",
         "price_rub": 100,
         "coins": 1500,
     },
     {
         "id": "mega",
-        "title": "РњРµРіР°",
-        "description": "5000 РјРѕРЅРµС‚",
+        "title": "Мега",
+        "description": "5000 монет",
         "price_rub": 200,
         "coins": 5000,
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
-STORY_DEFAULT_TITLE = "РќРѕРІР°СЏ РёРіСЂР°"
+STORY_DEFAULT_TITLE = "Новая игра"
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
@@ -165,45 +165,44 @@ STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
     "event",
 }
 STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
-    "РєРѕС„Рµ",
-    "С‡Р°С€РєР°",
-    "РєСЂСѓР¶РєР°",
-    "С‡Р°Р№",
-    "РІРѕРґР°",
-    "СЃС‚РѕР»",
-    "СЃС‚СѓР»",
-    "Р·Р°РІС‚СЂР°Рє",
-    "СѓС‚СЂРѕ",
-    "РѕРєРЅРѕ",
+    "кофе",
+    "чашка",
+    "кружка",
+    "чай",
+    "вода",
+    "стол",
+    "стул",
+    "завтрак",
+    "утро",
+    "окно",
 }
 STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS = {
-    "РІРёР·РёС‚",
-    "РІСЃС‚СЂРµС‡Р°",
-    "РїСЂРёС…РѕРґ",
-    "СЃС†РµРЅР°",
-    "СЌРїРёР·РѕРґ",
-    "РґРёР°Р»РѕРі",
-    "СЂР°Р·РіРѕРІРѕСЂ",
+    "визит",
+    "встреча",
+    "приход",
+    "сцена",
+    "эпизод",
+    "диалог",
+    "разговор",
 }
 STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
-    "РѕР±РЅРѕРІР»РµРЅС‹ РІР°Р¶РЅС‹Рµ РґРµС‚Р°Р»Рё",
+    "обновлены важные детали",
     "updated important details",
-    "РєР°СЂС‚РѕС‡РєР° СѓРґР°Р»РµРЅР° РєР°Рє РЅРµР°РєС‚СѓР°Р»СЊРЅР°СЏ",
+    "карточка удалена как неактуальная",
     "deleted as irrelevant",
 )
-STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+", re.IGNORECASE)
-STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+|[^\s]", re.IGNORECASE)
+STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
+STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
 STORY_SYSTEM_PROMPT = (
-    "РўС‹ РјР°СЃС‚РµСЂ РёРЅС‚РµСЂР°РєС‚РёРІРЅРѕР№ С‚РµРєСЃС‚РѕРІРѕР№ RPG (GM/СЂР°СЃСЃРєР°Р·С‡РёРє). "
-    "РћС‚РІРµС‡Р°Р№ С‚РѕР»СЊРєРѕ РЅР° СЂСѓСЃСЃРєРѕРј СЏР·С‹РєРµ. "
-    "РџСЂРѕРґРѕР»Р¶Р°Р№ РёСЃС‚РѕСЂРёСЋ РїРѕ РґРµР№СЃС‚РІРёСЏРј РёРіСЂРѕРєР°, Р° РЅРµ РґР°РІР°Р№ СЃРѕРІРµС‚С‹ Рё РЅРµ РѕР±СЉСЏСЃРЅСЏР№ РїСЂР°РІРёР»Р°. "
-    "РџРёС€Рё С…СѓРґРѕР¶РµСЃС‚РІРµРЅРЅРѕ Рё Р°С‚РјРѕСЃС„РµСЂРЅРѕ, РѕС‚ РІС‚РѕСЂРѕРіРѕ Р»РёС†Р°, СЃ СѓС‡РµС‚РѕРј РїСЂРµРґС‹РґСѓС‰РёС… СЃРѕРѕР±С‰РµРЅРёР№. "
-    "РќРµ РІС‹С…РѕРґРё РёР· СЂРѕР»Рё, РЅРµ СѓРїРѕРјРёРЅР°Р№, С‡С‚Рѕ С‚С‹ РР, Р±РµР· РјРµС‚Р°-РєРѕРјРјРµРЅС‚Р°СЂРёРµРІ. "
-    "Р¤РѕСЂРјР°С‚: 2-5 Р°Р±Р·Р°С†РµРІ СЃРІСЏР·РЅРѕРіРѕ РїРѕРІРµСЃС‚РІРѕРІР°РЅРёСЏ. "
-    "Р’ РєРѕРЅС†Рµ РґРѕР±Р°РІР»СЏР№ РєСЂР°С‚РєРёР№ РєСЂСЋС‡РѕРє-РІРѕРїСЂРѕСЃ: С‡С‚Рѕ РёРіСЂРѕРє РґРµР»Р°РµС‚ РґР°Р»СЊС€Рµ."
+    "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
+    "Отвечай только на русском языке. "
+    "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
+    "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
+    "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
+    "Формат: 2-5 абзацев связного повествования."
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -795,7 +794,7 @@ def _estimate_story_tokens(value: str) -> int:
     normalized = value.replace("\r\n", "\n").strip()
     if not normalized:
         return 0
-    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("С‘", "Рµ"))
+    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
     if matches:
         return len(matches)
     return max(1, math.ceil(len(normalized) / 4))
@@ -808,7 +807,7 @@ def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
     if token_limit <= 0:
         return ""
 
-    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("С‘", "Рµ")))
+    matches = list(STORY_TOKEN_ESTIMATE_PATTERN.finditer(normalized.lower().replace("ё", "е")))
     if not matches:
         char_limit = max(token_limit * 4, 1)
         return normalized[-char_limit:]
@@ -1363,7 +1362,7 @@ def _story_plot_card_change_event_to_out(event: StoryPlotCardChangeEvent) -> Sto
 
 
 def _normalize_story_match_tokens(value: str) -> list[str]:
-    normalized_source = value.lower().replace("С‘", "Рµ")
+    normalized_source = value.lower().replace("ё", "е")
     return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
 
 
@@ -1711,16 +1710,16 @@ def _build_mock_story_response(prompt: str, turn_index: int) -> str:
         "РћР±СЃС‚Р°РЅРѕРІРєР° СЃРіСѓС‰Р°РµС‚СЃСЏ, РЅРѕ РёРЅРёС†РёР°С‚РёРІР° РІСЃРµ РµС‰Рµ Сѓ РІР°СЃ, РµСЃР»Рё РґРµР№СЃС‚РІРѕРІР°С‚СЊ С‚РѕС‡РЅРѕ Рё Р±РµР· РїР°СѓР·С‹.",
         "РЎРёС‚СѓР°С†РёСЏ РЅР°РєР°Р»СЏРµС‚СЃСЏ, РѕРґРЅР°РєРѕ РёРјРµРЅРЅРѕ СЌС‚Рѕ РјРѕР¶РµС‚ РґР°С‚СЊ РІР°Рј СЂРµРґРєСѓСЋ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРµСЂРµС…РІР°С‚РёС‚СЊ РєРѕРЅС‚СЂРѕР»СЊ.",
     )
-    prompts = (
-        "Р§С‚Рѕ РІС‹ СЃРґРµР»Р°РµС‚Рµ РІ РїРµСЂРІСѓСЋ РѕС‡РµСЂРµРґСЊ?",
-        "РљР°РєРѕР№ С…РѕРґ РІС‹Р±РµСЂРµС‚Рµ РґР°Р»СЊС€Рµ?",
-        "РљР°РєРёРј Р±СѓРґРµС‚ РІР°С€ СЃР»РµРґСѓСЋС‰РёР№ С€Р°Рі?",
+    followups = (
+        "Сцена продолжается, напряжение нарастает.",
+        "События ускоряются, и ситуация меняется.",
+        "История движется дальше, сохраняя атмосферу эпизода.",
     )
 
     opening = openings[(turn_index - 1) % len(openings)]
     complication = complications[(len(prompt_reference) + turn_index) % len(complications)]
     outcome = outcomes[(turn_index + len(prompt_reference) * 2) % len(outcomes)]
-    follow_up = prompts[(turn_index + len(prompt_reference) * 3) % len(prompts)]
+    follow_up = followups[(turn_index + len(prompt_reference) * 3) % len(followups)]
 
     paragraphs = [opening, complication, outcome, follow_up]
     return "\n\n".join(paragraphs)
@@ -2072,8 +2071,8 @@ def _build_story_world_card_extraction_messages(
                 "РўС‹ РёР·РІР»РµРєР°РµС€СЊ РІР°Р¶РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё РјРёСЂР° РёР· С…СѓРґРѕР¶РµСЃС‚РІРµРЅРЅРѕРіРѕ С„СЂР°РіРјРµРЅС‚Р°. "
                 "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РјР°СЃСЃРёРІ Р±РµР· markdown. "
                 "Р¤РѕСЂРјР°С‚ СЌР»РµРјРµРЅС‚Р°: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
-                "Р”РѕР±Р°РІР»СЏР№ С‚РѕР»СЊРєРѕ РЅРѕРІС‹Рµ Рё РґРµР№СЃС‚РІРёС‚РµР»СЊРЅРѕ РІР°Р¶РЅС‹Рµ СЃСѓС‰РЅРѕСЃС‚Рё (РїРµСЂСЃРѕРЅР°Р¶Рё, РїСЂРµРґРјРµС‚С‹, РјРµСЃС‚Р°, РѕСЂРіР°РЅРёР·Р°С†РёРё). "
-                "РњР°РєСЃРёРјСѓРј 3 СЌР»РµРјРµРЅС‚Р°. Р•СЃР»Рё РґРѕР±Р°РІР»СЏС‚СЊ РЅРµС‡РµРіРѕ, РІРµСЂРЅРё []"
+                "Добавляй только новые и действительно важные сущности (персонажи, предметы, места, организации). "
+                "Максимум 3 элемента. Если добавлять нечего, верни []"
             ),
         },
         {
@@ -2849,16 +2848,16 @@ def _build_story_plot_card_memory_messages(
                 "РўС‹ СЃР¶РёРјР°РµС€СЊ РёСЃС‚РѕСЂРёСЋ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° РёРіСЂС‹ РІ РєРѕСЂРѕС‚РєСѓСЋ РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. "
                 "РЎРѕС…СЂР°РЅСЏР№ РІР°Р¶РЅС‹Рµ С„Р°РєС‚С‹, РёРјРµРЅР°, РѕС‚РЅРѕС€РµРЅРёСЏ, РЅРµР·Р°РІРµСЂС€РµРЅРЅС‹Рµ РєРѕРЅС„Р»РёРєС‚С‹, С†РµР»Рё, РѕС‚РєСЂС‹С‚РёСЏ Рё С‚РµРєСѓС‰СѓСЋ СЃС†РµРЅСѓ. "
                 "РџРёС€Рё РєРѕРјРїР°РєС‚РЅРѕ, РЅРѕ Р±РµР· РїРѕС‚РµСЂРё СЃРјС‹СЃР»Р°. "
-                "Р—Р°РіРѕР»РѕРІРѕРє РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РєРѕРЅРєСЂРµС‚РЅС‹Рј РїРѕ С‚РµРєСѓС‰РµР№ СЃС†РµРЅРµ, Р±РµР· С€Р°Р±Р»РѕРЅРѕРІ РІСЂРѕРґРµ 'РЎСЋР¶РµС‚РЅР°СЏ СЃРІРѕРґРєР°'. "
+                "Р—Р°РіРѕР»РѕРІРѕРє РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РєРѕРЅРєСЂРµС‚РЅС‹Рј РїРѕ С‚РµРєСѓС‰РµР№ СЃС†РµРЅРµ, Р±РµР· С€Р°Р±Р»РѕРЅРѕРІ РІСЂРѕРґРµ 'Сюжетная сводка'. "
                 "Р’РµСЂРЅРё СЃС‚СЂРѕРіРѕ JSON-РѕР±СЉРµРєС‚ Р±РµР· markdown: {\"title\": string, \"content\": string}. "
-                "title: РґРѕ 120 СЃРёРјРІРѕР»РѕРІ. content: РґРѕ 16000 СЃРёРјРІРѕР»РѕРІ."
+                "title: до 120 символов. content: до 16000 символов."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"РўРµРєСѓС‰Р°СЏ РєР°СЂС‚РѕС‡РєР° РїР°РјСЏС‚Рё (РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚Рѕ):\nР—Р°РіРѕР»РѕРІРѕРє: {current_title or 'РЅРµС‚'}\n"
-                f"РўРµРєСЃС‚:\n{current_memory or 'РЅРµС‚'}\n\n"
+                f"РўРµРєСѓС‰Р°СЏ РєР°СЂС‚РѕС‡РєР° РїР°РјСЏС‚Рё (РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚Рѕ):\nР—Р°РіРѕР»РѕРІРѕРє: {current_title or 'нет'}\n"
+                f"РўРµРєСЃС‚:\n{current_memory or 'нет'}\n\n"
                 f"РСЃС‚РѕСЂРёСЏ РѕС‚РІРµС‚РѕРІ РјР°СЃС‚РµСЂР° JSON:\n{history_json}\n\n"
                 "РћР±РЅРѕРІРё РєР°СЂС‚РѕС‡РєСѓ РїР°РјСЏС‚Рё. Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ JSON."
             ),
@@ -2938,7 +2937,7 @@ def _build_story_plot_card_fallback_payload(
                 break
 
     if not fallback_title:
-        fallback_title = "РљР»СЋС‡РµРІС‹Рµ СЃРѕР±С‹С‚РёСЏ СЌРїРёР·РѕРґР°"
+        fallback_title = "Ключевые события эпизода"
 
     combined_content = "\n\n".join(history_parts)
 
@@ -5087,4 +5086,3 @@ def yookassa_webhook(payload: dict[str, Any], db: Session = Depends(get_db)) -> 
 def logout() -> MessageResponse:
     # JWT is stateless. Frontend should discard the token.
     return MessageResponse(message="ok")
-

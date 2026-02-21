@@ -64,14 +64,14 @@ const APP_BUTTON_SHELL = {
     backgroundColor: APP_BUTTON_HOVER,
   },
 } as const
-const EMPTY_PREVIEW_TEXT = 'РСЃС‚РѕСЂРёСЏ РµС‰Рµ РЅРµ РЅР°С‡Р°Р»Р°СЃСЊ.'
-const PREVIEW_ERROR_TEXT = 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ РїСЂРµРІСЊСЋ СЌС‚РѕР№ РёСЃС‚РѕСЂРёРё.'
+const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
+const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
-  { value: 'updated_desc', label: 'РќРµРґР°РІРЅРёРµ' },
-  { value: 'updated_asc', label: 'РЎС‚Р°СЂС‹Рµ' },
-  { value: 'created_desc', label: 'РЎРѕР·РґР°РЅС‹: РЅРѕРІС‹Рµ' },
-  { value: 'created_asc', label: 'РЎРѕР·РґР°РЅС‹: СЃС‚Р°СЂС‹Рµ' },
+  { value: 'updated_desc', label: 'Недавние' },
+  { value: 'updated_asc', label: 'Старые' },
+  { value: 'created_desc', label: 'Созданы: новые' },
+  { value: 'created_asc', label: 'Созданы: старые' },
 ]
 
 const CARD_PALETTES = [
@@ -219,7 +219,7 @@ function AvatarPlaceholder({ fallbackLabel, size = HEADER_AVATAR_SIZE }: AvatarP
 
   return (
     <Box
-      aria-label="РќРµС‚ Р°РІР°С‚Р°СЂРєРё"
+      aria-label="Нет аватарки"
       title={fallbackLabel}
       sx={{
         width: size,
@@ -318,7 +318,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
 
       setGamePreviews(Object.fromEntries(previews))
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СЃРїРёСЃРѕРє РёРіСЂ'
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
       setErrorMessage(detail)
       setGames([])
       setGamePreviews({})
@@ -341,7 +341,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       const newGame = await createStoryGame({ token: authToken })
       onNavigate(`/home/${newGame.id}`)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СЃРѕР·РґР°С‚СЊ РёРіСЂСѓ'
+      const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
       setErrorMessage(detail)
     } finally {
       setIsCreatingGame(false)
@@ -377,9 +377,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
     return sortGames(filtered, sortMode)
   }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
 
-  const pageTitle = mode === 'all' ? 'Р’СЃРµ РёРіСЂС‹' : 'РњРѕРё РёРіСЂС‹'
+  const pageTitle = mode === 'all' ? 'Все игры' : 'Мои игры'
 
-  const formatUpdatedAtLabel = (value: string) => `РћР±РЅРѕРІР»РµРЅРѕ ${new Date(value).toLocaleString('ru-RU')}`
+  const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
 
   const menuButtonSx = (isActive: boolean) => ({
     width: '100%',
@@ -437,7 +437,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       >
         <Box component="img" src={brandLogo} alt="Morius" sx={{ width: 76, opacity: 0.96 }} />
         <IconButton
-          aria-label={isPageMenuOpen ? 'РЎРІРµСЂРЅСѓС‚СЊ РјРµРЅСЋ СЃС‚СЂР°РЅРёС†' : 'РћС‚РєСЂС‹С‚СЊ РјРµРЅСЋ СЃС‚СЂР°РЅРёС†'}
+          aria-label={isPageMenuOpen ? 'Свернуть меню страниц' : 'Открыть меню страниц'}
           onClick={() => setIsPageMenuOpen((previous) => !previous)}
           sx={APP_BUTTON_SHELL}
         >
@@ -465,13 +465,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       >
         <Stack spacing={1.1}>
           <Button sx={menuButtonSx(false)} onClick={() => onNavigate('/dashboard')}>
-            Р“Р»Р°РІРЅР°СЏ
+            Главная
           </Button>
           <Button sx={menuButtonSx(mode === 'my')} onClick={() => onNavigate('/games')}>
-            РњРѕРё РёРіСЂС‹
+            Мои игры
           </Button>
           <Button sx={menuButtonSx(mode === 'all')} onClick={() => onNavigate('/games/all')}>
-            Р’СЃРµ РёРіСЂС‹
+            Все игры
           </Button>
         </Stack>
       </Box>
@@ -486,7 +486,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
       >
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           <IconButton
-            aria-label={isHeaderActionsOpen ? 'РЎРєСЂС‹С‚СЊ РєРЅРѕРїРєРё С€Р°РїРєРё' : 'РџРѕРєР°Р·Р°С‚СЊ РєРЅРѕРїРєРё С€Р°РїРєРё'}
+            aria-label={isHeaderActionsOpen ? 'Скрыть кнопки шапки' : 'Показать кнопки шапки'}
             onClick={() => setIsHeaderActionsOpen((previous) => !previous)}
             sx={APP_BUTTON_SHELL}
           >
@@ -516,16 +516,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             }}
           >
             <Stack direction="row" spacing={1.2}>
-              <IconButton aria-label="РџРѕРґРґРµСЂР¶РєР°" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
+              <IconButton aria-label="Поддержка" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
                 <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
               </IconButton>
-              <IconButton aria-label="РћС„РѕСЂРјР»РµРЅРёРµ" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
+              <IconButton aria-label="Оформление" onClick={(event) => event.preventDefault()} sx={APP_BUTTON_SHELL}>
                 <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
               </IconButton>
               <Button
                 variant="text"
                 onClick={() => setProfileDialogOpen(true)}
-                aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ"
+                aria-label="Открыть профиль"
                 sx={{
                   minWidth: 0,
                   width: HEADER_AVATAR_SIZE,
@@ -581,7 +581,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 component="input"
                 value={searchQuery}
                 onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-                placeholder="РџРѕРёСЃРє"
+                placeholder="Поиск"
                 sx={{
                   width: '100%',
                   minHeight: 54,
@@ -733,8 +733,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
             >
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>
                 {searchQuery.trim()
-                  ? 'РџРѕ РІР°С€РµРјСѓ Р·Р°РїСЂРѕСЃСѓ РёРіСЂС‹ РЅРµ РЅР°Р№РґРµРЅС‹.'
-                  : 'Р—РґРµСЃСЊ РїРѕРєР° РЅРµС‚ РєР°СЂС‚РѕС‡РµРє. РЎРѕР·РґР°Р№С‚Рµ РїРµСЂРІСѓСЋ РёРіСЂСѓ Рё РЅР°С‡РЅРёС‚Рµ РёСЃС‚РѕСЂРёСЋ.'}
+                  ? 'По вашему запросу игры не найдены.'
+                  : 'Здесь пока нет карточек. Создайте первую игру и начните историю.'}
               </Typography>
             </Box>
           ) : (
@@ -828,7 +828,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                         overflow: 'hidden',
                       }}
                     >
-                      {gamePreviews[game.id] ?? 'Р—Р°РіСЂСѓР¶Р°РµРј РїСЂРµРІСЊСЋ...'}
+                      {gamePreviews[game.id] ?? 'Загружаем превью...'}
                     </Typography>
                     <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
                       {formatUpdatedAtLabel(game.last_activity_at)}
@@ -864,14 +864,14 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
         }}
       >
         <DialogTitle sx={{ pb: 1.2 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>РџСЂРѕС„РёР»СЊ</Typography>
+          <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Профиль</Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.2 }}>
           <Stack spacing={2}>
             <Stack direction="row" spacing={1.6} alignItems="center">
               <UserAvatar user={user} size={72} />
               <Stack spacing={0.3} sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: '1.2rem', fontWeight: 700 }}>{user.display_name || 'РРіСЂРѕРє'}</Typography>
+                <Typography sx={{ fontSize: '1.2rem', fontWeight: 700 }}>{user.display_name || 'Игрок'}</Typography>
                 <Typography
                   sx={{
                     color: 'text.secondary',
@@ -897,7 +897,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
               <Stack direction="row" spacing={1.1} alignItems="center">
                 <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
                 <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
-                  РњРѕРЅРµС‚С‹: {user.coins.toLocaleString('ru-RU')}
+                  Монеты: {user.coins.toLocaleString('ru-RU')}
                 </Typography>
               </Stack>
             </Box>
@@ -914,13 +914,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
                 },
               }}
             >
-              Р’С‹Р№С‚Рё РёР· Р°РєРєР°СѓРЅС‚Р°
+              Выйти из аккаунта
             </Button>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.6 }}>
           <Button onClick={handleCloseProfileDialog} sx={{ color: 'text.secondary' }}>
-            Р—Р°РєСЂС‹С‚СЊ
+            Закрыть
           </Button>
         </DialogActions>
       </Dialog>
@@ -940,15 +940,15 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
           },
         }}
       >
-        <DialogTitle sx={{ fontWeight: 700 }}>РџРѕРґС‚РІРµСЂРґРёС‚Рµ РІС‹С…РѕРґ</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 700 }}>Подтвердите выход</DialogTitle>
         <DialogContent>
           <Typography sx={{ color: 'text.secondary' }}>
-            Р’С‹ С‚РѕС‡РЅРѕ С…РѕС‚РёС‚Рµ РІС‹Р№С‚Рё РёР· Р°РєРєР°СѓРЅС‚Р°? РџРѕСЃР»Рµ РІС‹С…РѕРґР° РІС‹ РІРµСЂРЅРµС‚РµСЃСЊ РЅР° СЃС‚СЂР°РЅРёС†Сѓ РїСЂРµРІСЊСЋ.
+            Вы точно хотите выйти из аккаунта? После выхода вы вернетесь на страницу превью.
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
           <Button onClick={() => setConfirmLogoutOpen(false)} sx={{ color: 'text.secondary' }}>
-            РћС‚РјРµРЅР°
+            Отмена
           </Button>
           <Button
             variant="contained"
@@ -960,7 +960,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
               '&:hover': { backgroundColor: APP_BUTTON_HOVER },
             }}
           >
-            Р’С‹Р№С‚Рё
+            Выйти
           </Button>
         </DialogActions>
       </Dialog>
@@ -969,5 +969,4 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onLogout }: MyGamesPag
 }
 
 export default MyGamesPage
-
 
