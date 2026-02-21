@@ -61,6 +61,7 @@ import {
   undoStoryPlotCardEvent,
   undoStoryWorldCardEvent,
   updateStoryInstructionCard,
+  updateStoryWorldCardAiEdit,
   updateStoryWorldCardAvatar,
   updateStoryWorldCard,
   updateStoryMessage,
@@ -593,6 +594,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardContentDraft, setWorldCardContentDraft] = useState('')
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
+  const [updatingWorldCardAiEditId, setUpdatingWorldCardAiEditId] = useState<number | null>(null)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
@@ -863,8 +865,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isSelectedMenuWorldCardLocked = Boolean(
     selectedMenuWorldCard && selectedMenuWorldCard.is_locked,
   )
+  const isSelectedMenuWorldCardAiEditUpdating = Boolean(
+    selectedMenuWorldCard && updatingWorldCardAiEditId === selectedMenuWorldCard.id,
+  )
   const canDeleteSelectedMenuWorldCard = Boolean(
     selectedMenuWorldCard && selectedMenuWorldCard.kind !== 'main_hero',
+  )
+  const getWorldCardAiEditStatusLabel = useCallback(
+    (card: StoryWorldCard): string => (card.ai_edit_enabled ? 'ИИ редактирование: разрешено' : 'ИИ редактирование: запрещено'),
+    [],
   )
 
   const adjustInputHeight = useCallback(() => {
@@ -1267,6 +1276,43 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setWorldCardAvatarTargetId(null)
     }
   }, [activeGameId, authToken, worldCardAvatarTargetId])
+
+  const handleToggleWorldCardAiEdit = useCallback(async () => {
+    if (
+      !activeGameId ||
+      !selectedMenuWorldCard ||
+      isWorldCardActionLocked ||
+      isSelectedMenuWorldCardAiEditUpdating
+    ) {
+      return
+    }
+    const targetCard = selectedMenuWorldCard
+    setErrorMessage('')
+    setUpdatingWorldCardAiEditId(targetCard.id)
+    try {
+      const updatedCard = await updateStoryWorldCardAiEdit({
+        token: authToken,
+        gameId: activeGameId,
+        cardId: targetCard.id,
+        ai_edit_enabled: !targetCard.ai_edit_enabled,
+      })
+      setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+      setCardMenuAnchorEl(null)
+      setCardMenuType(null)
+      setCardMenuCardId(null)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить настройку редактирования ИИ'
+      setErrorMessage(detail)
+    } finally {
+      setUpdatingWorldCardAiEditId(null)
+    }
+  }, [
+    activeGameId,
+    authToken,
+    isSelectedMenuWorldCardAiEditUpdating,
+    isWorldCardActionLocked,
+    selectedMenuWorldCard,
+  ])
 
   const loadGameById = useCallback(
     async (gameId: number, options?: { silent?: boolean }) => {
@@ -3495,7 +3541,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Typography sx={{ color: 'rgba(166, 186, 214, 0.74)', fontSize: '0.74rem', lineHeight: 1.1 }}>
                         Главный герой выбран
                       </Typography>
+                      <Typography
+                        sx={{
+                          color: mainHeroCard.ai_edit_enabled ? 'rgba(158, 196, 238, 0.76)' : 'rgba(246, 176, 176, 0.86)',
+                          fontSize: '0.7rem',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {getWorldCardAiEditStatusLabel(mainHeroCard)}
+                      </Typography>
                     </Stack>
+                    <IconButton
+                      onClick={(event) => handleOpenCardMenu(event, 'world', mainHeroCard.id)}
+                      disabled={isWorldCardActionLocked}
+                      sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)', ml: 'auto', flexShrink: 0 }}
+                    >
+                      <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                    </IconButton>
                   </Box>
                 )}
                 <Button
@@ -3607,6 +3669,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               }}
                             >
                               {formatWorldCardContextStatus(contextState)}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                color: card.ai_edit_enabled ? 'rgba(158, 196, 238, 0.76)' : 'rgba(246, 176, 176, 0.86)',
+                                fontSize: '0.64rem',
+                                lineHeight: 1,
+                                letterSpacing: 0.18,
+                                textTransform: 'uppercase',
+                                fontWeight: 700,
+                                border: card.ai_edit_enabled
+                                  ? '1px solid rgba(132, 168, 210, 0.4)'
+                                  : '1px solid rgba(236, 148, 148, 0.46)',
+                                borderRadius: '999px',
+                                px: 0.55,
+                                py: 0.18,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {card.ai_edit_enabled ? 'ИИ: РАЗРЕШЕНО' : 'ИИ: ЗАПРЕЩЕНО'}
                             </Typography>
                             {card.source === 'ai' ? (
                               <Typography
@@ -4448,6 +4529,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           },
         }}
       >
+        {cardMenuType === 'world' ? (
+          <MenuItem
+            onClick={() => {
+              void handleToggleWorldCardAiEdit()
+            }}
+            disabled={isWorldCardActionLocked || !selectedMenuWorldCard || isSelectedMenuWorldCardAiEditUpdating}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            {isSelectedMenuWorldCardAiEditUpdating ? (
+              <CircularProgress size={14} sx={{ color: 'rgba(220, 231, 245, 0.92)' }} />
+            ) : selectedMenuWorldCard?.ai_edit_enabled ? (
+              'Не редактировать ИИ'
+            ) : (
+              'Разрешить редактирование ИИ'
+            )}
+          </MenuItem>
+        ) : null}
         <MenuItem
           onClick={handleCardMenuEdit}
           disabled={
@@ -4457,7 +4555,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ? isInstructionCardActionLocked
                 : cardMenuType === 'plot'
                   ? isPlotCardActionLocked
-                  : isWorldCardActionLocked || isSelectedMenuWorldCardLocked
+                  : isWorldCardActionLocked || isSelectedMenuWorldCardLocked || isSelectedMenuWorldCardAiEditUpdating
           }
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
@@ -4474,7 +4572,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ? isInstructionCardActionLocked
                 : cardMenuType === 'plot'
                   ? isPlotCardActionLocked
-                  : isWorldCardActionLocked || !canDeleteSelectedMenuWorldCard
+                  : isWorldCardActionLocked || !canDeleteSelectedMenuWorldCard || isSelectedMenuWorldCardAiEditUpdating
           }
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
         >
@@ -4801,6 +4899,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Typography sx={{ color: 'rgba(178, 195, 221, 0.7)', fontSize: '0.82rem', lineHeight: 1.4 }}>
               Триггеры: {mainHeroCard?.triggers.length ? mainHeroCard.triggers.join(', ') : '—'}
             </Typography>
+            {mainHeroCard ? (
+              <Typography
+                sx={{
+                  color: mainHeroCard.ai_edit_enabled ? 'rgba(158, 196, 238, 0.76)' : 'rgba(246, 176, 176, 0.86)',
+                  fontSize: '0.8rem',
+                  lineHeight: 1.35,
+                }}
+              >
+                {getWorldCardAiEditStatusLabel(mainHeroCard)}
+              </Typography>
+            ) : null}
             <Typography sx={{ color: 'rgba(170, 238, 191, 0.86)', fontSize: '0.8rem', lineHeight: 1.35 }}>
               Главный герой всегда активен и всегда учитывается в контексте.
             </Typography>

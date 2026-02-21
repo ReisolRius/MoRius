@@ -137,6 +137,7 @@ class StoryWorldCard(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

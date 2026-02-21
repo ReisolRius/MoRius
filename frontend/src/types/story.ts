@@ -74,6 +74,7 @@ export type StoryWorldCard = {
   avatar_url: string | null
   character_id: number | null
   is_locked: boolean
+  ai_edit_enabled: boolean
   source: StoryWorldCardSource
   created_at: string
   updated_at: string
@@ -90,6 +91,7 @@ export type StoryWorldCardSnapshot = {
   avatar_url: string | null
   character_id: number | null
   is_locked: boolean
+  ai_edit_enabled: boolean
   source: StoryWorldCardSource
 }
 

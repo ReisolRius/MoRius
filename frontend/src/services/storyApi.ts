@@ -550,6 +550,23 @@ export async function updateStoryWorldCardAvatar(payload: {
   })
 }
 
+export async function updateStoryWorldCardAiEdit(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  ai_edit_enabled: boolean
+}): Promise<StoryWorldCard> {
+  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/ai-edit`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      ai_edit_enabled: payload.ai_edit_enabled,
+    }),
+  })
+}
+
 export async function updateStoryWorldCard(payload: {
   token: string
   gameId: number

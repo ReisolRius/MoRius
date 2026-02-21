@@ -78,6 +78,7 @@ from app.schemas import (
     StoryWorldCardChangeEventOut,
     StoryWorldCardOut,
     StoryWorldCardAvatarUpdateRequest,
+    StoryWorldCardAiEditUpdateRequest,
     StoryWorldCardUpdateRequest,
     UserOut,
 )
@@ -292,6 +293,11 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN is_locked INTEGER NOT NULL DEFAULT 0"
+        )
+    if "ai_edit_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN ai_edit_enabled INTEGER NOT NULL DEFAULT 1"
         )
 
     if not alter_statements:
@@ -1096,6 +1102,7 @@ def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         avatar_url=_normalize_avatar_value(card.avatar_url),
         character_id=card.character_id,
         is_locked=bool(card.is_locked),
+        ai_edit_enabled=bool(card.ai_edit_enabled),
         source=_normalize_story_world_card_source(card.source),
         created_at=card.created_at,
         updated_at=card.updated_at,
@@ -1467,6 +1474,7 @@ def _ensure_story_npc_cards_from_dialogue(
             avatar_url=None,
             character_id=None,
             is_locked=False,
+            ai_edit_enabled=True,
             source=STORY_WORLD_CARD_SOURCE_AI,
         )
         db.add(card)
@@ -1513,6 +1521,7 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "avatar_url": _normalize_avatar_value(card.avatar_url),
         "character_id": card.character_id,
         "is_locked": bool(card.is_locked),
+        "ai_edit_enabled": bool(card.ai_edit_enabled),
         "source": _normalize_story_world_card_source(card.source),
     }
 
@@ -1569,6 +1578,16 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
     else:
         is_locked_value = False
 
+    raw_ai_edit_enabled = parsed.get("ai_edit_enabled")
+    if isinstance(raw_ai_edit_enabled, bool):
+        ai_edit_enabled_value = raw_ai_edit_enabled
+    elif isinstance(raw_ai_edit_enabled, (int, float)):
+        ai_edit_enabled_value = bool(raw_ai_edit_enabled)
+    elif isinstance(raw_ai_edit_enabled, str):
+        ai_edit_enabled_value = raw_ai_edit_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        ai_edit_enabled_value = True
+
     card_id: int | None = None
     raw_id = parsed.get("id")
     if isinstance(raw_id, int) and raw_id > 0:
@@ -1596,6 +1615,7 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         "avatar_url": avatar_value,
         "character_id": character_id,
         "is_locked": is_locked_value,
+        "ai_edit_enabled": ai_edit_enabled_value,
         "source": source_value,
     }
 
@@ -1832,6 +1852,7 @@ def _build_story_world_card_from_character(
         avatar_url=_normalize_story_character_avatar_url(character.avatar_url),
         character_id=character.id,
         is_locked=lock_card,
+        ai_edit_enabled=True,
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
 
@@ -2544,6 +2565,7 @@ def _build_story_world_card_change_messages(
                 "triggers": _deserialize_story_world_card_triggers(card.triggers)[:10],
                 "kind": _normalize_story_world_card_kind(card.kind),
                 "is_locked": bool(card.is_locked),
+                "ai_edit_enabled": bool(card.ai_edit_enabled),
                 "source": _normalize_story_world_card_source(card.source),
             }
         )
@@ -2572,7 +2594,7 @@ def _build_story_world_card_change_messages(
                 "2) Ignore mundane transient details (food, drinks, coffee, cups, generic furniture, routine background actions).\n"
                 "3) Do not add one-off scene events (visits, greetings, short episode titles). Those belong to plot memory.\n"
                 "4) Prefer update for existing cards when new important details appear.\n"
-                "5) Never update or delete cards with \"is_locked\": true.\n"
+                "5) Never update or delete cards with \"is_locked\": true or \"ai_edit_enabled\": false.\n"
                 "6) Delete only if a card became invalid/irrelevant.\n"
                 "7) For add/update provide full current card text (max 1000 chars) and useful triggers.\n"
                 "8) If a new speaking character appears in format [[NPC:Name]] and there is no such NPC card yet, "
@@ -2714,7 +2736,11 @@ def _normalize_story_world_card_change_operations(
                 if target_card is not None:
                     action = STORY_WORLD_CARD_EVENT_UPDATED
 
-            if action == STORY_WORLD_CARD_EVENT_ADDED and target_card is not None and bool(target_card.is_locked):
+            if (
+                action == STORY_WORLD_CARD_EVENT_ADDED
+                and target_card is not None
+                and (bool(target_card.is_locked) or not bool(target_card.ai_edit_enabled))
+            ):
                 continue
 
             if action == STORY_WORLD_CARD_EVENT_ADDED:
@@ -2744,7 +2770,7 @@ def _normalize_story_world_card_change_operations(
                 continue
             if target_card.id in seen_target_ids:
                 continue
-            if bool(target_card.is_locked):
+            if bool(target_card.is_locked) or not bool(target_card.ai_edit_enabled):
                 continue
             if not title or not content:
                 continue
@@ -2792,7 +2818,7 @@ def _normalize_story_world_card_change_operations(
                 continue
             if target_card.id in seen_target_ids:
                 continue
-            if bool(target_card.is_locked):
+            if bool(target_card.is_locked) or not bool(target_card.ai_edit_enabled):
                 continue
             if _normalize_story_world_card_kind(target_card.kind) in {
                 STORY_WORLD_CARD_KIND_MAIN_HERO,
@@ -3056,6 +3082,7 @@ def _apply_story_world_card_change_operations(
                 avatar_url=None,
                 character_id=None,
                 is_locked=False,
+                ai_edit_enabled=True,
                 source=STORY_WORLD_CARD_SOURCE_AI,
             )
             db.add(card)
@@ -3097,7 +3124,7 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_UPDATED:
-            if bool(card.is_locked):
+            if bool(card.is_locked) or not bool(card.ai_edit_enabled):
                 continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
             previous_title_key = card.title.casefold()
@@ -3151,7 +3178,7 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_DELETED:
-            if bool(card.is_locked):
+            if bool(card.is_locked) or not bool(card.ai_edit_enabled):
                 continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
             changed_text_fallback = _derive_story_changed_text_from_snapshots(
@@ -3541,6 +3568,17 @@ def _restore_story_world_card_from_snapshot(
     else:
         is_locked = False
 
+    has_ai_edit_enabled = "ai_edit_enabled" in snapshot
+    raw_ai_edit_enabled = snapshot.get("ai_edit_enabled")
+    if isinstance(raw_ai_edit_enabled, bool):
+        ai_edit_enabled = raw_ai_edit_enabled
+    elif isinstance(raw_ai_edit_enabled, (int, float)):
+        ai_edit_enabled = bool(raw_ai_edit_enabled)
+    elif isinstance(raw_ai_edit_enabled, str):
+        ai_edit_enabled = raw_ai_edit_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        ai_edit_enabled = True
+
     card_id: int | None = None
     raw_card_id = snapshot.get("id")
     if isinstance(raw_card_id, int) and raw_card_id > 0:
@@ -3565,6 +3603,7 @@ def _restore_story_world_card_from_snapshot(
             avatar_url=avatar_url,
             character_id=character_id,
             is_locked=is_locked,
+            ai_edit_enabled=ai_edit_enabled,
             source=source,
         )
         db.add(world_card)
@@ -3578,6 +3617,8 @@ def _restore_story_world_card_from_snapshot(
     world_card.avatar_url = avatar_url
     world_card.character_id = character_id
     world_card.is_locked = is_locked
+    if has_ai_edit_enabled:
+        world_card.ai_edit_enabled = ai_edit_enabled
     world_card.source = source
     db.flush()
     return world_card
@@ -5132,6 +5173,32 @@ def update_story_world_card_avatar(
     return _story_world_card_to_out(world_card)
 
 
+@app.patch("/api/story/games/{game_id}/world-cards/{card_id}/ai-edit", response_model=StoryWorldCardOut)
+def update_story_world_card_ai_edit(
+    game_id: int,
+    card_id: int,
+    payload: StoryWorldCardAiEditUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardOut:
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+    world_card = db.scalar(
+        select(StoryWorldCard).where(
+            StoryWorldCard.id == card_id,
+            StoryWorldCard.game_id == game.id,
+        )
+    )
+    if world_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+
+    world_card.ai_edit_enabled = bool(payload.ai_edit_enabled)
+    _touch_story_game(game)
+    db.commit()
+    db.refresh(world_card)
+    return _story_world_card_to_out(world_card)
+
+
 @app.post("/api/story/games/{game_id}/world-cards", response_model=StoryWorldCardOut)
 def create_story_world_card(
     game_id: int,
@@ -5155,6 +5222,7 @@ def create_story_world_card(
         avatar_url=normalized_avatar,
         character_id=None,
         is_locked=False,
+        ai_edit_enabled=True,
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
     db.add(world_card)

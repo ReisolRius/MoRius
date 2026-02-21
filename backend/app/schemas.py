@@ -128,6 +128,10 @@ class StoryWorldCardAvatarUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
 
 
+class StoryWorldCardAiEditUpdateRequest(BaseModel):
+    ai_edit_enabled: bool
+
+
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=4_000)
@@ -192,6 +196,7 @@ class StoryWorldCardOut(BaseModel):
     avatar_url: str | None
     character_id: int | None
     is_locked: bool
+    ai_edit_enabled: bool
     source: str
     created_at: datetime
     updated_at: datetime
@@ -250,6 +255,7 @@ class StoryWorldCardSnapshotOut(BaseModel):
     avatar_url: str | None
     character_id: int | None
     is_locked: bool
+    ai_edit_enabled: bool
     source: str
 
 
