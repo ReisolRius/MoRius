@@ -35,7 +35,7 @@ import {
   type CoinTopUpPlan,
 } from '../services/authApi'
 import { deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
-import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
+import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldSummary, StoryGameSummary, StoryMessage } from '../types/story'
@@ -370,6 +370,22 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       const loadedGames = await listStoryGames(authToken)
       const sortedGames = sortGamesByActivity(loadedGames)
       setGames(sortedGames)
+      setCustomTitleMap((previousMap) => {
+        let nextMap = previousMap
+        let hasChanges = false
+        sortedGames.forEach((game) => {
+          if (previousMap[game.id]?.trim()) {
+            return
+          }
+          nextMap = setStoryTitle(nextMap, game.id, game.title)
+          hasChanges = true
+        })
+        if (hasChanges) {
+          persistStoryTitleMap(nextMap)
+          return nextMap
+        }
+        return previousMap
+      })
 
       const previews = await Promise.all(
         sortedGames.map(async (game) => {
@@ -444,6 +460,15 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       setGamePreviews((previous) => {
         const next = { ...previous }
         delete next[gameMenuGameId]
+        return next
+      })
+      setCustomTitleMap((previous) => {
+        if (!(gameMenuGameId in previous)) {
+          return previous
+        }
+        const next = { ...previous }
+        delete next[gameMenuGameId]
+        persistStoryTitleMap(next)
         return next
       })
       setGameMenuAnchorEl(null)

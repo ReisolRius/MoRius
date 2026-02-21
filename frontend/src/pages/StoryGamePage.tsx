@@ -1360,6 +1360,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             : [payload.game, ...previousGames]
           return sortGamesByActivity(nextGames)
         })
+        setCustomTitleMap((previousMap) => {
+          if (previousMap[payload.game.id]?.trim()) {
+            return previousMap
+          }
+          const nextMap = setStoryTitle(previousMap, payload.game.id, payload.game.title)
+          persistStoryTitleMap(nextMap)
+          return nextMap
+        })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить историю игры'
         setErrorMessage(detail)
@@ -1383,6 +1391,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
         const sortedGames = sortGamesByActivity(loadedGames)
         setGames(sortedGames)
+        setCustomTitleMap((previousMap) => {
+          let nextMap = previousMap
+          let hasChanges = false
+          sortedGames.forEach((game) => {
+            if (previousMap[game.id]?.trim()) {
+              return
+            }
+            nextMap = setStoryTitle(nextMap, game.id, game.title)
+            hasChanges = true
+          })
+          if (hasChanges) {
+            persistStoryTitleMap(nextMap)
+            return nextMap
+          }
+          return previousMap
+        })
         if (sortedGames.length > 0) {
           const preferredGameId =
             initialGameId && sortedGames.some((game) => game.id === initialGameId) ? initialGameId : sortedGames[0].id
