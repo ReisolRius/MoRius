@@ -133,18 +133,18 @@ settings = Settings(
     gigachat_verify_ssl=_to_bool(os.getenv("GIGACHAT_VERIFY_SSL"), default=True),
     openrouter_api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
     openrouter_chat_url=os.getenv("OPENROUTER_CHAT_URL", "https://openrouter.ai/api/v1/chat/completions").strip(),
-    openrouter_model=os.getenv("OPENROUTER_MODEL", "openrouter/free").strip(),
+    openrouter_model=os.getenv("OPENROUTER_MODEL", "z-ai/glm-5").strip(),
     openrouter_world_card_model=os.getenv(
         "OPENROUTER_WORLD_CARD_MODEL",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "deepseek/deepseek-r1-0528:free",
     ).strip(),
     openrouter_translation_model=os.getenv(
         "OPENROUTER_TRANSLATION_MODEL",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "deepseek/deepseek-r1-0528:free",
     ).strip(),
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "deepseek/deepseek-r1-0528:free",
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
