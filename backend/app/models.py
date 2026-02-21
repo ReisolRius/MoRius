@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -68,7 +68,32 @@ class StoryGame(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="Новая игра")
     context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=2000, server_default="2000")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
+    source_world_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    community_views: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_launches: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCommunityWorldRating(Base):
+    __tablename__ = "story_community_world_ratings"
+    __table_args__ = (
+        UniqueConstraint("world_id", "user_id", name="uq_story_community_world_ratings_world_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

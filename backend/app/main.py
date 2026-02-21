@@ -33,6 +33,7 @@ from app.models import (
     CoinPurchase,
     EmailVerification,
     StoryCharacter,
+    StoryCommunityWorldRating,
     StoryGame,
     StoryInstructionCard,
     StoryMessage,
@@ -55,6 +56,9 @@ from app.schemas import (
     MessageResponse,
     RegisterRequest,
     RegisterVerifyRequest,
+    StoryCommunityWorldOut,
+    StoryCommunityWorldRatingRequest,
+    StoryCommunityWorldSummaryOut,
     StoryGameCreateRequest,
     StoryGameSettingsUpdateRequest,
     StoryGameOut,
@@ -115,6 +119,12 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 STORY_DEFAULT_TITLE = "Новая игра"
+STORY_GAME_VISIBILITY_PRIVATE = "private"
+STORY_GAME_VISIBILITY_PUBLIC = "public"
+STORY_GAME_VISIBILITY_VALUES = {
+    STORY_GAME_VISIBILITY_PRIVATE,
+    STORY_GAME_VISIBILITY_PUBLIC,
+}
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
@@ -266,6 +276,58 @@ def _ensure_story_game_context_limit_column_exists() -> None:
         )
 
 
+def _ensure_story_game_community_columns_exist() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryGame.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryGame.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "description" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN description TEXT NOT NULL DEFAULT ''"
+        )
+    if "visibility" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            f"ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT '{STORY_GAME_VISIBILITY_PRIVATE}'"
+        )
+    if "source_world_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN source_world_id INTEGER"
+        )
+    if "community_views" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN community_views INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_launches" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN community_launches INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_rating_sum" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN community_rating_sum INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_rating_count" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN community_rating_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            connection.execute(text(statement))
+
+
 def _ensure_story_world_card_extended_columns_exist() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(StoryWorldCard.__tablename__):
@@ -312,6 +374,10 @@ def _ensure_performance_indexes_exist() -> None:
     index_statements = (
         "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
         f"ON {StoryGame.__tablename__} (user_id, last_activity_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_games_visibility_source_id "
+        f"ON {StoryGame.__tablename__} (visibility, source_world_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_games_source_world_id_id "
+        f"ON {StoryGame.__tablename__} (source_world_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_messages_game_id_id "
         f"ON {StoryMessage.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
@@ -326,6 +392,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryWorldCardChangeEvent.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_plot_events_game_id_id "
         f"ON {StoryPlotCardChangeEvent.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_ratings_world_user_id "
+        f"ON {StoryCommunityWorldRating.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
     )
@@ -345,6 +413,7 @@ def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_user_coins_column_exists()
     _ensure_story_game_context_limit_column_exists()
+    _ensure_story_game_community_columns_exist()
     _ensure_story_world_card_extended_columns_exist()
     _ensure_performance_indexes_exist()
 
@@ -1753,6 +1822,88 @@ def _derive_story_title(prompt: str) -> str:
     return f"{collapsed[:57].rstrip()}..."
 
 
+def _coerce_story_game_visibility(value: str | None) -> str:
+    normalized = (value or STORY_GAME_VISIBILITY_PRIVATE).strip().lower()
+    if normalized not in STORY_GAME_VISIBILITY_VALUES:
+        return STORY_GAME_VISIBILITY_PRIVATE
+    return normalized
+
+
+def _normalize_story_game_visibility(value: str | None) -> str:
+    normalized = (value or STORY_GAME_VISIBILITY_PRIVATE).strip().lower()
+    if normalized not in STORY_GAME_VISIBILITY_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Visibility should be either private or public",
+        )
+    return normalized
+
+
+def _normalize_story_game_description(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:4_000].rstrip()
+
+
+def _story_game_rating_average(game: StoryGame) -> float:
+    rating_count = max(int(game.community_rating_count or 0), 0)
+    if rating_count <= 0:
+        return 0.0
+    rating_sum = max(int(game.community_rating_sum or 0), 0)
+    return round(rating_sum / rating_count, 2)
+
+
+def _story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
+    return StoryGameSummaryOut(
+        id=game.id,
+        title=game.title,
+        description=(game.description or "").strip(),
+        visibility=_coerce_story_game_visibility(game.visibility),
+        source_world_id=game.source_world_id,
+        community_views=max(int(game.community_views or 0), 0),
+        community_launches=max(int(game.community_launches or 0), 0),
+        community_rating_avg=_story_game_rating_average(game),
+        community_rating_count=max(int(game.community_rating_count or 0), 0),
+        context_limit_chars=game.context_limit_chars,
+        last_activity_at=game.last_activity_at,
+        created_at=game.created_at,
+        updated_at=game.updated_at,
+    )
+
+
+def _story_author_name(user: User | None) -> str:
+    if user is None:
+        return "Unknown"
+    if user.display_name and user.display_name.strip():
+        return user.display_name.strip()
+    return _build_user_name(user.email)
+
+
+def _story_community_world_summary_to_out(
+    world: StoryGame,
+    *,
+    author_name: str,
+    user_rating: int | None,
+) -> StoryCommunityWorldSummaryOut:
+    summary = _story_game_summary_to_out(world)
+    return StoryCommunityWorldSummaryOut(
+        id=summary.id,
+        title=summary.title,
+        description=summary.description,
+        author_name=author_name,
+        community_views=summary.community_views,
+        community_launches=summary.community_launches,
+        community_rating_avg=summary.community_rating_avg,
+        community_rating_count=summary.community_rating_count,
+        user_rating=user_rating,
+        created_at=summary.created_at,
+        updated_at=summary.updated_at,
+    )
+
+
 def _touch_story_game(game: StoryGame) -> None:
     game.last_activity_at = _utcnow()
 
@@ -1767,6 +1918,61 @@ def _get_user_story_game_or_404(db: Session, user_id: int, game_id: int) -> Stor
     if game:
         return game
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+
+
+def _get_public_story_world_or_404(db: Session, world_id: int) -> StoryGame:
+    world = db.scalar(
+        select(StoryGame).where(
+            StoryGame.id == world_id,
+            StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
+            StoryGame.source_world_id.is_(None),
+        )
+    )
+    if world is not None:
+        return world
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community world not found")
+
+
+def _clone_story_world_cards_to_game(
+    db: Session,
+    *,
+    source_world_id: int,
+    target_game_id: int,
+) -> None:
+    source_instruction_cards = _list_story_instruction_cards(db, source_world_id)
+    for card in source_instruction_cards:
+        cloned_instruction = StoryInstructionCard(
+            game_id=target_game_id,
+            title=card.title,
+            content=card.content,
+        )
+        db.add(cloned_instruction)
+
+    source_plot_cards = _list_story_plot_cards(db, source_world_id)
+    for card in source_plot_cards:
+        cloned_plot = StoryPlotCard(
+            game_id=target_game_id,
+            title=card.title,
+            content=card.content,
+            source=card.source,
+        )
+        db.add(cloned_plot)
+
+    source_world_cards = _list_story_world_cards(db, source_world_id)
+    for card in source_world_cards:
+        cloned_world_card = StoryWorldCard(
+            game_id=target_game_id,
+            title=card.title,
+            content=card.content,
+            triggers=card.triggers,
+            kind=_normalize_story_world_card_kind(card.kind),
+            avatar_url=_normalize_story_character_avatar_url(card.avatar_url),
+            character_id=None,
+            is_locked=bool(card.is_locked),
+            ai_edit_enabled=bool(card.ai_edit_enabled),
+            source=_normalize_story_world_card_source(card.source),
+        )
+        db.add(cloned_world_card)
 
 
 def _list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
@@ -4810,7 +5016,172 @@ def list_story_games(
         .where(StoryGame.user_id == user.id)
         .order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
     ).all()
-    return [StoryGameSummaryOut.model_validate(game) for game in games]
+    return [_story_game_summary_to_out(game) for game in games]
+
+
+@app.get("/api/story/community/worlds", response_model=list[StoryCommunityWorldSummaryOut])
+def list_story_community_worlds(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryCommunityWorldSummaryOut]:
+    user = _get_current_user(db, authorization)
+    worlds = db.scalars(
+        select(StoryGame)
+        .where(
+            StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
+            StoryGame.source_world_id.is_(None),
+        )
+        .order_by(
+            StoryGame.community_launches.desc(),
+            StoryGame.community_views.desc(),
+            StoryGame.community_rating_count.desc(),
+            StoryGame.id.desc(),
+        )
+        .limit(60)
+    ).all()
+    if not worlds:
+        return []
+
+    world_ids = [world.id for world in worlds]
+    author_ids = sorted({world.user_id for world in worlds})
+    authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
+    author_name_by_id = {author.id: _story_author_name(author) for author in authors}
+
+    user_rating_rows = db.scalars(
+        select(StoryCommunityWorldRating).where(
+            StoryCommunityWorldRating.user_id == user.id,
+            StoryCommunityWorldRating.world_id.in_(world_ids),
+        )
+    ).all()
+    user_rating_by_world_id = {row.world_id: int(row.rating) for row in user_rating_rows}
+
+    return [
+        _story_community_world_summary_to_out(
+            world,
+            author_name=author_name_by_id.get(world.user_id, "Unknown"),
+            user_rating=user_rating_by_world_id.get(world.id),
+        )
+        for world in worlds
+    ]
+
+
+@app.get("/api/story/community/worlds/{world_id}", response_model=StoryCommunityWorldOut)
+def get_story_community_world(
+    world_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCommunityWorldOut:
+    user = _get_current_user(db, authorization)
+    world = _get_public_story_world_or_404(db, world_id)
+    world.community_views = max(int(world.community_views or 0), 0) + 1
+    db.commit()
+    db.refresh(world)
+
+    author = db.scalar(select(User).where(User.id == world.user_id))
+    user_rating = db.scalar(
+        select(StoryCommunityWorldRating.rating).where(
+            StoryCommunityWorldRating.world_id == world.id,
+            StoryCommunityWorldRating.user_id == user.id,
+        )
+    )
+    instruction_cards = _list_story_instruction_cards(db, world.id)
+    plot_cards = _list_story_plot_cards(db, world.id)
+    world_cards = _list_story_world_cards(db, world.id)
+
+    return StoryCommunityWorldOut(
+        world=_story_community_world_summary_to_out(
+            world,
+            author_name=_story_author_name(author),
+            user_rating=int(user_rating) if user_rating is not None else None,
+        ),
+        context_limit_chars=world.context_limit_chars,
+        instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
+        plot_cards=[_story_plot_card_to_out(card) for card in plot_cards],
+        world_cards=[_story_world_card_to_out(card) for card in world_cards],
+    )
+
+
+@app.post("/api/story/community/worlds/{world_id}/launch", response_model=StoryGameSummaryOut)
+def launch_story_community_world(
+    world_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryGameSummaryOut:
+    user = _get_current_user(db, authorization)
+    world = _get_public_story_world_or_404(db, world_id)
+    title = world.title.strip() or STORY_DEFAULT_TITLE
+
+    cloned_game = StoryGame(
+        user_id=user.id,
+        title=title,
+        description=world.description or "",
+        visibility=STORY_GAME_VISIBILITY_PRIVATE,
+        source_world_id=world.id,
+        community_views=0,
+        community_launches=0,
+        community_rating_sum=0,
+        community_rating_count=0,
+        context_limit_chars=_normalize_story_context_limit_chars(world.context_limit_chars),
+        last_activity_at=_utcnow(),
+    )
+    db.add(cloned_game)
+    db.flush()
+
+    _clone_story_world_cards_to_game(
+        db,
+        source_world_id=world.id,
+        target_game_id=cloned_game.id,
+    )
+
+    world.community_launches = max(int(world.community_launches or 0), 0) + 1
+    _touch_story_game(cloned_game)
+    db.commit()
+    db.refresh(cloned_game)
+    return _story_game_summary_to_out(cloned_game)
+
+
+@app.post("/api/story/community/worlds/{world_id}/rating", response_model=StoryCommunityWorldSummaryOut)
+def rate_story_community_world(
+    world_id: int,
+    payload: StoryCommunityWorldRatingRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCommunityWorldSummaryOut:
+    user = _get_current_user(db, authorization)
+    world = _get_public_story_world_or_404(db, world_id)
+    rating_value = int(payload.rating)
+
+    existing_rating = db.scalar(
+        select(StoryCommunityWorldRating).where(
+            StoryCommunityWorldRating.world_id == world.id,
+            StoryCommunityWorldRating.user_id == user.id,
+        )
+    )
+    if existing_rating is None:
+        db.add(
+            StoryCommunityWorldRating(
+                world_id=world.id,
+                user_id=user.id,
+                rating=rating_value,
+            )
+        )
+        world.community_rating_sum = max(int(world.community_rating_sum or 0), 0) + rating_value
+        world.community_rating_count = max(int(world.community_rating_count or 0), 0) + 1
+    else:
+        previous_rating = int(existing_rating.rating)
+        existing_rating.rating = rating_value
+        next_sum = max(int(world.community_rating_sum or 0), 0) - previous_rating + rating_value
+        world.community_rating_sum = max(next_sum, 0)
+        world.community_rating_count = max(int(world.community_rating_count or 0), 1)
+
+    db.commit()
+    db.refresh(world)
+    author = db.scalar(select(User).where(User.id == world.user_id))
+    return _story_community_world_summary_to_out(
+        world,
+        author_name=_story_author_name(author),
+        user_rating=rating_value,
+    )
 
 
 @app.post("/api/story/games", response_model=StoryGameSummaryOut)
@@ -4823,18 +5194,27 @@ def create_story_game(
     title = payload.title.strip() if payload.title else STORY_DEFAULT_TITLE
     if not title:
         title = STORY_DEFAULT_TITLE
+    description = _normalize_story_game_description(payload.description)
+    visibility = _normalize_story_game_visibility(payload.visibility)
     context_limit_chars = _normalize_story_context_limit_chars(payload.context_limit_chars)
 
     game = StoryGame(
         user_id=user.id,
         title=title,
+        description=description,
+        visibility=visibility,
+        source_world_id=None,
+        community_views=0,
+        community_launches=0,
+        community_rating_sum=0,
+        community_rating_count=0,
         context_limit_chars=context_limit_chars,
         last_activity_at=_utcnow(),
     )
     db.add(game)
     db.commit()
     db.refresh(game)
-    return StoryGameSummaryOut.model_validate(game)
+    return _story_game_summary_to_out(game)
 
 
 @app.get("/api/story/games/{game_id}", response_model=StoryGameOut)
@@ -4852,7 +5232,7 @@ def get_story_game(
     world_cards = _list_story_world_cards(db, game.id)
     world_card_events = _list_story_world_card_events(db, game.id)
     return StoryGameOut(
-        game=StoryGameSummaryOut.model_validate(game),
+        game=_story_game_summary_to_out(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[_story_plot_card_to_out(card) for card in plot_cards],
@@ -4875,7 +5255,7 @@ def update_story_game_settings(
     _touch_story_game(game)
     db.commit()
     db.refresh(game)
-    return StoryGameSummaryOut.model_validate(game)
+    return _story_game_summary_to_out(game)
 
 
 @app.get("/api/story/games/{game_id}/instructions", response_model=list[StoryInstructionCardOut])
@@ -5211,14 +5591,22 @@ def create_story_world_card(
     normalized_title = _normalize_story_world_card_title(payload.title)
     normalized_content = _normalize_story_world_card_content(payload.content)
     normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
+    normalized_kind = _normalize_story_world_card_kind(payload.kind)
     normalized_avatar = _normalize_story_character_avatar_url(payload.avatar_url)
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        existing_main_hero = _get_story_main_hero_card(db, game.id)
+        if existing_main_hero is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Main hero is already selected and cannot be changed",
+            )
 
     world_card = StoryWorldCard(
         game_id=game.id,
         title=normalized_title,
         content=normalized_content,
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
-        kind=STORY_WORLD_CARD_KIND_WORLD,
+        kind=normalized_kind,
         avatar_url=normalized_avatar,
         character_id=None,
         is_locked=False,

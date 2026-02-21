@@ -4,6 +4,7 @@ import PublicLandingPage from './pages/PublicLandingPage'
 import AuthenticatedHomePage from './pages/AuthenticatedHomePage'
 import StoryGamePage from './pages/StoryGamePage'
 import MyGamesPage from './pages/MyGamesPage'
+import WorldCreatePage from './pages/WorldCreatePage'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
 import type { AuthResponse, AuthUser } from './types/auth'
@@ -28,7 +29,8 @@ function isAuthenticatedPath(pathname: string): boolean {
     pathname.startsWith('/home/') ||
     pathname === '/dashboard' ||
     pathname === '/games' ||
-    pathname.startsWith('/games/')
+    pathname.startsWith('/games/') ||
+    pathname === '/worlds/new'
   )
 }
 
@@ -189,6 +191,7 @@ function App() {
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowMyGamesPage = isAuthenticated && (path === '/games' || path === '/games/all')
+  const shouldShowWorldCreatePage = isAuthenticated && path === '/worlds/new'
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
   if (shouldShowBootScreen) {
@@ -281,6 +284,16 @@ function App() {
         onNavigate={navigate}
         onUserUpdate={handleUserUpdate}
         onLogout={handleLogout}
+      />
+    )
+  }
+
+  if (shouldShowWorldCreatePage && authUser) {
+    return (
+      <WorldCreatePage
+        user={authUser}
+        authToken={authToken!}
+        onNavigate={navigate}
       />
     )
   }

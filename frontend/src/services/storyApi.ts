@@ -1,8 +1,11 @@
 import { API_BASE_URL } from '../config/env'
 import type {
   StoryCharacter,
+  StoryCommunityWorldPayload,
+  StoryCommunityWorldSummary,
   StoryGamePayload,
   StoryGameSummary,
+  StoryGameVisibility,
   StoryInstructionCard,
   StoryMessage,
   StoryPlotCard,
@@ -115,6 +118,55 @@ export async function listStoryGames(token: string): Promise<StoryGameSummary[]>
   })
 }
 
+export async function listCommunityWorlds(token: string): Promise<StoryCommunityWorldSummary[]> {
+  return request<StoryCommunityWorldSummary[]>('/api/story/community/worlds', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
+export async function getCommunityWorld(payload: {
+  token: string
+  worldId: number
+}): Promise<StoryCommunityWorldPayload> {
+  return request<StoryCommunityWorldPayload>(`/api/story/community/worlds/${payload.worldId}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function launchCommunityWorld(payload: {
+  token: string
+  worldId: number
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>(`/api/story/community/worlds/${payload.worldId}/launch`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function rateCommunityWorld(payload: {
+  token: string
+  worldId: number
+  rating: number
+}): Promise<StoryCommunityWorldSummary> {
+  return request<StoryCommunityWorldSummary>(`/api/story/community/worlds/${payload.worldId}/rating`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      rating: payload.rating,
+    }),
+  })
+}
+
 export async function listStoryCharacters(token: string): Promise<StoryCharacter[]> {
   return request<StoryCharacter[]>('/api/story/characters', {
     method: 'GET',
@@ -176,6 +228,8 @@ export async function deleteStoryCharacter(payload: {
 export async function createStoryGame(payload: {
   token: string
   title?: string
+  description?: string
+  visibility?: StoryGameVisibility
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
     method: 'POST',
@@ -184,6 +238,8 @@ export async function createStoryGame(payload: {
     },
     body: JSON.stringify({
       title: payload.title ?? null,
+      description: payload.description ?? null,
+      visibility: payload.visibility ?? null,
     }),
   })
 }
@@ -487,6 +543,7 @@ export async function createStoryWorldCard(payload: {
   title: string
   content: string
   triggers: string[]
+  kind?: 'world' | 'npc' | 'main_hero'
 }): Promise<StoryWorldCard> {
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
     method: 'POST',
@@ -497,6 +554,7 @@ export async function createStoryWorldCard(payload: {
       title: payload.title,
       content: payload.content,
       triggers: payload.triggers,
+      kind: payload.kind ?? 'world',
     }),
   })
 }

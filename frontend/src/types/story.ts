@@ -1,8 +1,16 @@
 export type StoryRole = 'user' | 'assistant'
+export type StoryGameVisibility = 'private' | 'public'
 
 export type StoryGameSummary = {
   id: number
   title: string
+  description: string
+  visibility: StoryGameVisibility
+  source_world_id: number | null
+  community_views: number
+  community_launches: number
+  community_rating_avg: number
+  community_rating_count: number
   context_limit_chars: number
   last_activity_at: string
   created_at: string
@@ -130,6 +138,28 @@ export type StoryGamePayload = {
   plot_card_events: StoryPlotCardEvent[]
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
+}
+
+export type StoryCommunityWorldSummary = {
+  id: number
+  title: string
+  description: string
+  author_name: string
+  community_views: number
+  community_launches: number
+  community_rating_avg: number
+  community_rating_count: number
+  user_rating: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type StoryCommunityWorldPayload = {
+  world: StoryCommunityWorldSummary
+  context_limit_chars: number
+  instruction_cards: StoryInstructionCard[]
+  plot_cards: StoryPlotCard[]
+  world_cards: StoryWorldCard[]
 }
 
 export type StoryStreamStartPayload = {

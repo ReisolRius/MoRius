@@ -19,6 +19,7 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
+import type { MouseEvent } from 'react'
 import { useRef } from 'react'
 import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
@@ -31,11 +32,11 @@ import {
   updateCurrentUserAvatar,
   type CoinTopUpPlan,
 } from '../services/authApi'
-import { createStoryGame, getStoryGame, listStoryGames } from '../services/storyApi'
+import { getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryGameSummary, StoryMessage } from '../types/story'
+import type { StoryCommunityWorldSummary, StoryGameSummary, StoryMessage } from '../types/story'
 
 type MyGamesPageProps = {
   user: AuthUser
@@ -228,6 +229,11 @@ function SortGlyph() {
   )
 }
 
+function toStarLabel(value: number): string {
+  const safeValue = Math.max(0, Math.min(5, Math.round(value)))
+  return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
+}
+
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -308,7 +314,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [games, setGames] = useState<StoryGameSummary[]>([])
   const [gamePreviews, setGamePreviews] = useState<Record<number, string>>({})
   const [isLoadingGames, setIsLoadingGames] = useState(true)
-  const [isCreatingGame, setIsCreatingGame] = useState(false)
+  const [communityWorldById, setCommunityWorldById] = useState<Record<number, StoryCommunityWorldSummary>>({})
+  const [ratingDialogGame, setRatingDialogGame] = useState<StoryGameSummary | null>(null)
+  const [ratingDraft, setRatingDraft] = useState(0)
+  const [isRatingSaving, setIsRatingSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
@@ -353,11 +362,19 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       )
 
       setGamePreviews(Object.fromEntries(previews))
+
+      try {
+        const communityWorlds = await listCommunityWorlds(authToken)
+        setCommunityWorldById(Object.fromEntries(communityWorlds.map((world) => [world.id, world])))
+      } catch {
+        setCommunityWorldById({})
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
       setErrorMessage(detail)
       setGames([])
       setGamePreviews({})
+      setCommunityWorldById({})
     } finally {
       setIsLoadingGames(false)
     }
@@ -367,22 +384,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     void loadGames()
   }, [loadGames])
 
-  const handleCreateGame = useCallback(async () => {
-    if (isCreatingGame) {
-      return
-    }
-    setErrorMessage('')
-    setIsCreatingGame(true)
-    try {
-      const newGame = await createStoryGame({ token: authToken })
-      onNavigate(`/home/${newGame.id}`)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
-      setErrorMessage(detail)
-    } finally {
-      setIsCreatingGame(false)
-    }
-  }, [authToken, isCreatingGame, onNavigate])
+  const handleOpenWorldCreator = useCallback(() => {
+    onNavigate('/worlds/new')
+  }, [onNavigate])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -570,6 +574,47 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       setActivePlanPurchaseId(null)
     }
   }
+
+  const handleOpenRatingDialog = useCallback(
+    (event: MouseEvent<HTMLButtonElement>, game: StoryGameSummary) => {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!game.source_world_id) {
+        return
+      }
+
+      const currentRating = communityWorldById[game.source_world_id]?.user_rating ?? 0
+      setRatingDraft(currentRating)
+      setRatingDialogGame(game)
+      setErrorMessage('')
+    },
+    [communityWorldById],
+  )
+
+  const handleSubmitRating = useCallback(async () => {
+    if (!ratingDialogGame?.source_world_id || ratingDraft < 1 || ratingDraft > 5 || isRatingSaving) {
+      return
+    }
+
+    setIsRatingSaving(true)
+    try {
+      const updatedWorld = await rateCommunityWorld({
+        token: authToken,
+        worldId: ratingDialogGame.source_world_id,
+        rating: ratingDraft,
+      })
+      setCommunityWorldById((previous) => ({
+        ...previous,
+        [updatedWorld.id]: updatedWorld,
+      }))
+      setRatingDialogGame(null)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить рейтинг'
+      setErrorMessage(detail)
+    } finally {
+      setIsRatingSaving(false)
+    }
+  }, [authToken, isRatingSaving, ratingDialogGame, ratingDraft])
 
   const resolveDisplayTitle = useCallback(
     (gameId: number) => getDisplayStoryTitle(gameId, customTitleMap),
@@ -839,8 +884,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             </FormControl>
 
             <Button
-              onClick={() => void handleCreateGame()}
-              disabled={isCreatingGame}
+              onClick={handleOpenWorldCreator}
               sx={{
                 minHeight: 54,
                 minWidth: 176,
@@ -855,7 +899,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 },
               }}
             >
-              {isCreatingGame ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Новая игра +'}
+              Новая игра +
             </Button>
           </Box>
 
@@ -890,97 +934,203 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 },
               }}
             >
-              {visibleGames.map((game) => (
-                <Button
-                  key={game.id}
-                  onClick={() => onNavigate(`/home/${game.id}`)}
-                  sx={{
-                    borderRadius: '20px',
-                    minHeight: { xs: 300, md: 330 },
-                    p: 0,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'stretch',
-                    textTransform: 'none',
-                    textAlign: 'left',
-                    border: `1px solid ${APP_BORDER_COLOR}`,
-                    overflow: 'hidden',
-                    background: APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
-                    transition: 'transform 180ms ease, border-color 180ms ease',
-                    '&:hover': {
-                      borderColor: 'rgba(203, 216, 234, 0.38)',
-                      transform: 'translateY(-2px)',
-                    },
-                  }}
-                >
-                  <Box
+              {visibleGames.map((game) => {
+                const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
+                return (
+                  <Button
+                    key={game.id}
+                    onClick={() => onNavigate(`/home/${game.id}`)}
                     sx={{
-                      minHeight: { xs: 174, md: 194 },
-                      backgroundImage: buildCardArtwork(game.id),
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      position: 'relative',
+                      borderRadius: '20px',
+                      minHeight: { xs: 300, md: 330 },
+                      p: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'stretch',
+                      textTransform: 'none',
+                      textAlign: 'left',
+                      border: `1px solid ${APP_BORDER_COLOR}`,
+                      overflow: 'hidden',
+                      background: APP_CARD_BACKGROUND,
+                      color: APP_TEXT_PRIMARY,
+                      transition: 'transform 180ms ease, border-color 180ms ease',
+                      '&:hover': {
+                        borderColor: 'rgba(203, 216, 234, 0.38)',
+                        transform: 'translateY(-2px)',
+                      },
                     }}
                   >
                     <Box
-                      aria-hidden
                       sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        background:
-                          'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
-                      }}
-                    />
-                  </Box>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      px: { xs: 1.2, md: 1.35 },
-                      py: { xs: 1.05, md: 1.2 },
-                      background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
-                      borderTop: '1px solid rgba(88, 116, 156, 0.42)',
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: { xs: '1.12rem', md: '1.16rem' },
-                        fontWeight: 800,
-                        lineHeight: 1.2,
-                        color: APP_TEXT_PRIMARY,
-                        mb: 0.62,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
+                        minHeight: { xs: 174, md: 194 },
+                        backgroundImage: buildCardArtwork(game.id),
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        position: 'relative',
                       }}
                     >
-                      {resolveDisplayTitle(game.id)}
-                    </Typography>
-                    <Typography
+                      <Box
+                        aria-hidden
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          background:
+                            'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
+                        }}
+                      />
+                    </Box>
+                    <Box
                       sx={{
-                        color: APP_TEXT_SECONDARY,
-                        fontSize: { xs: '0.92rem', md: '0.95rem' },
-                        lineHeight: 1.4,
-                        mb: 0.95,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
+                        width: '100%',
+                        px: { xs: 1.2, md: 1.35 },
+                        py: { xs: 1.05, md: 1.2 },
+                        background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
+                        borderTop: '1px solid rgba(88, 116, 156, 0.42)',
                       }}
                     >
-                      {gamePreviews[game.id] ?? 'Загружаем превью...'}
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      {formatUpdatedAtLabel(game.last_activity_at)}
-                    </Typography>
-                  </Box>
-                </Button>
-              ))}
+                      <Typography
+                        sx={{
+                          fontSize: { xs: '1.12rem', md: '1.16rem' },
+                          fontWeight: 800,
+                          lineHeight: 1.2,
+                          color: APP_TEXT_PRIMARY,
+                          mb: 0.62,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {resolveDisplayTitle(game.id)}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: { xs: '0.92rem', md: '0.95rem' },
+                          lineHeight: 1.4,
+                          mb: 0.95,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {gamePreviews[game.id] ?? 'Загружаем превью...'}
+                      </Typography>
+                      {game.source_world_id ? (
+                        <Stack spacing={0.3} sx={{ mb: 0.8 }}>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
+                            {sourceWorld
+                              ? `Комьюнити: просмотры ${sourceWorld.community_views}, запуски ${sourceWorld.community_launches}`
+                              : 'Комьюнити мир'}
+                          </Typography>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
+                            {sourceWorld
+                              ? `Рейтинг ${sourceWorld.community_rating_avg.toFixed(1)} (${sourceWorld.community_rating_count})`
+                              : 'Рейтинг: откройте оценку'}
+                          </Typography>
+                          <Button
+                            onClick={(event) => handleOpenRatingDialog(event, game)}
+                            disabled={isRatingSaving}
+                            sx={{
+                              alignSelf: 'flex-start',
+                              minHeight: 28,
+                              px: 1,
+                              py: 0.2,
+                              borderRadius: '8px',
+                              textTransform: 'none',
+                              color: APP_TEXT_PRIMARY,
+                              border: `1px solid ${APP_BORDER_COLOR}`,
+                              backgroundColor: 'rgba(34, 51, 79, 0.44)',
+                              fontSize: '0.78rem',
+                            }}
+                          >
+                            {sourceWorld?.user_rating ? `Ваша оценка: ${toStarLabel(sourceWorld.user_rating)}` : 'Оценить мир'}
+                          </Button>
+                        </Stack>
+                      ) : null}
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
+                        {formatUpdatedAtLabel(game.last_activity_at)}
+                      </Typography>
+                    </Box>
+                  </Button>
+                )
+              })}
             </Box>
           )}
         </Box>
       </Box>
+
+      <Dialog
+        open={Boolean(ratingDialogGame)}
+        onClose={() => {
+          if (!isRatingSaving) {
+            setRatingDialogGame(null)
+          }
+        }}
+        maxWidth="xs"
+        fullWidth
+        TransitionComponent={DialogTransition}
+        PaperProps={{
+          sx: {
+            borderRadius: '16px',
+            border: `1px solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Оценка мира</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.2}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY }}>
+              {ratingDialogGame?.source_world_id ? 'Оставьте рейтинг комьюнити-миру от 1 до 5 звезд.' : 'Рейтинг недоступен.'}
+            </Typography>
+            <Typography sx={{ fontWeight: 700 }}>{ratingDialogGame ? resolveDisplayTitle(ratingDialogGame.id) : ''}</Typography>
+            <Stack direction="row" spacing={0.5} justifyContent="center">
+              {[1, 2, 3, 4, 5].map((value) => (
+                <Button
+                  key={value}
+                  onClick={() => setRatingDraft(value)}
+                  disabled={isRatingSaving}
+                  sx={{
+                    minWidth: 42,
+                    minHeight: 42,
+                    borderRadius: '10px',
+                    border: `1px solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: value <= ratingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    fontSize: '1.15rem',
+                  }}
+                >
+                  {value <= ratingDraft ? '★' : '☆'}
+                </Button>
+              ))}
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button
+            onClick={() => setRatingDialogGame(null)}
+            disabled={isRatingSaving}
+            sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleSubmitRating()}
+            disabled={isRatingSaving || ratingDraft < 1 || !ratingDialogGame?.source_world_id}
+            sx={{
+              textTransform: 'none',
+              color: APP_TEXT_PRIMARY,
+              border: `1px solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_BUTTON_ACTIVE,
+              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+            }}
+          >
+            {isRatingSaving ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Сохранить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog
         open={profileDialogOpen}

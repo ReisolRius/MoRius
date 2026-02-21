@@ -81,6 +81,8 @@ class CoinTopUpSyncResponse(BaseModel):
 
 class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=4_000)
+    visibility: str | None = Field(default=None, max_length=16)
     context_limit_chars: int | None = Field(default=None, ge=500, le=5_000)
 
 
@@ -162,6 +164,10 @@ class StoryPlotCardUpdateRequest(BaseModel):
 
 class StoryMessageUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
+
+
+class StoryCommunityWorldRatingRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
 
 
 class StoryMessageOut(BaseModel):
@@ -273,14 +279,41 @@ class StoryWorldCardChangeEventOut(BaseModel):
 
 
 class StoryGameSummaryOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     title: str
+    description: str
+    visibility: str
+    source_world_id: int | None
+    community_views: int
+    community_launches: int
+    community_rating_avg: float
+    community_rating_count: int
     context_limit_chars: int
     last_activity_at: datetime
     created_at: datetime
     updated_at: datetime
+
+
+class StoryCommunityWorldSummaryOut(BaseModel):
+    id: int
+    title: str
+    description: str
+    author_name: str
+    community_views: int
+    community_launches: int
+    community_rating_avg: float
+    community_rating_count: int
+    user_rating: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryCommunityWorldOut(BaseModel):
+    world: StoryCommunityWorldSummaryOut
+    context_limit_chars: int
+    instruction_cards: list[StoryInstructionCardOut]
+    plot_cards: list[StoryPlotCardOut]
+    world_cards: list[StoryWorldCardOut]
 
 
 class StoryGameOut(BaseModel):
