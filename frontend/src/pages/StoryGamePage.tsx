@@ -4361,12 +4361,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           void handleUndoPlotCardEvent(plotCardEvent.id)
                                         }}
                                         disabled={isUndoing}
-                                        sx={{ width: 28, height: 28 }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
+                                        }}
                                       >
                                         {isUndoing ? (
                                           <CircularProgress size={14} sx={{ color: 'rgba(208, 220, 237, 0.86)' }} />
                                         ) : (
-                                          <Box component="img" src={icons.undo} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
+                                          <Box component="img" src={icons.back} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
                                         )}
                                       </IconButton>
                                       <IconButton
@@ -4378,9 +4386,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         sx={{
                                           width: 28,
                                           height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
                                           color: 'rgba(198, 210, 228, 0.86)',
                                           fontSize: '1.05rem',
                                           lineHeight: 1,
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
                                         ×
@@ -4394,9 +4407,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         sx={{
                                           width: 28,
                                           height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
                                           color: 'rgba(198, 210, 228, 0.86)',
                                           fontSize: '0.98rem',
                                           lineHeight: 1,
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
                                         {isExpanded ? '˄' : '˅'}
@@ -4486,12 +4504,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           void handleUndoWorldCardEvent(worldCardEvent.id)
                                         }}
                                         disabled={isUndoing}
-                                        sx={{ width: 28, height: 28 }}
+                                        sx={{
+                                          width: 28,
+                                          height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
+                                        }}
                                       >
                                         {isUndoing ? (
                                           <CircularProgress size={14} sx={{ color: 'rgba(208, 220, 237, 0.86)' }} />
                                         ) : (
-                                          <Box component="img" src={icons.undo} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
+                                          <Box component="img" src={icons.back} alt="" sx={{ width: 14, height: 14, opacity: 0.88 }} />
                                         )}
                                       </IconButton>
                                       <IconButton
@@ -4503,9 +4529,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         sx={{
                                           width: 28,
                                           height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
                                           color: 'rgba(198, 210, 228, 0.86)',
                                           fontSize: '1.05rem',
                                           lineHeight: 1,
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
                                         ×
@@ -4519,9 +4550,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         sx={{
                                           width: 28,
                                           height: 28,
+                                          p: 0,
+                                          border: 'none',
+                                          backgroundColor: 'transparent',
                                           color: 'rgba(198, 210, 228, 0.86)',
                                           fontSize: '0.98rem',
                                           lineHeight: 1,
+                                          '&:hover': { backgroundColor: 'transparent' },
+                                          '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
                                         {isExpanded ? '˄' : '˅'}
@@ -4658,7 +4694,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             >
               <Stack direction="row" alignItems="center" sx={{ gap: 1.1 }}>
                 <Stack direction="row" spacing={0.35} alignItems="center">
-                  <Box component="img" src={icons.tabcoin} alt="" sx={{ width: 13, height: 13 }} />
+                  <Box component="img" src={icons.coin} alt="" sx={{ width: 16, height: 16, opacity: 0.92 }} />
                   <Typography sx={{ color: 'var(--morius-title-text)', fontSize: 'var(--morius-subheading-size)', lineHeight: 1 }}>
                     {user.coins}
                   </Typography>
@@ -4735,19 +4771,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  backgroundColor: '#BACAD6',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  color: '#141414',
+                  backgroundColor: isGenerating ? 'transparent' : '#BACAD6',
+                  border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
+                  color: isGenerating ? 'var(--morius-accent)' : '#141414',
                   '&:hover': {
-                    backgroundColor: '#C5D2DD',
+                    backgroundColor: isGenerating ? 'transparent' : '#C5D2DD',
                   },
                   '&:active': {
-                    backgroundColor: '#AFC0CD',
+                    backgroundColor: isGenerating ? 'transparent' : '#AFC0CD',
                   },
                   '&:disabled': {
                     opacity: 1,
                     color: '#0f1011',
-                    backgroundColor: '#99A6B1',
+                    backgroundColor: isGenerating ? 'transparent' : '#99A6B1',
+                    border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
                   },
                 }}
               >
