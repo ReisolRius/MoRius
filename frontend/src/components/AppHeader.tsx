@@ -33,8 +33,8 @@ const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
   height: HEADER_BUTTON_SIZE,
   borderRadius: 'var(--morius-radius)',
-  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  backgroundColor: 'var(--morius-elevated-bg)',
+  border: 'none',
+  backgroundColor: 'transparent',
   color: 'var(--morius-accent)',
   transition: 'background-color 180ms ease',
   '&:hover': {
@@ -90,8 +90,11 @@ function AppHeader({
           height: 'calc(var(--morius-header-height) + 40px)',
           zIndex: 34,
           pointerEvents: 'none',
-          backdropFilter: 'blur(10px)',
-          background: 'linear-gradient(180deg, rgba(8, 8, 8, 0.92) 0%, rgba(8, 8, 8, 0.58) 44%, rgba(8, 8, 8, 0) 100%)',
+          backdropFilter: 'blur(5px)',
+          WebkitBackdropFilter: 'blur(5px)',
+          maskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
+          WebkitMaskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
+          background: 'linear-gradient(180deg, rgba(8, 8, 8, 0.64) 0%, rgba(8, 8, 8, 0.34) 46%, rgba(8, 8, 8, 0) 100%)',
         }}
       />
 
@@ -179,6 +182,17 @@ function AppHeader({
               transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
               pointerEvents: isRightPanelOpen ? 'auto' : 'none',
               overflow: 'hidden',
+              '& .MuiButtonBase-root': {
+                border: 'none !important',
+                backgroundColor: 'transparent !important',
+                boxShadow: 'none !important',
+              },
+              '& .MuiButtonBase-root:hover': {
+                backgroundColor: 'var(--morius-button-hover) !important',
+              },
+              '& .MuiButtonBase-root:active': {
+                backgroundColor: 'var(--morius-button-active) !important',
+              },
               transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
             }}
           >
