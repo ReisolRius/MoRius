@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -205,6 +205,17 @@ def undo_story_world_card_change_event(
                 target_card_id = raw_snapshot_id
 
         if target_card_id is not None:
+            # Break FK links from event log rows before deleting the restored card.
+            db.execute(
+                sa_update(StoryWorldCardChangeEvent)
+                .where(
+                    StoryWorldCardChangeEvent.game_id == game.id,
+                    StoryWorldCardChangeEvent.world_card_id == target_card_id,
+                )
+                .values(world_card_id=None)
+            )
+            if event.world_card_id == target_card_id:
+                event.world_card_id = None
             world_card = db.scalar(
                 select(StoryWorldCard).where(
                     StoryWorldCard.id == target_card_id,
@@ -306,6 +317,17 @@ def undo_story_plot_card_change_event(
                 target_card_id = raw_snapshot_id
 
         if target_card_id is not None:
+            # Break FK links from event log rows before deleting the restored card.
+            db.execute(
+                sa_update(StoryPlotCardChangeEvent)
+                .where(
+                    StoryPlotCardChangeEvent.game_id == game.id,
+                    StoryPlotCardChangeEvent.plot_card_id == target_card_id,
+                )
+                .values(plot_card_id=None)
+            )
+            if event.plot_card_id == target_card_id:
+                event.plot_card_id = None
             plot_card = db.scalar(
                 select(StoryPlotCard).where(
                     StoryPlotCard.id == target_card_id,
