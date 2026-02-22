@@ -246,7 +246,8 @@ STORY_SYSTEM_PROMPT = (
     "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
     "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
     "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
-    "Формат: 2-5 абзацев связного повествования."
+    "Формат ответа: 2-5 абзацев связного повествования. "
+    "Любую прямую речь оформляй только через диалоговые маркеры."
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -1260,8 +1261,12 @@ def _build_story_system_prompt(
             "",
             "Follow instruction and world cards silently.",
             "Do not enumerate or explain these cards in the answer.",
-            "If an NPC speaks, output that paragraph as [[NPC:Name]] dialogue text.",
-            "Use [[NPC:...]] only for direct NPC speech, not for narration.",
+            "Dialogue markup is mandatory for any direct speech.",
+            "For NPC speech use one paragraph per replica: [[NPC:Name]] text.",
+            "For main hero speech use one paragraph per replica: [[GG:Name]] text.",
+            "If speaker has no personal name, use a stable role label (e.g. Бандит, Стражник, Торговец).",
+            "Never output direct speech as bare quotes, as \"Name: text\", or as \": text\".",
+            "Use [[NPC:...]] and [[GG:...]] only for direct speech, not for narration.",
         ]
     )
     return "\n".join(lines)

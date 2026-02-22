@@ -155,6 +155,7 @@ const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const DIALOGUE_MARKER_PATTERN = /\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*/giu
 const DIALOGUE_MARKER_START_PATTERN = /^\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*([\s\S]*)$/iu
 const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 .,'’`"-]{0,80})\s*(?:[:：]|[—-])\s+([\s\S]+)$/u
+const SPEAKERLESS_CHARACTER_LINE_PATTERN = /^[:：]\s*([\s\S]+)$/u
 const DIALOGUE_QUOTE_START_PATTERN = /^(?:[—-]\s*|[«„"“])/u
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const GENERIC_DIALOGUE_SPEAKER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
@@ -240,6 +241,28 @@ function parseCharacterLine(paragraph: string): { speakerName: string; text: str
   return { speakerName, text }
 }
 
+function parseSpeakerlessCharacterLine(paragraph: string, context: string): { speakerName: string; text: string } | null {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const matched = normalized.match(SPEAKERLESS_CHARACTER_LINE_PATTERN)
+  if (!matched) {
+    return null
+  }
+
+  const text = matched[1].trim()
+  if (!text) {
+    return null
+  }
+
+  return {
+    speakerName: resolveGenericDialogueSpeaker(normalized, context),
+    text,
+  }
+}
+
 function parseImplicitDialogueLine(paragraph: string, context: string): { speakerName: string; text: string } | null {
   const normalized = paragraph.replace(/\r\n/g, '\n').trim()
   if (!normalized || !isDialogueQuoteText(normalized)) {
@@ -255,6 +278,14 @@ function parseImplicitDialogueLine(paragraph: string, context: string): { speake
   }
 }
 
+function parseDialogueParagraph(paragraph: string, context: string): { speakerName: string; text: string } | null {
+  return (
+    parseCharacterLine(paragraph) ??
+    parseSpeakerlessCharacterLine(paragraph, context) ??
+    parseImplicitDialogueLine(paragraph, context)
+  )
+}
+
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   const normalized = content.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
@@ -265,21 +296,12 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   if (markerMatches.length === 0) {
     const plainBlocks: AssistantMessageBlock[] = []
     splitAssistantParagraphs(normalized).forEach((paragraph) => {
-      const characterLine = parseCharacterLine(paragraph)
-      if (characterLine) {
+      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
+      if (dialogueLine) {
         plainBlocks.push({
           type: 'character',
-          speakerName: characterLine.speakerName,
-          text: characterLine.text,
-        })
-        return
-      }
-      const implicitDialogue = parseImplicitDialogueLine(paragraph, normalized)
-      if (implicitDialogue) {
-        plainBlocks.push({
-          type: 'character',
-          speakerName: implicitDialogue.speakerName,
-          text: implicitDialogue.text,
+          speakerName: dialogueLine.speakerName,
+          text: dialogueLine.text,
         })
         return
       }
@@ -294,21 +316,12 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
       return
     }
     splitAssistantParagraphs(value).forEach((paragraph) => {
-      const characterLine = parseCharacterLine(paragraph)
-      if (characterLine) {
+      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
+      if (dialogueLine) {
         blocks.push({
           type: 'character',
-          speakerName: characterLine.speakerName,
-          text: characterLine.text,
-        })
-        return
-      }
-      const implicitDialogue = parseImplicitDialogueLine(paragraph, normalized)
-      if (implicitDialogue) {
-        blocks.push({
-          type: 'character',
-          speakerName: implicitDialogue.speakerName,
-          text: implicitDialogue.text,
+          speakerName: dialogueLine.speakerName,
+          text: dialogueLine.text,
         })
         return
       }
@@ -341,6 +354,16 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
           type: 'character',
           speakerName: characterLine.speakerName,
           text: characterLine.text,
+        })
+        return
+      }
+
+      const speakerlessDialogue = parseSpeakerlessCharacterLine(paragraph, normalized)
+      if (speakerlessDialogue) {
+        blocks.push({
+          type: 'character',
+          speakerName,
+          text: speakerlessDialogue.text,
         })
         return
       }
@@ -389,12 +412,12 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   if (blocks.length === 0) {
     const fallbackBlocks: AssistantMessageBlock[] = []
     splitAssistantParagraphs(normalized).forEach((paragraph) => {
-      const characterLine = parseCharacterLine(paragraph)
-      if (characterLine) {
+      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
+      if (dialogueLine) {
         fallbackBlocks.push({
           type: 'character',
-          speakerName: characterLine.speakerName,
-          text: characterLine.text,
+          speakerName: dialogueLine.speakerName,
+          text: dialogueLine.text,
         })
         return
       }
