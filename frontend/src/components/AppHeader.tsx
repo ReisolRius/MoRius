@@ -129,7 +129,7 @@ function AppHeader({
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
           backgroundColor: 'var(--morius-card-bg)',
-          p: '10px',
+          p: 'var(--morius-content-gap)',
           boxShadow: '0 20px 36px rgba(0, 0, 0, 0.3)',
           transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-30px)',
           opacity: isPageMenuOpen ? 1 : 0,
@@ -137,7 +137,7 @@ function AppHeader({
           transition: 'transform 260ms ease, opacity 220ms ease',
         }}
       >
-        <Stack spacing={1.1}>
+        <Stack sx={{ rowGap: 'var(--morius-menu-vertical-gap)' }}>
           {menuItems.map((item) => (
             <Button key={item.key} sx={menuItemSx(Boolean(item.isActive))} onClick={item.onClick}>
               {item.label}

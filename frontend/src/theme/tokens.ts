@@ -51,6 +51,11 @@ export const moriusThemeTokens = {
     storyMessageGap: 20,
     iconGap: 20,
     scrollbarOffset: 10,
+    contentGap: 20,
+    titleTopGap: 40,
+    titleBottomGap: 20,
+    menuVerticalGap: 10,
+    ratingStarGap: 10,
   },
 } as const
 
@@ -86,4 +91,9 @@ export const moriusCssVariables = {
   '--morius-story-message-gap': `${moriusThemeTokens.layout.storyMessageGap}px`,
   '--morius-icon-gap': `${moriusThemeTokens.layout.iconGap}px`,
   '--morius-scrollbar-offset': `${moriusThemeTokens.layout.scrollbarOffset}px`,
+  '--morius-content-gap': `${moriusThemeTokens.layout.contentGap}px`,
+  '--morius-title-top-gap': `${moriusThemeTokens.layout.titleTopGap}px`,
+  '--morius-title-bottom-gap': `${moriusThemeTokens.layout.titleBottomGap}px`,
+  '--morius-menu-vertical-gap': `${moriusThemeTokens.layout.menuVerticalGap}px`,
+  '--morius-rating-star-gap': `${moriusThemeTokens.layout.ratingStarGap}px`,
 } as const

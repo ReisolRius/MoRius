@@ -300,7 +300,12 @@ function CommunityWorldDialog({
                   py: 0.8,
                 }}
               >
-                <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  flexWrap="wrap"
+                  sx={{ columnGap: 'var(--morius-rating-star-gap)', rowGap: 'var(--morius-rating-star-gap)' }}
+                >
                   {[1, 2, 3, 4, 5].map((value) => (
                     <Button
                       key={value}

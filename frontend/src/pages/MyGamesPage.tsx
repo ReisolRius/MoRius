@@ -1157,7 +1157,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               {ratingDialogGame?.source_world_id ? 'Оставьте рейтинг комьюнити-миру от 1 до 5 звезд.' : 'Рейтинг недоступен.'}
             </Typography>
             <Typography sx={{ fontWeight: 700 }}>{ratingDialogGame ? resolveDisplayTitle(ratingDialogGame.id) : ''}</Typography>
-            <Stack direction="row" spacing={0.5} justifyContent="center">
+            <Stack direction="row" justifyContent="center" sx={{ columnGap: 'var(--morius-rating-star-gap)' }}>
               {[1, 2, 3, 4, 5].map((value) => (
                 <Button
                   key={value}

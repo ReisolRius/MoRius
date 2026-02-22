@@ -130,6 +130,37 @@ export const moriusMuiTheme = createTheme({
         },
       },
     },
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: {
+          paddingLeft: 'var(--morius-content-gap)',
+          paddingRight: 'var(--morius-content-gap)',
+          paddingTop: 'var(--morius-title-top-gap)',
+          paddingBottom: 'var(--morius-title-bottom-gap)',
+        },
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          paddingLeft: 'var(--morius-content-gap)',
+          paddingRight: 'var(--morius-content-gap)',
+          paddingTop: 0,
+          paddingBottom: 'var(--morius-content-gap)',
+        },
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: {
+          paddingLeft: 'var(--morius-content-gap)',
+          paddingRight: 'var(--morius-content-gap)',
+          paddingTop: 0,
+          paddingBottom: 'var(--morius-content-gap)',
+          gap: 'var(--morius-content-gap)',
+        },
+      },
+    },
     MuiMenu: {
       styleOverrides: {
         paper: {
