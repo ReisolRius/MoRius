@@ -843,16 +843,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [mainHeroCharacterId, npcCharacterIds],
   )
   const npcCardsForAvatar = useMemo(() => {
-    const entries: Array<{ name: string; avatar: string | null }> = []
+    const entries: Array<{ names: string[]; avatar: string | null }> = []
     worldCards.forEach((card) => {
       if (card.kind !== 'npc') {
         return
       }
-      const key = card.title.trim().toLowerCase()
-      if (!key) {
+      const names = [card.title, ...card.triggers]
+        .map((value) => value.replace(/\s+/g, ' ').trim().toLowerCase())
+        .filter(Boolean)
+      if (names.length === 0) {
         return
       }
-      entries.push({ name: key, avatar: resolveWorldCardAvatar(card) })
+      entries.push({ names, avatar: resolveWorldCardAvatar(card) })
     })
     return entries
   }, [resolveWorldCardAvatar, worldCards])
@@ -863,13 +865,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return null
       }
 
-      const exact = npcCardsForAvatar.find((entry) => entry.name === normalizedName)
+      const exact = npcCardsForAvatar.find((entry) =>
+        entry.names.some((name) => name === normalizedName || name.includes(normalizedName) || normalizedName.includes(name)),
+      )
       if (exact) {
         return exact.avatar
       }
 
       const fuzzy = npcCardsForAvatar.find(
-        (entry) => entry.name.startsWith(normalizedName) || normalizedName.startsWith(entry.name),
+        (entry) =>
+          entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
       )
       return fuzzy?.avatar ?? null
     },
@@ -3029,6 +3034,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 0,
                 borderRadius: 'var(--morius-radius)',
                 textTransform: 'none',
+                backgroundColor: 'transparent',
+                border: 'none',
+                boxShadow: 'none',
+                '&:hover': {
+                  backgroundColor: 'var(--morius-button-hover)',
+                },
+                '&:active': {
+                  backgroundColor: 'var(--morius-button-active)',
+                },
               }}
             >
               {leftPanelTabLabel}
@@ -3045,6 +3059,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 minHeight: 0,
                 borderRadius: 'var(--morius-radius)',
                 textTransform: 'none',
+                backgroundColor: 'transparent',
+                border: 'none',
+                boxShadow: 'none',
+                '&:hover': {
+                  backgroundColor: 'var(--morius-button-hover)',
+                },
+                '&:active': {
+                  backgroundColor: 'var(--morius-button-active)',
+                },
               }}
             >
               {rightPanelTabLabel}
@@ -3170,7 +3193,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <IconButton
                               onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
                               disabled={isInstructionCardActionLocked}
-                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                              sx={{
+                                width: 22,
+                                height: 22,
+                                p: 0,
+                                minWidth: 0,
+                                color: 'rgba(208, 219, 235, 0.84)',
+                                ml: 'auto',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                '&:hover': { backgroundColor: 'transparent' },
+                                '&:active': { backgroundColor: 'transparent' },
+                              }}
                             >
                               <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
                             </IconButton>
@@ -3445,7 +3479,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             overflow: 'hidden',
                           }}
                         >
-                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.45 }}>
                             <Typography
                               sx={{
                                 color: '#e2e8f3',
@@ -3494,7 +3528,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <IconButton
                               onClick={(event) => handleOpenCardMenu(event, 'plot', card.id)}
                               disabled={isPlotCardActionLocked}
-                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                              sx={{
+                                width: 22,
+                                height: 22,
+                                p: 0,
+                                minWidth: 0,
+                                color: 'rgba(208, 219, 235, 0.84)',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                '&:hover': { backgroundColor: 'transparent' },
+                                '&:active': { backgroundColor: 'transparent' },
+                              }}
                             >
                               <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
                             </IconButton>
@@ -3620,7 +3664,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     <IconButton
                       onClick={(event) => handleOpenCardMenu(event, 'world', mainHeroCard.id)}
                       disabled={isWorldCardActionLocked}
-                      sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)', ml: 'auto', flexShrink: 0 }}
+                      sx={{
+                        width: 22,
+                        height: 22,
+                        p: 0,
+                        minWidth: 0,
+                        color: 'rgba(208, 219, 235, 0.84)',
+                        ml: 'auto',
+                        flexShrink: 0,
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        '&:hover': { backgroundColor: 'transparent' },
+                        '&:active': { backgroundColor: 'transparent' },
+                      }}
                     >
                       <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
                     </IconButton>
@@ -3681,7 +3737,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             overflow: 'hidden',
                           }}
                         >
-                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.45 }}>
                             <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
                               {card.kind === 'npc' || card.kind === 'main_hero' ? (
                                 <Button
@@ -3771,7 +3827,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <IconButton
                               onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
                               disabled={isWorldCardActionLocked}
-                              sx={{ width: 26, height: 26, color: 'rgba(208, 219, 235, 0.84)' }}
+                              sx={{
+                                width: 22,
+                                height: 22,
+                                p: 0,
+                                minWidth: 0,
+                                color: 'rgba(208, 219, 235, 0.84)',
+                                backgroundColor: 'transparent',
+                                border: 'none',
+                                '&:hover': { backgroundColor: 'transparent' },
+                                '&:active': { backgroundColor: 'transparent' },
+                              }}
                             >
                               <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
                             </IconButton>
@@ -4584,18 +4650,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  backgroundColor: 'transparent',
-                  border: 'none',
+                  backgroundColor: 'var(--morius-send-button-bg)',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
                   color: 'var(--morius-accent)',
                   '&:hover': {
-                    backgroundColor: 'transparent',
+                    backgroundColor: 'var(--morius-button-hover)',
                   },
                   '&:active': {
-                    backgroundColor: 'transparent',
+                    backgroundColor: 'var(--morius-button-active)',
                   },
                   '&:disabled': {
                     opacity: 0.5,
-                    backgroundColor: 'transparent',
+                    backgroundColor: 'var(--morius-elevated-bg)',
                   },
                 }}
               >
@@ -5929,6 +5995,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
 
 
 
