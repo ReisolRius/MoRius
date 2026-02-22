@@ -9,12 +9,13 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  Slider,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
+import AvatarCropDialog from '../components/AvatarCropDialog'
+import ImageCropper from '../components/ImageCropper'
 import { icons } from '../assets'
 import {
   createStoryGame,
@@ -72,8 +73,6 @@ const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
-const COVER_SCALE_MIN = 1
-const COVER_SCALE_MAX = 3
 const COVER_MAX_BYTES = 200 * 1024
 const CARD_WIDTH = 286
 
@@ -234,10 +233,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [coverScale, setCoverScale] = useState(1)
   const [coverPositionX, setCoverPositionX] = useState(50)
   const [coverPositionY, setCoverPositionY] = useState(50)
-  const [coverEditorOpen, setCoverEditorOpen] = useState(false)
-  const [coverScaleDraft, setCoverScaleDraft] = useState(1)
-  const [coverPositionXDraft, setCoverPositionXDraft] = useState(50)
-  const [coverPositionYDraft, setCoverPositionYDraft] = useState(50)
+  const [coverCropSource, setCoverCropSource] = useState<string | null>(null)
 
   const [instructionCards, setInstructionCards] = useState<EditableCard[]>([])
   const [plotCards, setPlotCards] = useState<EditableCard[]>([])
@@ -260,6 +256,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
   const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
   const [characterAvatarScaleDraft, setCharacterAvatarScaleDraft] = useState(1)
+  const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -375,29 +372,31 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     }
     try {
       const dataUrl = await compressImageFileToDataUrl(file, { maxBytes: COVER_MAX_BYTES, maxDimension: 1800 })
-      setCoverImageUrl(dataUrl)
-      setCoverScale(1)
-      setCoverPositionX(50)
-      setCoverPositionY(50)
+      setCoverCropSource(dataUrl)
       setErrorMessage('')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось загрузить обложку')
     }
   }, [])
 
-  const openCoverEditor = useCallback(() => {
-    setCoverScaleDraft(coverScale)
-    setCoverPositionXDraft(coverPositionX)
-    setCoverPositionYDraft(coverPositionY)
-    setCoverEditorOpen(true)
-  }, [coverPositionX, coverPositionY, coverScale])
+  const openCoverCropEditor = useCallback(() => {
+    if (!coverImageUrl) {
+      return
+    }
+    setCoverCropSource(coverImageUrl)
+  }, [coverImageUrl])
 
-  const saveCoverEditor = useCallback(() => {
-    setCoverScale(clamp(coverScaleDraft, COVER_SCALE_MIN, COVER_SCALE_MAX))
-    setCoverPositionX(clamp(coverPositionXDraft, 0, 100))
-    setCoverPositionY(clamp(coverPositionYDraft, 0, 100))
-    setCoverEditorOpen(false)
-  }, [coverPositionXDraft, coverPositionYDraft, coverScaleDraft])
+  const handleCancelCoverCrop = useCallback(() => {
+    setCoverCropSource(null)
+  }, [])
+
+  const handleSaveCoverCrop = useCallback((croppedDataUrl: string) => {
+    setCoverImageUrl(croppedDataUrl)
+    setCoverScale(1)
+    setCoverPositionX(50)
+    setCoverPositionY(50)
+    setCoverCropSource(null)
+  }, [])
 
   const openCardDialog = useCallback((kind: 'instruction' | 'plot', card?: EditableCard) => {
     setCardDialogKind(kind)
@@ -442,11 +441,28 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     }
     try {
       const dataUrl = await compressImageFileToDataUrl(file, { maxBytes: COVER_MAX_BYTES, maxDimension: 1200 })
-      setCharacterAvatarDraft(dataUrl)
+      setCharacterAvatarCropSource(dataUrl)
       setErrorMessage('')
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось загрузить аватар')
     }
+  }, [])
+
+  const openCharacterAvatarCrop = useCallback(() => {
+    if (!characterAvatarDraft) {
+      return
+    }
+    setCharacterAvatarCropSource(characterAvatarDraft)
+  }, [characterAvatarDraft])
+
+  const handleCancelCharacterAvatarCrop = useCallback(() => {
+    setCharacterAvatarCropSource(null)
+  }, [])
+
+  const handleSaveCharacterAvatarCrop = useCallback((croppedDataUrl: string) => {
+    setCharacterAvatarDraft(croppedDataUrl)
+    setCharacterAvatarScaleDraft(1)
+    setCharacterAvatarCropSource(null)
   }, [])
 
   const saveCharacterDialog = useCallback(() => {
@@ -597,7 +613,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <TextField label="Краткое описание" value={description} onChange={(e) => setDescription(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 1000 }} />
             <Divider />
             <Stack spacing={0.95}>
-              <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
+              <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverCropEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
               <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 200 KB. Изображение автоматически сжимается перед сохранением.</Typography>
@@ -690,12 +706,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             </Box>
             <Stack direction="row" justifyContent="center" spacing={0.8}>
               <Button onClick={() => characterAvatarInputRef.current?.click()} sx={{ minHeight: 34 }}>Загрузить</Button>
+              <Button onClick={openCharacterAvatarCrop} disabled={!characterAvatarDraft} sx={{ minHeight: 34 }}>Настроить кадр</Button>
               <Button onClick={() => setCharacterAvatarDraft(null)} sx={{ minHeight: 34, color: APP_TEXT_SECONDARY }}>Удалить</Button>
             </Stack>
-            <Box>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Масштаб аватара: {characterAvatarScaleDraft.toFixed(2)}x</Typography>
-              <Slider min={AVATAR_SCALE_MIN} max={AVATAR_SCALE_MAX} step={0.05} value={characterAvatarScaleDraft} onChange={(_, value) => setCharacterAvatarScaleDraft(value as number)} />
-            </Box>
             <TextField label="Имя" value={characterNameDraft} onChange={(e) => setCharacterNameDraft(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
             <TextField label="Описание" value={characterDescriptionDraft} onChange={(e) => setCharacterDescriptionDraft(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 6000 }} />
             <TextField label="Триггеры (через запятую)" value={characterTriggersDraft} onChange={(e) => setCharacterTriggersDraft(e.target.value)} fullWidth inputProps={{ maxLength: 600 }} />
@@ -708,37 +721,23 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogActions>
       </Dialog>
 
-      <Dialog open={coverEditorOpen} onClose={() => setCoverEditorOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: dialogPaperSx }}>
-        <DialogTitle sx={{ pb: 0.8 }}>
-          <Stack spacing={0.3}>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.45rem' }}>Кадрирование обложки</Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Настройте масштаб и позицию. Превью показывает итоговый вид карточки мира.</Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.45 }}>
-          <Stack spacing={1}>
-            <Box sx={{ height: { xs: 210, sm: 290 }, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScaleDraft * 100}%` : 'cover', backgroundPosition: `${coverPositionXDraft}% ${coverPositionYDraft}%` }} />
-            {!coverImageUrl ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>Пока нет обложки. Сначала загрузите изображение.</Typography> : <>
-              <Box>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Масштаб: {coverScaleDraft.toFixed(2)}x</Typography>
-                <Slider min={COVER_SCALE_MIN} max={COVER_SCALE_MAX} step={0.05} value={coverScaleDraft} onChange={(_, value) => setCoverScaleDraft(value as number)} />
-              </Box>
-              <Box>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Позиция X: {Math.round(coverPositionXDraft)}%</Typography>
-                <Slider min={0} max={100} step={1} value={coverPositionXDraft} onChange={(_, value) => setCoverPositionXDraft(value as number)} />
-              </Box>
-              <Box>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Позиция Y: {Math.round(coverPositionYDraft)}%</Typography>
-                <Slider min={0} max={100} step={1} value={coverPositionYDraft} onChange={(_, value) => setCoverPositionYDraft(value as number)} />
-              </Box>
-            </>}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setCoverEditorOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Назад</Button>
-          <Button onClick={saveCoverEditor} disabled={!coverImageUrl} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
-        </DialogActions>
-      </Dialog>
+      <AvatarCropDialog
+        open={Boolean(characterAvatarCropSource)}
+        imageSrc={characterAvatarCropSource}
+        onCancel={handleCancelCharacterAvatarCrop}
+        onSave={handleSaveCharacterAvatarCrop}
+      />
+
+      {coverCropSource ? (
+        <ImageCropper
+          imageSrc={coverCropSource}
+          aspect={16 / 9}
+          frameRadius={12}
+          title="Настройка обложки"
+          onCancel={handleCancelCoverCrop}
+          onSave={handleSaveCoverCrop}
+        />
+      ) : null}
     </Box>
   )
 }

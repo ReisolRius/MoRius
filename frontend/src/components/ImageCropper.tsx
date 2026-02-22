@@ -52,6 +52,10 @@ export type ImageCropperProps = {
   aspect?: number
   onSave: (croppedDataUrl: string) => void
   onCancel: () => void
+  frameRadius?: number
+  title?: string
+  cancelLabel?: string
+  saveLabel?: string
 }
 
 const DEFAULT_ASPECT = 1
@@ -197,7 +201,16 @@ function resizeCropRect(options: {
   }
 }
 
-export function ImageCropper({ imageSrc, aspect = DEFAULT_ASPECT, onSave, onCancel }: ImageCropperProps) {
+export function ImageCropper({
+  imageSrc,
+  aspect = DEFAULT_ASPECT,
+  onSave,
+  onCancel,
+  frameRadius = 12,
+  title = 'Настройка изображения',
+  cancelLabel = 'Отмена',
+  saveLabel = 'Сохранить',
+}: ImageCropperProps) {
   const normalizedAspect = aspect > 0 ? aspect : DEFAULT_ASPECT
 
   const stageRef = useRef<HTMLDivElement | null>(null)
@@ -437,7 +450,7 @@ export function ImageCropper({ imageSrc, aspect = DEFAULT_ASPECT, onSave, onCanc
 
   return (
     <div className="image-cropper-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
-      <div className="image-cropper-modal" role="dialog" aria-modal="true" aria-label="Обрезка изображения">
+      <div className="image-cropper-modal" role="dialog" aria-modal="true" aria-label={title}>
         <div ref={stageRef} className="image-cropper-stage">
           <img
             ref={imageElementRef}
@@ -466,6 +479,7 @@ export function ImageCropper({ imageSrc, aspect = DEFAULT_ASPECT, onSave, onCanc
                 top: `${imageLayout.y + cropRect.y}px`,
                 width: `${cropRect.width}px`,
                 height: `${cropRect.height}px`,
+                borderRadius: `${Math.max(0, frameRadius)}px`,
               }}
               onPointerDown={handleMovePointerDown}
             >
@@ -502,7 +516,7 @@ export function ImageCropper({ imageSrc, aspect = DEFAULT_ASPECT, onSave, onCanc
 
         <div className="image-cropper-actions">
           <button type="button" className="image-cropper-button image-cropper-button--ghost" onClick={onCancel}>
-            Cancel
+            {cancelLabel}
           </button>
           <button
             type="button"
@@ -510,7 +524,7 @@ export function ImageCropper({ imageSrc, aspect = DEFAULT_ASPECT, onSave, onCanc
             onClick={handleSave}
             disabled={!cropRect}
           >
-            Save
+            {saveLabel}
           </button>
         </div>
       </div>

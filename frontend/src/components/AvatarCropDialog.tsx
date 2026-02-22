@@ -39,7 +39,6 @@ type InteractionState =
       type: 'resize'
       pointerId: number
       startSelection: Selection
-      startPointerDistance: number
     }
 
 type AvatarCropDialogProps = {
@@ -52,8 +51,6 @@ type AvatarCropDialogProps = {
 }
 
 const DEFAULT_OUTPUT_SIZE = 512
-const MIN_RADIUS = 50
-
 function clamp(value: number, min: number, max: number): number {
   if (value < min) {
     return min
@@ -99,10 +96,10 @@ function getRadiusBounds(layout: Layout, centerX: number, centerY: number): { mi
       layout.y + layout.height - centerY,
     ),
   )
-
-  const preferredMin = MIN_RADIUS
-  const min = Math.min(max, Math.max(12, Math.min(preferredMin, max - 2)))
-  return { min, max }
+  return {
+    min: Math.min(max, 12),
+    max,
+  }
 }
 
 function AvatarCropDialog({
@@ -248,17 +245,13 @@ function AvatarCropDialog({
         return
       }
 
-      const distanceFromCenter = Math.hypot(
-        point.x - interaction.startSelection.centerX,
-        point.y - interaction.startSelection.centerY,
-      )
-      const radiusDelta = distanceFromCenter - interaction.startPointerDistance
+      const distanceFromCenter = Math.hypot(point.x - interaction.startSelection.centerX, point.y - interaction.startSelection.centerY)
       const bounds = getRadiusBounds(
         imageLayout,
         interaction.startSelection.centerX,
         interaction.startSelection.centerY,
       )
-      const nextRadius = clamp(interaction.startSelection.radius + radiusDelta, bounds.min, bounds.max)
+      const nextRadius = clamp(distanceFromCenter, bounds.min, bounds.max)
 
       setSelection({
         ...interaction.startSelection,
@@ -323,12 +316,10 @@ function AvatarCropDialog({
     }
 
     event.preventDefault()
-    const startDistance = Math.hypot(point.x - selection.centerX, point.y - selection.centerY)
     setInteraction({
       type: 'resize',
       pointerId: event.pointerId,
       startSelection: selection,
-      startPointerDistance: Math.max(1, startDistance),
     })
   }
 

@@ -27,6 +27,138 @@ function toStarLabel(value: number): string {
   return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
 }
 
+type CommunityPreviewBadgeTone = 'green' | 'blue'
+
+type CommunityPreviewCardProps = {
+  title: string
+  content: string
+  badge: string
+  badgeTone?: CommunityPreviewBadgeTone
+  avatarUrl?: string | null
+  avatarScale?: number
+}
+
+function communityWorldKindBadgeLabel(kind: string): string {
+  if (kind === 'main_hero') {
+    return 'ГГ'
+  }
+  if (kind === 'npc') {
+    return 'NPC'
+  }
+  return 'МИР'
+}
+
+function CommunityPreviewCard({ title, content, badge, badgeTone = 'blue', avatarUrl = null, avatarScale = 1 }: CommunityPreviewCardProps) {
+  const safeScale = Math.max(0.6, Math.min(3, avatarScale || 1))
+  const badgeColor = badgeTone === 'green' ? 'rgba(170, 238, 191, 0.96)' : 'rgba(168, 196, 231, 0.9)'
+  const badgeBorder = badgeTone === 'green' ? 'rgba(128, 213, 162, 0.46)' : 'rgba(132, 168, 210, 0.42)'
+  const fallbackLabel = title.trim().charAt(0).toUpperCase() || '•'
+
+  return (
+    <Box
+      sx={{
+        width: '100%',
+        minHeight: 186,
+        borderRadius: 'var(--morius-radius)',
+        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+        background: 'var(--morius-elevated-bg)',
+        boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
+        <Stack direction="row" spacing={0.7} alignItems="center">
+          <Box
+            sx={{
+              width: 34,
+              height: 34,
+              borderRadius: '50%',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              background: 'var(--morius-elevated-bg)',
+              overflow: 'hidden',
+              flexShrink: 0,
+              display: 'grid',
+              placeItems: 'center',
+              color: APP_TEXT_PRIMARY,
+              fontWeight: 800,
+              fontSize: '0.86rem',
+            }}
+          >
+            {avatarUrl ? (
+              <Box
+                component="img"
+                src={avatarUrl}
+                alt={title}
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: `scale(${safeScale})`,
+                  transformOrigin: 'center center',
+                }}
+              />
+            ) : (
+              fallbackLabel
+            )}
+          </Box>
+          <Typography
+            sx={{
+              color: APP_TEXT_PRIMARY,
+              fontWeight: 800,
+              fontSize: '1rem',
+              lineHeight: 1.2,
+              minWidth: 0,
+              flex: 1,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {title}
+          </Typography>
+          <Typography
+            sx={{
+              color: badgeColor,
+              fontSize: '0.63rem',
+              lineHeight: 1,
+              letterSpacing: 0.22,
+              textTransform: 'uppercase',
+              fontWeight: 700,
+              border: `var(--morius-border-width) solid ${badgeBorder}`,
+              borderRadius: '999px',
+              px: 0.58,
+              py: 0.18,
+              flexShrink: 0,
+            }}
+          >
+            {badge}
+          </Typography>
+        </Stack>
+      </Box>
+      <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
+        <Typography
+          sx={{
+            color: 'rgba(208, 219, 235, 0.88)',
+            fontSize: '0.86rem',
+            lineHeight: 1.4,
+            whiteSpace: 'pre-wrap',
+            display: '-webkit-box',
+            WebkitLineClamp: 5,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            overflowWrap: 'anywhere',
+            wordBreak: 'break-word',
+          }}
+        >
+          {content}
+        </Typography>
+      </Box>
+    </Box>
+  )
+}
+
 function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout }: CommunityWorldsPageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
@@ -521,48 +653,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                 {selectedCommunityWorld.instruction_cards.length === 0 ? (
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
                 ) : (
-                  selectedCommunityWorld.instruction_cards.map((card) => (
-                    <Box
-                      key={card.id}
-                      sx={{
-                        borderRadius: 'var(--morius-radius)',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        px: 0.95,
-                        py: 0.72,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: '0.92rem',
-                          lineHeight: 1.25,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {card.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: APP_TEXT_SECONDARY,
-                          fontSize: '0.84rem',
-                          lineHeight: 1.34,
-                          mt: 0.2,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 4,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          overflowWrap: 'anywhere',
-                          wordBreak: 'break-word',
-                          whiteSpace: 'normal',
-                        }}
-                      >
-                        {card.content}
-                      </Typography>
-                    </Box>
-                  ))
+                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                    {selectedCommunityWorld.instruction_cards.map((card) => (
+                      <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="ИНСТРУКЦИЯ" />
+                    ))}
+                  </Box>
                 )}
               </Stack>
 
@@ -571,48 +666,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                 {selectedCommunityWorld.plot_cards.length === 0 ? (
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
                 ) : (
-                  selectedCommunityWorld.plot_cards.map((card) => (
-                    <Box
-                      key={card.id}
-                      sx={{
-                        borderRadius: 'var(--morius-radius)',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        px: 0.95,
-                        py: 0.72,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: '0.92rem',
-                          lineHeight: 1.25,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {card.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: APP_TEXT_SECONDARY,
-                          fontSize: '0.84rem',
-                          lineHeight: 1.34,
-                          mt: 0.2,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 4,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          overflowWrap: 'anywhere',
-                          wordBreak: 'break-word',
-                          whiteSpace: 'normal',
-                        }}
-                      >
-                        {card.content}
-                      </Typography>
-                    </Box>
-                  ))
+                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                    {selectedCommunityWorld.plot_cards.map((card) => (
+                      <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="СЮЖЕТ" />
+                    ))}
+                  </Box>
                 )}
               </Stack>
 
@@ -621,48 +679,19 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                 {selectedCommunityWorld.world_cards.length === 0 ? (
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
                 ) : (
-                  selectedCommunityWorld.world_cards.map((card) => (
-                    <Box
-                      key={card.id}
-                      sx={{
-                        borderRadius: 'var(--morius-radius)',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        px: 0.95,
-                        py: 0.72,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontWeight: 700,
-                          fontSize: '0.92rem',
-                          lineHeight: 1.25,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {card.title} {card.kind === 'main_hero' ? '(ГГ)' : card.kind === 'npc' ? '(NPC)' : '(Мир)'}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: APP_TEXT_SECONDARY,
-                          fontSize: '0.84rem',
-                          lineHeight: 1.34,
-                          mt: 0.2,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 4,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          overflowWrap: 'anywhere',
-                          wordBreak: 'break-word',
-                          whiteSpace: 'normal',
-                        }}
-                      >
-                        {card.content}
-                      </Typography>
-                    </Box>
-                  ))
+                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                    {selectedCommunityWorld.world_cards.map((card) => (
+                      <CommunityPreviewCard
+                        key={card.id}
+                        title={card.title}
+                        content={card.content}
+                        badge={communityWorldKindBadgeLabel(card.kind)}
+                        badgeTone={card.kind === 'world' ? 'blue' : 'green'}
+                        avatarUrl={card.avatar_url}
+                        avatarScale={card.avatar_scale}
+                      />
+                    ))}
+                  </Box>
                 )}
               </Stack>
             </Stack>

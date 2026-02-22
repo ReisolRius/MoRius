@@ -38,8 +38,10 @@
 .image-cropper-frame {
   position: absolute;
   border: 2px solid rgba(244, 248, 255, 0.95);
+  border-radius: var(--morius-radius);
   box-shadow: 0 0 0 9999px rgba(3, 6, 10, 0.62);
   cursor: move;
+  overflow: hidden;
 }
 
 .image-cropper-grid {

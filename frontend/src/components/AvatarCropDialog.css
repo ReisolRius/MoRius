@@ -137,7 +137,7 @@
 }
 
 .avatar-crop-button--primary {
-  background: var(--morius-send-button-bg);
+  background: var(--morius-elevated-bg);
   color: var(--morius-accent);
 }
 
