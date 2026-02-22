@@ -1093,8 +1093,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                           width: '100%',
                           px: { xs: 1.2, md: 1.35 },
                           py: { xs: 1.05, md: 1.2 },
-                          background: 'linear-gradient(180deg, rgba(15, 29, 52, 0.92) 0%, rgba(9, 20, 39, 0.96) 100%)',
-                          borderTop: 'var(--morius-border-width) solid rgba(88, 116, 156, 0.42)',
+                          background: 'var(--morius-elevated-bg)',
+                          borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
                         }}
                       >
                         <Typography
@@ -1154,7 +1154,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                                 textTransform: 'none',
                                 color: APP_TEXT_PRIMARY,
                                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                                backgroundColor: 'rgba(34, 51, 79, 0.44)',
+                                backgroundColor: 'var(--morius-elevated-bg)',
                                 fontSize: '0.78rem',
                               }}
                             >

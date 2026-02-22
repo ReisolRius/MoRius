@@ -649,7 +649,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
     const scrollStep = Math.max(300, slider.clientWidth * 0.9)
     slider.scrollBy({
-      left: direction === 'left' ? -scrollStep : scrollStep,
+      left: direction === 'left' ? scrollStep : -scrollStep,
       behavior: 'smooth',
     })
   }, [])
@@ -857,6 +857,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     key={item.id}
                     onClick={() => handleOpenNewsDetails(item)}
                     sx={{
+                      width: '100%',
+                      justifyContent: 'flex-start',
                       minHeight: 112,
                       borderRadius: 'var(--morius-radius)',
                       p: 1.3,

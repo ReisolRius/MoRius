@@ -4166,7 +4166,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     sx={{
                                       borderRadius: '12px',
                                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                      backgroundColor: 'rgba(26, 37, 56, 0.58)',
+                                      backgroundColor: 'var(--morius-elevated-bg)',
                                       px: 0.95,
                                       py: 0.62,
                                     }}
@@ -4291,7 +4291,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     sx={{
                                       borderRadius: '12px',
                                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                      backgroundColor: 'rgba(26, 37, 56, 0.58)',
+                                      backgroundColor: 'var(--morius-elevated-bg)',
                                       px: 0.95,
                                       py: 0.62,
                                     }}

@@ -444,7 +444,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
               sx={{
                 borderRadius: '12px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                backgroundColor: 'rgba(12, 17, 25, 0.7)',
+                backgroundColor: 'var(--morius-card-bg)',
                 px: 1.1,
                 py: 1.1,
               }}
@@ -487,7 +487,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: 'rgba(7, 11, 19, 0.58)',
+                        backgroundColor: 'rgba(23, 23, 22, 0.72)',
                         opacity: 0,
                         transition: 'opacity 180ms ease',
                       }}
@@ -498,7 +498,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                           height: 30,
                           borderRadius: '50%',
                           border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
-                          backgroundColor: 'rgba(17, 20, 27, 0.78)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',

@@ -43,7 +43,7 @@ body {
   background: var(--morius-elevated-bg) !important;
   border-color: var(--morius-card-border) !important;
   border-width: var(--morius-border-width) !important;
-  color: var(--morius-accent) !important;
+  color: var(--morius-title-text) !important;
   border-radius: var(--morius-radius) !important;
 }
 
@@ -63,7 +63,7 @@ body {
 
 .morius-app-shell .MuiButton-root {
   min-height: var(--morius-action-size);
-  color: var(--morius-accent) !important;
+  color: var(--morius-title-text) !important;
 }
 
 .morius-app-shell .MuiIconButton-root {
@@ -83,6 +83,11 @@ body {
 .morius-app-shell .MuiIconButton-root:hover,
 .morius-app-shell .MuiIconButton-root:active {
   background: var(--morius-button-hover) !important;
+}
+
+.morius-app-shell .MuiButton-root:hover,
+.morius-app-shell .MuiButton-root:active {
+  color: var(--morius-accent) !important;
 }
 
 .morius-app-shell h1,

@@ -51,7 +51,7 @@ const menuItemSx = (isActive: boolean) => ({
   borderRadius: 'var(--morius-radius)',
   minHeight: 'var(--morius-action-size)',
   px: 1.6,
-  color: 'var(--morius-accent)',
+  color: 'var(--morius-title-text)',
   textTransform: 'none',
   fontWeight: 700,
   fontSize: 'var(--morius-body-size)',
@@ -59,9 +59,11 @@ const menuItemSx = (isActive: boolean) => ({
   backgroundColor: isActive ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
   '&:hover': {
     backgroundColor: 'var(--morius-button-hover)',
+    color: 'var(--morius-accent)',
   },
   '&:active': {
     backgroundColor: 'var(--morius-button-active)',
+    color: 'var(--morius-accent)',
   },
 })
 

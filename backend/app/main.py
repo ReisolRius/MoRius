@@ -3772,8 +3772,9 @@ def _upsert_story_plot_memory_card(
         ),
         None,
     )
+    target_card = ai_card or (existing_cards[0] if existing_cards else None)
     messages_payload = _build_story_plot_card_memory_messages(
-        existing_card=ai_card,
+        existing_card=target_card,
         assistant_messages=assistant_messages,
         context_limit_tokens=game.context_limit_chars,
     )
@@ -3794,7 +3795,7 @@ def _upsert_story_plot_memory_card(
 
     if normalized_payload is None:
         normalized_payload = _build_story_plot_card_fallback_payload(
-            existing_card=ai_card,
+            existing_card=target_card,
             assistant_messages=assistant_messages,
             context_limit_tokens=game.context_limit_chars,
         )
@@ -3802,7 +3803,7 @@ def _upsert_story_plot_memory_card(
         return (False, [])
     title, content = normalized_payload
 
-    if ai_card is None:
+    if target_card is None:
         new_card = StoryPlotCard(
             game_id=game.id,
             title=title,
@@ -3834,15 +3835,15 @@ def _upsert_story_plot_memory_card(
         db.refresh(event)
         return (True, [event])
 
-    if ai_card.title == title and ai_card.content == content:
+    if target_card.title == title and target_card.content == content:
         return (False, [])
 
-    before_snapshot = _story_plot_card_snapshot_from_card(ai_card)
-    ai_card.title = title
-    ai_card.content = content
-    ai_card.source = STORY_PLOT_CARD_SOURCE_AI
+    before_snapshot = _story_plot_card_snapshot_from_card(target_card)
+    target_card.title = title
+    target_card.content = content
+    target_card.source = STORY_PLOT_CARD_SOURCE_AI
     db.flush()
-    after_snapshot = _story_plot_card_snapshot_from_card(ai_card)
+    after_snapshot = _story_plot_card_snapshot_from_card(target_card)
     changed_text_fallback = _derive_story_changed_text_from_snapshots(
         action=STORY_WORLD_CARD_EVENT_UPDATED,
         before_snapshot=before_snapshot,
@@ -3852,9 +3853,9 @@ def _upsert_story_plot_memory_card(
     event = StoryPlotCardChangeEvent(
         game_id=game.id,
         assistant_message_id=assistant_messages[-1].id,
-        plot_card_id=ai_card.id,
+        plot_card_id=target_card.id,
         action=STORY_WORLD_CARD_EVENT_UPDATED,
-        title=ai_card.title,
+        title=target_card.title,
         changed_text=changed_text,
         before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
         after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),

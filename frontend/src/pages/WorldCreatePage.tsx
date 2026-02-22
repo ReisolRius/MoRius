@@ -128,13 +128,13 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
 function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: string | null; avatarScale: number; label: string; size?: number }) {
   if (!avatarUrl) {
     return (
-      <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
+      <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
         {label.trim().charAt(0).toUpperCase() || '•'}
       </Box>
     )
   }
   return (
-    <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(12, 17, 25, 0.72)', overflow: 'hidden', flexShrink: 0 }}>
+    <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', overflow: 'hidden', flexShrink: 0 }}>
       <Box component="img" src={avatarUrl} alt={label} sx={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${clamp(avatarScale, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)})`, transformOrigin: 'center center' }} />
     </Box>
   )
@@ -142,8 +142,8 @@ function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: s
 
 function CompactCard({ title, content, badge, avatar, actions }: { title: string; content: string; badge?: string; avatar?: ReactNode; actions?: ReactNode }) {
   return (
-    <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'linear-gradient(180deg, rgba(17, 24, 35, 0.96) 0%, rgba(11, 16, 24, 0.97) 100%)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ px: 1.1, py: 0.85, borderBottom: `var(--morius-border-width) solid rgba(108, 130, 160, 0.22)`, background: 'linear-gradient(180deg, rgba(17, 31, 51, 0.84) 0%, rgba(11, 22, 39, 0.68) 100%)' }}>
+    <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
         <Stack direction="row" spacing={0.7} alignItems="center">
           {avatar}
           <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', lineHeight: 1.2, minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
@@ -473,7 +473,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   }, [authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, persistTitleForGame, plotCards, title, visibility])
 
   const helpEmpty = (text: string) => (
-    <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'rgba(11, 16, 24, 0.52)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
+    <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
   )
 
   const heroTitle = title.trim() ? title.trim() : isEditMode ? 'Редактирование мира' : 'Создание мира'
@@ -505,7 +505,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Stack spacing={0.95}>
               <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
-              <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
+              <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 200 KB. Изображение автоматически сжимается перед сохранением.</Typography>
             </Stack>
             <Divider />
@@ -555,7 +555,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             {sortedCharacters.length === 0 ? helpEmpty('У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».') : sortedCharacters.map((character) => {
               const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character.id, characterPickerTarget) : null
               return (
-                <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'rgba(13, 19, 29, 0.78)', px: 0.85, py: 0.75 }}>
+                <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', px: 0.85, py: 0.75 }}>
                   <Button onClick={() => applyTemplate(character)} disabled={Boolean(disabledReason)} sx={{ width: '100%', p: 0, textTransform: 'none', justifyContent: 'flex-start', border: 'none', '&:hover': { background: 'transparent' } }}>
                     <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', textAlign: 'left' }}>
                       <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={42} />
@@ -623,7 +623,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </DialogTitle>
         <DialogContent sx={{ pt: 0.45 }}>
           <Stack spacing={1}>
-            <Box sx={{ height: { xs: 210, sm: 290 }, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'linear-gradient(145deg, rgba(19, 30, 48, 0.95), rgba(10, 16, 28, 0.98))', backgroundSize: coverImageUrl ? `${coverScaleDraft * 100}%` : 'cover', backgroundPosition: `${coverPositionXDraft}% ${coverPositionYDraft}%` }} />
+            <Box sx={{ height: { xs: 210, sm: 290 }, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScaleDraft * 100}%` : 'cover', backgroundPosition: `${coverPositionXDraft}% ${coverPositionYDraft}%` }} />
             {!coverImageUrl ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>Пока нет обложки. Сначала загрузите изображение.</Typography> : <>
               <Box>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Масштаб: {coverScaleDraft.toFixed(2)}x</Typography>
