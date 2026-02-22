@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import BaseDialog from '../components/dialogs/BaseDialog'
 import { getCommunityWorld, launchCommunityWorld, listCommunityWorlds, rateCommunityWorld } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary } from '../types/story'
@@ -160,6 +161,7 @@ function CommunityPreviewCard({ title, content, badge, badgeTone = 'blue', avata
 }
 
 function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout }: CommunityWorldsPageProps) {
+  void _onLogout
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
@@ -548,21 +550,15 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
         </Box>
       </Box>
 
-      <Dialog
+      <BaseDialog
         open={Boolean(selectedCommunityWorld) || isCommunityWorldDialogLoading}
         onClose={handleCloseCommunityWorldDialog}
         maxWidth="md"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-            background: APP_CARD_BACKGROUND,
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-          },
-        }}
-      >
-        <DialogTitle sx={{ pb: 0.8 }}>
+        titleSx={{ pb: 0.8 }}
+        contentSx={{ pt: 0.8, overflowX: 'hidden' }}
+        actionsSx={{ px: 3, pb: 2.2 }}
+        header={
+
           <Stack spacing={0.35}>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em' }}>
               Комьюнити мир
@@ -571,8 +567,30 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
               {selectedCommunityWorld?.world.title ?? 'Загрузка...'}
             </Typography>
           </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.8, overflowX: 'hidden' }}>
+        
+        }
+        actions={<>
+
+          <Button onClick={handleCloseCommunityWorldDialog} sx={{ color: APP_TEXT_SECONDARY }} disabled={isLaunchingCommunityWorld}>
+            Закрыть
+          </Button>
+          <Button
+            onClick={() => void handleLaunchCommunityWorld()}
+            disabled={!selectedCommunityWorld || isLaunchingCommunityWorld || isCommunityWorldDialogLoading}
+            sx={{
+              textTransform: 'none',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_BUTTON_ACTIVE,
+              color: APP_TEXT_PRIMARY,
+              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+            }}
+          >
+            {isLaunchingCommunityWorld ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
+          </Button>
+        
+        </>}
+      >
+
           {isCommunityWorldDialogLoading || !selectedCommunityWorld ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 5 }}>
               <CircularProgress size={30} />
@@ -696,26 +714,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
               </Stack>
             </Stack>
           )}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={handleCloseCommunityWorldDialog} sx={{ color: APP_TEXT_SECONDARY }} disabled={isLaunchingCommunityWorld}>
-            Закрыть
-          </Button>
-          <Button
-            onClick={() => void handleLaunchCommunityWorld()}
-            disabled={!selectedCommunityWorld || isLaunchingCommunityWorld || isCommunityWorldDialogLoading}
-            sx={{
-              textTransform: 'none',
-              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-              backgroundColor: APP_BUTTON_ACTIVE,
-              color: APP_TEXT_PRIMARY,
-              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-            }}
-          >
-            {isLaunchingCommunityWorld ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        
+      </BaseDialog>
     </Box>
   )
 }

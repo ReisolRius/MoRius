@@ -1,9 +1,5 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
-import { API_BASE_URL } from '../config/env'
-
-type RequestOptions = RequestInit & {
-  skipJsonContentType?: boolean
-}
+import { requestJson } from './httpClient'
 
 type MessageResponse = {
   message: string
@@ -34,82 +30,64 @@ export type CoinTopUpSyncResponse = {
   user: AuthUser
 }
 
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers = new Headers(options.headers ?? {})
-  if (!options.skipJsonContentType && !headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json')
-  }
+const AUTH_NETWORK_ERROR =
+  'Не удалось подключиться к API. Проверьте, что backend запущен и CORS разрешает ваш origin.'
 
-  let response: Response
-  try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options,
-      headers,
-    })
-  } catch {
-    throw new Error(
-      `Не удалось подключиться к API (${API_BASE_URL}). Проверьте, что backend запущен и CORS разрешает ваш origin.`,
-    )
-  }
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const payload = (await response.json()) as { detail?: string }
-      detail = payload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
-
-  return (await response.json()) as T
+export async function registerWithEmail(payload: { email: string; password: string }): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    '/api/auth/register',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
-export async function registerWithEmail(payload: {
-  email: string
-  password: string
-}): Promise<MessageResponse> {
-  return request<MessageResponse>('/api/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
+export async function verifyEmailRegistration(payload: { email: string; code: string }): Promise<AuthResponse> {
+  return requestJson<AuthResponse>(
+    '/api/auth/register/verify',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
-export async function verifyEmailRegistration(payload: {
-  email: string
-  code: string
-}): Promise<AuthResponse> {
-  return request<AuthResponse>('/api/auth/register/verify', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
-export async function loginWithEmail(payload: {
-  email: string
-  password: string
-}): Promise<AuthResponse> {
-  return request<AuthResponse>('/api/auth/login', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
+export async function loginWithEmail(payload: { email: string; password: string }): Promise<AuthResponse> {
+  return requestJson<AuthResponse>(
+    '/api/auth/login',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
-  return request<AuthResponse>('/api/auth/google', {
-    method: 'POST',
-    body: JSON.stringify({ id_token: idToken }),
-  })
+  return requestJson<AuthResponse>(
+    '/api/auth/google',
+    {
+      method: 'POST',
+      body: JSON.stringify({ id_token: idToken }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function getCurrentUser(token: string): Promise<AuthUser> {
-  return request<AuthUser>('/api/auth/me', {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${token}`,
+  return requestJson<AuthUser>(
+    '/api/auth/me',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
     },
-  })
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function updateCurrentUserAvatar(payload: {
@@ -117,22 +95,24 @@ export async function updateCurrentUserAvatar(payload: {
   avatar_url: string | null
   avatar_scale?: number
 }): Promise<AuthUser> {
-  return request<AuthUser>('/api/auth/me/avatar', {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${payload.token}`,
+  return requestJson<AuthUser>(
+    '/api/auth/me/avatar',
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        avatar_url: payload.avatar_url,
+        avatar_scale: payload.avatar_scale ?? null,
+      }),
     },
-    body: JSON.stringify({
-      avatar_url: payload.avatar_url,
-      avatar_scale: payload.avatar_scale ?? null,
-    }),
-  })
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function getCoinTopUpPlans(): Promise<CoinTopUpPlan[]> {
-  const response = await request<CoinPlanListResponse>('/api/payments/plans', {
-    method: 'GET',
-  })
+  const response = await requestJson<CoinPlanListResponse>('/api/payments/plans', { method: 'GET' })
   return response.plans
 }
 
@@ -140,23 +120,31 @@ export async function createCoinTopUpPayment(payload: {
   token: string
   plan_id: string
 }): Promise<CoinTopUpCreateResponse> {
-  return request<CoinTopUpCreateResponse>('/api/payments/create', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${payload.token}`,
+  return requestJson<CoinTopUpCreateResponse>(
+    '/api/payments/create',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ plan_id: payload.plan_id }),
     },
-    body: JSON.stringify({ plan_id: payload.plan_id }),
-  })
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function syncCoinTopUpPayment(payload: {
   token: string
   payment_id: string
 }): Promise<CoinTopUpSyncResponse> {
-  return request<CoinTopUpSyncResponse>(`/api/payments/${payload.payment_id}/sync`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${payload.token}`,
+  return requestJson<CoinTopUpSyncResponse>(
+    `/api/payments/${payload.payment_id}/sync`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
     },
-  })
+    AUTH_NETWORK_ERROR,
+  )
 }

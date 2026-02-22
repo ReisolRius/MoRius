@@ -15,7 +15,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -33,6 +32,11 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import BaseDialog from '../components/dialogs/BaseDialog'
+import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import ProfileDialog from '../components/profile/ProfileDialog'
+import TopUpDialog from '../components/profile/TopUpDialog'
+import UserAvatar, { AvatarPlaceholder } from '../components/profile/UserAvatar'
 import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createCoinTopUpPayment,
@@ -105,15 +109,7 @@ type PaymentNotice = {
   text: string
 }
 
-type AvatarPlaceholderProps = {
-  fallbackLabel: string
-  size?: number
-}
 
-type UserAvatarProps = {
-  user: AuthUser
-  size?: number
-}
 
 type RightPanelMode = 'ai' | 'world'
 type AiPanelTab = 'instructions' | 'settings'
@@ -897,85 +893,6 @@ const DialogTransition = forwardRef(function DialogTransition(
 ) {
   return <Grow ref={ref} {...props} timeout={{ enter: 320, exit: 190 }} />
 })
-
-function AvatarPlaceholder({ fallbackLabel, size = 44 }: AvatarPlaceholderProps) {
-  const headSize = Math.max(12, Math.round(size * 0.27))
-  const bodyWidth = Math.max(18, Math.round(size * 0.42))
-  const bodyHeight = Math.max(10, Math.round(size * 0.21))
-
-  return (
-    <Box
-      aria-label="Нет аватарки"
-      title={fallbackLabel}
-      sx={{
-        width: size,
-        height: size,
-        minWidth: size,
-        minHeight: size,
-        borderRadius: '50%',
-        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
-        background: 'linear-gradient(180deg, rgba(38, 45, 57, 0.9), rgba(18, 22, 30, 0.96))',
-        display: 'grid',
-        placeItems: 'center',
-        flexShrink: 0,
-      }}
-    >
-      <Stack alignItems="center" spacing={0.4}>
-        <Box
-          sx={{
-            width: headSize,
-            height: headSize,
-            borderRadius: '50%',
-            backgroundColor: 'rgba(196, 208, 224, 0.92)',
-          }}
-        />
-        <Box
-          sx={{
-            width: bodyWidth,
-            height: bodyHeight,
-            borderRadius: '10px 10px 7px 7px',
-            backgroundColor: 'rgba(196, 208, 224, 0.92)',
-          }}
-        />
-      </Stack>
-    </Box>
-  )
-}
-
-function UserAvatar({ user, size = 44 }: UserAvatarProps) {
-  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
-  const fallbackLabel = user.display_name || user.email
-  const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
-
-  if (user.avatar_url && user.avatar_url !== failedImageUrl) {
-    return (
-      <Box
-        sx={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          overflow: 'hidden',
-        }}
-      >
-        <Box
-          component="img"
-          src={user.avatar_url}
-          alt={fallbackLabel}
-          onError={() => setFailedImageUrl(user.avatar_url)}
-          sx={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            transform: `scale(${avatarScale})`,
-            transformOrigin: 'center center',
-          }}
-        />
-      </Box>
-    )
-  }
-
-  return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
-}
 
 type CharacterAvatarProps = {
   avatarUrl: string | null
@@ -3102,22 +3019,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             })
           },
           onChunk: (payload) => {
-            setMessages((previousMessages) =>
-              previousMessages.map((message) =>
-                message.id === payload.assistant_message_id
-                  ? {
-                      ...message,
-                      content: `${message.content}${payload.delta}`,
-                      updated_at: new Date().toISOString(),
-                    }
-                  : message,
-              ),
-            )
+            const now = new Date().toISOString()
+            setMessages((previousMessages) => {
+              const lastIndex = previousMessages.length - 1
+              if (lastIndex >= 0 && previousMessages[lastIndex].id === payload.assistant_message_id) {
+                const nextMessages = [...previousMessages]
+                const targetMessage = nextMessages[lastIndex]
+                nextMessages[lastIndex] = {
+                  ...targetMessage,
+                  content: `${targetMessage.content}${payload.delta}`,
+                  updated_at: now,
+                }
+                return nextMessages
+              }
+
+              const targetIndex = previousMessages.findIndex((message) => message.id === payload.assistant_message_id)
+              if (targetIndex < 0) {
+                return previousMessages
+              }
+
+              const nextMessages = [...previousMessages]
+              const targetMessage = nextMessages[targetIndex]
+              nextMessages[targetIndex] = {
+                ...targetMessage,
+                content: `${targetMessage.content}${payload.delta}`,
+                updated_at: now,
+              }
+              return nextMessages
+            })
           },
           onDone: (payload) => {
-            setMessages((previousMessages) =>
-              previousMessages.map((message) => (message.id === payload.message.id ? payload.message : message)),
-            )
+            setMessages((previousMessages) => {
+              const targetIndex = previousMessages.findIndex((message) => message.id === payload.message.id)
+              if (targetIndex < 0) {
+                return previousMessages
+              }
+              const nextMessages = [...previousMessages]
+              nextMessages[targetIndex] = payload.message
+              return nextMessages
+            })
           },
         })
       } catch (error) {
@@ -5439,20 +5379,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         </MenuItem>
       </Menu>
 
-      <Dialog
+      <BaseDialog
         open={Boolean(deletionPrompt)}
         onClose={handleCancelDeletionPrompt}
         maxWidth="xs"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        transitionComponent={DialogTransition}
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ fontWeight: 700 }}>{deletionPrompt?.title || 'Подтвердите удаление'}</DialogTitle>
         <DialogContent>
@@ -5484,29 +5422,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )}
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
-      <Dialog
+      <BaseDialog
         open={instructionDialogOpen}
         onClose={handleCloseInstructionDialog}
         maxWidth="sm"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        transitionComponent={DialogTransition}
+        backdropSx={{
+          backgroundColor: 'rgba(2, 4, 8, 0.76)',
+          backdropFilter: 'blur(5px)',
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
@@ -5601,29 +5535,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )}
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
-      <Dialog
+      <BaseDialog
         open={plotCardDialogOpen}
         onClose={handleClosePlotCardDialog}
         maxWidth="sm"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        transitionComponent={DialogTransition}
+        backdropSx={{
+          backgroundColor: 'rgba(2, 4, 8, 0.76)',
+          backdropFilter: 'blur(5px)',
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
@@ -5714,29 +5644,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )}
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
-      <Dialog
+      <BaseDialog
         open={mainHeroPreviewOpen && Boolean(mainHeroCard)}
         onClose={() => setMainHeroPreviewOpen(false)}
         maxWidth="sm"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        transitionComponent={DialogTransition}
+        backdropSx={{
+          backgroundColor: 'rgba(2, 4, 8, 0.76)',
+          backdropFilter: 'blur(5px)',
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
@@ -5786,29 +5712,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Закрыть
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
-      <Dialog
+      <BaseDialog
         open={worldCardDialogOpen}
         onClose={handleCloseWorldCardDialog}
         maxWidth="sm"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        transitionComponent={DialogTransition}
+        backdropSx={{
+          backgroundColor: 'rgba(2, 4, 8, 0.76)',
+          backdropFilter: 'blur(5px)',
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
@@ -5953,7 +5875,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )}
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
       <CharacterManagerDialog
         open={characterManagerDialogOpen}
@@ -5964,27 +5886,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
       />
 
-      <Dialog
+      <BaseDialog
         open={characterDialogOpen}
         onClose={handleCloseCharacterDialog}
         maxWidth="sm"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        transitionComponent={DialogTransition}
+        backdropSx={{
+          backgroundColor: 'rgba(2, 4, 8, 0.76)',
+          backdropFilter: 'blur(5px)',
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+          background: 'var(--morius-card-bg)',
+          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
+        rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
@@ -6297,7 +6215,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Закрыть
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
       <Menu
         anchorEl={characterMenuAnchorEl}
@@ -6344,342 +6262,43 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Stack>
         </MenuItem>
       </Menu>
-
-      <Dialog
+      <ProfileDialog
         open={profileDialogOpen}
+        user={user}
+        profileName={profileName}
+        avatarInputRef={avatarInputRef}
+        avatarError={avatarError}
+        isAvatarSaving={isAvatarSaving}
+        transitionComponent={DialogTransition}
         onClose={handleCloseProfileDialog}
-        maxWidth="xs"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        BackdropProps={{
-          sx: {
-            backgroundColor: 'rgba(2, 4, 8, 0.76)',
-            backdropFilter: 'blur(5px)',
-          },
+        onChooseAvatar={handleChooseAvatar}
+        onAvatarChange={handleAvatarChange}
+        onOpenTopUp={handleOpenTopUpDialog}
+        onOpenCharacterManager={() => {
+          handleCloseProfileDialog()
+          void handleOpenCharacterManager()
         }}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
-        }}
-      >
-        <DialogTitle sx={{ pb: 1.4 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '1.6rem' }}>Профиль</Typography>
-        </DialogTitle>
+        onRequestLogout={() => setConfirmLogoutOpen(true)}
+      />
 
-        <DialogContent sx={{ pt: 0.2 }}>
-          <Stack spacing={2.2}>
-            <Stack direction="row" spacing={1.8} alignItems="center">
-              <Box
-                role="button"
-                tabIndex={0}
-                aria-label="Изменить аватар"
-                onClick={handleChooseAvatar}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    handleChooseAvatar()
-                  }
-                }}
-                sx={{
-                  position: 'relative',
-                  width: 84,
-                  height: 84,
-                  borderRadius: '50%',
-                  overflow: 'hidden',
-                  cursor: isAvatarSaving ? 'default' : 'pointer',
-                  outline: 'none',
-                  '&:hover .morius-profile-avatar-overlay': {
-                    opacity: isAvatarSaving ? 0 : 1,
-                  },
-                  '&:focus-visible .morius-profile-avatar-overlay': {
-                    opacity: isAvatarSaving ? 0 : 1,
-                  },
-                }}
-              >
-                <UserAvatar user={user} size={84} />
-                <Box
-                  className="morius-profile-avatar-overlay"
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: 'rgba(7, 11, 19, 0.58)',
-                    opacity: 0,
-                    transition: 'opacity 180ms ease',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 34,
-                      height: 34,
-                      borderRadius: '50%',
-                      border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
-                      backgroundColor: 'rgba(17, 20, 27, 0.78)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: 'var(--morius-text-primary)',
-                      fontSize: '1.12rem',
-                      fontWeight: 700,
-                    }}
-                  >
-                    ✎
-                  </Box>
-                </Box>
-              </Box>
-              <Stack spacing={0.3} sx={{ minWidth: 0 }}>
-                <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{profileName}</Typography>
-                <Typography
-                  sx={{
-                    color: 'text.secondary',
-                    fontSize: '0.94rem',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {user.email}
-                </Typography>
-              </Stack>
-            </Stack>
-
-            <input
-              ref={avatarInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={handleAvatarChange}
-              style={{ display: 'none' }}
-            />
-
-            {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
-
-            <Box
-              sx={{
-                borderRadius: '12px',
-                border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                backgroundColor: 'var(--morius-card-bg)',
-                px: 1.5,
-                py: 1.2,
-              }}
-            >
-              <Stack spacing={1.3}>
-                <Stack direction="row" spacing={1.1} alignItems="center">
-                  <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
-                  <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
-                    Монеты: {user.coins.toLocaleString('ru-RU')}
-                  </Typography>
-                </Stack>
-                <Button
-                  variant="contained"
-                  onClick={handleOpenTopUpDialog}
-                  sx={{
-                    minHeight: 40,
-                    borderRadius: 'var(--morius-radius)',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-button-active)',
-                    color: 'var(--morius-text-primary)',
-                    fontWeight: 700,
-                    '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
-                    },
-                  }}
-                >
-                  Пополнить баланс
-                </Button>
-              </Stack>
-            </Box>
-
-            <Button
-              variant="outlined"
-              onClick={() => {
-                handleCloseProfileDialog()
-                void handleOpenCharacterManager()
-              }}
-              sx={{
-                minHeight: 42,
-                borderColor: 'rgba(186, 202, 214, 0.38)',
-                color: 'var(--morius-text-primary)',
-                '&:hover': {
-                  borderColor: 'rgba(206, 220, 237, 0.54)',
-                  backgroundColor: 'rgba(34, 45, 62, 0.32)',
-                },
-              }}
-            >
-              Мои персонажи
-            </Button>
-
-            <Button
-              variant="outlined"
-              onClick={() => setConfirmLogoutOpen(true)}
-              sx={{
-                minHeight: 42,
-                borderColor: 'rgba(228, 120, 120, 0.44)',
-                color: 'rgba(251, 190, 190, 0.92)',
-                '&:hover': {
-                  borderColor: 'rgba(238, 148, 148, 0.72)',
-                  backgroundColor: 'rgba(214, 86, 86, 0.14)',
-                },
-              }}
-            >
-              Выйти из аккаунта
-            </Button>
-          </Stack>
-        </DialogContent>
-
-        <DialogActions sx={{ px: 3, pb: 2.4, pt: 0.6 }}>
-          <Button
-            onClick={handleCloseProfileDialog}
-            sx={{
-              color: 'text.secondary',
-            }}
-          >
-            Закрыть
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog
+      <TopUpDialog
         open={topUpDialogOpen}
+        topUpError={topUpError}
+        isTopUpPlansLoading={isTopUpPlansLoading}
+        topUpPlans={topUpPlans}
+        activePlanPurchaseId={activePlanPurchaseId}
+        transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
-        maxWidth="md"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-            animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
-        }}
-      >
-        <DialogTitle sx={{ pb: 0.8 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Пополнение монет</Typography>
-          <Typography sx={{ color: 'text.secondary', mt: 0.6 }}>
-            Выберите пакет и нажмите «Купить», чтобы перейти к оплате.
-          </Typography>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <Stack spacing={1.8}>
-            {topUpError ? <Alert severity="error">{topUpError}</Alert> : null}
-            {isTopUpPlansLoading ? (
-              <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
-                <CircularProgress size={30} />
-              </Stack>
-            ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.6,
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
-                }}
-              >
-                {topUpPlans.map((plan) => {
-                  const isBuying = activePlanPurchaseId === plan.id
-                  return (
-                    <Box
-                      key={plan.id}
-                      sx={{
-                        borderRadius: 'var(--morius-radius)',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        background: 'var(--morius-card-bg)',
-                        px: 2,
-                        py: 2,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'space-between',
-                        minHeight: 210,
-                      }}
-                    >
-                      <Stack spacing={0.7}>
-                        <Typography sx={{ fontSize: '1.05rem', fontWeight: 700 }}>{plan.title}</Typography>
-                        <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--morius-text-primary)' }}>
-                          {plan.price_rub} ₽
-                        </Typography>
-                        <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-                          {plan.description}
-                        </Typography>
-                        <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-                          +{plan.coins.toLocaleString('ru-RU')} монет
-                        </Typography>
-                      </Stack>
-                      <Button
-                        variant="contained"
-                        disabled={Boolean(activePlanPurchaseId)}
-                        onClick={() => void handlePurchasePlan(plan.id)}
-                        sx={{
-                          mt: 2,
-                          minHeight: 40,
-                          borderRadius: 'var(--morius-radius)',
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-button-active)',
-                          color: 'var(--morius-text-primary)',
-                          fontWeight: 700,
-                          '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
-                        }}
-                      >
-                        {isBuying ? <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} /> : 'Купить'}
-                      </Button>
-                    </Box>
-                  )
-                })}
-              </Box>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.4 }}>
-          <Button onClick={handleCloseTopUpDialog} sx={{ color: 'text.secondary' }}>
-            Назад
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+      />
 
-      <Dialog
+      <ConfirmLogoutDialog
         open={confirmLogoutOpen}
+        transitionComponent={DialogTransition}
+        variant="muted"
         onClose={() => setConfirmLogoutOpen(false)}
-        maxWidth="xs"
-        fullWidth
-        TransitionComponent={DialogTransition}
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
-          },
-        }}
-      >
-        <DialogTitle sx={{ fontWeight: 700 }}>Подтвердите выход</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ color: 'text.secondary' }}>
-            Вы точно хотите выйти из аккаунта? После выхода вы вернетесь на страницу превью.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setConfirmLogoutOpen(false)} sx={{ color: 'text.secondary' }}>
-            Отмена
-          </Button>
-          <Button
-            variant="contained"
-            onClick={handleConfirmLogout}
-            sx={{
-              backgroundColor: 'var(--morius-card-bg)',
-              color: 'var(--morius-text-primary)',
-              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
-            }}
-          >
-            Выйти
-          </Button>
-        </DialogActions>
-      </Dialog>
+        onConfirm={handleConfirmLogout}
+      />
 
       <AvatarCropDialog
         open={Boolean(avatarCropSource)}
@@ -6697,6 +6316,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
+
 
 
 

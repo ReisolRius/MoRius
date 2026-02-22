@@ -1,0 +1,167 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: morius
+      POSTGRES_USER: morius
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U morius -d morius"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  gateway:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_MODE: gateway
+      PORT: 8000
+      DB_BOOTSTRAP_ON_STARTUP: "true"
+      DATABASE_URL: postgresql+psycopg://morius:${POSTGRES_PASSWORD:-change_me}@postgres:5432/morius
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      APP_ALLOWED_HOSTS: ${APP_ALLOWED_HOSTS:-*}
+      APP_TRUST_PROXY_HEADERS: "true"
+      APP_FORWARDED_ALLOW_IPS: "*"
+      APP_GZIP_ENABLED: "true"
+      APP_GZIP_MINIMUM_SIZE: 1024
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  auth:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_MODE: auth
+      PORT: 8001
+      DB_BOOTSTRAP_ON_STARTUP: "false"
+      DATABASE_URL: postgresql+psycopg://morius:${POSTGRES_PASSWORD:-change_me}@postgres:5432/morius
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      APP_ALLOWED_HOSTS: ${APP_ALLOWED_HOSTS:-*}
+      APP_TRUST_PROXY_HEADERS: "true"
+      APP_FORWARDED_ALLOW_IPS: "*"
+      APP_GZIP_ENABLED: "true"
+      APP_GZIP_MINIMUM_SIZE: 1024
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  story:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_MODE: story
+      PORT: 8002
+      DB_BOOTSTRAP_ON_STARTUP: "false"
+      DATABASE_URL: postgresql+psycopg://morius:${POSTGRES_PASSWORD:-change_me}@postgres:5432/morius
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      APP_ALLOWED_HOSTS: ${APP_ALLOWED_HOSTS:-*}
+      APP_TRUST_PROXY_HEADERS: "true"
+      APP_FORWARDED_ALLOW_IPS: "*"
+      APP_GZIP_ENABLED: "true"
+      APP_GZIP_MINIMUM_SIZE: 1024
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/api/health', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  payments:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_MODE: payments
+      PORT: 8003
+      DB_BOOTSTRAP_ON_STARTUP: "false"
+      DATABASE_URL: postgresql+psycopg://morius:${POSTGRES_PASSWORD:-change_me}@postgres:5432/morius
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      APP_ALLOWED_HOSTS: ${APP_ALLOWED_HOSTS:-*}
+      APP_TRUST_PROXY_HEADERS: "true"
+      APP_FORWARDED_ALLOW_IPS: "*"
+      APP_GZIP_ENABLED: "true"
+      APP_GZIP_MINIMUM_SIZE: 1024
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/api/health', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+        VITE_AUTH_API_URL: ""
+        VITE_STORY_API_URL: ""
+        VITE_PAYMENTS_API_URL: ""
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+  edge:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      story:
+        condition: service_healthy
+      payments:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/vps/nginx-edge.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  postgres_data:

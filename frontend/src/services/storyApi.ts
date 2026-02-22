@@ -1,5 +1,4 @@
-import { API_BASE_URL } from '../config/env'
-import type {
+﻿import type {
   StoryCharacter,
   StoryCommunityWorldPayload,
   StoryCommunityWorldSummary,
@@ -14,6 +13,7 @@ import type {
   StoryStreamStartPayload,
   StoryWorldCard,
 } from '../types/story'
+import { buildApiUrl, parseApiError, requestNoContent } from './httpClient'
 
 type RequestOptions = RequestInit & {
   skipJsonContentType?: boolean
@@ -61,25 +61,19 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     headers.set('Content-Type', 'application/json')
   }
 
+  const targetUrl = buildApiUrl(path)
   let response: Response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(targetUrl, {
       ...options,
       headers,
     })
   } catch {
-    throw new Error(`Не удалось подключиться к API (${API_BASE_URL}).`)
+    throw new Error(`Failed to connect to API (${targetUrl}).`)
   }
 
   if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const payload = (await response.json()) as { detail?: string }
-      detail = payload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
+    throw await parseApiError(response)
   }
 
   return (await response.json()) as T
@@ -208,22 +202,12 @@ export async function deleteStoryCharacter(payload: {
   token: string
   characterId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/characters/${payload.characterId}`, {
+  return requestNoContent(`/api/story/characters/${payload.characterId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function createStoryGame(payload: {
@@ -313,22 +297,12 @@ export async function deleteStoryGame(payload: {
   token: string
   gameId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function updateStoryMessage(payload: {
@@ -347,7 +321,7 @@ export async function updateStoryMessage(payload: {
 }
 
 export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${options.gameId}/generate`, {
+  const response = await fetch(buildApiUrl(`/api/story/games/${options.gameId}/generate`), {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${options.token}`,
@@ -362,14 +336,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   })
 
   if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const payload = (await response.json()) as { detail?: string }
-      detail = payload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
+    throw await parseApiError(response)
   }
 
   if (!response.body) {
@@ -419,6 +386,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     }
 
     buffer += decoder.decode(value, { stream: true })
+    buffer = buffer.replace(/\r\n/g, '\n')
     let separatorIndex = buffer.indexOf('\n\n')
     while (separatorIndex >= 0) {
       const rawBlock = buffer.slice(0, separatorIndex)
@@ -429,6 +397,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   buffer += decoder.decode()
+  buffer = buffer.replace(/\r\n/g, '\n')
   if (buffer.trim()) {
     processBlock(buffer)
   }
@@ -492,23 +461,12 @@ export async function deleteStoryInstructionCard(payload: {
   gameId: number
   instructionId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}/instructions/${payload.instructionId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function listStoryPlotCards(payload: {
@@ -565,23 +523,12 @@ export async function deleteStoryPlotCard(payload: {
   gameId: number
   cardId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function listStoryWorldCards(payload: {
@@ -726,23 +673,12 @@ export async function deleteStoryWorldCard(payload: {
   gameId: number
   cardId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function undoStoryWorldCardEvent(payload: {
@@ -750,23 +686,12 @@ export async function undoStoryWorldCardEvent(payload: {
   gameId: number
   eventId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/world-card-events/${payload.eventId}/undo`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}/world-card-events/${payload.eventId}/undo`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }
 
 export async function undoStoryPlotCardEvent(payload: {
@@ -774,21 +699,10 @@ export async function undoStoryPlotCardEvent(payload: {
   gameId: number
   eventId: number
 }): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/story/games/${payload.gameId}/plot-card-events/${payload.eventId}/undo`, {
+  return requestNoContent(`/api/story/games/${payload.gameId}/plot-card-events/${payload.eventId}/undo`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
-
-  if (!response.ok) {
-    let detail = 'Request failed'
-    try {
-      const errorPayload = (await response.json()) as { detail?: string }
-      detail = errorPayload.detail || detail
-    } catch {
-      // Keep fallback detail.
-    }
-    throw new Error(detail)
-  }
 }

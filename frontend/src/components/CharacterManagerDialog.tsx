@@ -4,7 +4,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -16,6 +15,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import BaseDialog from './dialogs/BaseDialog'
 import {
   createStoryCharacter,
   deleteStoryCharacter,
@@ -418,19 +418,11 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
   }, [characterDeleteTarget, handleDeleteCharacter])
 
   return (
-    <Dialog
+    <BaseDialog
       open={open}
       onClose={handleCloseDialog}
       maxWidth="sm"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 'var(--morius-radius)',
-          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
-          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-        },
-      }}
+      rawChildren
     >
       <DialogTitle sx={{ pb: 1 }}>
         <Typography sx={{ fontWeight: 700, fontSize: '1.4rem' }}>Мои персонажи</Typography>
@@ -762,18 +754,11 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
         </MenuItem>
       </Menu>
 
-      <Dialog
+      <BaseDialog
         open={Boolean(characterDeleteTarget)}
         onClose={handleCancelCharacterDeletion}
         maxWidth="xs"
-        fullWidth
-        PaperProps={{
-          sx: {
-            borderRadius: 'var(--morius-radius)',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-          },
-        }}
+        rawChildren
       >
         <DialogTitle sx={{ fontWeight: 700 }}>Удалить персонажа?</DialogTitle>
         <DialogContent>
@@ -805,14 +790,14 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             )}
           </Button>
         </DialogActions>
-      </Dialog>
+      </BaseDialog>
 
       <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
         <Button onClick={handleCloseDialog} disabled={isSavingCharacter || deletingCharacterId !== null} sx={{ color: 'text.secondary' }}>
           Закрыть
         </Button>
       </DialogActions>
-    </Dialog>
+    </BaseDialog>
   )
 }
 

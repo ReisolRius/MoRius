@@ -4,10 +4,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   Stack,
   TextField,
@@ -15,6 +11,8 @@ import {
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import BaseDialog from '../components/dialogs/BaseDialog'
+import FormDialog from '../components/dialogs/FormDialog'
 import ImageCropper from '../components/ImageCropper'
 import { icons } from '../assets'
 import {
@@ -633,34 +631,57 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         </Box>
       </Box>
 
-      <Dialog open={cardDialogOpen} onClose={() => setCardDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dialogPaperSx }}>
-        <DialogTitle sx={{ pb: 0.85 }}>
-          <Stack spacing={0.3}>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.45rem' }}>{cardDialogKind === 'instruction' ? 'Карточка инструкции' : 'Карточка сюжета'}</Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Заполните карточку. Пустые карточки не сохраняются.</Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.4 }}>
+      <FormDialog
+        open={cardDialogOpen}
+        onClose={() => setCardDialogOpen(false)}
+        onSubmit={saveCardDialog}
+        title={cardDialogKind === 'instruction' ? '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0438' : '\u041a\u0430\u0440\u0442\u043e\u0447\u043a\u0430 \u0441\u044e\u0436\u0435\u0442\u0430'}
+        description="\u0417\u0430\u043f\u043e\u043b\u043d\u0438\u0442\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0443. \u041f\u0443\u0441\u0442\u044b\u0435 \u043a\u0430\u0440\u0442\u043e\u0447\u043a\u0438 \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u044e\u0442\u0441\u044f."
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        titleSx={{ pb: 0.85 }}
+        contentSx={{ pt: 0.4 }}
+        actionsSx={{ px: 3, pb: 2.2 }}
+        cancelButtonSx={{ color: APP_TEXT_SECONDARY }}
+        submitButtonSx={{
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          backgroundColor: APP_BUTTON_ACTIVE,
+          '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+        }}
+        submitDisabled={!cardTitleDraft.trim() || !cardContentDraft.trim()}
+      >
+
           <Stack spacing={1}>
             <TextField label="Заголовок" value={cardTitleDraft} onChange={(e) => setCardTitleDraft(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
             <TextField label="Содержание" value={cardContentDraft} onChange={(e) => setCardContentDraft(e.target.value)} fullWidth multiline minRows={4} maxRows={10} inputProps={{ maxLength: 6000 }} />
             {!cardTitleDraft.trim() || !cardContentDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Введите заголовок и текст карточки, чтобы кнопка сохранения стала доступна.</Typography> : null}
           </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setCardDialogOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Отмена</Button>
-          <Button onClick={saveCardDialog} disabled={!cardTitleDraft.trim() || !cardContentDraft.trim()} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
-        </DialogActions>
-      </Dialog>
+        
+      </FormDialog>
 
-      <Dialog open={characterPickerTarget !== null} onClose={() => setCharacterPickerTarget(null)} maxWidth="sm" fullWidth PaperProps={{ sx: dialogPaperSx }}>
-        <DialogTitle sx={{ pb: 0.75 }}>
+      <BaseDialog
+        open={characterPickerTarget !== null}
+        onClose={() => setCharacterPickerTarget(null)}
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        titleSx={{ pb: 0.75 }}
+        contentSx={{ pt: 0.35 }}
+        actionsSx={{ px: 3, pb: 2.2 }}
+        header={
+
           <Stack spacing={0.3}>
             <Typography sx={{ fontWeight: 800, fontSize: '1.45rem' }}>{characterPickerTarget === 'main_hero' ? 'Выбрать главного героя' : 'Выбрать NPC'}</Typography>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Выберите персонажа из ваших заготовок. Дубли между ГГ и NPC запрещены.</Typography>
           </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.35 }}>
+        
+        }
+        actions={
+
+          <Button onClick={() => setCharacterPickerTarget(null)} sx={{ color: APP_TEXT_SECONDARY }}>Закрыть</Button>
+        
+        }
+      >
+
           <Stack spacing={0.8}>
             {sortedCharacters.length === 0 ? helpEmpty('У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».') : sortedCharacters.map((character) => {
               const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character, characterPickerTarget) : null
@@ -680,20 +701,29 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               )
             })}
           </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setCharacterPickerTarget(null)} sx={{ color: APP_TEXT_SECONDARY }}>Закрыть</Button>
-        </DialogActions>
-      </Dialog>
+        
+      </BaseDialog>
 
-      <Dialog open={characterDialogOpen} onClose={() => setCharacterDialogOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: dialogPaperSx }}>
-        <DialogTitle sx={{ pb: 0.8 }}>
-          <Stack spacing={0.3}>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.45rem' }}>{characterDialogTarget === 'main_hero' ? 'Главный герой' : 'NPC'}</Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Если не загрузить изображение, будет использована заглушка.</Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.35 }}>
+      <FormDialog
+        open={characterDialogOpen}
+        onClose={() => setCharacterDialogOpen(false)}
+        onSubmit={saveCharacterDialog}
+        title={characterDialogTarget === 'main_hero' ? '\u0413\u043b\u0430\u0432\u043d\u044b\u0439 \u0433\u0435\u0440\u043e\u0439' : 'NPC'}
+        description="\u0415\u0441\u043b\u0438 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0438\u0437\u043e\u0431\u0440\u0430\u0436\u0435\u043d\u0438\u0435, \u0431\u0443\u0434\u0435\u0442 \u0438\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0430 \u0437\u0430\u0433\u043b\u0443\u0448\u043a\u0430."
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        titleSx={{ pb: 0.8 }}
+        contentSx={{ pt: 0.35 }}
+        actionsSx={{ px: 3, pb: 2.2 }}
+        cancelButtonSx={{ color: APP_TEXT_SECONDARY }}
+        submitButtonSx={{
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          backgroundColor: APP_BUTTON_ACTIVE,
+          '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+        }}
+        submitDisabled={!characterNameDraft.trim() || !characterDescriptionDraft.trim()}
+      >
+
           <Stack spacing={1}>
             <input ref={characterAvatarInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCharacterAvatarUpload} style={{ display: 'none' }} />
             <Box role="button" tabIndex={0} aria-label="Загрузить аватар персонажа" onClick={() => characterAvatarInputRef.current?.click()} onKeyDown={(event) => {
@@ -714,12 +744,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <TextField label="Триггеры (через запятую)" value={characterTriggersDraft} onChange={(e) => setCharacterTriggersDraft(e.target.value)} fullWidth inputProps={{ maxLength: 600 }} />
             {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Имя и описание обязательны для сохранения персонажа.</Typography> : null}
           </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={() => setCharacterDialogOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>Отмена</Button>
-          <Button onClick={saveCharacterDialog} disabled={!characterNameDraft.trim() || !characterDescriptionDraft.trim()} sx={{ border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Сохранить</Button>
-        </DialogActions>
-      </Dialog>
+        
+      </FormDialog>
 
       <AvatarCropDialog
         open={Boolean(characterAvatarCropSource)}

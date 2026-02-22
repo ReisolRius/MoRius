@@ -6,11 +6,23 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 
-def _to_bool(value: str, default: bool) -> bool:
+
+def _to_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _to_int(value: str | None, default: int, *, minimum: int = 0) -> int:
+    if value is None or not value.strip():
+        return max(default, minimum)
+    try:
+        parsed = int(value.strip())
+    except ValueError:
+        return max(default, minimum)
+    return max(parsed, minimum)
 
 
 def _parse_origins(value: str) -> list[str]:
@@ -19,8 +31,43 @@ def _parse_origins(value: str) -> list[str]:
     return [origin.strip() for origin in value.split(",") if origin.strip()]
 
 
+def _parse_hosts(value: str) -> list[str]:
+    if not value:
+        return ["*"]
+    parsed = [host.strip() for host in value.split(",") if host.strip()]
+    return parsed or ["*"]
+
+
 def _is_render_environment() -> bool:
     return _to_bool(os.getenv("RENDER"), default=False) or bool(os.getenv("RENDER_SERVICE_ID"))
+
+
+def _default_app_mode() -> str:
+    raw_mode = (os.getenv("APP_MODE") or "gateway").strip().lower()
+    if raw_mode in VALID_APP_MODES:
+        return raw_mode
+    return "gateway"
+
+
+def _default_db_bootstrap_on_startup(app_mode: str) -> bool:
+    # Gateway/monolith should own schema bootstrap; leaf services should skip it by default.
+    return app_mode in {"gateway", "monolith"}
+
+
+def _default_db_pool_size(app_mode: str) -> int:
+    if app_mode == "story":
+        return 16
+    if app_mode in {"auth", "payments"}:
+        return 8
+    return 20
+
+
+def _default_db_max_overflow(app_mode: str) -> int:
+    if app_mode == "story":
+        return 24
+    if app_mode in {"auth", "payments"}:
+        return 12
+    return 40
 
 
 def _default_database_url() -> str:
@@ -39,12 +86,20 @@ def _default_database_url() -> str:
 BASE_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_FILE_PATH)
+DEFAULT_APP_MODE = _default_app_mode()
 
 
 @dataclass(frozen=True)
 class Settings:
     app_name: str
+    app_mode: str
     debug: bool
+    db_bootstrap_on_startup: bool
+    app_trust_proxy_headers: bool
+    app_forwarded_allow_ips: str
+    app_allowed_hosts: list[str]
+    app_gzip_enabled: bool
+    app_gzip_minimum_size: int
     database_url: str
     db_pool_size: int
     db_max_overflow: int
@@ -103,10 +158,28 @@ class Settings:
 
 settings = Settings(
     app_name=os.getenv("APP_NAME", "MoRius API"),
+    app_mode=DEFAULT_APP_MODE,
     debug=_to_bool(os.getenv("DEBUG"), default=True),
+    db_bootstrap_on_startup=_to_bool(
+        os.getenv("DB_BOOTSTRAP_ON_STARTUP"),
+        default=_default_db_bootstrap_on_startup(DEFAULT_APP_MODE),
+    ),
+    app_trust_proxy_headers=_to_bool(os.getenv("APP_TRUST_PROXY_HEADERS"), default=True),
+    app_forwarded_allow_ips=os.getenv("APP_FORWARDED_ALLOW_IPS", "*").strip() or "*",
+    app_allowed_hosts=_parse_hosts(os.getenv("APP_ALLOWED_HOSTS", "*")),
+    app_gzip_enabled=_to_bool(os.getenv("APP_GZIP_ENABLED"), default=True),
+    app_gzip_minimum_size=max(int(os.getenv("APP_GZIP_MINIMUM_SIZE", "1024")), 100),
     database_url=_default_database_url(),
-    db_pool_size=max(int(os.getenv("DB_POOL_SIZE", "20")), 1),
-    db_max_overflow=max(int(os.getenv("DB_MAX_OVERFLOW", "40")), 0),
+    db_pool_size=_to_int(
+        os.getenv("DB_POOL_SIZE"),
+        _default_db_pool_size(DEFAULT_APP_MODE),
+        minimum=1,
+    ),
+    db_max_overflow=_to_int(
+        os.getenv("DB_MAX_OVERFLOW"),
+        _default_db_max_overflow(DEFAULT_APP_MODE),
+        minimum=0,
+    ),
     db_pool_timeout_seconds=max(int(os.getenv("DB_POOL_TIMEOUT_SECONDS", "30")), 1),
     db_pool_recycle_seconds=max(int(os.getenv("DB_POOL_RECYCLE_SECONDS", "1800")), 30),
     db_pool_pre_ping=_to_bool(os.getenv("DB_POOL_PRE_PING"), default=True),

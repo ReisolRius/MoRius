@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Dialog,
   DialogContent,
   DialogTitle,
   Divider,
@@ -24,6 +23,7 @@ import {
   verifyEmailRegistration,
 } from '../services/authApi'
 import type { AuthResponse } from '../types/auth'
+import BaseDialog from './dialogs/BaseDialog'
 
 export type AuthMode = 'login' | 'register'
 type RegisterStep = 'credentials' | 'verify'
@@ -321,28 +321,21 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
   }
 
   return (
-    <Dialog
+    <BaseDialog
       open={open}
       onClose={onClose}
       maxWidth="xs"
-      fullWidth
-      TransitionComponent={AuthDialogTransition}
-      BackdropProps={{
-        sx: {
-          backgroundColor: 'rgba(2, 4, 8, 0.76)',
-          backdropFilter: 'blur(5px)',
-        },
+      transitionComponent={AuthDialogTransition}
+      backdropSx={{
+        backgroundColor: 'rgba(2, 4, 8, 0.76)',
+        backdropFilter: 'blur(5px)',
       }}
-      PaperProps={{
-        sx: {
-          borderRadius: 'var(--morius-radius)',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.16)',
-          background:
-            'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
-          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-          overflow: 'hidden',
-          animation: 'morius-dialog-pop 340ms cubic-bezier(0.22, 1, 0.36, 1)',
-        },
+      rawChildren
+      paperSx={{
+        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.16)',
+        background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
+        overflow: 'hidden',
+        animation: 'morius-dialog-pop 340ms cubic-bezier(0.22, 1, 0.36, 1)',
       }}
     >
       <DialogTitle
@@ -588,7 +581,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
           ) : null}
         </Stack>
       </DialogContent>
-    </Dialog>
+    </BaseDialog>
   )
 }
 
