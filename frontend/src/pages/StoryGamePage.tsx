@@ -129,7 +129,12 @@ type DeletionPrompt = {
 }
 type AssistantMessageBlock =
   | { type: 'narrative'; text: string }
-  | { type: 'npc'; npcName: string; text: string }
+  | { type: 'character'; speakerName: string; text: string }
+type AssistantUndoStep = {
+  assistantMessage: StoryMessage
+  plotEvents: StoryPlotCardEvent[]
+  worldEvents: StoryWorldCardEvent[]
+}
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
@@ -148,6 +153,11 @@ const RIGHT_PANEL_WIDTH_MIN = 300
 const RIGHT_PANEL_WIDTH_MAX = 460
 const RIGHT_PANEL_WIDTH_DEFAULT = 332
 const RIGHT_PANEL_CARD_HEIGHT = 198
+const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
+const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
+const DIALOGUE_MARKER_PATTERN = /\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*/giu
+const DIALOGUE_MARKER_START_PATTERN = /^\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*([\s\S]*)$/iu
+const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 .,'’`"-]{0,80})\s*(?:[:：]|[—-])\s+([\s\S]+)$/u
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
@@ -174,18 +184,102 @@ function splitAssistantParagraphs(content: string): string[] {
   return paragraphs.length > 0 ? paragraphs : ['']
 }
 
+function parseCharacterLine(paragraph: string): { speakerName: string; text: string } | null {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const matched = normalized.match(CHARACTER_LINE_PATTERN)
+  if (!matched) {
+    return null
+  }
+
+  const speakerName = matched[1].replace(/^["«„]+|["»”]+$/g, '').trim()
+  const text = matched[2].trim()
+  if (!speakerName || !text) {
+    return null
+  }
+
+  return { speakerName, text }
+}
+
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   const normalized = content.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
     return []
   }
 
-  const markerMatches = [...normalized.matchAll(/\[\[NPC:([^\]]+)\]\]\s*/gi)]
+  const markerMatches = [...normalized.matchAll(DIALOGUE_MARKER_PATTERN)]
   if (markerMatches.length === 0) {
-    return splitAssistantParagraphs(normalized).map((paragraph) => ({ type: 'narrative', text: paragraph }))
+    const plainBlocks: AssistantMessageBlock[] = []
+    splitAssistantParagraphs(normalized).forEach((paragraph) => {
+      const characterLine = parseCharacterLine(paragraph)
+      if (characterLine) {
+        plainBlocks.push({
+          type: 'character',
+          speakerName: characterLine.speakerName,
+          text: characterLine.text,
+        })
+        return
+      }
+      plainBlocks.push({ type: 'narrative', text: paragraph })
+    })
+    return plainBlocks
   }
 
   const blocks: AssistantMessageBlock[] = []
+  const pushNarrativeParagraphs = (value: string) => {
+    if (!value) {
+      return
+    }
+    splitAssistantParagraphs(value).forEach((paragraph) => {
+      const characterLine = parseCharacterLine(paragraph)
+      if (characterLine) {
+        blocks.push({
+          type: 'character',
+          speakerName: characterLine.speakerName,
+          text: characterLine.text,
+        })
+        return
+      }
+      blocks.push({ type: 'narrative', text: paragraph })
+    })
+  }
+  const pushCharacterParagraphs = (speakerName: string, value: string) => {
+    splitAssistantParagraphs(value).forEach((paragraph) => {
+      const nestedMarker = paragraph.match(DIALOGUE_MARKER_START_PATTERN)
+      if (nestedMarker) {
+        const nestedSpeakerName = nestedMarker[1].trim()
+        const nestedText = nestedMarker[2].trim()
+        if (nestedSpeakerName && nestedText) {
+          blocks.push({
+            type: 'character',
+            speakerName: nestedSpeakerName,
+            text: nestedText,
+          })
+          return
+        }
+      }
+
+      const characterLine = parseCharacterLine(paragraph)
+      if (characterLine) {
+        blocks.push({
+          type: 'character',
+          speakerName: characterLine.speakerName,
+          text: characterLine.text,
+        })
+        return
+      }
+
+      blocks.push({
+        type: 'character',
+        speakerName,
+        text: paragraph,
+      })
+    })
+  }
+
   let cursor = 0
   markerMatches.forEach((markerMatch, index) => {
     const markerStartIndex = markerMatch.index ?? 0
@@ -195,36 +289,40 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
 
     const narrativeBefore = normalized.slice(cursor, markerStartIndex).trim()
     if (narrativeBefore) {
-      splitAssistantParagraphs(narrativeBefore).forEach((paragraph) => {
-        blocks.push({ type: 'narrative', text: paragraph })
-      })
+      pushNarrativeParagraphs(narrativeBefore)
     }
 
-    const npcName = markerMatch[1].trim()
-    const npcText = normalized.slice(markerEndIndex, nextMarkerIndex).trim()
+    const speakerName = markerMatch[1].trim()
+    const speakerText = normalized.slice(markerEndIndex, nextMarkerIndex).trim()
 
-    if (!npcName || !npcText) {
+    if (!speakerName || !speakerText) {
       const fallbackText = normalized.slice(markerStartIndex, nextMarkerIndex).trim()
       if (fallbackText) {
-        splitAssistantParagraphs(fallbackText).forEach((paragraph) => {
-          blocks.push({ type: 'narrative', text: paragraph })
-        })
+        pushNarrativeParagraphs(fallbackText)
       }
       cursor = nextMarkerIndex
       return
     }
 
-    blocks.push({
-      type: 'npc',
-      npcName,
-      text: npcText,
-    })
-
+    pushCharacterParagraphs(speakerName, speakerText)
     cursor = nextMarkerIndex
   })
 
   if (blocks.length === 0) {
-    return splitAssistantParagraphs(normalized).map((paragraph) => ({ type: 'narrative', text: paragraph }))
+    const fallbackBlocks: AssistantMessageBlock[] = []
+    splitAssistantParagraphs(normalized).forEach((paragraph) => {
+      const characterLine = parseCharacterLine(paragraph)
+      if (characterLine) {
+        fallbackBlocks.push({
+          type: 'character',
+          speakerName: characterLine.speakerName,
+          text: characterLine.text,
+        })
+        return
+      }
+      fallbackBlocks.push({ type: 'narrative', text: paragraph })
+    })
+    return fallbackBlocks
   }
 
   return blocks
@@ -236,6 +334,216 @@ function normalizeCharacterIdentity(value: string): string {
     .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function buildCharacterAliases(value: string): string[] {
+  const normalized = normalizeCharacterIdentity(value)
+  if (!normalized) {
+    return []
+  }
+
+  const aliases = new Set<string>([normalized])
+  normalized.split(' ').forEach((token) => {
+    if (token.length >= 2) {
+      aliases.add(token)
+    }
+  })
+  return [...aliases]
+}
+
+function upsertStoryPlotCard(cards: StoryPlotCard[], card: StoryPlotCard): StoryPlotCard[] {
+  const existingIndex = cards.findIndex((item) => item.id === card.id)
+  if (existingIndex < 0) {
+    return [...cards, card]
+  }
+  const nextCards = [...cards]
+  nextCards[existingIndex] = card
+  return nextCards
+}
+
+function upsertStoryWorldCard(cards: StoryWorldCard[], card: StoryWorldCard): StoryWorldCard[] {
+  const existingIndex = cards.findIndex((item) => item.id === card.id)
+  if (existingIndex < 0) {
+    return [...cards, card]
+  }
+  const nextCards = [...cards]
+  nextCards[existingIndex] = card
+  return nextCards
+}
+
+function mapPlotSnapshotToCard(
+  snapshot: StoryPlotCardEvent['before_snapshot'] | StoryPlotCardEvent['after_snapshot'],
+  gameId: number,
+  fallbackId: number | null,
+  nowIso: string,
+): StoryPlotCard | null {
+  if (!snapshot) {
+    return null
+  }
+  const cardId = snapshot.id ?? fallbackId
+  if (!cardId) {
+    return null
+  }
+  return {
+    id: cardId,
+    game_id: gameId,
+    title: snapshot.title,
+    content: snapshot.content,
+    source: snapshot.source,
+    created_at: nowIso,
+    updated_at: nowIso,
+  }
+}
+
+function mapWorldSnapshotToCard(
+  snapshot: StoryWorldCardEvent['before_snapshot'] | StoryWorldCardEvent['after_snapshot'],
+  gameId: number,
+  fallbackId: number | null,
+  nowIso: string,
+): StoryWorldCard | null {
+  if (!snapshot) {
+    return null
+  }
+  const cardId = snapshot.id ?? fallbackId
+  if (!cardId) {
+    return null
+  }
+  return {
+    id: cardId,
+    game_id: gameId,
+    title: snapshot.title,
+    content: snapshot.content,
+    triggers: snapshot.triggers,
+    kind: snapshot.kind,
+    avatar_url: snapshot.avatar_url,
+    avatar_scale: snapshot.avatar_scale,
+    character_id: snapshot.character_id,
+    is_locked: snapshot.is_locked,
+    ai_edit_enabled: snapshot.ai_edit_enabled,
+    source: snapshot.source,
+    created_at: nowIso,
+    updated_at: nowIso,
+  }
+}
+
+function rollbackPlotCardsByEvents(
+  cards: StoryPlotCard[],
+  events: StoryPlotCardEvent[],
+  gameId: number,
+): StoryPlotCard[] {
+  let nextCards = [...cards]
+  const nowIso = new Date().toISOString()
+  const rollbackEvents = [...events].sort((left, right) => right.id - left.id)
+  rollbackEvents.forEach((event) => {
+    if (event.action === 'added') {
+      const removedCardId = event.plot_card_id ?? event.after_snapshot?.id ?? null
+      if (removedCardId) {
+        nextCards = nextCards.filter((card) => card.id !== removedCardId)
+      }
+      return
+    }
+
+    const restoredCard = mapPlotSnapshotToCard(event.before_snapshot, gameId, event.plot_card_id, nowIso)
+    if (restoredCard) {
+      nextCards = upsertStoryPlotCard(nextCards, restoredCard)
+    }
+  })
+  return nextCards
+}
+
+function reapplyPlotCardsByEvents(
+  cards: StoryPlotCard[],
+  events: StoryPlotCardEvent[],
+  gameId: number,
+): StoryPlotCard[] {
+  let nextCards = [...cards]
+  const nowIso = new Date().toISOString()
+  const forwardEvents = [...events].sort((left, right) => left.id - right.id)
+  forwardEvents.forEach((event) => {
+    if (event.action === 'deleted') {
+      const removedCardId = event.plot_card_id ?? event.before_snapshot?.id ?? null
+      if (removedCardId) {
+        nextCards = nextCards.filter((card) => card.id !== removedCardId)
+      }
+      return
+    }
+
+    const appliedCard = mapPlotSnapshotToCard(event.after_snapshot, gameId, event.plot_card_id, nowIso)
+    if (appliedCard) {
+      nextCards = upsertStoryPlotCard(nextCards, appliedCard)
+    }
+  })
+  return nextCards
+}
+
+function rollbackWorldCardsByEvents(
+  cards: StoryWorldCard[],
+  events: StoryWorldCardEvent[],
+  gameId: number,
+): StoryWorldCard[] {
+  let nextCards = [...cards]
+  const nowIso = new Date().toISOString()
+  const rollbackEvents = [...events].sort((left, right) => right.id - left.id)
+  rollbackEvents.forEach((event) => {
+    if (event.action === 'added') {
+      const removedCardId = event.world_card_id ?? event.after_snapshot?.id ?? null
+      if (removedCardId) {
+        nextCards = nextCards.filter((card) => card.id !== removedCardId)
+      }
+      return
+    }
+
+    const restoredCard = mapWorldSnapshotToCard(event.before_snapshot, gameId, event.world_card_id, nowIso)
+    if (restoredCard) {
+      nextCards = upsertStoryWorldCard(nextCards, restoredCard)
+    }
+  })
+  return nextCards
+}
+
+function reapplyWorldCardsByEvents(
+  cards: StoryWorldCard[],
+  events: StoryWorldCardEvent[],
+  gameId: number,
+): StoryWorldCard[] {
+  let nextCards = [...cards]
+  const nowIso = new Date().toISOString()
+  const forwardEvents = [...events].sort((left, right) => left.id - right.id)
+  forwardEvents.forEach((event) => {
+    if (event.action === 'deleted') {
+      const removedCardId = event.world_card_id ?? event.before_snapshot?.id ?? null
+      if (removedCardId) {
+        nextCards = nextCards.filter((card) => card.id !== removedCardId)
+      }
+      return
+    }
+
+    const appliedCard = mapWorldSnapshotToCard(event.after_snapshot, gameId, event.world_card_id, nowIso)
+    if (appliedCard) {
+      nextCards = upsertStoryWorldCard(nextCards, appliedCard)
+    }
+  })
+  return nextCards
+}
+
+function mergePlotEvents(
+  existingEvents: StoryPlotCardEvent[],
+  incomingEvents: StoryPlotCardEvent[],
+): StoryPlotCardEvent[] {
+  const nextMap = new Map<number, StoryPlotCardEvent>()
+  existingEvents.forEach((event) => nextMap.set(event.id, event))
+  incomingEvents.forEach((event) => nextMap.set(event.id, event))
+  return [...nextMap.values()].sort((left, right) => left.id - right.id)
+}
+
+function mergeWorldEvents(
+  existingEvents: StoryWorldCardEvent[],
+  incomingEvents: StoryWorldCardEvent[],
+): StoryWorldCardEvent[] {
+  const nextMap = new Map<number, StoryWorldCardEvent>()
+  existingEvents.forEach((event) => nextMap.set(event.id, event))
+  incomingEvents.forEach((event) => nextMap.set(event.id, event))
+  return [...nextMap.values()].sort((left, right) => left.id - right.id)
 }
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
@@ -648,6 +956,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
   const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
+  const [undoneAssistantSteps, setUndoneAssistantSteps] = useState<AssistantUndoStep[]>([])
   const [dismissedWorldCardEventIds, setDismissedWorldCardEventIds] = useState<number[]>([])
   const [expandedWorldCardEventIds, setExpandedWorldCardEventIds] = useState<number[]>([])
   const [undoingWorldCardEventIds, setUndoingWorldCardEventIds] = useState<number[]>([])
@@ -687,11 +996,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const hasMessages = messages.length > 0
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
+  const hasUndoneAssistantSteps = undoneAssistantSteps.length > 0
+  const canUndoAssistantStep =
+    !isGenerating &&
+    !hasUndoneAssistantSteps &&
+    Boolean(activeGameId) &&
+    messages.some((message) => message.role === 'assistant')
+  const canRedoAssistantStep = !isGenerating && Boolean(activeGameId) && undoneAssistantSteps.length > 0
   const canReroll =
     !isGenerating &&
     messages.length > 0 &&
     messages[messages.length - 1]?.role === 'assistant' &&
-    Boolean(activeGameId)
+    Boolean(activeGameId) &&
+    !hasUndoneAssistantSteps
   const leftPanelTabLabel = rightPanelMode === 'ai' ? 'Инструкции' : 'Сюжет'
   const rightPanelTabLabel = rightPanelMode === 'ai' ? 'Настройки' : 'Мир'
   const isLeftPanelTabActive =
@@ -900,43 +1217,68 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [mainHeroCharacterId, mainHeroName, npcCharacterIds, npcCharacterNames],
   )
-  const npcCardsForAvatar = useMemo(() => {
-    const entries: Array<{ names: string[]; avatar: string | null }> = []
-    worldCards.forEach((card) => {
-      if (card.kind !== 'npc') {
-        return
-      }
-      const names = [card.title, ...card.triggers]
-        .map((value) => normalizeCharacterIdentity(value))
-        .filter(Boolean)
-      if (names.length === 0) {
-        return
-      }
-      entries.push({ names, avatar: resolveWorldCardAvatar(card) })
+  const charactersById = useMemo(() => {
+    const nextMap = new Map<number, StoryCharacter>()
+    characters.forEach((character) => {
+      nextMap.set(character.id, character)
     })
+    return nextMap
+  }, [characters])
+  const speakerCardsForAvatar = useMemo(() => {
+    const entries: Array<{ names: string[]; avatar: string | null }> = []
+    const appendEntry = (names: string[], avatar: string | null) => {
+      const normalizedNames = [...new Set(names.filter(Boolean))]
+      if (normalizedNames.length === 0) {
+        return
+      }
+      entries.push({ names: normalizedNames, avatar })
+    }
+
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc' && card.kind !== 'main_hero') {
+        return
+      }
+      const aliasSet = new Set<string>()
+      ;[card.title, ...card.triggers].forEach((value) => {
+        buildCharacterAliases(value).forEach((alias) => aliasSet.add(alias))
+      })
+
+      const linkedCharacter =
+        card.character_id && card.character_id > 0 ? charactersById.get(card.character_id) ?? null : null
+      if (linkedCharacter) {
+        buildCharacterAliases(linkedCharacter.name).forEach((alias) => aliasSet.add(alias))
+      }
+
+      const avatar = resolveWorldCardAvatar(card) ?? linkedCharacter?.avatar_url ?? null
+      appendEntry([...aliasSet], avatar)
+    })
+
+    characters.forEach((character) => {
+      appendEntry(buildCharacterAliases(character.name), character.avatar_url)
+    })
+
     return entries
-  }, [resolveWorldCardAvatar, worldCards])
-  const resolveNpcAvatar = useCallback(
-    (npcName: string): string | null => {
-      const normalizedName = normalizeCharacterIdentity(npcName)
+  }, [characters, charactersById, resolveWorldCardAvatar, worldCards])
+  const resolveDialogueAvatar = useCallback(
+    (speakerName: string): string | null => {
+      const normalizedName = normalizeCharacterIdentity(speakerName)
       if (!normalizedName) {
         return null
       }
 
-      const exact = npcCardsForAvatar.find((entry) =>
+      const exact = speakerCardsForAvatar.find((entry) =>
         entry.names.some((name) => name === normalizedName || name.includes(normalizedName) || normalizedName.includes(name)),
       )
       if (exact) {
         return exact.avatar
       }
 
-      const fuzzy = npcCardsForAvatar.find(
-        (entry) =>
-          entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
+      const fuzzy = speakerCardsForAvatar.find((entry) =>
+        entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
       )
       return fuzzy?.avatar ?? null
     },
-    [npcCardsForAvatar],
+    [speakerCardsForAvatar],
   )
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
@@ -1414,6 +1756,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setContextLimitChars(normalizedContextLimit)
         setContextLimitDraft(String(normalizedContextLimit))
         applyWorldCardEvents(payload.world_card_events ?? [])
+        setUndoneAssistantSteps([])
         setGames((previousGames) => {
           const hasGame = previousGames.some((game) => game.id === payload.game.id)
           const nextGames = hasGame
@@ -1479,6 +1822,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setInstructionCards([])
           setPlotCards([])
           setWorldCards([])
+          setUndoneAssistantSteps([])
           setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
           setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
           applyPlotCardEvents([])
@@ -1812,6 +2156,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
+        setUndoneAssistantSteps([])
         applyPlotCardEvents([])
         applyWorldCardEvents([])
         onNavigate(`/home/${newGame.id}`)
@@ -2646,6 +2991,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
+    if (hasUndoneAssistantSteps) {
+      setErrorMessage('Сначала верните откатанные ответы кнопкой вперед или обновите игру.')
+      return
+    }
+
     const normalizedPrompt = inputValue.replace(/\r\n/g, '\n').trim()
     if (!normalizedPrompt) {
       return
@@ -2703,91 +3053,95 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, hasUndoneAssistantSteps, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+
+  const handleUndoAssistantStep = useCallback(() => {
+    if (!activeGameId || !canUndoAssistantStep) {
+      return
+    }
+
+    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
+    if (!lastAssistantMessage) {
+      return
+    }
+
+    const relatedPlotEvents = plotCardEvents
+      .filter((event) => event.assistant_message_id === lastAssistantMessage.id)
+      .sort((left, right) => left.id - right.id)
+    const relatedWorldEvents = worldCardEvents
+      .filter((event) => event.assistant_message_id === lastAssistantMessage.id)
+      .sort((left, right) => left.id - right.id)
+
+    setErrorMessage('')
+    setMessages((previousMessages) => previousMessages.filter((message) => message.id !== lastAssistantMessage.id))
+    setPlotCards((previousCards) => rollbackPlotCardsByEvents(previousCards, relatedPlotEvents, activeGameId))
+    setWorldCards((previousCards) => rollbackWorldCardsByEvents(previousCards, relatedWorldEvents, activeGameId))
+    applyPlotCardEvents(plotCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
+    applyWorldCardEvents(worldCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
+    setUndoneAssistantSteps((previousSteps) => [
+      ...previousSteps,
+      {
+        assistantMessage: lastAssistantMessage,
+        plotEvents: relatedPlotEvents,
+        worldEvents: relatedWorldEvents,
+      },
+    ])
+  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, canUndoAssistantStep, messages, plotCardEvents, worldCardEvents])
+
+  const handleRedoAssistantStep = useCallback(() => {
+    if (!activeGameId || !canRedoAssistantStep) {
+      return
+    }
+
+    const stepToRestore = undoneAssistantSteps[undoneAssistantSteps.length - 1]
+    if (!stepToRestore) {
+      return
+    }
+
+    setErrorMessage('')
+    setUndoneAssistantSteps((previousSteps) => previousSteps.slice(0, -1))
+    setMessages((previousMessages) => {
+      if (previousMessages.some((message) => message.id === stepToRestore.assistantMessage.id)) {
+        return previousMessages
+      }
+      return [...previousMessages, stepToRestore.assistantMessage].sort((left, right) => left.id - right.id)
+    })
+    setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, stepToRestore.plotEvents, activeGameId))
+    setWorldCards((previousCards) => reapplyWorldCardsByEvents(previousCards, stepToRestore.worldEvents, activeGameId))
+    applyPlotCardEvents(mergePlotEvents(plotCardEvents, stepToRestore.plotEvents))
+    applyWorldCardEvents(mergeWorldEvents(worldCardEvents, stepToRestore.worldEvents))
+  }, [
+    activeGameId,
+    applyPlotCardEvents,
+    applyWorldCardEvents,
+    canRedoAssistantStep,
+    plotCardEvents,
+    undoneAssistantSteps,
+    worldCardEvents,
+  ])
 
   const handleStopGeneration = useCallback(() => {
     generationAbortRef.current?.abort()
   }, [])
-
-  const rollbackAiCardEventsForAssistantMessage = useCallback(
-    async (gameId: number, assistantMessageId: number) => {
-      const relatedPlotEvents = plotCardEvents
-        .filter((event) => event.assistant_message_id === assistantMessageId)
-        .map((event) => event.id)
-        .sort((left, right) => right - left)
-      const relatedWorldEvents = worldCardEvents
-        .filter((event) => event.assistant_message_id === assistantMessageId)
-        .map((event) => event.id)
-        .sort((left, right) => right - left)
-
-      for (const eventId of relatedPlotEvents) {
-        await undoStoryPlotCardEvent({
-          token: authToken,
-          gameId,
-          eventId,
-        })
-      }
-
-      for (const eventId of relatedWorldEvents) {
-        await undoStoryWorldCardEvent({
-          token: authToken,
-          gameId,
-          eventId,
-        })
-      }
-    },
-    [authToken, plotCardEvents, worldCardEvents],
-  )
 
   const handleRerollLastResponse = useCallback(async () => {
     if (!canReroll || !activeGameId) {
       return
     }
 
-    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant') ?? null
-    if (!lastAssistantMessage) {
+    if (hasUndoneAssistantSteps) {
+      setErrorMessage('Сначала верните откатанные ответы кнопкой вперед или обновите игру.')
       return
     }
 
-    applyPlotCardEvents(plotCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
-    applyWorldCardEvents(worldCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
-
-    setMessages((previousMessages) => {
-      const nextMessages = [...previousMessages]
-      const lastMessage = nextMessages[nextMessages.length - 1]
-      if (lastMessage && lastMessage.role === 'assistant') {
-        nextMessages.pop()
-      }
-      return nextMessages
-    })
-
-    try {
-      await rollbackAiCardEventsForAssistantMessage(activeGameId, lastAssistantMessage.id)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось откатить изменения карточек перед перегенерацией'
-      setErrorMessage(detail)
-      await loadGameById(activeGameId, { silent: true })
-      return
-    }
+    setErrorMessage('')
 
     await runStoryGeneration({
       gameId: activeGameId,
       rerollLastResponse: true,
       instructionCards,
     })
-  }, [
-    activeGameId,
-    applyPlotCardEvents,
-    applyWorldCardEvents,
-    canReroll,
-    instructionCards,
-    loadGameById,
-    messages,
-    plotCardEvents,
-    rollbackAiCardEventsForAssistantMessage,
-    runStoryGeneration,
-    worldCardEvents,
-  ])
+  }, [activeGameId, canReroll, hasUndoneAssistantSteps, instructionCards, runStoryGeneration])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -4228,20 +4582,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       >
                         <Stack spacing="var(--morius-story-message-gap)">
                           {blocks.map((block, index) => {
-                            if (block.type === 'npc') {
-                              const npcAvatar = resolveNpcAvatar(block.npcName)
+                            if (block.type === 'character') {
+                              const speakerAvatar = resolveDialogueAvatar(block.speakerName)
                               return (
                                 <Stack
-                                  key={`${message.id}-${index}-npc`}
+                                  key={`${message.id}-${index}-character`}
                                   direction="row"
-                                  spacing={0.9}
+                                  spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
                                   alignItems="flex-start"
                                   sx={{
                                     px: 0.05,
                                     py: 0.05,
                                   }}
                                 >
-                                  <CharacterAvatar avatarUrl={npcAvatar} fallbackLabel={block.npcName} size={30} />
+                                  <CharacterAvatar
+                                    avatarUrl={speakerAvatar}
+                                    fallbackLabel={block.speakerName}
+                                    size={ASSISTANT_DIALOGUE_AVATAR_SIZE}
+                                  />
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
                                       sx={{
@@ -4252,7 +4610,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         letterSpacing: 0.18,
                                       }}
                                     >
-                                      {block.npcName}
+                                      {block.speakerName}
                                     </Typography>
                                     <Typography
                                       sx={{
@@ -4270,25 +4628,53 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }
 
                             return (
-                              <Typography
+                              <Stack
                                 key={`${message.id}-${index}`}
+                                direction="row"
+                                spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
+                                alignItems="flex-start"
                                 sx={{
-                                  color: 'var(--morius-title-text)',
-                                  lineHeight: 1.58,
-                                  fontSize: { xs: '1.02rem', md: '1.12rem' },
-                                  whiteSpace: 'pre-wrap',
+                                  px: 0.05,
+                                  py: 0.05,
                                 }}
                               >
-                                {block.text}
-                              </Typography>
+                                <Box
+                                  sx={{
+                                    width: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                    height: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <Typography
+                                  sx={{
+                                    color: 'var(--morius-title-text)',
+                                    lineHeight: 1.58,
+                                    fontSize: { xs: '1.02rem', md: '1.12rem' },
+                                    whiteSpace: 'pre-wrap',
+                                    flex: 1,
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  {block.text}
+                                </Typography>
+                              </Stack>
                             )
                           })}
                           {isStreaming ? (
-                            <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
-                              <Box className="morius-generating-pulse-dot" />
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
-                                ИИ генерирует ответ
-                              </Typography>
+                            <Stack direction="row" alignItems="center" spacing={ASSISTANT_DIALOGUE_AVATAR_GAP} sx={{ px: 0.05, py: 0.05 }}>
+                              <Box
+                                sx={{
+                                  width: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                  height: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                  flexShrink: 0,
+                                }}
+                              />
+                              <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
+                                <Box className="morius-generating-pulse-dot" />
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
+                                  ИИ генерирует ответ
+                                </Typography>
+                              </Stack>
                             </Stack>
                           ) : null}
                           {messagePlotCardEvents.length > 0 || messageWorldCardEvents.length > 0 ? (
@@ -4701,8 +5087,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Stack>
                 <IconButton
                   aria-label="Назад"
-                  onClick={(event) => event.preventDefault()}
+                  onClick={handleUndoAssistantStep}
+                  disabled={!canUndoAssistantStep}
                   sx={{
+                    opacity: canUndoAssistantStep ? 1 : 0.45,
                     p: 0,
                     backgroundColor: 'transparent',
                     border: 'none',
@@ -4719,8 +5107,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </IconButton>
                 <IconButton
                   aria-label="Отменить"
-                  onClick={(event) => event.preventDefault()}
+                  onClick={handleRedoAssistantStep}
+                  disabled={!canRedoAssistantStep}
                   sx={{
+                    opacity: canRedoAssistantStep ? 1 : 0.45,
                     p: 0,
                     backgroundColor: 'transparent',
                     border: 'none',
