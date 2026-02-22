@@ -135,12 +135,14 @@ class StoryWorldCardCreateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     character_id: int | None = Field(default=None, ge=1)
+    memory_turns: int | None = Field(default=None)
 
 
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    memory_turns: int | None = Field(default=None)
 
 
 class StoryWorldCardAvatarUpdateRequest(BaseModel):
@@ -222,6 +224,7 @@ class StoryWorldCardOut(BaseModel):
     avatar_url: str | None
     avatar_scale: float
     character_id: int | None
+    memory_turns: int | None
     is_locked: bool
     ai_edit_enabled: bool
     source: str
@@ -283,6 +286,7 @@ class StoryWorldCardSnapshotOut(BaseModel):
     avatar_url: str | None
     avatar_scale: float
     character_id: int | None
+    memory_turns: int | None
     is_locked: bool
     ai_edit_enabled: bool
     source: str

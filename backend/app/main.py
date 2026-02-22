@@ -163,7 +163,7 @@ STORY_COVER_SCALE_DEFAULT = 1.0
 STORY_IMAGE_POSITION_MIN = 0.0
 STORY_IMAGE_POSITION_MAX = 100.0
 STORY_IMAGE_POSITION_DEFAULT = 50.0
-STORY_COVER_MAX_BYTES = 200 * 1024
+STORY_COVER_MAX_BYTES = 500 * 1024
 STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 16_000
 STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
 STORY_WORLD_CARD_EVENT_ADDED = "added"
@@ -179,6 +179,9 @@ STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
+STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
+STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {5, 10, 15}
+STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_PROMPT_MAX_CARDS = 10
 STORY_WORLD_CARD_LOW_IMPORTANCE = {"low", "minor", "trivial"}
 STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
@@ -215,6 +218,45 @@ STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS = {
     "эпизод",
     "диалог",
     "разговор",
+}
+STORY_NPC_GENERIC_NAME_TOKENS = {
+    "бандит",
+    "бандиты",
+    "разбойник",
+    "разбойники",
+    "головорез",
+    "головорезы",
+    "наемник",
+    "наемники",
+    "охранник",
+    "охранники",
+    "охрана",
+    "стражник",
+    "стражники",
+    "солдат",
+    "солдаты",
+    "воин",
+    "воины",
+    "житель",
+    "жители",
+    "горожанин",
+    "горожане",
+    "крестьянин",
+    "крестьяне",
+    "merchant",
+    "merchants",
+    "guard",
+    "guards",
+    "soldier",
+    "soldiers",
+    "bandit",
+    "bandits",
+    "mercenary",
+    "mercenaries",
+    "thug",
+    "thugs",
+    "villager",
+    "villagers",
 }
 STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
     "обновлены важные детали",
@@ -375,6 +417,7 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
 
     existing_columns = {column["name"] for column in inspector.get_columns(StoryWorldCard.__tablename__)}
     alter_statements: list[str] = []
+    memory_turns_column_added = False
 
     if "kind" not in existing_columns:
         alter_statements.append(
@@ -396,6 +439,12 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN character_id INTEGER"
         )
+    if "memory_turns" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            f"ADD COLUMN memory_turns INTEGER NOT NULL DEFAULT {STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS}"
+        )
+        memory_turns_column_added = True
     if "is_locked" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -413,6 +462,21 @@ def _ensure_story_world_card_extended_columns_exist() -> None:
     with engine.begin() as connection:
         for statement in alter_statements:
             connection.execute(text(statement))
+        if memory_turns_column_added:
+            connection.execute(
+                text(
+                    f"UPDATE {StoryWorldCard.__tablename__} "
+                    f"SET memory_turns = {STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS} "
+                    f"WHERE kind = '{STORY_WORLD_CARD_KIND_NPC}'"
+                )
+            )
+            connection.execute(
+                text(
+                    f"UPDATE {StoryWorldCard.__tablename__} "
+                    f"SET memory_turns = {STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS} "
+                    f"WHERE kind = '{STORY_WORLD_CARD_KIND_MAIN_HERO}'"
+                )
+            )
 
 
 def _ensure_story_character_avatar_scale_column_exists() -> None:
@@ -1203,6 +1267,105 @@ def _normalize_story_world_card_kind(value: str | None) -> str:
     return STORY_WORLD_CARD_KIND_WORLD
 
 
+def _default_story_world_card_memory_turns(kind: str) -> int:
+    normalized_kind = _normalize_story_world_card_kind(kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+    if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
+        return STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS
+    return STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS
+
+
+def _normalize_story_world_card_memory_turns_for_storage(
+    raw_value: int | float | str | None,
+    *,
+    kind: str,
+    explicit: bool = False,
+    current_value: int | None = None,
+) -> int:
+    normalized_kind = _normalize_story_world_card_kind(kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+
+    fallback_value = (
+        _default_story_world_card_memory_turns(normalized_kind)
+        if current_value is None
+        else current_value
+    )
+    if not explicit:
+        return fallback_value
+
+    if raw_value is None:
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+
+    parsed_value: int | None = None
+    if isinstance(raw_value, bool):
+        parsed_value = None
+    elif isinstance(raw_value, int):
+        parsed_value = raw_value
+    elif isinstance(raw_value, float) and raw_value.is_integer():
+        parsed_value = int(raw_value)
+    elif isinstance(raw_value, str):
+        cleaned = raw_value.strip().lower()
+        if cleaned in {"always", "forever", "infinite", "never"}:
+            parsed_value = STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+        elif cleaned.lstrip("-").isdigit():
+            parsed_value = int(cleaned)
+
+    if parsed_value is None:
+        return fallback_value
+    if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+    if parsed_value in STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS:
+        return parsed_value
+    return fallback_value
+
+
+def _serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str) -> int | None:
+    normalized_kind = _normalize_story_world_card_kind(kind)
+    normalized_value = _normalize_story_world_card_memory_turns_for_storage(
+        raw_value,
+        kind=normalized_kind,
+        explicit=False,
+        current_value=raw_value,
+    )
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        return None
+    if normalized_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
+        return None
+    return normalized_value
+
+
+def _is_story_generic_npc_name(value: str) -> bool:
+    tokens = _normalize_story_match_tokens(value)
+    if not tokens:
+        return True
+    if len(tokens) == 1:
+        return tokens[0] in STORY_NPC_GENERIC_NAME_TOKENS
+    if len(tokens) <= 3:
+        return all(token in STORY_NPC_GENERIC_NAME_TOKENS for token in tokens)
+    return False
+
+
+def _normalize_story_npc_profile_content(name: str, content: str) -> str:
+    normalized_content = _normalize_story_world_card_content(content)
+    if not normalized_content:
+        return normalized_content
+
+    lowered_content = normalized_content.casefold()
+    has_appearance = any(fragment in lowered_content for fragment in ("внешност", "appearance", "облик", "выгляд"))
+    has_character = any(fragment in lowered_content for fragment in ("характер", "personality", "манер", "повед"))
+    has_important = any(fragment in lowered_content for fragment in ("важн", "important", "мотив", "цель", "роль"))
+    if has_important and (has_appearance or has_character):
+        return normalized_content
+
+    compact_content = " ".join(normalized_content.split())
+    return _normalize_story_world_card_content(
+        f"Внешность и характер: {compact_content}\n"
+        f"Важное: роль {name} в истории, цели и риски для игрока."
+    )
+
+
 def _map_story_world_card_ai_kind(value: str) -> str:
     normalized = value.strip().lower()
     if normalized in {"character", "npc"}:
@@ -1282,16 +1445,18 @@ def _story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
 
 
 def _story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
+    normalized_kind = _normalize_story_world_card_kind(card.kind)
     return StoryWorldCardOut(
         id=card.id,
         game_id=card.game_id,
         title=card.title,
         content=card.content,
         triggers=_deserialize_story_world_card_triggers(card.triggers),
-        kind=_normalize_story_world_card_kind(card.kind),
+        kind=normalized_kind,
         avatar_url=_normalize_avatar_value(card.avatar_url),
         avatar_scale=_normalize_story_avatar_scale(card.avatar_scale),
         character_id=card.character_id,
+        memory_turns=_serialize_story_world_card_memory_turns(card.memory_turns, kind=normalized_kind),
         is_locked=bool(card.is_locked),
         ai_edit_enabled=bool(card.ai_edit_enabled),
         source=_normalize_story_world_card_source(card.source),
@@ -1506,6 +1671,8 @@ def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, 
             raw_name = raw_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
         if not raw_name:
             continue
+        if _is_story_generic_npc_name(raw_name):
+            continue
 
         dialogue_text = " ".join(marker_match.group(2).replace("\r", " ").replace("\n", " ").split()).strip()
         mention_key = raw_name.casefold()
@@ -1547,9 +1714,15 @@ def _build_story_npc_fallback_content(name: str, assistant_text: str, dialogues:
             selected_paragraphs.append(f"{name}: {dialogues[1]}")
 
     if not selected_paragraphs:
-        selected_paragraphs = [f"{name} появляется в текущей сцене как новый NPC."]
+        selected_paragraphs = [f"{name} появляется в текущей сцене и влияет на развитие конфликта."]
 
-    return _normalize_story_world_card_content("\n\n".join(selected_paragraphs))
+    appearance_and_character = selected_paragraphs[0]
+    important_details = selected_paragraphs[1] if len(selected_paragraphs) > 1 else selected_paragraphs[0]
+    profile_text = (
+        f"Внешность и характер: {appearance_and_character}\n"
+        f"Важное: {important_details}"
+    )
+    return _normalize_story_npc_profile_content(name, profile_text)
 
 
 def _append_missing_story_npc_card_operations(
@@ -1591,6 +1764,8 @@ def _append_missing_story_npc_card_operations(
 
         name = " ".join(str(mention.get("name", "")).split()).strip()
         if not name:
+            continue
+        if _is_story_generic_npc_name(name):
             continue
         mention_triggers = _normalize_story_world_card_triggers([name], fallback_title=name)
         if _is_story_npc_identity_duplicate(
@@ -1643,6 +1818,8 @@ def _ensure_story_npc_cards_from_dialogue(
         raw_name = " ".join(str(mention.get("name", "")).split()).strip()
         if not raw_name:
             continue
+        if _is_story_generic_npc_name(raw_name):
+            continue
         title_value = _normalize_story_world_card_title(raw_name)
         triggers_value = _normalize_story_world_card_triggers([title_value], fallback_title=title_value)
         if _is_story_npc_identity_duplicate(
@@ -1664,6 +1841,7 @@ def _ensure_story_npc_cards_from_dialogue(
             kind=STORY_WORLD_CARD_KIND_NPC,
             avatar_url=None,
             character_id=None,
+            memory_turns=STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS,
             is_locked=False,
             ai_edit_enabled=True,
             source=STORY_WORLD_CARD_SOURCE_AI,
@@ -1703,15 +1881,17 @@ def _ensure_story_npc_cards_from_dialogue(
 
 
 def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]:
+    card_kind = _normalize_story_world_card_kind(card.kind)
     return {
         "id": card.id,
         "title": card.title,
         "content": card.content,
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
-        "kind": _normalize_story_world_card_kind(card.kind),
+        "kind": card_kind,
         "avatar_url": _normalize_avatar_value(card.avatar_url),
         "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
         "character_id": card.character_id,
+        "memory_turns": _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind),
         "is_locked": bool(card.is_locked),
         "ai_edit_enabled": bool(card.ai_edit_enabled),
         "source": _normalize_story_world_card_source(card.source),
@@ -1799,6 +1979,13 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         if parsed_character_id > 0:
             character_id = parsed_character_id
 
+    memory_turns_value = _normalize_story_world_card_memory_turns_for_storage(
+        parsed.get("memory_turns"),
+        kind=kind_value,
+        explicit="memory_turns" in parsed,
+        current_value=None,
+    )
+
     return {
         "id": card_id,
         "title": title_value,
@@ -1808,6 +1995,7 @@ def _deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, A
         "avatar_url": avatar_value,
         "avatar_scale": avatar_scale_value,
         "character_id": character_id,
+        "memory_turns": _serialize_story_world_card_memory_turns(memory_turns_value, kind=kind_value),
         "is_locked": is_locked_value,
         "ai_edit_enabled": ai_edit_enabled_value,
         "source": source_value,
@@ -2093,15 +2281,22 @@ def _clone_story_world_cards_to_game(
 
     source_world_cards = _list_story_world_cards(db, source_world_id)
     for card in source_world_cards:
+        card_kind = _normalize_story_world_card_kind(card.kind)
         cloned_world_card = StoryWorldCard(
             game_id=target_game_id,
             title=card.title,
             content=card.content,
             triggers=card.triggers,
-            kind=_normalize_story_world_card_kind(card.kind),
+            kind=card_kind,
             avatar_url=_normalize_story_character_avatar_url(card.avatar_url),
             avatar_scale=_normalize_story_avatar_scale(card.avatar_scale),
             character_id=None,
+            memory_turns=_normalize_story_world_card_memory_turns_for_storage(
+                card.memory_turns,
+                kind=card_kind,
+                explicit=False,
+                current_value=card.memory_turns,
+            ),
             is_locked=bool(card.is_locked),
             ai_edit_enabled=bool(card.ai_edit_enabled),
             source=_normalize_story_world_card_source(card.source),
@@ -2182,16 +2377,23 @@ def _build_story_world_card_from_character(
     normalized_triggers = _deserialize_story_world_card_triggers(character.triggers)
     if not normalized_triggers:
         normalized_triggers = _normalize_story_world_card_triggers([], fallback_title=normalized_name)
+    normalized_kind = _normalize_story_world_card_kind(kind)
 
     return StoryWorldCard(
         game_id=game_id,
         title=normalized_name,
         content=normalized_content,
         triggers=_serialize_story_world_card_triggers(normalized_triggers),
-        kind=_normalize_story_world_card_kind(kind),
+        kind=normalized_kind,
         avatar_url=_normalize_story_character_avatar_url(character.avatar_url),
         avatar_scale=_normalize_story_avatar_scale(character.avatar_scale),
         character_id=character.id,
+        memory_turns=_normalize_story_world_card_memory_turns_for_storage(
+            None,
+            kind=normalized_kind,
+            explicit=False,
+            current_value=None,
+        ),
         is_locked=lock_card,
         ai_edit_enabled=True,
         source=STORY_WORLD_CARD_SOURCE_USER,
@@ -2234,12 +2436,20 @@ def _select_story_world_cards_for_prompt(
     context_messages: list[StoryMessage],
     world_cards: list[StoryWorldCard],
 ) -> list[dict[str, Any]]:
-    user_turn_tokens: list[list[str]] = [
-        _normalize_story_match_tokens(message.content)
-        for message in context_messages
-        if message.role == STORY_USER_ROLE
-    ]
-    current_turn_index = len(user_turn_tokens)
+    turn_token_entries: list[tuple[int, list[str]]] = []
+    current_turn_index = 0
+    for message in context_messages:
+        if message.role == STORY_USER_ROLE:
+            current_turn_index += 1
+        if message.role not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE}:
+            continue
+        if current_turn_index <= 0:
+            continue
+        message_tokens = _normalize_story_match_tokens(message.content)
+        if not message_tokens:
+            continue
+        turn_token_entries.append((current_turn_index, message_tokens))
+
     if current_turn_index <= 0:
         return []
 
@@ -2265,6 +2475,10 @@ def _select_story_world_cards_for_prompt(
             triggers = _deserialize_story_world_card_triggers(main_hero_card.triggers)
             if not triggers:
                 triggers = _normalize_story_world_card_triggers([], fallback_title=title)
+            memory_turns = _serialize_story_world_card_memory_turns(
+                main_hero_card.memory_turns,
+                kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
+            )
             ranked_cards.append(
                 (
                     (-1, 0, kind_rank[STORY_WORLD_CARD_KIND_MAIN_HERO], main_hero_card.id),
@@ -2277,6 +2491,7 @@ def _select_story_world_cards_for_prompt(
                         "avatar_url": _normalize_avatar_value(main_hero_card.avatar_url),
                         "avatar_scale": _normalize_story_avatar_scale(main_hero_card.avatar_scale),
                         "character_id": main_hero_card.character_id,
+                        "memory_turns": memory_turns,
                         "is_locked": bool(main_hero_card.is_locked),
                         "source": _normalize_story_world_card_source(main_hero_card.source),
                     },
@@ -2299,13 +2514,30 @@ def _select_story_world_cards_for_prompt(
         if not triggers:
             continue
 
-        if current_turn_index <= 0:
+        memory_turns = _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind)
+        if memory_turns is None:
+            ranked_cards.append(
+                (
+                    (0, -1, kind_rank.get(card_kind, 3), card.id),
+                    {
+                        "id": card.id,
+                        "title": title,
+                        "content": content,
+                        "triggers": triggers,
+                        "kind": card_kind,
+                        "avatar_url": _normalize_avatar_value(card.avatar_url),
+                        "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
+                        "character_id": card.character_id,
+                        "memory_turns": None,
+                        "is_locked": bool(card.is_locked),
+                        "source": _normalize_story_world_card_source(card.source),
+                    },
+                )
+            )
             continue
 
         last_trigger_turn = 0
-        for turn_index, prompt_tokens in enumerate(user_turn_tokens, start=1):
-            if not prompt_tokens:
-                continue
+        for turn_index, prompt_tokens in turn_token_entries:
             if any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers):
                 last_trigger_turn = turn_index
 
@@ -2313,7 +2545,7 @@ def _select_story_world_cards_for_prompt(
             continue
 
         turns_since_trigger = current_turn_index - last_trigger_turn
-        if turns_since_trigger > STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS:
+        if turns_since_trigger > memory_turns:
             continue
 
         rank_key = (
@@ -2334,6 +2566,7 @@ def _select_story_world_cards_for_prompt(
                     "avatar_url": _normalize_avatar_value(card.avatar_url),
                     "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
                     "character_id": card.character_id,
+                    "memory_turns": memory_turns,
                     "is_locked": bool(card.is_locked),
                     "source": _normalize_story_world_card_source(card.source),
                 },
@@ -2909,6 +3142,10 @@ def _build_story_world_card_change_messages(
                 "kind": _normalize_story_world_card_kind(card.kind),
                 "is_locked": bool(card.is_locked),
                 "ai_edit_enabled": bool(card.ai_edit_enabled),
+                "memory_turns": _serialize_story_world_card_memory_turns(
+                    card.memory_turns,
+                    kind=_normalize_story_world_card_kind(card.kind),
+                ),
                 "source": _normalize_story_world_card_source(card.source),
             }
         )
@@ -2940,9 +3177,12 @@ def _build_story_world_card_change_messages(
                 "5) Never update or delete cards with \"is_locked\": true or \"ai_edit_enabled\": false.\n"
                 "6) Delete only if a card became invalid/irrelevant.\n"
                 "7) For add/update provide full current card text (max 6000 chars) and useful triggers.\n"
-                "8) If a new speaking character appears in format [[NPC:Name]] and there is no such NPC card yet, "
+                "8) NPC cards must describe a specific named character only, not a faceless group.\n"
+                "9) For NPC add/update title must be character name; content must include appearance/personality and important details.\n"
+                "10) Do not create generic NPC names like \"bandit\", \"guards\", \"soldiers\" without a unique name.\n"
+                "11) If a new speaking character appears in format [[NPC:Name]] and there is no such NPC card yet, "
                 "add it as kind \"npc\".\n"
-                f"9) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+                f"12) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
         },
         {
@@ -3087,6 +3327,10 @@ def _normalize_story_world_card_change_operations(
                 continue
 
             if action == STORY_WORLD_CARD_EVENT_ADDED:
+                if ai_card_kind == STORY_WORLD_CARD_KIND_NPC:
+                    if _is_story_generic_npc_name(title):
+                        continue
+                    content = _normalize_story_npc_profile_content(title, content)
                 if title_key in seen_added_title_keys:
                     continue
                 changed_text = _normalize_story_world_card_changed_text(
@@ -3128,6 +3372,10 @@ def _normalize_story_world_card_change_operations(
             current_triggers = _deserialize_story_world_card_triggers(target_card.triggers)
             current_kind = _normalize_story_world_card_kind(target_card.kind)
             next_kind = current_kind if not raw_kind else ai_card_kind
+            if next_kind == STORY_WORLD_CARD_KIND_NPC:
+                if _is_story_generic_npc_name(title):
+                    continue
+                content = _normalize_story_npc_profile_content(title, content)
             if (
                 title == current_title
                 and content == current_content
@@ -3390,6 +3638,10 @@ def _apply_story_world_card_change_operations(
             card_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
             normalized_title = _normalize_story_world_card_title(title_value)
             normalized_content = _normalize_story_world_card_content(content_value)
+            if card_kind == STORY_WORLD_CARD_KIND_NPC:
+                if _is_story_generic_npc_name(normalized_title):
+                    continue
+                normalized_content = _normalize_story_npc_profile_content(normalized_title, normalized_content)
             normalized_triggers = _normalize_story_world_card_triggers(
                 [item for item in triggers_value if isinstance(item, str)],
                 fallback_title=title_value,
@@ -3424,6 +3676,12 @@ def _apply_story_world_card_change_operations(
                 kind=card_kind,
                 avatar_url=None,
                 character_id=None,
+                memory_turns=_normalize_story_world_card_memory_turns_for_storage(
+                    None,
+                    kind=card_kind,
+                    explicit=False,
+                    current_value=None,
+                ),
                 is_locked=False,
                 ai_edit_enabled=True,
                 source=STORY_WORLD_CARD_SOURCE_AI,
@@ -3477,15 +3735,31 @@ def _apply_story_world_card_change_operations(
             if not title_value or not content_value or not isinstance(triggers_value, list):
                 continue
 
-            card.title = _normalize_story_world_card_title(title_value)
-            card.content = _normalize_story_world_card_content(content_value)
-            card.triggers = _serialize_story_world_card_triggers(
-                _normalize_story_world_card_triggers(
-                    [item for item in triggers_value if isinstance(item, str)],
-                    fallback_title=title_value,
-                )
+            next_title = _normalize_story_world_card_title(title_value)
+            next_content = _normalize_story_world_card_content(content_value)
+            next_triggers = _normalize_story_world_card_triggers(
+                [item for item in triggers_value if isinstance(item, str)],
+                fallback_title=title_value,
             )
-            card.kind = _normalize_story_world_card_kind(str(operation.get("kind", card.kind)))
+            previous_kind = _normalize_story_world_card_kind(card.kind)
+            next_kind = _normalize_story_world_card_kind(str(operation.get("kind", card.kind)))
+            if next_kind == STORY_WORLD_CARD_KIND_NPC:
+                if _is_story_generic_npc_name(next_title):
+                    continue
+                next_content = _normalize_story_npc_profile_content(next_title, next_content)
+            current_memory_for_next_kind = card.memory_turns if next_kind == previous_kind else None
+            next_memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+                card.memory_turns,
+                kind=next_kind,
+                explicit=False,
+                current_value=current_memory_for_next_kind,
+            )
+
+            card.title = next_title
+            card.content = next_content
+            card.triggers = _serialize_story_world_card_triggers(next_triggers)
+            card.kind = next_kind
+            card.memory_turns = next_memory_turns
             card.source = STORY_WORLD_CARD_SOURCE_AI
             db.flush()
 
@@ -3895,6 +4169,13 @@ def _restore_story_world_card_from_snapshot(
     if isinstance(raw_triggers, list):
         trigger_values = [value for value in raw_triggers if isinstance(value, str)]
     triggers = _normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+    has_memory_turns = "memory_turns" in snapshot
+    memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+        snapshot.get("memory_turns"),
+        kind=kind,
+        explicit=has_memory_turns,
+        current_value=None,
+    )
     raw_character_id = snapshot.get("character_id")
     character_id: int | None = None
     if isinstance(raw_character_id, int) and raw_character_id > 0:
@@ -3948,6 +4229,7 @@ def _restore_story_world_card_from_snapshot(
             avatar_url=avatar_url,
             avatar_scale=avatar_scale,
             character_id=character_id,
+            memory_turns=memory_turns,
             is_locked=is_locked,
             ai_edit_enabled=ai_edit_enabled,
             source=source,
@@ -3963,6 +4245,15 @@ def _restore_story_world_card_from_snapshot(
     world_card.avatar_url = avatar_url
     world_card.avatar_scale = avatar_scale
     world_card.character_id = character_id
+    if has_memory_turns:
+        world_card.memory_turns = memory_turns
+    else:
+        world_card.memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+            world_card.memory_turns,
+            kind=kind,
+            explicit=False,
+            current_value=world_card.memory_turns,
+        )
     world_card.is_locked = is_locked
     if has_ai_edit_enabled:
         world_card.ai_edit_enabled = ai_edit_enabled
@@ -5871,8 +6162,16 @@ def create_story_world_card(
     normalized_content = _normalize_story_world_card_content(payload.content)
     normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = _normalize_story_world_card_kind(payload.kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
+        normalized_content = _normalize_story_npc_profile_content(normalized_title, normalized_content)
     normalized_avatar = _normalize_story_character_avatar_url(payload.avatar_url)
     normalized_avatar_scale = _normalize_story_avatar_scale(payload.avatar_scale)
+    normalized_memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+        payload.memory_turns,
+        kind=normalized_kind,
+        explicit="memory_turns" in payload.model_fields_set,
+        current_value=None,
+    )
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
         existing_main_hero = _get_story_main_hero_card(db, game.id)
         if existing_main_hero is not None:
@@ -5890,6 +6189,7 @@ def create_story_world_card(
         avatar_url=normalized_avatar,
         avatar_scale=normalized_avatar_scale,
         character_id=None,
+        memory_turns=normalized_memory_turns,
         is_locked=False,
         ai_edit_enabled=True,
         source=STORY_WORLD_CARD_SOURCE_USER,
@@ -5928,10 +6228,28 @@ def update_story_world_card(
     normalized_title = _normalize_story_world_card_title(payload.title)
     normalized_content = _normalize_story_world_card_content(payload.content)
     normalized_triggers = _normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
+    normalized_kind = _normalize_story_world_card_kind(world_card.kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
+        normalized_content = _normalize_story_npc_profile_content(normalized_title, normalized_content)
+    if "memory_turns" in payload.model_fields_set:
+        normalized_memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+            payload.memory_turns,
+            kind=normalized_kind,
+            explicit=True,
+            current_value=world_card.memory_turns,
+        )
+    else:
+        normalized_memory_turns = _normalize_story_world_card_memory_turns_for_storage(
+            world_card.memory_turns,
+            kind=normalized_kind,
+            explicit=False,
+            current_value=world_card.memory_turns,
+        )
 
     world_card.title = normalized_title
     world_card.content = normalized_content
     world_card.triggers = _serialize_story_world_card_triggers(normalized_triggers)
+    world_card.memory_turns = normalized_memory_turns
     _touch_story_game(game)
     db.commit()
     db.refresh(world_card)

@@ -85,6 +85,7 @@ import type {
   StoryPlotCard,
   StoryPlotCardEvent,
   StoryWorldCard,
+  StoryWorldCardKind,
   StoryWorldCardEvent,
 } from '../types/story'
 import { compressImageFileToDataUrl } from '../utils/avatar'
@@ -139,7 +140,7 @@ type AssistantUndoStep = {
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-const CHARACTER_AVATAR_MAX_BYTES = 200 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
@@ -161,6 +162,9 @@ const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
+const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 10
+const NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS = [5, 10, 15] as const
+type NpcMemoryTurnsOption = (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number] | null
 const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
   added: 'Добавлено',
@@ -170,6 +174,7 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
 type WorldCardContextState = {
   isActive: boolean
   isAlwaysActive: boolean
+  memoryTurns: number | null
   turnsRemaining: number
   lastTriggerTurn: number | null
   isTriggeredThisTurn: boolean
@@ -418,6 +423,7 @@ function mapWorldSnapshotToCard(
     avatar_url: snapshot.avatar_url,
     avatar_scale: snapshot.avatar_scale,
     character_id: snapshot.character_id,
+    memory_turns: snapshot.memory_turns,
     is_locked: snapshot.is_locked,
     ai_edit_enabled: snapshot.ai_edit_enabled,
     source: snapshot.source,
@@ -670,6 +676,39 @@ function formatTurnsWord(value: number): string {
   return 'ходов'
 }
 
+function resolveWorldCardMemoryTurns(card: Pick<StoryWorldCard, 'kind' | 'memory_turns'>): number | null {
+  if (card.kind === 'main_hero') {
+    return null
+  }
+  if (card.memory_turns === null) {
+    return null
+  }
+  if (typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) && card.memory_turns > 0) {
+    return Math.round(card.memory_turns)
+  }
+  if (card.kind === 'npc') {
+    return NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS
+  }
+  return WORLD_CARD_TRIGGER_ACTIVE_TURNS
+}
+
+function formatWorldCardMemoryLabel(memoryTurns: number | null): string {
+  if (memoryTurns === null) {
+    return 'Помнить всегда'
+  }
+  return `${memoryTurns} ${formatTurnsWord(memoryTurns)}`
+}
+
+function toNpcMemoryTurnsOption(memoryTurns: number | null): NpcMemoryTurnsOption {
+  if (memoryTurns === null) {
+    return null
+  }
+  if (NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS.includes(memoryTurns as (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number])) {
+    return memoryTurns as (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number]
+  }
+  return NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS
+}
+
 function formatWorldCardContextStatus(state: WorldCardContextState | undefined): string {
   if (!state || !state.isActive) {
     return 'неактивна'
@@ -677,24 +716,41 @@ function formatWorldCardContextStatus(state: WorldCardContextState | undefined):
   if (state.isAlwaysActive) {
     return 'активна'
   }
+  const memoryTurns = state.memoryTurns ?? WORLD_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
-    return `активна · +${WORLD_CARD_TRIGGER_ACTIVE_TURNS} ${formatTurnsWord(WORLD_CARD_TRIGGER_ACTIVE_TURNS)}`
+    return `активна · +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
   }
   return `активна · ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
 }
 
 function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: StoryMessage[]): Map<number, WorldCardContextState> {
-  const userTurnTokens = messages
-    .filter((message) => message.role === 'user')
-    .map((message) => normalizeStoryMatchTokens(message.content.replace(/\r\n/g, '\n').trim()))
-  const currentTurnIndex = userTurnTokens.length
+  const turnTokenEntries: Array<{ turnIndex: number; tokens: string[] }> = []
+  let currentTurnIndex = 0
+  messages.forEach((message) => {
+    if (message.role === 'user') {
+      currentTurnIndex += 1
+    }
+    if (message.role !== 'user' && message.role !== 'assistant') {
+      return
+    }
+    if (currentTurnIndex <= 0) {
+      return
+    }
+    const tokens = normalizeStoryMatchTokens(message.content.replace(/\r\n/g, '\n').trim())
+    if (tokens.length === 0) {
+      return
+    }
+    turnTokenEntries.push({ turnIndex: currentTurnIndex, tokens })
+  })
 
   const stateById = new Map<number, WorldCardContextState>()
   worldCards.forEach((card) => {
+    const memoryTurns = resolveWorldCardMemoryTurns(card)
     if (card.kind === 'main_hero') {
       stateById.set(card.id, {
         isActive: true,
         isAlwaysActive: true,
+        memoryTurns: null,
         turnsRemaining: 0,
         lastTriggerTurn: null,
         isTriggeredThisTurn: false,
@@ -710,15 +766,24 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
       triggers.unshift(fallbackTrigger)
     }
 
+    if (memoryTurns === null) {
+      stateById.set(card.id, {
+        isActive: true,
+        isAlwaysActive: true,
+        memoryTurns: null,
+        turnsRemaining: 0,
+        lastTriggerTurn: null,
+        isTriggeredThisTurn: false,
+      })
+      return
+    }
+
     let lastTriggerTurn = 0
     if (triggers.length > 0) {
-      userTurnTokens.forEach((tokens, index) => {
-        if (tokens.length === 0) {
-          return
-        }
+      turnTokenEntries.forEach(({ turnIndex, tokens }) => {
         const matched = triggers.some((trigger) => isStoryTriggerMatch(trigger, tokens))
         if (matched) {
-          lastTriggerTurn = index + 1
+          lastTriggerTurn = turnIndex
         }
       })
     }
@@ -728,9 +793,9 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
     let isTriggeredThisTurn = false
     if (lastTriggerTurn > 0 && currentTurnIndex > 0) {
       const turnsSinceTrigger = currentTurnIndex - lastTriggerTurn
-      if (turnsSinceTrigger <= WORLD_CARD_TRIGGER_ACTIVE_TURNS) {
+      if (turnsSinceTrigger <= memoryTurns) {
         isActive = true
-        turnsRemaining = Math.max(WORLD_CARD_TRIGGER_ACTIVE_TURNS - turnsSinceTrigger, 0)
+        turnsRemaining = Math.max(memoryTurns - turnsSinceTrigger, 0)
         isTriggeredThisTurn = turnsSinceTrigger === 0
       }
     }
@@ -738,6 +803,7 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
     stateById.set(card.id, {
       isActive,
       isAlwaysActive: false,
+      memoryTurns,
       turnsRemaining,
       lastTriggerTurn: lastTriggerTurn > 0 ? lastTriggerTurn : null,
       isTriggeredThisTurn,
@@ -746,7 +812,6 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
 
   return stateById
 }
-
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -962,9 +1027,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [undoingWorldCardEventIds, setUndoingWorldCardEventIds] = useState<number[]>([])
   const [worldCardDialogOpen, setWorldCardDialogOpen] = useState(false)
   const [editingWorldCardId, setEditingWorldCardId] = useState<number | null>(null)
+  const [editingWorldCardKind, setEditingWorldCardKind] = useState<StoryWorldCardKind>('world')
   const [worldCardTitleDraft, setWorldCardTitleDraft] = useState('')
   const [worldCardContentDraft, setWorldCardContentDraft] = useState('')
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
+  const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
   const [updatingWorldCardAiEditId, setUpdatingWorldCardAiEditId] = useState<number | null>(null)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
@@ -1911,9 +1978,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     setWorldCardDialogOpen(false)
     setEditingWorldCardId(null)
+    setEditingWorldCardKind('world')
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setDeletingWorldCardId(null)
   }, [activeGameId, isCreatingGame, isSavingWorldCard])
 
@@ -2402,9 +2471,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     setEditingWorldCardId(null)
+    setEditingWorldCardKind('world')
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardDialogOpen(true)
   }
 
@@ -2413,9 +2484,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     setEditingWorldCardId(card.id)
+    setEditingWorldCardKind(card.kind)
     setWorldCardTitleDraft(card.title)
     setWorldCardContentDraft(card.content)
     setWorldCardTriggersDraft(card.triggers.join(', '))
+    setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(card)))
     setWorldCardDialogOpen(true)
   }
 
@@ -2425,9 +2498,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     setWorldCardDialogOpen(false)
     setEditingWorldCardId(null)
+    setEditingWorldCardKind('world')
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   }
 
   const handleSaveWorldCard = useCallback(async () => {
@@ -2452,6 +2527,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     const normalizedTriggers = normalizeWorldCardTriggersDraft(worldCardTriggersDraft, normalizedTitle)
+    const normalizedMemoryTurns =
+      editingWorldCardKind === 'npc'
+        ? worldCardMemoryTurnsDraft
+        : undefined
     setErrorMessage('')
     setIsSavingWorldCard(true)
     let targetGameId = activeGameId
@@ -2487,6 +2566,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           title: normalizedTitle,
           content: normalizedContent,
           triggers: normalizedTriggers,
+          memory_turns: normalizedMemoryTurns,
         })
         setWorldCards((previousCards) => [...previousCards, createdCard])
       } else {
@@ -2497,15 +2577,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           title: normalizedTitle,
           content: normalizedContent,
           triggers: normalizedTriggers,
+          memory_turns: normalizedMemoryTurns,
         })
         setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
       }
 
       setWorldCardDialogOpen(false)
       setEditingWorldCardId(null)
+      setEditingWorldCardKind('world')
       setWorldCardTitleDraft('')
       setWorldCardContentDraft('')
       setWorldCardTriggersDraft('')
+      setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить карточку мира'
       setErrorMessage(detail)
@@ -2517,12 +2600,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     activeGameId,
     authToken,
     editingWorldCardId,
+    editingWorldCardKind,
     isCreatingGame,
     isSavingWorldCard,
     onNavigate,
     applyPlotCardEvents,
     applyWorldCardEvents,
     worldCardContentDraft,
+    worldCardMemoryTurnsDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
   ])
@@ -2545,9 +2630,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (editingWorldCardId === cardId) {
           setWorldCardDialogOpen(false)
           setEditingWorldCardId(null)
+          setEditingWorldCardKind('world')
           setWorldCardTitleDraft('')
           setWorldCardContentDraft('')
           setWorldCardTriggersDraft('')
+          setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось удалить карточку мира'
@@ -4143,7 +4230,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Главный герой всегда активен. Остальные карточки мира активируются по триггеру и остаются в контексте еще на 5 ходов.
+                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
               </Typography>
 
               {displayedWorldCards.length === 0 ? (
@@ -4316,6 +4403,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             >
                               Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
                             </Typography>
+                            {card.kind === 'npc' ? (
+                              <Typography
+                                sx={{
+                                  mt: 0.2,
+                                  color: 'rgba(170, 190, 214, 0.72)',
+                                  fontSize: '0.74rem',
+                                  lineHeight: 1.25,
+                                }}
+                              >
+                                Память: {formatWorldCardMemoryLabel(resolveWorldCardMemoryTurns(card))}
+                              </Typography>
+                            ) : null}
                           </Box>
                         </Box>
                       )
@@ -5655,7 +5754,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.35rem' }}>
-            {editingWorldCardId === null ? 'Новая карточка мира' : 'Редактирование карточки мира'}
+            {editingWorldCardKind === 'npc'
+              ? editingWorldCardId === null
+                ? 'Новый профиль NPC'
+                : 'Редактирование профиля NPC'
+              : editingWorldCardId === null
+                ? 'Новая карточка мира'
+                : 'Редактирование карточки мира'}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.3 }}>
@@ -5730,6 +5835,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: '0.9rem',
               }}
             />
+            {editingWorldCardKind === 'npc' ? (
+              <Stack spacing={0.35}>
+                <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                  Память NPC в контексте
+                </Typography>
+                <Box
+                  component="select"
+                  value={worldCardMemoryTurnsDraft === null ? 'always' : String(worldCardMemoryTurnsDraft)}
+                  onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                    const nextValue = event.target.value
+                    setWorldCardMemoryTurnsDraft(nextValue === 'always' ? null : (Number(nextValue) as NpcMemoryTurnsOption))
+                  }}
+                  sx={{
+                    width: '100%',
+                    minHeight: 40,
+                    borderRadius: 'var(--morius-radius)',
+                    border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.22)',
+                    backgroundColor: 'var(--morius-card-bg)',
+                    color: '#dbe2ee',
+                    px: 1.1,
+                    outline: 'none',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  <option value="5">5 ходов</option>
+                  <option value="10">10 ходов</option>
+                  <option value="15">15 ходов</option>
+                  <option value="always">Помнить всегда</option>
+                </Box>
+              </Stack>
+            ) : null}
             <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
               {worldCardContentDraft.length}/{WORLD_CARD_CONTENT_MAX_LENGTH}
             </Typography>

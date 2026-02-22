@@ -32,7 +32,7 @@ type CharacterManagerDialogProps = {
 
 type CharacterDraftMode = 'create' | 'edit'
 
-const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -272,7 +272,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     }
 
     if (selectedFile.size > CHARACTER_AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 500 КБ.')
       return
     }
 

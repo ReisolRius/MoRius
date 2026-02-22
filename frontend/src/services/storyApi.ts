@@ -605,20 +605,25 @@ export async function createStoryWorldCard(payload: {
   kind?: 'world' | 'npc' | 'main_hero'
   avatar_url?: string | null
   avatar_scale?: number
+  memory_turns?: number | null
 }): Promise<StoryWorldCard> {
+  const body: Record<string, unknown> = {
+    title: payload.title,
+    content: payload.content,
+    triggers: payload.triggers,
+    kind: payload.kind ?? 'world',
+    avatar_url: payload.avatar_url ?? null,
+    avatar_scale: payload.avatar_scale ?? null,
+  }
+  if (payload.memory_turns !== undefined) {
+    body.memory_turns = payload.memory_turns
+  }
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      title: payload.title,
-      content: payload.content,
-      triggers: payload.triggers,
-      kind: payload.kind ?? 'world',
-      avatar_url: payload.avatar_url ?? null,
-      avatar_scale: payload.avatar_scale ?? null,
-    }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -697,17 +702,22 @@ export async function updateStoryWorldCard(payload: {
   title: string
   content: string
   triggers: string[]
+  memory_turns?: number | null
 }): Promise<StoryWorldCard> {
+  const body: Record<string, unknown> = {
+    title: payload.title,
+    content: payload.content,
+    triggers: payload.triggers,
+  }
+  if (payload.memory_turns !== undefined) {
+    body.memory_turns = payload.memory_turns
+  }
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      title: payload.title,
-      content: payload.content,
-      triggers: payload.triggers,
-    }),
+    body: JSON.stringify(body),
   })
 }
 

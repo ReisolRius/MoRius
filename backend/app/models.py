@@ -192,6 +192,7 @@ class StoryWorldCard(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")

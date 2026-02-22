@@ -137,7 +137,7 @@ settings = Settings(
     smtp_use_tls=_to_bool(os.getenv("SMTP_USE_TLS"), default=True),
     smtp_use_ssl=_to_bool(os.getenv("SMTP_USE_SSL"), default=False),
     avatar_max_bytes=int(os.getenv("AVATAR_MAX_BYTES", str(2 * 1024 * 1024))),
-    character_avatar_max_bytes=int(os.getenv("CHARACTER_AVATAR_MAX_BYTES", str(200 * 1024))),
+    character_avatar_max_bytes=int(os.getenv("CHARACTER_AVATAR_MAX_BYTES", str(500 * 1024))),
     yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", "").strip(),
     yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", "").strip(),
     yookassa_api_url=os.getenv("YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
