@@ -162,6 +162,8 @@ const GENERIC_DIALOGUE_SPEAKER_PATTERNS: Array<{ pattern: RegExp; label: string 
   { pattern: /\bбандит(?:ы|ов|ам|ами|ах)?\b/iu, label: 'Бандит' },
   { pattern: /\bразбойник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Разбойник' },
   { pattern: /\bна[её]мник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Наемник' },
+  { pattern: /\bлекар(?:ь|я|ю|ем|и|ей|ями|ях)\b/iu, label: 'Лекарь' },
+  { pattern: /\bцелитель(?:и|я|ю|ем|ей|ями|ях)?\b/iu, label: 'Целитель' },
   { pattern: /\bстражник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Стражник' },
   { pattern: /\bохранник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Охранник' },
   { pattern: /\bсолдат(?:ы|ов|ам|ами|ах)?\b/iu, label: 'Солдат' },
@@ -937,11 +939,9 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
           minWidth: size,
           minHeight: size,
           borderRadius: '50%',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
           aspectRatio: '1 / 1',
           flexShrink: 0,
-          backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
       >
         <Box
@@ -1309,13 +1309,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return nextMap
   }, [characters])
   const speakerCardsForAvatar = useMemo(() => {
-    const entries: Array<{ names: string[]; avatar: string | null }> = []
-    const appendEntry = (names: string[], avatar: string | null) => {
+    const entries: Array<{ names: string[]; avatar: string | null; displayName: string }> = []
+    const appendEntry = (names: string[], avatar: string | null, displayName: string) => {
       const normalizedNames = [...new Set(names.filter(Boolean))]
       if (normalizedNames.length === 0) {
         return
       }
-      entries.push({ names: normalizedNames, avatar })
+      const normalizedDisplayName = displayName.trim()
+      entries.push({ names: normalizedNames, avatar, displayName: normalizedDisplayName || normalizedNames[0] })
     }
 
     worldCards.forEach((card) => {
@@ -1334,15 +1335,29 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       const avatar = resolveWorldCardAvatar(card) ?? linkedCharacter?.avatar_url ?? null
-      appendEntry([...aliasSet], avatar)
+      appendEntry([...aliasSet], avatar, card.title)
     })
 
     characters.forEach((character) => {
-      appendEntry(buildCharacterAliases(character.name), character.avatar_url)
+      appendEntry(buildCharacterAliases(character.name), character.avatar_url, character.name)
     })
 
     return entries
   }, [characters, charactersById, resolveWorldCardAvatar, worldCards])
+  const genericDialogueSpeakerNames = useMemo(() => {
+    const names = new Set<string>()
+    const defaultSpeaker = normalizeCharacterIdentity(GENERIC_DIALOGUE_SPEAKER_DEFAULT)
+    if (defaultSpeaker) {
+      names.add(defaultSpeaker)
+    }
+    GENERIC_DIALOGUE_SPEAKER_PATTERNS.forEach((entry) => {
+      const normalizedLabel = normalizeCharacterIdentity(entry.label)
+      if (normalizedLabel) {
+        names.add(normalizedLabel)
+      }
+    })
+    return names
+  }, [])
   const resolveDialogueAvatar = useCallback(
     (speakerName: string): string | null => {
       const normalizedName = normalizeCharacterIdentity(speakerName)
@@ -1363,6 +1378,60 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return fuzzy?.avatar ?? null
     },
     [speakerCardsForAvatar],
+  )
+  const resolveDialogueSpeakerName = useCallback(
+    (speakerName: string, dialogueText: string, nearbyNarrativeText = ''): string => {
+      const normalizedSpeaker = normalizeCharacterIdentity(speakerName)
+
+      const findEntryByText = (value: string): { names: string[]; avatar: string | null; displayName: string } | null => {
+        const normalizedText = normalizeCharacterIdentity(value)
+        if (!normalizedText) {
+          return null
+        }
+        const paddedText = ` ${normalizedText} `
+        return (
+          speakerCardsForAvatar.find((entry) =>
+            entry.names.some((name) => name.length > 0 && paddedText.includes(` ${name} `)),
+          ) ?? null
+        )
+      }
+
+      if (normalizedSpeaker) {
+        const speakerEntry = speakerCardsForAvatar.find((entry) =>
+          entry.names.some(
+            (name) =>
+              name === normalizedSpeaker ||
+              name.includes(normalizedSpeaker) ||
+              normalizedSpeaker.includes(name),
+          ),
+        )
+        if (speakerEntry) {
+          const normalizedDisplay = normalizeCharacterIdentity(speakerEntry.displayName)
+          if (
+            !genericDialogueSpeakerNames.has(normalizedSpeaker) ||
+            (normalizedDisplay && normalizedDisplay !== normalizedSpeaker)
+          ) {
+            return speakerEntry.displayName
+          }
+        }
+      }
+
+      if (normalizedSpeaker && !genericDialogueSpeakerNames.has(normalizedSpeaker)) {
+        return speakerName
+      }
+
+      const byDialogue = findEntryByText(dialogueText)
+      if (byDialogue) {
+        return byDialogue.displayName
+      }
+      const byNarrative = findEntryByText(nearbyNarrativeText)
+      if (byNarrative) {
+        return byNarrative.displayName
+      }
+
+      return speakerName
+    },
+    [genericDialogueSpeakerNames, speakerCardsForAvatar],
   )
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
@@ -2999,6 +3068,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       generationAbortRef.current = controller
       let wasAborted = false
       let streamStarted = false
+      let generationFailed = false
 
       try {
         await generateStoryResponseStream({
@@ -3087,6 +3157,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (controller.signal.aborted) {
           wasAborted = true
         } else {
+          generationFailed = true
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
           setErrorMessage(detail)
         }
@@ -3108,6 +3179,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         } catch {
           // Keep current games if refresh failed.
         }
+      }
+
+      return {
+        streamStarted,
+        failed: generationFailed,
+        aborted: wasAborted,
       }
     },
     [authToken, loadGameById],
@@ -3263,12 +3340,56 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     setErrorMessage('')
 
-    await runStoryGeneration({
+    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant')
+    if (!lastAssistantMessage) {
+      return
+    }
+
+    const relatedPlotEvents = plotCardEvents
+      .filter((event) => event.assistant_message_id === lastAssistantMessage.id)
+      .sort((left, right) => left.id - right.id)
+    const relatedWorldEvents = worldCardEvents
+      .filter((event) => event.assistant_message_id === lastAssistantMessage.id)
+      .sort((left, right) => left.id - right.id)
+    const remainingPlotEvents = plotCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id)
+    const remainingWorldEvents = worldCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id)
+
+    setMessages((previousMessages) => previousMessages.filter((message) => message.id !== lastAssistantMessage.id))
+    setPlotCards((previousCards) => rollbackPlotCardsByEvents(previousCards, relatedPlotEvents, activeGameId))
+    setWorldCards((previousCards) => rollbackWorldCardsByEvents(previousCards, relatedWorldEvents, activeGameId))
+    applyPlotCardEvents(remainingPlotEvents)
+    applyWorldCardEvents(remainingWorldEvents)
+
+    const generationResult = await runStoryGeneration({
       gameId: activeGameId,
       rerollLastResponse: true,
       instructionCards,
     })
-  }, [activeGameId, canReroll, hasUndoneAssistantSteps, instructionCards, runStoryGeneration])
+
+    if (generationResult.failed && !generationResult.streamStarted) {
+      setMessages((previousMessages) => {
+        if (previousMessages.some((message) => message.id === lastAssistantMessage.id)) {
+          return previousMessages
+        }
+        return [...previousMessages, lastAssistantMessage].sort((left, right) => left.id - right.id)
+      })
+      setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, relatedPlotEvents, activeGameId))
+      setWorldCards((previousCards) => reapplyWorldCardsByEvents(previousCards, relatedWorldEvents, activeGameId))
+      applyPlotCardEvents(mergePlotEvents(remainingPlotEvents, relatedPlotEvents))
+      applyWorldCardEvents(mergeWorldEvents(remainingWorldEvents, relatedWorldEvents))
+    }
+  }, [
+    activeGameId,
+    applyPlotCardEvents,
+    applyWorldCardEvents,
+    canReroll,
+    hasUndoneAssistantSteps,
+    instructionCards,
+    messages,
+    plotCardEvents,
+    runStoryGeneration,
+    worldCardEvents,
+  ])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -4722,7 +4843,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Stack spacing="var(--morius-story-message-gap)">
                           {blocks.map((block, index) => {
                             if (block.type === 'character') {
-                              const speakerAvatar = resolveDialogueAvatar(block.speakerName)
+                              const nearbyNarrativeContext = blocks
+                                .slice(Math.max(0, index - 3), index)
+                                .filter((candidate) => candidate.type === 'narrative')
+                                .map((candidate) => candidate.text)
+                                .join('\n')
+                              const resolvedSpeakerName = resolveDialogueSpeakerName(
+                                block.speakerName,
+                                block.text,
+                                nearbyNarrativeContext,
+                              )
+                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
                               return (
                                 <Stack
                                   key={`${message.id}-${index}-character`}
@@ -4736,7 +4867,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 >
                                   <CharacterAvatar
                                     avatarUrl={speakerAvatar}
-                                    fallbackLabel={block.speakerName}
+                                    fallbackLabel={resolvedSpeakerName}
                                     size={ASSISTANT_DIALOGUE_AVATAR_SIZE}
                                   />
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
@@ -4749,7 +4880,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         letterSpacing: 0.18,
                                       }}
                                     >
-                                      {block.speakerName}
+                                      {resolvedSpeakerName}
                                     </Typography>
                                     <Typography
                                       sx={{

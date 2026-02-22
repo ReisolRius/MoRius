@@ -25,8 +25,6 @@ export function AvatarPlaceholder({ fallbackLabel, size }: AvatarPlaceholderProp
         width: size,
         height: size,
         borderRadius: '50%',
-        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
-        background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
         display: 'grid',
         placeItems: 'center',
       }}

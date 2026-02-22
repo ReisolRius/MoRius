@@ -186,13 +186,13 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
 function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: string | null; avatarScale: number; label: string; size?: number }) {
   if (!avatarUrl) {
     return (
-      <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
+      <Box sx={{ width: size, height: size, borderRadius: '50%', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
         {label.trim().charAt(0).toUpperCase() || '•'}
       </Box>
     )
   }
   return (
-    <Box sx={{ width: size, height: size, borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', overflow: 'hidden', flexShrink: 0 }}>
+    <Box sx={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
       <Box component="img" src={avatarUrl} alt={label} sx={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${clamp(avatarScale, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)})`, transformOrigin: 'center center' }} />
     </Box>
   )
@@ -731,7 +731,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                 event.preventDefault()
                 characterAvatarInputRef.current?.click()
               }
-            }} sx={{ width: 176, height: 176, mx: 'auto', borderRadius: '50%', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, overflow: 'hidden', cursor: 'pointer', outline: 'none', background: 'rgba(12, 17, 25, 0.72)' }}>
+            }} sx={{ width: 176, height: 176, mx: 'auto', borderRadius: '50%', overflow: 'hidden', cursor: 'pointer', outline: 'none' }}>
               <MiniAvatar avatarUrl={characterAvatarDraft} avatarScale={characterAvatarScaleDraft} label={characterNameDraft || 'Персонаж'} size={176} />
             </Box>
             <Stack direction="row" justifyContent="center" spacing={0.8}>

@@ -60,8 +60,14 @@ def restore_story_world_card_from_snapshot(
     if snapshot is None:
         return None
 
-    title = str(snapshot.get("title", "")).strip()
-    content = str(snapshot.get("content", "")).strip()
+    title = str(snapshot.get("title") or snapshot.get("name") or "").strip()
+    content = str(
+        snapshot.get("content")
+        or snapshot.get("description")
+        or snapshot.get("text")
+        or snapshot.get("profile")
+        or ""
+    ).strip()
     if not title or not content:
         return None
 
@@ -76,6 +82,8 @@ def restore_story_world_card_from_snapshot(
     trigger_values: list[str] = []
     if isinstance(raw_triggers, list):
         trigger_values = [value for value in raw_triggers if isinstance(value, str)]
+    elif isinstance(snapshot.get("tags"), list):
+        trigger_values = [value for value in snapshot.get("tags", []) if isinstance(value, str)]
     triggers = normalize_story_world_card_triggers(trigger_values, fallback_title=title)
     has_memory_turns = "memory_turns" in snapshot
     memory_turns = normalize_story_world_card_memory_turns_for_storage(
@@ -176,6 +184,8 @@ def undo_story_world_card_change_event(
     db: Session,
     game: StoryGame,
     event: StoryWorldCardChangeEvent,
+    *,
+    commit: bool = True,
 ) -> None:
     if event.undone_at is not None:
         return
@@ -217,8 +227,11 @@ def undo_story_world_card_change_event(
 
     event.undone_at = _utcnow()
     touch_story_game(game)
-    db.commit()
-    db.refresh(event)
+    if commit:
+        db.commit()
+        db.refresh(event)
+    else:
+        db.flush()
 
 
 def restore_story_plot_card_from_snapshot(
@@ -229,8 +242,8 @@ def restore_story_plot_card_from_snapshot(
     if snapshot is None:
         return None
 
-    title = str(snapshot.get("title", "")).strip()
-    content = str(snapshot.get("content", "")).strip()
+    title = str(snapshot.get("title") or snapshot.get("name") or snapshot.get("heading") or "").strip()
+    content = str(snapshot.get("content") or snapshot.get("summary") or snapshot.get("text") or "").strip()
     if not title or not content:
         return None
 
@@ -272,6 +285,8 @@ def undo_story_plot_card_change_event(
     db: Session,
     game: StoryGame,
     event: StoryPlotCardChangeEvent,
+    *,
+    commit: bool = True,
 ) -> None:
     if event.undone_at is not None:
         return
@@ -313,8 +328,11 @@ def undo_story_plot_card_change_event(
 
     event.undone_at = _utcnow()
     touch_story_game(game)
-    db.commit()
-    db.refresh(event)
+    if commit:
+        db.commit()
+        db.refresh(event)
+    else:
+        db.flush()
 
 
 def rollback_story_card_events_for_assistant_message(
@@ -330,7 +348,7 @@ def rollback_story_card_events_for_assistant_message(
         include_undone=False,
     )
     for event in reversed(world_events):
-        undo_story_world_card_change_event(db, game, event)
+        undo_story_world_card_change_event(db, game, event, commit=False)
 
     plot_events = list_story_plot_card_events(
         db,
@@ -339,7 +357,7 @@ def rollback_story_card_events_for_assistant_message(
         include_undone=False,
     )
     for event in reversed(plot_events):
-        undo_story_plot_card_change_event(db, game, event)
+        undo_story_plot_card_change_event(db, game, event, commit=False)
 
     for event in list_story_world_card_events(
         db,

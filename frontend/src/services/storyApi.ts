@@ -321,19 +321,25 @@ export async function updateStoryMessage(payload: {
 }
 
 export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
-  const response = await fetch(buildApiUrl(`/api/story/games/${options.gameId}/generate`), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      prompt: options.prompt,
-      reroll_last_response: Boolean(options.rerollLastResponse),
-      instructions: options.instructions ?? [],
-    }),
-    signal: options.signal,
-  })
+  const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
+  let response: Response
+  try {
+    response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${options.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        prompt: options.prompt,
+        reroll_last_response: Boolean(options.rerollLastResponse),
+        instructions: options.instructions ?? [],
+      }),
+      signal: options.signal,
+    })
+  } catch {
+    throw new Error(`Failed to connect to API (${targetUrl}).`)
+  }
 
   if (!response.ok) {
     throw await parseApiError(response)

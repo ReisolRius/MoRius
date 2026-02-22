@@ -94,9 +94,7 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
           width: size,
           height: size,
           borderRadius: '50%',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
-          backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
       >
         <Box
@@ -124,8 +122,6 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
         width: size,
         height: size,
         borderRadius: '50%',
-        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
-        background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
         display: 'grid',
         placeItems: 'center',
         color: 'rgba(219, 227, 236, 0.92)',
