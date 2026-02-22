@@ -159,6 +159,7 @@ const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const DIALOGUE_MARKER_PATTERN = /\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*/giu
 const DIALOGUE_MARKER_START_PATTERN = /^\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*([\s\S]*)$/iu
 const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 .,'’`"-]{0,80})\s*(?:[:：]|[—-])\s+([\s\S]+)$/u
+const DIALOGUE_QUOTE_START_PATTERN = /^(?:[—-]\s*|[«„"“])/u
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
@@ -189,6 +190,14 @@ function splitAssistantParagraphs(content: string): string[] {
   return paragraphs.length > 0 ? paragraphs : ['']
 }
 
+function isDialogueQuoteText(value: string): boolean {
+  const normalized = value.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return false
+  }
+  return DIALOGUE_QUOTE_START_PATTERN.test(normalized)
+}
+
 function parseCharacterLine(paragraph: string): { speakerName: string; text: string } | null {
   const normalized = paragraph.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
@@ -202,7 +211,7 @@ function parseCharacterLine(paragraph: string): { speakerName: string; text: str
 
   const speakerName = matched[1].replace(/^["«„]+|["»”]+$/g, '').trim()
   const text = matched[2].trim()
-  if (!speakerName || !text) {
+  if (!speakerName || !text || !isDialogueQuoteText(text)) {
     return null
   }
 
@@ -258,11 +267,15 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
         const nestedSpeakerName = nestedMarker[1].trim()
         const nestedText = nestedMarker[2].trim()
         if (nestedSpeakerName && nestedText) {
-          blocks.push({
-            type: 'character',
-            speakerName: nestedSpeakerName,
-            text: nestedText,
-          })
+          if (isDialogueQuoteText(nestedText)) {
+            blocks.push({
+              type: 'character',
+              speakerName: nestedSpeakerName,
+              text: nestedText,
+            })
+          } else {
+            blocks.push({ type: 'narrative', text: nestedText })
+          }
           return
         }
       }
@@ -277,11 +290,16 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
         return
       }
 
-      blocks.push({
-        type: 'character',
-        speakerName,
-        text: paragraph,
-      })
+      if (isDialogueQuoteText(paragraph)) {
+        blocks.push({
+          type: 'character',
+          speakerName,
+          text: paragraph,
+        })
+        return
+      }
+
+      blocks.push({ type: 'narrative', text: paragraph })
     })
   }
 
@@ -4727,47 +4745,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }
 
                             return (
-                              <Stack
+                              <Box
                                 key={`${message.id}-${index}`}
-                                direction="row"
-                                spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
-                                alignItems="flex-start"
                                 sx={{
                                   px: 0.05,
                                   py: 0.05,
                                 }}
                               >
-                                <Box
-                                  sx={{
-                                    width: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                                    height: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                                    flexShrink: 0,
-                                  }}
-                                />
                                 <Typography
                                   sx={{
                                     color: 'var(--morius-title-text)',
                                     lineHeight: 1.58,
                                     fontSize: { xs: '1.02rem', md: '1.12rem' },
                                     whiteSpace: 'pre-wrap',
-                                    flex: 1,
-                                    minWidth: 0,
                                   }}
                                 >
                                   {block.text}
                                 </Typography>
-                              </Stack>
+                              </Box>
                             )
                           })}
                           {isStreaming ? (
-                            <Stack direction="row" alignItems="center" spacing={ASSISTANT_DIALOGUE_AVATAR_GAP} sx={{ px: 0.05, py: 0.05 }}>
-                              <Box
-                                sx={{
-                                  width: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                                  height: ASSISTANT_DIALOGUE_AVATAR_SIZE,
-                                  flexShrink: 0,
-                                }}
-                              />
+                            <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
                               <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
                                 <Box className="morius-generating-pulse-dot" />
                                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
