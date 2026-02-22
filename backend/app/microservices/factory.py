@@ -104,14 +104,6 @@ def create_service_app(
     include_health_route: bool = True,
 ) -> FastAPI:
     service_app = FastAPI(title=title, debug=settings.debug)
-    service_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins,
-        allow_origin_regex=settings.cors_origin_regex or None,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
     if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
         service_app.add_middleware(
             TrustedHostMiddleware,
@@ -122,6 +114,14 @@ def create_service_app(
             GZipMiddleware,
             minimum_size=settings.app_gzip_minimum_size,
         )
+    service_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_origin_regex=settings.cors_origin_regex or None,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     _register_service_lifecycle(service_app)
     _clone_monolith_routes(service_app, include_prefixes=include_prefixes)
 

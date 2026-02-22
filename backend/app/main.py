@@ -268,14 +268,6 @@ STORY_DIALOGUE_FORMAT_RULES = (
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_origin_regex=settings.cors_origin_regex or None,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
     app.add_middleware(
         TrustedHostMiddleware,
@@ -286,6 +278,14 @@ if settings.app_gzip_enabled:
         GZipMiddleware,
         minimum_size=settings.app_gzip_minimum_size,
     )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex or None,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(payments_router)
