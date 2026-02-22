@@ -87,11 +87,11 @@ function AppHeader({
           top: 0,
           left: 0,
           right: 0,
-          height: 'var(--morius-header-height)',
+          height: 'calc(var(--morius-header-height) + 28px)',
           zIndex: 34,
-          borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
-          backdropFilter: 'blur(8px)',
-          backgroundColor: 'var(--morius-app-base)',
+          pointerEvents: 'none',
+          backdropFilter: 'blur(10px)',
+          background: 'linear-gradient(180deg, rgba(8, 8, 8, 0.92) 0%, rgba(8, 8, 8, 0.58) 44%, rgba(8, 8, 8, 0) 100%)',
         }}
       />
 
@@ -173,7 +173,7 @@ function AppHeader({
 
           <Box
             sx={{
-              ml: isRightPanelOpen ? 1.2 : 0,
+              ml: isRightPanelOpen ? 'var(--morius-icon-gap)' : 0,
               maxWidth: isRightPanelOpen ? rightActionsWidth : 0,
               opacity: isRightPanelOpen ? 1 : 0,
               transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',

@@ -298,9 +298,7 @@ function UserAvatar({ user, size = HEADER_AVATAR_SIZE }: UserAvatarProps) {
           width: size,
           height: size,
           borderRadius: '50%',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
-          backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
       >
         <Box
@@ -543,28 +541,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    }
-  }
-
-  const handleRemoveAvatar = async () => {
-    if (isAvatarSaving) {
-      return
-    }
-
-    setAvatarError('')
-    setIsAvatarSaving(true)
-    try {
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: null,
-        avatar_scale: 1,
-      })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
-      setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -882,8 +858,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   border: 'none',
                   backgroundColor: 'transparent',
                   color: APP_TEXT_PRIMARY,
-                  pl: 1.4,
-                  pr: 5.2,
+                  pl: 2.2,
+                  pr: 6.4,
                   outline: 'none',
                   fontSize: '1.02rem',
                   '&::placeholder': {
@@ -1397,20 +1373,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               onChange={handleAvatarChange}
               style={{ display: 'none' }}
             />
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                onClick={handleRemoveAvatar}
-                disabled={isAvatarSaving || !user.avatar_url}
-                sx={{
-                  minHeight: 40,
-                  borderColor: APP_BORDER_COLOR,
-                  color: APP_TEXT_SECONDARY,
-                }}
-              >
-                {isAvatarSaving ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Удалить'}
-              </Button>
-            </Stack>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 

@@ -157,7 +157,6 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
   updated: 'Обновлено',
   deleted: 'Удалено',
 }
-const NPC_DIALOGUE_MARKER_PATTERN = /^\[\[NPC:([^\]]+)\]\]\s*([\s\S]*)$/i
 type WorldCardContextState = {
   isActive: boolean
   isAlwaysActive: boolean
@@ -176,27 +175,67 @@ function splitAssistantParagraphs(content: string): string[] {
 }
 
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
-  const paragraphs = splitAssistantParagraphs(content)
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const markerMatches = [...normalized.matchAll(/\[\[NPC:([^\]]+)\]\]\s*/gi)]
+  if (markerMatches.length === 0) {
+    return splitAssistantParagraphs(normalized).map((paragraph) => ({ type: 'narrative', text: paragraph }))
+  }
+
   const blocks: AssistantMessageBlock[] = []
-  paragraphs.forEach((paragraph) => {
-    const markerMatch = paragraph.match(NPC_DIALOGUE_MARKER_PATTERN)
-    if (!markerMatch) {
-      blocks.push({ type: 'narrative', text: paragraph })
-      return
+  let cursor = 0
+  markerMatches.forEach((markerMatch, index) => {
+    const markerStartIndex = markerMatch.index ?? 0
+    const markerEndIndex = markerStartIndex + markerMatch[0].length
+    const nextMarkerIndex =
+      index < markerMatches.length - 1 ? (markerMatches[index + 1].index ?? normalized.length) : normalized.length
+
+    const narrativeBefore = normalized.slice(cursor, markerStartIndex).trim()
+    if (narrativeBefore) {
+      splitAssistantParagraphs(narrativeBefore).forEach((paragraph) => {
+        blocks.push({ type: 'narrative', text: paragraph })
+      })
     }
+
     const npcName = markerMatch[1].trim()
-    const npcText = markerMatch[2].trim()
+    const npcText = normalized.slice(markerEndIndex, nextMarkerIndex).trim()
+
     if (!npcName || !npcText) {
-      blocks.push({ type: 'narrative', text: paragraph })
+      const fallbackText = normalized.slice(markerStartIndex, nextMarkerIndex).trim()
+      if (fallbackText) {
+        splitAssistantParagraphs(fallbackText).forEach((paragraph) => {
+          blocks.push({ type: 'narrative', text: paragraph })
+        })
+      }
+      cursor = nextMarkerIndex
       return
     }
+
     blocks.push({
       type: 'npc',
       npcName,
       text: npcText,
     })
+
+    cursor = nextMarkerIndex
   })
+
+  if (blocks.length === 0) {
+    return splitAssistantParagraphs(normalized).map((paragraph) => ({ type: 'narrative', text: paragraph }))
+  }
+
   return blocks
+}
+
+function normalizeCharacterIdentity(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
@@ -465,9 +504,7 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
           width: size,
           height: size,
           borderRadius: '50%',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
           overflow: 'hidden',
-          backgroundColor: 'rgba(18, 22, 29, 0.7)',
         }}
       >
         <Box
@@ -815,6 +852,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => (mainHeroCard && mainHeroCard.character_id && mainHeroCard.character_id > 0 ? mainHeroCard.character_id : null),
     [mainHeroCard],
   )
+  const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHeroCard?.title ?? ''), [mainHeroCard])
   const npcCharacterIds = useMemo(() => {
     const selectedIds = new Set<number>()
     worldCards.forEach((card) => {
@@ -825,24 +863,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return selectedIds
   }, [worldCards])
+  const npcCharacterNames = useMemo(() => {
+    const selectedNames = new Set<string>()
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc') {
+        return
+      }
+      const normalizedName = normalizeCharacterIdentity(card.title)
+      if (normalizedName) {
+        selectedNames.add(normalizedName)
+      }
+    })
+    return selectedNames
+  }, [worldCards])
   const getCharacterSelectionDisabledReason = useCallback(
-    (characterId: number, mode: CharacterDialogMode): string | null => {
+    (character: StoryCharacter, mode: CharacterDialogMode): string | null => {
+      const normalizedCharacterName = normalizeCharacterIdentity(character.name)
+
       if (mode === 'select-main-hero') {
-        if (npcCharacterIds.has(characterId)) {
+        if (npcCharacterIds.has(character.id) || (normalizedCharacterName && npcCharacterNames.has(normalizedCharacterName))) {
           return 'Уже выбран как NPC'
         }
         return null
       }
 
-      if (mainHeroCharacterId !== null && characterId === mainHeroCharacterId) {
+      if (
+        (mainHeroCharacterId !== null && character.id === mainHeroCharacterId) ||
+        (mainHeroName && normalizedCharacterName && normalizedCharacterName === mainHeroName)
+      ) {
         return 'Уже выбран как ГГ'
       }
-      if (npcCharacterIds.has(characterId)) {
+      if (npcCharacterIds.has(character.id) || (normalizedCharacterName && npcCharacterNames.has(normalizedCharacterName))) {
         return 'Уже выбран как NPC'
       }
       return null
     },
-    [mainHeroCharacterId, npcCharacterIds],
+    [mainHeroCharacterId, mainHeroName, npcCharacterIds, npcCharacterNames],
   )
   const npcCardsForAvatar = useMemo(() => {
     const entries: Array<{ names: string[]; avatar: string | null }> = []
@@ -851,7 +907,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
       const names = [card.title, ...card.triggers]
-        .map((value) => value.replace(/\s+/g, ' ').trim().toLowerCase())
+        .map((value) => normalizeCharacterIdentity(value))
         .filter(Boolean)
       if (names.length === 0) {
         return
@@ -862,7 +918,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [resolveWorldCardAvatar, worldCards])
   const resolveNpcAvatar = useCallback(
     (npcName: string): string | null => {
-      const normalizedName = npcName.replace(/\s+/g, ' ').trim().toLowerCase()
+      const normalizedName = normalizeCharacterIdentity(npcName)
       if (!normalizedName) {
         return null
       }
@@ -1211,7 +1267,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (isSelectingCharacter) {
         return
       }
-      const disabledReason = getCharacterSelectionDisabledReason(character.id, characterDialogMode)
+      const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
       if (disabledReason) {
         setErrorMessage(disabledReason)
         return
@@ -2653,10 +2709,48 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     generationAbortRef.current?.abort()
   }, [])
 
+  const rollbackAiCardEventsForAssistantMessage = useCallback(
+    async (gameId: number, assistantMessageId: number) => {
+      const relatedPlotEvents = plotCardEvents
+        .filter((event) => event.assistant_message_id === assistantMessageId)
+        .map((event) => event.id)
+        .sort((left, right) => right - left)
+      const relatedWorldEvents = worldCardEvents
+        .filter((event) => event.assistant_message_id === assistantMessageId)
+        .map((event) => event.id)
+        .sort((left, right) => right - left)
+
+      for (const eventId of relatedPlotEvents) {
+        await undoStoryPlotCardEvent({
+          token: authToken,
+          gameId,
+          eventId,
+        })
+      }
+
+      for (const eventId of relatedWorldEvents) {
+        await undoStoryWorldCardEvent({
+          token: authToken,
+          gameId,
+          eventId,
+        })
+      }
+    },
+    [authToken, plotCardEvents, worldCardEvents],
+  )
+
   const handleRerollLastResponse = useCallback(async () => {
     if (!canReroll || !activeGameId) {
       return
     }
+
+    const lastAssistantMessage = [...messages].reverse().find((message) => message.role === 'assistant') ?? null
+    if (!lastAssistantMessage) {
+      return
+    }
+
+    applyPlotCardEvents(plotCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
+    applyWorldCardEvents(worldCardEvents.filter((event) => event.assistant_message_id !== lastAssistantMessage.id))
 
     setMessages((previousMessages) => {
       const nextMessages = [...previousMessages]
@@ -2667,12 +2761,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return nextMessages
     })
 
+    try {
+      await rollbackAiCardEventsForAssistantMessage(activeGameId, lastAssistantMessage.id)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось откатить изменения карточек перед перегенерацией'
+      setErrorMessage(detail)
+      await loadGameById(activeGameId, { silent: true })
+      return
+    }
+
     await runStoryGeneration({
       gameId: activeGameId,
       rerollLastResponse: true,
       instructionCards,
     })
-  }, [activeGameId, canReroll, instructionCards, runStoryGeneration])
+  }, [
+    activeGameId,
+    applyPlotCardEvents,
+    applyWorldCardEvents,
+    canReroll,
+    instructionCards,
+    loadGameById,
+    messages,
+    plotCardEvents,
+    rollbackAiCardEventsForAssistantMessage,
+    runStoryGeneration,
+    worldCardEvents,
+  ])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -2725,28 +2840,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    }
-  }
-
-  const handleRemoveAvatar = async () => {
-    if (isAvatarSaving) {
-      return
-    }
-
-    setAvatarError('')
-    setIsAvatarSaving(true)
-    try {
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: null,
-        avatar_scale: 1,
-      })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
-      setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -4143,15 +4236,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   spacing={0.9}
                                   alignItems="flex-start"
                                   sx={{
-                                    borderRadius: '12px',
-                                    border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.2)',
-                                    backgroundColor: 'rgba(22, 30, 42, 0.56)',
-                                    px: 0.85,
-                                    py: 0.7,
+                                    px: 0.05,
+                                    py: 0.05,
                                   }}
                                 >
                                   <CharacterAvatar avatarUrl={npcAvatar} fallbackLabel={block.npcName} size={30} />
-                                  <Stack spacing={0.35} sx={{ minWidth: 0 }}>
+                                  <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
                                       sx={{
                                         color: 'rgba(178, 198, 228, 0.9)',
@@ -4194,11 +4284,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           })}
                           {isStreaming ? (
                             <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
-                              <Stack direction="row" spacing={0.45} alignItems="center">
-                                <Box className="morius-generating-dot" />
-                                <Box className="morius-generating-dot" />
-                                <Box className="morius-generating-dot" />
-                              </Stack>
+                              <Box className="morius-generating-pulse-dot" />
                               <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
                                 ИИ генерирует ответ
                               </Typography>
@@ -4648,18 +4734,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  backgroundColor: 'var(--morius-send-button-bg)',
+                  backgroundColor: '#BACAD6',
                   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  color: 'var(--morius-accent)',
+                  color: '#141414',
                   '&:hover': {
-                    backgroundColor: 'var(--morius-button-hover)',
+                    backgroundColor: '#C5D2DD',
                   },
                   '&:active': {
-                    backgroundColor: 'var(--morius-button-active)',
+                    backgroundColor: '#AFC0CD',
                   },
                   '&:disabled': {
-                    opacity: 0.5,
-                    backgroundColor: 'var(--morius-elevated-bg)',
+                    opacity: 1,
+                    color: '#0f1011',
+                    backgroundColor: '#99A6B1',
                   },
                 }}
               >
@@ -4669,7 +4756,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     sx={{
                       width: 12,
                       height: 12,
-                      borderRadius: 'var(--morius-radius)',
+                      borderRadius: '50%',
                       backgroundColor: 'var(--morius-accent)',
                     }}
                   />
@@ -5521,7 +5608,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box className="morius-scrollbar" sx={{ maxHeight: 360, overflowY: 'auto', pr: 0.2 }}>
                 <Stack spacing={0.75}>
                   {characters.map((character) => {
-                    const disabledReason = getCharacterSelectionDisabledReason(character.id, characterDialogMode)
+                    const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
                     const isCharacterDisabled = Boolean(disabledReason)
                     return (
                       <Button
@@ -5748,20 +5835,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               onChange={handleAvatarChange}
               style={{ display: 'none' }}
             />
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                onClick={handleRemoveAvatar}
-                disabled={isAvatarSaving || !user.avatar_url}
-                sx={{
-                  minHeight: 40,
-                  borderColor: 'var(--morius-card-border)',
-                  color: 'var(--morius-text-secondary)',
-                }}
-              >
-                {isAvatarSaving ? <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} /> : 'Удалить'}
-              </Button>
-            </Stack>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 

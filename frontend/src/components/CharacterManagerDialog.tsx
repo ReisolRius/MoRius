@@ -630,41 +630,76 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
                       borderRadius: '12px',
                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-card-bg)',
-                      px: 1,
-                      py: 0.9,
+                      px: 0.95,
+                      py: 0.72,
                     }}
                   >
-                    <Stack spacing={0.6}>
-                      <Stack direction="row" spacing={0.9} alignItems="center">
-                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={38} />
-                        <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.05}>
-                          <Typography sx={{ color: '#e2e8f3', fontWeight: 700, fontSize: '0.94rem' }}>
+                    <Stack spacing={0.45}>
+                      <Stack direction="row" spacing={0.8} alignItems="center">
+                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                        <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.08}>
+                          <Typography
+                            sx={{
+                              color: 'var(--morius-title-text)',
+                              fontWeight: 700,
+                              fontSize: '0.9rem',
+                              lineHeight: 1.2,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
                             {character.name}
                           </Typography>
-                          <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.8rem' }}>
-                            Триггеры: {character.triggers.join(', ')}
-                          </Typography>
+                          {character.triggers.length > 0 ? (
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-text-secondary)',
+                                fontSize: '0.76rem',
+                                lineHeight: 1.2,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Триггеры: {character.triggers.join(', ')}
+                            </Typography>
+                          ) : null}
                         </Stack>
                         <IconButton
                           onClick={(event) => handleOpenCharacterItemMenu(event, character.id)}
                           disabled={isSavingCharacter || deletingCharacterId === character.id}
                           sx={{
-                            width: 32,
-                            height: 32,
+                            width: 28,
+                            height: 28,
                             borderRadius: 'var(--morius-radius)',
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                            color: 'rgba(208, 219, 235, 0.84)',
+                            color: 'var(--morius-text-secondary)',
                             flexShrink: 0,
+                            '&:hover': {
+                              backgroundColor: 'var(--morius-button-hover)',
+                            },
                           }}
                         >
                           {deletingCharacterId === character.id ? (
-                            <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                            <CircularProgress size={14} sx={{ color: 'var(--morius-text-secondary)' }} />
                           ) : (
-                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>...</Box>
                           )}
                         </IconButton>
                       </Stack>
-                      <Typography sx={{ color: 'rgba(207, 217, 232, 0.9)', fontSize: '0.86rem', lineHeight: 1.35 }}>
+                      <Typography
+                        sx={{
+                          color: 'var(--morius-text-secondary)',
+                          fontSize: '0.82rem',
+                          lineHeight: 1.3,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
                         {character.description}
                       </Typography>
                     </Stack>

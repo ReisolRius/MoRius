@@ -100,6 +100,67 @@ function parseTriggers(value: string, fallback: string): string[] {
   return fallback.trim() ? [fallback.trim()] : []
 }
 
+function normalizeCharacterIdentity(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function buildDefaultCoverDataUrl(): string {
+  if (typeof document === 'undefined') {
+    return ''
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 1280
+  canvas.height = 720
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return ''
+  }
+
+  const seed = Math.floor(Math.random() * 1_000_000)
+  const waveOffset = 18 + (seed % 9)
+  const glowX = 0.4 + ((seed % 31) / 100)
+  const glowY = 0.08 + ((seed % 17) / 220)
+
+  const baseGradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
+  baseGradient.addColorStop(0, '#0f141b')
+  baseGradient.addColorStop(0.55, '#121926')
+  baseGradient.addColorStop(1, '#0f1012')
+  context.fillStyle = baseGradient
+  context.fillRect(0, 0, canvas.width, canvas.height)
+
+  const ambientGlow = context.createRadialGradient(
+    canvas.width * glowX,
+    canvas.height * glowY,
+    0,
+    canvas.width * glowX,
+    canvas.height * glowY,
+    canvas.width * 0.85,
+  )
+  ambientGlow.addColorStop(0, 'rgba(78, 110, 145, 0.38)')
+  ambientGlow.addColorStop(0.48, 'rgba(46, 70, 101, 0.24)')
+  ambientGlow.addColorStop(1, 'rgba(17, 17, 17, 0)')
+  context.fillStyle = ambientGlow
+  context.fillRect(0, 0, canvas.width, canvas.height)
+
+  context.strokeStyle = 'rgba(150, 182, 219, 0.14)'
+  context.lineWidth = 2
+  for (let index = 0; index < 34; index += 1) {
+    context.beginPath()
+    context.arc(-canvas.width * 0.08, canvas.height * 0.26, 120 + index * waveOffset, 0, Math.PI * 2)
+    context.stroke()
+  }
+
+  context.fillStyle = 'rgba(17, 17, 17, 0.44)'
+  context.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3)
+
+  return canvas.toDataURL('image/jpeg', 0.9)
+}
+
 function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCharacterCard {
   return {
     localId: makeLocalId(),
@@ -202,7 +263,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const hasInitializedDefaultCoverRef = useRef(false)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
+  const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHero?.name ?? ''), [mainHero?.name])
+  const npcCharacterIds = useMemo(() => new Set(npcs.map((npc) => npc.character_id).filter((id): id is number => Boolean(id))), [npcs])
+  const npcNames = useMemo(() => {
+    const names = new Set<string>()
+    npcs.forEach((npc) => {
+      const normalizedName = normalizeCharacterIdentity(npc.name)
+      if (normalizedName) {
+        names.add(normalizedName)
+      }
+    })
+    return names
+  }, [npcs])
   const canSubmit = useMemo(
     () => !isSubmitting && !isLoading && Boolean(title.trim() && mainHero?.name.trim() && mainHero.description.trim()),
     [isLoading, isSubmitting, mainHero, title],
@@ -213,17 +287,37 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     persistStoryTitleMap(next)
   }, [])
 
+  useEffect(() => {
+    if (isEditMode || hasInitializedDefaultCoverRef.current) {
+      return
+    }
+    hasInitializedDefaultCoverRef.current = true
+    const generatedCover = buildDefaultCoverDataUrl()
+    if (!generatedCover) {
+      return
+    }
+    setCoverImageUrl(generatedCover)
+    setCoverScale(1)
+    setCoverPositionX(50)
+    setCoverPositionY(50)
+  }, [isEditMode])
+
   const getTemplateDisabledReason = useCallback(
-    (characterId: number, target: 'main_hero' | 'npc'): string | null => {
+    (character: StoryCharacter, target: 'main_hero' | 'npc'): string | null => {
+      const normalizedName = normalizeCharacterIdentity(character.name)
       if (target === 'main_hero') {
-        return npcs.some((npc) => npc.character_id === characterId) ? 'Этот персонаж уже добавлен в NPC.' : null
+        return npcCharacterIds.has(character.id) || (normalizedName && npcNames.has(normalizedName))
+          ? 'Уже выбран как NPC'
+          : null
       }
-      if (mainHero?.character_id === characterId) {
-        return 'Этот персонаж уже выбран как главный герой.'
+      if ((mainHero?.character_id === character.id) || (mainHeroName && normalizedName && mainHeroName === normalizedName)) {
+        return 'Уже выбран как главный герой'
       }
-      return npcs.some((npc) => npc.character_id === characterId) ? 'Этот персонаж уже есть в списке NPC.' : null
+      return npcCharacterIds.has(character.id) || (normalizedName && npcNames.has(normalizedName))
+        ? 'Уже выбран как NPC'
+        : null
     },
-    [mainHero?.character_id, npcs],
+    [mainHero?.character_id, mainHeroName, npcCharacterIds, npcNames],
   )
 
   const hasTemplateConflicts = useCallback((hero: EditableCharacterCard, nextNpcs: EditableCharacterCard[]) => {
@@ -382,7 +476,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const applyTemplate = useCallback((character: StoryCharacter) => {
     if (!characterPickerTarget) return
-    const reason = getTemplateDisabledReason(character.id, characterPickerTarget)
+    const reason = getTemplateDisabledReason(character, characterPickerTarget)
     if (reason) {
       setErrorMessage(reason)
       return
@@ -553,7 +647,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         <DialogContent sx={{ pt: 0.35 }}>
           <Stack spacing={0.8}>
             {sortedCharacters.length === 0 ? helpEmpty('У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».') : sortedCharacters.map((character) => {
-              const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character.id, characterPickerTarget) : null
+              const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character, characterPickerTarget) : null
               return (
                 <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', px: 0.85, py: 0.75 }}>
                   <Button onClick={() => applyTemplate(character)} disabled={Boolean(disabledReason)} sx={{ width: '100%', p: 0, textTransform: 'none', justifyContent: 'flex-start', border: 'none', '&:hover': { background: 'transparent' } }}>

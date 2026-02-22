@@ -215,8 +215,6 @@ function UserAvatar({ user, size = 44 }: UserAvatarProps) {
           width: size,
           height: size,
           borderRadius: '50%',
-          border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.28)',
-          backgroundColor: 'rgba(18, 22, 29, 0.7)',
           overflow: 'hidden',
         }}
       >
@@ -355,28 +353,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
       setAvatarError(detail)
-    }
-  }
-
-  const handleRemoveAvatar = async () => {
-    if (isAvatarSaving) {
-      return
-    }
-
-    setAvatarError('')
-    setIsAvatarSaving(true)
-    try {
-      const updatedUser = await updateCurrentUserAvatar({
-        token: authToken,
-        avatar_url: null,
-        avatar_scale: 1,
-      })
-      onUserUpdate(updatedUser)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось удалить аватар'
-      setAvatarError(detail)
-    } finally {
-      setIsAvatarSaving(false)
     }
   }
 
@@ -1274,7 +1250,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <Typography sx={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1.2 }}>{selectedNewsItem?.title}</Typography>
           </Stack>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0.8 }}>
+        <DialogContent sx={{ pt: 0.8, overflowX: 'hidden' }}>
           <Stack spacing={1.2}>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1.6 }}>
               {selectedNewsItem?.description}
@@ -1315,7 +1291,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Typography>
           </Stack>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0.8 }}>
+        <DialogContent sx={{ pt: 0.8, overflowX: 'hidden' }}>
           {isCommunityWorldDialogLoading || !selectedCommunityWorld ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 5 }}>
               <CircularProgress size={30} />
@@ -1325,7 +1301,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.94rem' }}>
                 Автор: {selectedCommunityWorld.world.author_name}
               </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem', lineHeight: 1.5 }}>
+              <Typography
+                sx={{
+                  color: APP_TEXT_SECONDARY,
+                  fontSize: '0.95rem',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
+                }}
+              >
                 {selectedCommunityWorld.world.description}
               </Typography>
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>
@@ -1388,9 +1373,45 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
                 ) : (
                   selectedCommunityWorld.instruction_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {card.title}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
@@ -1402,9 +1423,45 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
                 ) : (
                   selectedCommunityWorld.plot_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {card.title}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
@@ -1416,11 +1473,45 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
                 ) : (
                   selectedCommunityWorld.world_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {card.title} {card.kind === 'main_hero' ? '(ГГ)' : card.kind === 'npc' ? '(NPC)' : '(Мир)'}
                       </Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
@@ -1560,16 +1651,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               onChange={handleAvatarChange}
               style={{ display: 'none' }}
             />
-            <Stack direction="row" spacing={1}>
-              <Button
-                variant="outlined"
-                onClick={handleRemoveAvatar}
-                disabled={isAvatarSaving || !user.avatar_url}
-                sx={{ minHeight: 40, borderColor: APP_BORDER_COLOR, color: APP_TEXT_SECONDARY }}
-              >
-                Удалить
-              </Button>
-            </Stack>
 
             {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
 

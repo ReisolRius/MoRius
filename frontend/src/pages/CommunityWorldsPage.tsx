@@ -214,8 +214,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                 height: HEADER_AVATAR_SIZE,
                 p: 0,
                 borderRadius: '50%',
-                border: `var(--morius-border-width) solid rgba(186, 202, 214, 0.28)`,
                 overflow: 'hidden',
+                backgroundColor: 'transparent',
+                '&:hover': {
+                  backgroundColor: 'transparent',
+                },
               }}
             >
               {user.avatar_url && user.avatar_url !== failedAvatarUrl ? (
@@ -437,7 +440,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
             </Typography>
           </Stack>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0.8 }}>
+        <DialogContent sx={{ pt: 0.8, overflowX: 'hidden' }}>
           {isCommunityWorldDialogLoading || !selectedCommunityWorld ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 5 }}>
               <CircularProgress size={30} />
@@ -447,7 +450,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.94rem' }}>
                 Автор: {selectedCommunityWorld.world.author_name}
               </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem', lineHeight: 1.5 }}>
+              <Typography
+                sx={{
+                  color: APP_TEXT_SECONDARY,
+                  fontSize: '0.95rem',
+                  lineHeight: 1.5,
+                  whiteSpace: 'pre-wrap',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
+                }}
+              >
                 {selectedCommunityWorld.world.description}
               </Typography>
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>
@@ -510,9 +522,45 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
                 ) : (
                   selectedCommunityWorld.instruction_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {card.title}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
@@ -524,9 +572,45 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
                 ) : (
                   selectedCommunityWorld.plot_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>{card.title}</Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {card.title}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
@@ -538,11 +622,45 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
                 ) : (
                   selectedCommunityWorld.world_cards.map((card) => (
-                    <Box key={card.id} sx={{ borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, px: 1, py: 0.8 }}>
-                      <Typography sx={{ fontWeight: 700 }}>
+                    <Box
+                      key={card.id}
+                      sx={{
+                        borderRadius: 'var(--morius-radius)',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        px: 0.95,
+                        py: 0.72,
+                      }}
+                    >
+                      <Typography
+                        sx={{
+                          fontWeight: 700,
+                          fontSize: '0.92rem',
+                          lineHeight: 1.25,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {card.title} {card.kind === 'main_hero' ? '(ГГ)' : card.kind === 'npc' ? '(NPC)' : '(Мир)'}
                       </Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{card.content}</Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '0.84rem',
+                          lineHeight: 1.34,
+                          mt: 0.2,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                        }}
+                      >
+                        {card.content}
+                      </Typography>
                     </Box>
                   ))
                 )}
