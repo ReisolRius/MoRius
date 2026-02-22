@@ -8,9 +8,10 @@ from typing import Any, Callable
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import Session
 
-from app.models import StoryGame, StoryMessage
+from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryWorldCardChangeEvent
 from app.schemas import StoryGenerateRequest
 
 logger = logging.getLogger(__name__)
@@ -215,14 +216,42 @@ def generate_story_response(
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
-        deps.rollback_story_card_events_for_assistant_message(
-            db=db,
-            game=game,
-            assistant_message_id=last_message.id,
-        )
-        db.delete(last_message)
-        deps.touch_story_game(game)
-        db.commit()
+        try:
+            deps.rollback_story_card_events_for_assistant_message(
+                db=db,
+                game=game,
+                assistant_message_id=last_message.id,
+            )
+            # Extra safety for legacy rows: ensure no event still references removed assistant message.
+            db.execute(
+                sa_delete(StoryWorldCardChangeEvent).where(
+                    StoryWorldCardChangeEvent.game_id == game.id,
+                    StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
+                )
+            )
+            db.execute(
+                sa_delete(StoryPlotCardChangeEvent).where(
+                    StoryPlotCardChangeEvent.game_id == game.id,
+                    StoryPlotCardChangeEvent.assistant_message_id == last_message.id,
+                )
+            )
+            db.delete(last_message)
+            deps.touch_story_game(game)
+            db.commit()
+        except HTTPException:
+            db.rollback()
+            raise
+        except Exception as exc:
+            db.rollback()
+            logger.exception(
+                "Failed to prepare reroll for game_id=%s assistant_message_id=%s",
+                game.id,
+                last_message.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare reroll: {_public_story_error_detail(exc)}",
+            ) from exc
         prompt_text = source_user_message.content
     else:
         if payload.prompt is None:
