@@ -68,15 +68,22 @@ def _stream_story_response(
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
 ):
-    assistant_message = StoryMessage(
-        game_id=game.id,
-        role=deps.story_assistant_role,
-        content="",
-    )
-    db.add(assistant_message)
-    deps.touch_story_game(game)
-    db.commit()
-    db.refresh(assistant_message)
+    assistant_message: StoryMessage | None = None
+    try:
+        assistant_message = StoryMessage(
+            game_id=game.id,
+            role=deps.story_assistant_role,
+            content="",
+        )
+        db.add(assistant_message)
+        deps.touch_story_game(game)
+        db.commit()
+        db.refresh(assistant_message)
+    except Exception as exc:
+        logger.exception("Failed to initialize story generation stream")
+        db.rollback()
+        yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
+        return
 
     yield _sse_event(
         "start",
@@ -119,13 +126,22 @@ def _stream_story_response(
     except Exception as exc:
         stream_error = str(exc)
         logger.exception("Story generation failed")
+        db.rollback()
         error_detail = _public_story_error_detail(exc)
         yield _sse_event("error", {"detail": error_detail})
-    finally:
+
+    try:
         assistant_message.content = produced
         deps.touch_story_game(game)
         db.commit()
         db.refresh(assistant_message)
+    except Exception as exc:
+        logger.exception("Failed to finalize generated story message")
+        db.rollback()
+        if not aborted:
+            stream_error = stream_error or str(exc)
+            yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
+        return
 
     if not aborted and stream_error is None:
         persisted_world_card_events: list[Any] = []
