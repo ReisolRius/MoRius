@@ -115,7 +115,7 @@ function AppHeader({
           onClick={onTogglePageMenu}
           sx={shellButtonSx}
         >
-          <Box component="img" src={icons.home} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+          <Box component="img" src={icons.menu} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
         </IconButton>
       </Box>
 

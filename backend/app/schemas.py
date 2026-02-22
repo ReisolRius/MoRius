@@ -85,6 +85,8 @@ class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4_000)
     visibility: str | None = Field(default=None, max_length=16)
+    age_rating: str | None = Field(default=None, max_length=8)
+    genres: list[str] | None = Field(default=None, max_length=3)
     cover_image_url: str | None = Field(default=None, max_length=2_000_000)
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -100,6 +102,8 @@ class StoryGameMetaUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4_000)
     visibility: str | None = Field(default=None, max_length=16)
+    age_rating: str | None = Field(default=None, max_length=8)
+    genres: list[str] | None = Field(default=None, max_length=3)
     cover_image_url: str | None = Field(default=None, max_length=2_000_000)
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -310,6 +314,8 @@ class StoryGameSummaryOut(BaseModel):
     title: str
     description: str
     visibility: str
+    age_rating: str
+    genres: list[str]
     cover_image_url: str | None
     cover_scale: float
     cover_position_x: float
@@ -330,6 +336,8 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     title: str
     description: str
     author_name: str
+    age_rating: str
+    genres: list[str]
     cover_image_url: str | None
     cover_scale: float
     cover_position_x: float

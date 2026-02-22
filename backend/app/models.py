@@ -71,6 +71,8 @@ class StoryGame(Base):
     context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=2000, server_default="2000")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
+    age_rating: Mapped[str] = mapped_column(String(8), nullable=False, default="16+", server_default="16+")
+    genres: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
     cover_image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     cover_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     cover_position_x: Mapped[float] = mapped_column(Float, nullable=False, default=50.0, server_default="50.0")

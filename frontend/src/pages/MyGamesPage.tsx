@@ -70,6 +70,11 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const TOP_FILTER_CONTROL_HEIGHT = 48
+const TOP_FILTER_CONTROL_RADIUS = '12px'
+const TOP_FILTER_TEXT_PADDING_X = '14px'
+const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
+const TOP_FILTER_ICON_OFFSET_X = '12px'
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
@@ -760,10 +765,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             <Box
               sx={{
                 position: 'relative',
-                borderRadius: 'var(--morius-radius)',
+                borderRadius: TOP_FILTER_CONTROL_RADIUS,
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
-                minHeight: 54,
+                minHeight: TOP_FILTER_CONTROL_HEIGHT,
               }}
             >
               <Box
@@ -773,13 +778,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 placeholder="Поиск"
                 sx={{
                   width: '100%',
-                  minHeight: 54,
-                  borderRadius: 'var(--morius-radius)',
+                  height: TOP_FILTER_CONTROL_HEIGHT,
+                  borderRadius: TOP_FILTER_CONTROL_RADIUS,
                   border: 'none',
                   backgroundColor: 'transparent',
                   color: APP_TEXT_PRIMARY,
-                  pl: 2.2,
-                  pr: 6.4,
+                  pl: TOP_FILTER_TEXT_PADDING_X,
+                  pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
                   outline: 'none',
                   fontSize: '1.02rem',
                   '&::placeholder': {
@@ -791,7 +796,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 sx={{
                   position: 'absolute',
                   top: '50%',
-                  right: 1.1,
+                  right: TOP_FILTER_ICON_OFFSET_X,
                   transform: 'translateY(-50%)',
                   color: APP_TEXT_SECONDARY,
                   display: 'grid',
@@ -805,8 +810,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             <FormControl
               sx={{
                 position: 'relative',
-                minHeight: 54,
-                borderRadius: 'var(--morius-radius)',
+                minHeight: TOP_FILTER_CONTROL_HEIGHT,
+                borderRadius: TOP_FILTER_CONTROL_RADIUS,
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
               }}
@@ -816,15 +821,19 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 onChange={(event: SelectChangeEvent) => setSortMode(event.target.value as GamesSortMode)}
                 IconComponent={() => null}
                 sx={{
-                  minHeight: 54,
-                  borderRadius: 'var(--morius-radius)',
+                  height: TOP_FILTER_CONTROL_HEIGHT,
+                  borderRadius: TOP_FILTER_CONTROL_RADIUS,
                   color: APP_TEXT_PRIMARY,
-                  pl: 0.2,
-                  pr: 4.4,
+                  px: 0,
                   fontSize: '0.98rem',
                   '& .MuiSelect-select': {
-                    py: 1.2,
-                    pl: 1.15,
+                    height: '100%',
+                    boxSizing: 'border-box',
+                    display: 'flex',
+                    alignItems: 'center',
+                    py: 0,
+                    pl: TOP_FILTER_TEXT_PADDING_X,
+                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
                   },
                   '& .MuiOutlinedInput-notchedOutline': {
                     border: 'none',
@@ -874,7 +883,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 sx={{
                   position: 'absolute',
                   top: '50%',
-                  right: 1.05,
+                  right: TOP_FILTER_ICON_OFFSET_X,
                   transform: 'translateY(-50%)',
                   color: APP_TEXT_SECONDARY,
                   display: 'grid',
@@ -889,9 +898,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             <Button
               onClick={handleOpenWorldCreator}
               sx={{
-                minHeight: 54,
+                minHeight: TOP_FILTER_CONTROL_HEIGHT,
                 minWidth: 176,
-                borderRadius: '12px',
+                px: 2.35,
+                borderRadius: TOP_FILTER_CONTROL_RADIUS,
                 textTransform: 'none',
                 color: APP_TEXT_PRIMARY,
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
@@ -990,8 +1000,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                       <Box
                         sx={{
                           width: '100%',
-                          px: { xs: 1.2, md: 1.35 },
-                          py: { xs: 1.05, md: 1.2 },
+                          px: { xs: 1.35, md: 1.55 },
+                          py: { xs: 1.15, md: 1.3 },
                           background: 'var(--morius-elevated-bg)',
                           borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
                           display: 'flex',
@@ -1007,11 +1017,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                             fontWeight: 800,
                             lineHeight: 1.2,
                             color: APP_TEXT_PRIMARY,
-                            mb: 0.62,
+                            mb: 0.68,
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
                             overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minHeight: '2.4em',
                           }}
                         >
                           {resolveDisplayTitle(game.id)}
@@ -1028,11 +1040,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',
                             overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minHeight: '2.8em',
                           }}
                         >
                           {gamePreviews[game.id] ?? 'Загружаем превью...'}
                         </Typography>
-                        <Stack spacing={0.25} sx={{ mb: 0.8, minHeight: 60 }}>
+                        <Stack spacing={0.25} sx={{ mb: 0.72, minHeight: 58 }}>
                           <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
                             {game.source_world_id
                               ? sourceWorld
@@ -1070,7 +1084,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                             <Box sx={{ minHeight: 28 }} />
                           )}
                         </Stack>
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem', mt: 'auto' }}>
                           {formatUpdatedAtLabel(game.last_activity_at)}
                         </Typography>
                       </Box>

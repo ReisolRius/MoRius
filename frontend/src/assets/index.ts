@@ -3,8 +3,14 @@ import backIcon from './icons/back.svg'
 import arrowBackIcon from './icons/arrowback.svg'
 import aiIcon from './icons/ai.svg'
 import coinIcon from './icons/coin.svg'
+import communityAgeIcon from './icons/community-age.svg'
+import communityCommentsIcon from './icons/community-comments.svg'
+import communityEditIcon from './icons/community-edit.svg'
+import communityInfoIcon from './icons/community-info.svg'
+import communityPlayIcon from './icons/community-play.svg'
 import helpIcon from './icons/help.svg'
 import homeIcon from './icons/home.svg'
+import menuIcon from './icons/menu.svg'
 import likeIcon from './icons/like.svg'
 import reloadAltIcon from './icons/reload.svg'
 import rerollIcon from './icons/reroll.svg'
@@ -27,8 +33,14 @@ export const icons = {
   arrowback: arrowBackIcon,
   back: backIcon,
   coin: coinIcon,
+  communityAge: communityAgeIcon,
+  communityComments: communityCommentsIcon,
+  communityEdit: communityEditIcon,
+  communityInfo: communityInfoIcon,
+  communityPlay: communityPlayIcon,
   help: helpIcon,
   home: homeIcon,
+  menu: menuIcon,
   like: likeIcon,
   reload: reloadAltIcon,
   reroll: rerollIcon,

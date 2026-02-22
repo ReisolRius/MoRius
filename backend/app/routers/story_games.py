@@ -40,12 +40,17 @@ from app.services.story_games import (
     STORY_DEFAULT_TITLE,
     STORY_GAME_VISIBILITY_PRIVATE,
     clone_story_world_cards_to_game,
+    coerce_story_game_age_rating,
+    deserialize_story_game_genres,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
     normalize_story_cover_position,
     normalize_story_cover_scale,
+    normalize_story_game_age_rating,
     normalize_story_game_description,
+    normalize_story_game_genres,
     normalize_story_game_visibility,
+    serialize_story_game_genres,
     story_author_name,
     story_community_world_summary_to_out,
     story_game_summary_to_out,
@@ -138,6 +143,8 @@ def launch_story_community_world(
         title=title,
         description=world.description or "",
         visibility=STORY_GAME_VISIBILITY_PRIVATE,
+        age_rating=coerce_story_game_age_rating(world.age_rating),
+        genres=serialize_story_game_genres(deserialize_story_game_genres(world.genres)),
         cover_image_url=normalize_story_cover_image_url(world.cover_image_url),
         cover_scale=normalize_story_cover_scale(world.cover_scale),
         cover_position_x=normalize_story_cover_position(world.cover_position_x),
@@ -247,6 +254,8 @@ def create_story_game(
         title = STORY_DEFAULT_TITLE
     description = normalize_story_game_description(payload.description)
     visibility = normalize_story_game_visibility(payload.visibility)
+    age_rating = normalize_story_game_age_rating(payload.age_rating)
+    genres = normalize_story_game_genres(payload.genres)
     cover_image_url = normalize_story_cover_image_url(payload.cover_image_url)
     cover_scale = normalize_story_cover_scale(payload.cover_scale)
     cover_position_x = normalize_story_cover_position(payload.cover_position_x)
@@ -258,6 +267,8 @@ def create_story_game(
         title=title,
         description=description,
         visibility=visibility,
+        age_rating=age_rating,
+        genres=serialize_story_game_genres(genres),
         cover_image_url=cover_image_url,
         cover_scale=cover_scale,
         cover_position_x=cover_position_x,
@@ -309,6 +320,10 @@ def update_story_game_meta(
         game.description = normalize_story_game_description(payload.description)
     if payload.visibility is not None:
         game.visibility = normalize_story_game_visibility(payload.visibility)
+    if payload.age_rating is not None:
+        game.age_rating = normalize_story_game_age_rating(payload.age_rating)
+    if payload.genres is not None:
+        game.genres = serialize_story_game_genres(normalize_story_game_genres(payload.genres))
     if payload.cover_image_url is not None:
         game.cover_image_url = normalize_story_cover_image_url(payload.cover_image_url)
     if payload.cover_scale is not None:
@@ -376,4 +391,3 @@ def delete_story_game(
     db.delete(game)
     db.commit()
     return MessageResponse(message="Game deleted")
-

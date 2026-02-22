@@ -73,6 +73,27 @@ const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
 const COVER_MAX_BYTES = 500 * 1024
 const CARD_WIDTH = 286
+const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
+const MAX_WORLD_GENRES = 3
+const WORLD_GENRE_OPTIONS = [
+  'Фэнтези',
+  'Фантастика (Научная фантастика)',
+  'Детектив',
+  'Триллер',
+  'Хоррор (Ужасы)',
+  'Мистика',
+  'Романтика (Любовный роман)',
+  'Приключения',
+  'Боевик',
+  'Исторический роман',
+  'Комедия / Юмор',
+  'Трагедия / Драма',
+  'Антиутопия',
+  'Постапокалипсис',
+  'Киберпанк',
+  'Повседневность',
+] as const
+type StoryAgeRating = (typeof AGE_RATING_OPTIONS)[number]
 
 const dialogPaperSx = {
   borderRadius: 'var(--morius-radius)',
@@ -227,6 +248,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
+  const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
+  const [genres, setGenres] = useState<string[]>([])
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null)
   const [coverScale, setCoverScale] = useState(1)
   const [coverPositionX, setCoverPositionX] = useState(50)
@@ -273,9 +296,21 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     return names
   }, [npcs])
   const canSubmit = useMemo(
-    () => !isSubmitting && !isLoading && Boolean(title.trim() && mainHero?.name.trim() && mainHero.description.trim()),
-    [isLoading, isSubmitting, mainHero, title],
+    () => !isSubmitting && !isLoading && Boolean(title.trim()),
+    [isLoading, isSubmitting, title],
   )
+
+  const toggleGenre = useCallback((genre: string) => {
+    setGenres((previous) => {
+      if (previous.includes(genre)) {
+        return previous.filter((item) => item !== genre)
+      }
+      if (previous.length >= MAX_WORLD_GENRES) {
+        return previous
+      }
+      return [...previous, genre]
+    })
+  }, [])
 
   const persistTitleForGame = useCallback((gameId: number, nextTitle: string) => {
     const next = setStoryTitle(loadStoryTitleMap(), gameId, nextTitle)
@@ -315,11 +350,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     [mainHero?.character_id, mainHeroName, npcCharacterIds, npcNames],
   )
 
-  const hasTemplateConflicts = useCallback((hero: EditableCharacterCard, nextNpcs: EditableCharacterCard[]) => {
+  const hasTemplateConflicts = useCallback((hero: EditableCharacterCard | null, nextNpcs: EditableCharacterCard[]) => {
     const usedNpcTemplates = new Set<number>()
     for (const npc of nextNpcs) {
       if (!npc.character_id) continue
-      if (hero.character_id && npc.character_id === hero.character_id) return true
+      if (hero?.character_id && npc.character_id === hero.character_id) return true
       if (usedNpcTemplates.has(npc.character_id)) return true
       usedNpcTemplates.add(npc.character_id)
     }
@@ -345,6 +380,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         setTitle(payload.game.title)
         setDescription(payload.game.description)
         setVisibility(payload.game.visibility)
+        setAgeRating(payload.game.age_rating)
+        setGenres(payload.game.genres.slice(0, MAX_WORLD_GENRES))
         setCoverImageUrl(payload.game.cover_image_url)
         setCoverScale(payload.game.cover_scale ?? 1)
         setCoverPositionX(payload.game.cover_position_x ?? 50)
@@ -505,7 +542,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   }, [characterPickerTarget, getTemplateDisabledReason])
 
   const handleSaveWorld = useCallback(async () => {
-    if (!canSubmit || !mainHero) return
+    if (!canSubmit) return
     if (hasTemplateConflicts(mainHero, npcs)) {
       setErrorMessage('Удалите дубли персонажей: ГГ и NPC не могут ссылаться на одного персонажа, а NPC не должны повторяться.')
       return
@@ -522,6 +559,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           title: normalizedTitle,
           description: normalizedDescription,
           visibility,
+          age_rating: ageRating,
+          genres,
           cover_image_url: coverImageUrl,
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
@@ -535,6 +574,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           title: normalizedTitle,
           description: normalizedDescription,
           visibility,
+          age_rating: ageRating,
+          genres,
           cover_image_url: coverImageUrl,
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
@@ -555,11 +596,15 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       }
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
       const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
-      if (existingMainHero) {
-        await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
-        await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
-      } else {
-        await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
+      if (mainHero) {
+        if (existingMainHero) {
+          await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
+          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
+        } else {
+          await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
+        }
+      } else if (existingMainHero) {
+        await deleteStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id })
       }
       const existingNpcs = latest.world_cards.filter((card) => card.kind === 'npc')
       for (const npc of npcs) {
@@ -578,7 +623,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     } finally {
       setIsSubmitting(false)
     }
-  }, [authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, persistTitleForGame, plotCards, title, visibility])
+  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, persistTitleForGame, plotCards, title, visibility])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -609,6 +654,59 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Stack spacing={0.35}><Typography sx={{ fontSize: { xs: '1.65rem', md: '1.9rem' }, fontWeight: 800 }}>{heroTitle}</Typography><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Заполните мир и добавьте карточки. После создания он сразу откроется в игре.</Typography></Stack>
             <TextField label="Название мира" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
             <TextField label="Краткое описание" value={description} onChange={(e) => setDescription(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 1000 }} />
+            <Stack spacing={0.75}>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Возрастное ограничение</Typography>
+              <Stack direction="row" spacing={0.8} flexWrap="wrap">
+                {AGE_RATING_OPTIONS.map((option) => (
+                  <Button
+                    key={option}
+                    onClick={() => setAgeRating(option)}
+                    sx={{
+                      minHeight: 38,
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: ageRating === option ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                      color: APP_TEXT_PRIMARY,
+                    }}
+                  >
+                    {option}
+                  </Button>
+                ))}
+              </Stack>
+            </Stack>
+            <Stack spacing={0.75}>
+              <Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Жанры (до 3)</Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.7 }}>
+                {WORLD_GENRE_OPTIONS.map((genre) => {
+                  const isSelected = genres.includes(genre)
+                  const isLimitReached = !isSelected && genres.length >= MAX_WORLD_GENRES
+                  return (
+                    <Button
+                      key={genre}
+                      onClick={() => toggleGenre(genre)}
+                      disabled={isLimitReached}
+                      sx={{
+                        minHeight: 34,
+                        px: 1.1,
+                        borderRadius: '999px',
+                        textTransform: 'none',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: isSelected ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                        color: APP_TEXT_PRIMARY,
+                        '&:disabled': {
+                          color: APP_TEXT_SECONDARY,
+                          borderColor: APP_BORDER_COLOR,
+                        },
+                      }}
+                    >
+                      {genre}
+                    </Button>
+                  )
+                })}
+              </Box>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>
+                Выбрано: {genres.length}/{MAX_WORLD_GENRES}
+              </Typography>
+            </Stack>
             <Divider />
             <Stack spacing={0.95}>
               <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverCropEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
@@ -621,9 +719,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Divider />
             <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки сюжета</Typography><Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 36 }}>Добавить</Button></Stack>{plotCards.length === 0 ? helpEmpty('Сюжетные карточки помогут быстро держать контекст истории и ключевые события.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{plotCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
             <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Главный герой</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('main_hero', mainHero ?? undefined)} sx={{ minHeight: 36 }}>{mainHero ? 'Редактировать вручную' : 'Создать вручную'}</Button></Stack></Stack>{mainHero ? <CompactCard title={mainHero.name} content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`} badge="гг" avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('main_hero', mainHero)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button></>} /> : helpEmpty('Выберите ГГ из «Мои персонажи» или создайте его вручную.')}</Stack>
+            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Главный герой (необязательно)</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('main_hero', mainHero ?? undefined)} sx={{ minHeight: 36 }}>{mainHero ? 'Редактировать вручную' : 'Создать вручную'}</Button></Stack></Stack>{mainHero ? <CompactCard title={mainHero.name} content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`} badge="гг" avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('main_hero', mainHero)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button></>} /> : helpEmpty('Главного героя можно добавить позже. Для сохранения мира достаточно названия.')}</Stack>
             <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>NPC</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 36 }}>Добавить вручную</Button></Stack></Stack>{npcs.length === 0 ? helpEmpty('Пока NPC не добавлены. Можно начать игру только с главным героем и добавить NPC позже.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{npcs.map((npc) => <CompactCard key={npc.localId} title={npc.name} content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`} badge="npc" avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
+            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>NPC</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 36 }}>Добавить вручную</Button></Stack></Stack>{npcs.length === 0 ? helpEmpty('Пока NPC не добавлены. Можно начать игру без NPC и добавить их позже.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{npcs.map((npc) => <CompactCard key={npc.localId} title={npc.name} content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`} badge="npc" avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
             <Divider />
             <Stack spacing={0.75}><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Видимость мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setVisibility('private')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Приватный</Button><Button onClick={() => setVisibility('public')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Публичный</Button></Stack></Stack>
             <Stack direction="row" spacing={0.8} justifyContent="flex-end"><Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button><Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button></Stack>

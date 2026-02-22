@@ -91,6 +91,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
             f"ALTER TABLE {StoryGame.__tablename__} "
             f"ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT '{private_visibility}'"
         )
+    if "age_rating" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN age_rating VARCHAR(8) NOT NULL DEFAULT '16+'"
+        )
+    if "genres" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN genres TEXT NOT NULL DEFAULT '[]'"
+        )
     if "cover_image_url" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "

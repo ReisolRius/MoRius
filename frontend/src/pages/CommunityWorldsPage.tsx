@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
-import BaseDialog from '../components/dialogs/BaseDialog'
+import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import { getCommunityWorld, launchCommunityWorld, listCommunityWorlds, rateCommunityWorld } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary } from '../types/story'
@@ -20,144 +20,11 @@ const APP_BORDER_COLOR = 'var(--morius-card-border)'
 const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
-const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = 44
 
 function toStarLabel(value: number): string {
   const safeValue = Math.max(0, Math.min(5, Math.round(value)))
   return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
-}
-
-type CommunityPreviewBadgeTone = 'green' | 'blue'
-
-type CommunityPreviewCardProps = {
-  title: string
-  content: string
-  badge: string
-  badgeTone?: CommunityPreviewBadgeTone
-  avatarUrl?: string | null
-  avatarScale?: number
-}
-
-function communityWorldKindBadgeLabel(kind: string): string {
-  if (kind === 'main_hero') {
-    return 'ГГ'
-  }
-  if (kind === 'npc') {
-    return 'NPC'
-  }
-  return 'МИР'
-}
-
-function CommunityPreviewCard({ title, content, badge, badgeTone = 'blue', avatarUrl = null, avatarScale = 1 }: CommunityPreviewCardProps) {
-  const safeScale = Math.max(0.6, Math.min(3, avatarScale || 1))
-  const badgeColor = badgeTone === 'green' ? 'rgba(170, 238, 191, 0.96)' : 'rgba(168, 196, 231, 0.9)'
-  const badgeBorder = badgeTone === 'green' ? 'rgba(128, 213, 162, 0.46)' : 'rgba(132, 168, 210, 0.42)'
-  const fallbackLabel = title.trim().charAt(0).toUpperCase() || '•'
-
-  return (
-    <Box
-      sx={{
-        width: '100%',
-        minHeight: 186,
-        borderRadius: 'var(--morius-radius)',
-        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-        background: 'var(--morius-elevated-bg)',
-        boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
-        <Stack direction="row" spacing={0.7} alignItems="center">
-          <Box
-            sx={{
-              width: 34,
-              height: 34,
-              borderRadius: '50%',
-              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-              background: 'var(--morius-elevated-bg)',
-              overflow: 'hidden',
-              flexShrink: 0,
-              display: 'grid',
-              placeItems: 'center',
-              color: APP_TEXT_PRIMARY,
-              fontWeight: 800,
-              fontSize: '0.86rem',
-            }}
-          >
-            {avatarUrl ? (
-              <Box
-                component="img"
-                src={avatarUrl}
-                alt={title}
-                sx={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  transform: `scale(${safeScale})`,
-                  transformOrigin: 'center center',
-                }}
-              />
-            ) : (
-              fallbackLabel
-            )}
-          </Box>
-          <Typography
-            sx={{
-              color: APP_TEXT_PRIMARY,
-              fontWeight: 800,
-              fontSize: '1rem',
-              lineHeight: 1.2,
-              minWidth: 0,
-              flex: 1,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {title}
-          </Typography>
-          <Typography
-            sx={{
-              color: badgeColor,
-              fontSize: '0.63rem',
-              lineHeight: 1,
-              letterSpacing: 0.22,
-              textTransform: 'uppercase',
-              fontWeight: 700,
-              border: `var(--morius-border-width) solid ${badgeBorder}`,
-              borderRadius: '999px',
-              px: 0.58,
-              py: 0.18,
-              flexShrink: 0,
-            }}
-          >
-            {badge}
-          </Typography>
-        </Stack>
-      </Box>
-      <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
-        <Typography
-          sx={{
-            color: 'rgba(208, 219, 235, 0.88)',
-            fontSize: '0.86rem',
-            lineHeight: 1.4,
-            whiteSpace: 'pre-wrap',
-            display: '-webkit-box',
-            WebkitLineClamp: 5,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            overflowWrap: 'anywhere',
-            wordBreak: 'break-word',
-          }}
-        >
-          {content}
-        </Typography>
-      </Box>
-    </Box>
-  )
 }
 
 function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout }: CommunityWorldsPageProps) {
@@ -550,172 +417,18 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
         </Box>
       </Box>
 
-      <BaseDialog
+      <CommunityWorldDialog
         open={Boolean(selectedCommunityWorld) || isCommunityWorldDialogLoading}
+        isLoading={isCommunityWorldDialogLoading}
+        worldPayload={selectedCommunityWorld}
+        ratingDraft={communityRatingDraft}
+        isRatingSaving={isCommunityRatingSaving}
+        isLaunching={isLaunchingCommunityWorld}
         onClose={handleCloseCommunityWorldDialog}
-        maxWidth="md"
-        titleSx={{ pb: 0.8 }}
-        contentSx={{ pt: 0.8, overflowX: 'hidden' }}
-        actionsSx={{ px: 3, pb: 2.2 }}
-        header={
-
-          <Stack spacing={0.35}>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-              Комьюнити мир
-            </Typography>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.55rem', lineHeight: 1.2 }}>
-              {selectedCommunityWorld?.world.title ?? 'Загрузка...'}
-            </Typography>
-          </Stack>
-        
-        }
-        actions={<>
-
-          <Button onClick={handleCloseCommunityWorldDialog} sx={{ color: APP_TEXT_SECONDARY }} disabled={isLaunchingCommunityWorld}>
-            Закрыть
-          </Button>
-          <Button
-            onClick={() => void handleLaunchCommunityWorld()}
-            disabled={!selectedCommunityWorld || isLaunchingCommunityWorld || isCommunityWorldDialogLoading}
-            sx={{
-              textTransform: 'none',
-              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-              backgroundColor: APP_BUTTON_ACTIVE,
-              color: APP_TEXT_PRIMARY,
-              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-            }}
-          >
-            {isLaunchingCommunityWorld ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
-          </Button>
-        
-        </>}
-      >
-
-          {isCommunityWorldDialogLoading || !selectedCommunityWorld ? (
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 5 }}>
-              <CircularProgress size={30} />
-            </Stack>
-          ) : (
-            <Stack spacing={1.3}>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.94rem' }}>
-                Автор: {selectedCommunityWorld.world.author_name}
-              </Typography>
-              <Typography
-                sx={{
-                  color: APP_TEXT_SECONDARY,
-                  fontSize: '0.95rem',
-                  lineHeight: 1.5,
-                  whiteSpace: 'pre-wrap',
-                  overflowWrap: 'anywhere',
-                  wordBreak: 'break-word',
-                }}
-              >
-                {selectedCommunityWorld.world.description}
-              </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>
-                Просмотры {selectedCommunityWorld.world.community_views} • Запуски {selectedCommunityWorld.world.community_launches} • Рейтинг{' '}
-                {selectedCommunityWorld.world.community_rating_avg.toFixed(1)} ({selectedCommunityWorld.world.community_rating_count})
-              </Typography>
-
-              <Box
-                sx={{
-                  borderRadius: '12px',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  px: 1.2,
-                  py: 1,
-                }}
-              >
-                <Stack spacing={0.7}>
-                  <Typography sx={{ fontWeight: 700 }}>Рейтинг</Typography>
-                  <Stack direction="row" spacing={0.6} alignItems="center">
-                    {[1, 2, 3, 4, 5].map((value) => (
-                      <Button
-                        key={value}
-                        onClick={() => setCommunityRatingDraft(value)}
-                        disabled={isCommunityRatingSaving || isLaunchingCommunityWorld}
-                        sx={{
-                          minWidth: 40,
-                          minHeight: 38,
-                          borderRadius: 'var(--morius-radius)',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: value <= communityRatingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          fontSize: '1.05rem',
-                        }}
-                      >
-                        {value <= communityRatingDraft ? '★' : '☆'}
-                      </Button>
-                    ))}
-                    <Button
-                      onClick={() => void handleRateCommunityWorld()}
-                      disabled={communityRatingDraft < 1 || isCommunityRatingSaving || isLaunchingCommunityWorld}
-                      sx={{
-                        minHeight: 38,
-                        borderRadius: 'var(--morius-radius)',
-                        textTransform: 'none',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: APP_BUTTON_ACTIVE,
-                        color: APP_TEXT_PRIMARY,
-                        '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                      }}
-                    >
-                      {isCommunityRatingSaving ? <CircularProgress size={15} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Сохранить'}
-                    </Button>
-                  </Stack>
-                </Stack>
-              </Box>
-
-              <Stack spacing={0.6}>
-                <Typography sx={{ fontWeight: 700 }}>Карточки инструкций</Typography>
-                {selectedCommunityWorld.instruction_cards.length === 0 ? (
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
-                ) : (
-                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
-                    {selectedCommunityWorld.instruction_cards.map((card) => (
-                      <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="ИНСТРУКЦИЯ" />
-                    ))}
-                  </Box>
-                )}
-              </Stack>
-
-              <Stack spacing={0.6}>
-                <Typography sx={{ fontWeight: 700 }}>Карточки сюжета</Typography>
-                {selectedCommunityWorld.plot_cards.length === 0 ? (
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
-                ) : (
-                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
-                    {selectedCommunityWorld.plot_cards.map((card) => (
-                      <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="СЮЖЕТ" />
-                    ))}
-                  </Box>
-                )}
-              </Stack>
-
-              <Stack spacing={0.6}>
-                <Typography sx={{ fontWeight: 700 }}>Карточки мира и персонажей</Typography>
-                {selectedCommunityWorld.world_cards.length === 0 ? (
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
-                ) : (
-                  <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
-                    {selectedCommunityWorld.world_cards.map((card) => (
-                      <CommunityPreviewCard
-                        key={card.id}
-                        title={card.title}
-                        content={card.content}
-                        badge={communityWorldKindBadgeLabel(card.kind)}
-                        badgeTone={card.kind === 'world' ? 'blue' : 'green'}
-                        avatarUrl={card.avatar_url}
-                        avatarScale={card.avatar_scale}
-                      />
-                    ))}
-                  </Box>
-                )}
-              </Stack>
-            </Stack>
-          )}
-        
-      </BaseDialog>
+        onPlay={() => void handleLaunchCommunityWorld()}
+        onChangeRating={setCommunityRatingDraft}
+        onSaveRating={() => void handleRateCommunityWorld()}
+      />
     </Box>
   )
 }

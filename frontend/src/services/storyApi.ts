@@ -257,6 +257,8 @@ export async function createStoryGame(payload: {
   title?: string
   description?: string
   visibility?: StoryGameVisibility
+  age_rating?: '6+' | '16+' | '18+'
+  genres?: string[]
   cover_image_url?: string | null
   cover_scale?: number
   cover_position_x?: number
@@ -271,6 +273,8 @@ export async function createStoryGame(payload: {
       title: payload.title ?? null,
       description: payload.description ?? null,
       visibility: payload.visibility ?? null,
+      age_rating: payload.age_rating ?? null,
+      genres: payload.genres ?? null,
       cover_image_url: payload.cover_image_url ?? null,
       cover_scale: payload.cover_scale ?? null,
       cover_position_x: payload.cover_position_x ?? null,
@@ -313,6 +317,8 @@ export async function updateStoryGameMeta(payload: {
   title?: string
   description?: string
   visibility?: StoryGameVisibility
+  age_rating?: '6+' | '16+' | '18+'
+  genres?: string[]
   cover_image_url?: string | null
   cover_scale?: number
   cover_position_x?: number
@@ -327,6 +333,8 @@ export async function updateStoryGameMeta(payload: {
       title: payload.title ?? null,
       description: payload.description ?? null,
       visibility: payload.visibility ?? null,
+      age_rating: payload.age_rating ?? null,
+      genres: payload.genres ?? null,
       cover_image_url: payload.cover_image_url ?? null,
       cover_scale: payload.cover_scale ?? null,
       cover_position_x: payload.cover_position_x ?? null,

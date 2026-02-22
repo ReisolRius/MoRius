@@ -6,6 +6,8 @@ export type StoryGameSummary = {
   title: string
   description: string
   visibility: StoryGameVisibility
+  age_rating: '6+' | '16+' | '18+'
+  genres: string[]
   cover_image_url: string | null
   cover_scale: number
   cover_position_x: number
@@ -154,6 +156,8 @@ export type StoryCommunityWorldSummary = {
   title: string
   description: string
   author_name: string
+  age_rating: '6+' | '16+' | '18+'
+  genres: string[]
   cover_image_url: string | null
   cover_scale: number
   cover_position_x: number

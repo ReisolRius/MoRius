@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -27,6 +28,31 @@ STORY_GAME_VISIBILITY_PUBLIC = "public"
 STORY_GAME_VISIBILITY_VALUES = {
     STORY_GAME_VISIBILITY_PRIVATE,
     STORY_GAME_VISIBILITY_PUBLIC,
+}
+STORY_DEFAULT_AGE_RATING = "16+"
+STORY_AGE_RATING_VALUES = {
+    "6+",
+    "16+",
+    "18+",
+}
+STORY_GENRE_MAX_ITEMS = 3
+STORY_GAME_GENRE_VALUES = {
+    "Фэнтези",
+    "Фантастика (Научная фантастика)",
+    "Детектив",
+    "Триллер",
+    "Хоррор (Ужасы)",
+    "Мистика",
+    "Романтика (Любовный роман)",
+    "Приключения",
+    "Боевик",
+    "Исторический роман",
+    "Комедия / Юмор",
+    "Трагедия / Драма",
+    "Антиутопия",
+    "Постапокалипсис",
+    "Киберпанк",
+    "Повседневность",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 6_000
@@ -68,6 +94,88 @@ def normalize_story_game_visibility(value: str | None) -> str:
             detail="Visibility should be either private or public",
         )
     return normalized
+
+
+def coerce_story_game_age_rating(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_AGE_RATING).strip()
+    if normalized in STORY_AGE_RATING_VALUES:
+        return normalized
+    return STORY_DEFAULT_AGE_RATING
+
+
+def normalize_story_game_age_rating(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_AGE_RATING).strip()
+    if normalized not in STORY_AGE_RATING_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Age rating should be one of: 6+, 16+, 18+",
+        )
+    return normalized
+
+
+def _normalize_story_game_genre_value(value: str) -> str:
+    return " ".join(value.replace("\r", " ").replace("\n", " ").split())
+
+
+def normalize_story_game_genres(values: list[str] | None) -> list[str]:
+    if values is None:
+        return []
+
+    normalized_values: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        genre = _normalize_story_game_genre_value(str(raw_value))
+        if not genre:
+            continue
+        if genre not in STORY_GAME_GENRE_VALUES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported genre: {genre}",
+            )
+        if genre in seen:
+            continue
+        seen.add(genre)
+        normalized_values.append(genre)
+
+    if len(normalized_values) > STORY_GENRE_MAX_ITEMS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No more than {STORY_GENRE_MAX_ITEMS} genres are allowed",
+        )
+
+    return normalized_values
+
+
+def serialize_story_game_genres(values: list[str]) -> str:
+    return json.dumps(values, ensure_ascii=False)
+
+
+def deserialize_story_game_genres(raw_value: str | None) -> list[str]:
+    if not raw_value:
+        return []
+
+    try:
+        loaded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return []
+
+    if not isinstance(loaded, list):
+        return []
+
+    normalized_values: list[str] = []
+    seen: set[str] = set()
+    for item in loaded:
+        if not isinstance(item, str):
+            continue
+        genre = _normalize_story_game_genre_value(item)
+        if not genre or genre in seen or genre not in STORY_GAME_GENRE_VALUES:
+            continue
+        seen.add(genre)
+        normalized_values.append(genre)
+        if len(normalized_values) >= STORY_GENRE_MAX_ITEMS:
+            break
+
+    return normalized_values
 
 
 def normalize_story_game_description(value: str | None) -> str:
@@ -124,6 +232,8 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         title=game.title,
         description=(game.description or "").strip(),
         visibility=coerce_story_game_visibility(game.visibility),
+        age_rating=coerce_story_game_age_rating(game.age_rating),
+        genres=deserialize_story_game_genres(game.genres),
         cover_image_url=normalize_avatar_value(game.cover_image_url),
         cover_scale=normalize_story_cover_scale(game.cover_scale),
         cover_position_x=normalize_story_cover_position(game.cover_position_x),
@@ -160,6 +270,8 @@ def story_community_world_summary_to_out(
         title=summary.title,
         description=summary.description,
         author_name=author_name,
+        age_rating=summary.age_rating,
+        genres=summary.genres,
         cover_image_url=summary.cover_image_url,
         cover_scale=summary.cover_scale,
         cover_position_x=summary.cover_position_x,
@@ -247,4 +359,3 @@ def clone_story_world_cards_to_game(
             source=_normalize_story_world_card_source(card.source),
         )
         db.add(cloned_world_card)
-
