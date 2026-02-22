@@ -15,6 +15,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import AvatarCropDialog from './AvatarCropDialog'
 import BaseDialog from './dialogs/BaseDialog'
 import {
   createStoryCharacter,
@@ -33,6 +34,7 @@ type CharacterManagerDialogProps = {
 type CharacterDraftMode = 'create' | 'edit'
 
 const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
+const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,6 +49,16 @@ function readFileAsDataUrl(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function estimateDataUrlBytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(',')
+  if (commaIndex < 0) {
+    return dataUrl.length
+  }
+  const payload = dataUrl.slice(commaIndex + 1)
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, (payload.length * 3) / 4 - padding)
 }
 
 function normalizeCharacterTriggersDraft(value: string, fallbackName: string): string[] {
@@ -148,6 +160,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
   const [triggersDraft, setTriggersDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
@@ -174,6 +187,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setTriggersDraft('')
     setAvatarDraft(null)
     setAvatarScaleDraft(1)
+    setAvatarCropSource(null)
     setAvatarError('')
   }, [])
 
@@ -186,7 +200,6 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
       setErrorMessage(detail)
-      setCharacters([])
     } finally {
       setIsLoadingCharacters(false)
     }
@@ -197,6 +210,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
       setCharacterMenuAnchorEl(null)
       setCharacterMenuCharacterId(null)
       setCharacterDeleteTarget(null)
+      setAvatarCropSource(null)
       return
     }
     setIsEditorOpen(false)
@@ -214,6 +228,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
     setCharacterDeleteTarget(null)
+    setAvatarCropSource(null)
     onClose()
   }
 
@@ -236,6 +251,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
+    setAvatarCropSource(null)
     setAvatarError('')
     setIsEditorOpen(true)
   }, [deletingCharacterId, isSavingCharacter])
@@ -245,6 +261,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
       return
     }
     setIsEditorOpen(false)
+    setAvatarCropSource(null)
     resetDraft()
   }
 
@@ -267,20 +284,37 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
       return
     }
 
-    if (selectedFile.size > CHARACTER_AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 500 КБ.')
+    if (selectedFile.size > CHARACTER_AVATAR_SOURCE_MAX_BYTES) {
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 
     setAvatarError('')
     try {
       const dataUrl = await readFileAsDataUrl(selectedFile)
-      setAvatarDraft(dataUrl)
+      setAvatarCropSource(dataUrl)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось обработать изображение'
       setAvatarError(detail)
     }
   }, [])
+
+  const handleSaveCroppedAvatar = useCallback(
+    (croppedDataUrl: string) => {
+      if (isSavingCharacter || !croppedDataUrl) {
+        return
+      }
+      if (estimateDataUrlBytes(croppedDataUrl) > CHARACTER_AVATAR_MAX_BYTES) {
+        setAvatarError('Avatar is too large after crop. Maximum is 500 KB.')
+        return
+      }
+      setAvatarDraft(croppedDataUrl)
+      setAvatarScaleDraft(1)
+      setAvatarCropSource(null)
+      setAvatarError('')
+    },
+    [isSavingCharacter],
+  )
 
   const handleSaveCharacter = useCallback(async () => {
     if (isSavingCharacter) {
@@ -787,6 +821,19 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
           </Button>
         </DialogActions>
       </BaseDialog>
+
+      <AvatarCropDialog
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource}
+        isSaving={isSavingCharacter}
+        outputSize={384}
+        onCancel={() => {
+          if (!isSavingCharacter) {
+            setAvatarCropSource(null)
+          }
+        }}
+        onSave={handleSaveCroppedAvatar}
+      />
 
       <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
         <Button onClick={handleCloseDialog} disabled={isSavingCharacter || deletingCharacterId !== null} sx={{ color: 'text.secondary' }}>

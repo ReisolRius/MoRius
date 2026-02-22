@@ -181,6 +181,8 @@ STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS = {
     "разговор",
 }
 STORY_NPC_GENERIC_NAME_TOKENS = {
+    "нпс",
+    "npc",
     "бандит",
     "бандиты",
     "разбойник",
@@ -248,6 +250,20 @@ STORY_SYSTEM_PROMPT = (
     "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
     "Формат ответа: 2-5 абзацев связного повествования. "
     "Любую прямую речь оформляй только через диалоговые маркеры."
+)
+STORY_DIALOGUE_FORMAT_RULES = (
+    "Follow instruction and world cards silently.",
+    "Do not enumerate or explain these cards in the answer.",
+    "Dialogue markup is mandatory for any direct speech.",
+    "Use one paragraph per direct speech replica.",
+    "For NPC speech use: [[NPC:NameOrRole]] text.",
+    "For main hero speech use: [[GG:Name]] text.",
+    "Speaker label inside marker must be explicit and stable within the scene.",
+    "Never use placeholder labels like НПС, NPC, Реплика, Голос, Персонаж.",
+    "If the speaker matches an existing world/main-hero card, use that exact card title in marker.",
+    "If speaker has no personal name, use a concrete role label from scene context (e.g. Бандит, Лекарь, Маг, Зверолюд).",
+    "Never output direct speech as bare quotes, as \"Name: text\", or as \": text\".",
+    "Use [[NPC:...]] and [[GG:...]] only for direct speech, not for narration.",
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -1227,9 +1243,6 @@ def _build_story_system_prompt(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
 ) -> str:
-    if not instruction_cards and not plot_cards and not world_cards:
-        return STORY_SYSTEM_PROMPT
-
     lines = [STORY_SYSTEM_PROMPT]
 
     if instruction_cards:
@@ -1256,19 +1269,7 @@ def _build_story_system_prompt(
             else:
                 lines.append("Type: world")
 
-    lines.extend(
-        [
-            "",
-            "Follow instruction and world cards silently.",
-            "Do not enumerate or explain these cards in the answer.",
-            "Dialogue markup is mandatory for any direct speech.",
-            "For NPC speech use one paragraph per replica: [[NPC:Name]] text.",
-            "For main hero speech use one paragraph per replica: [[GG:Name]] text.",
-            "If speaker has no personal name, use a stable role label (e.g. Бандит, Стражник, Торговец).",
-            "Never output direct speech as bare quotes, as \"Name: text\", or as \": text\".",
-            "Use [[NPC:...]] and [[GG:...]] only for direct speech, not for narration.",
-        ]
-    )
+    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES])
     return "\n".join(lines)
 
 

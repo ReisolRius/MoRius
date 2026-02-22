@@ -24,6 +24,28 @@ type StreamEvent = {
   data: string
 }
 
+const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
+const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
+const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
+
+function normalizeRequestMethod(method: string | undefined): string {
+  return (method ?? 'GET').toUpperCase()
+}
+
+function isRetryableMethod(method: string): boolean {
+  return RETRYABLE_METHODS.has(method)
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
+}
+
 export type StoryGenerationStreamOptions = {
   token: string
   gameId: number
@@ -62,21 +84,41 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   }
 
   const targetUrl = buildApiUrl(path)
-  let response: Response
-  try {
-    response = await fetch(targetUrl, {
-      ...options,
-      headers,
-    })
-  } catch {
-    throw new Error(`Failed to connect to API (${targetUrl}).`)
-  }
+  const method = normalizeRequestMethod(options.method)
+  const retryableMethod = isRetryableMethod(method)
 
-  if (!response.ok) {
+  for (let attempt = 0; attempt <= REQUEST_RETRY_DELAYS_MS.length; attempt += 1) {
+    let response: Response
+    try {
+      response = await fetch(targetUrl, {
+        ...options,
+        method,
+        headers,
+      })
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error
+      }
+      if (retryableMethod && attempt < REQUEST_RETRY_DELAYS_MS.length) {
+        await delay(REQUEST_RETRY_DELAYS_MS[attempt])
+        continue
+      }
+      throw new Error(`Failed to connect to API (${targetUrl}).`)
+    }
+
+    if (response.ok) {
+      return (await response.json()) as T
+    }
+
+    if (retryableMethod && RETRYABLE_STATUS_CODES.has(response.status) && attempt < REQUEST_RETRY_DELAYS_MS.length) {
+      await delay(REQUEST_RETRY_DELAYS_MS[attempt])
+      continue
+    }
+
     throw await parseApiError(response)
   }
 
-  return (await response.json()) as T
+  throw new Error(`Failed to connect to API (${targetUrl}).`)
 }
 
 function parseSseBlock(rawBlock: string): StreamEvent | null {

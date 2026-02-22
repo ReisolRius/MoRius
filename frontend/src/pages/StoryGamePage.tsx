@@ -199,6 +199,16 @@ function splitAssistantParagraphs(content: string): string[] {
   return paragraphs.length > 0 ? paragraphs : ['']
 }
 
+function estimateDataUrlBytes(dataUrl: string): number {
+  const commaIndex = dataUrl.indexOf(',')
+  if (commaIndex < 0) {
+    return dataUrl.length
+  }
+  const payload = dataUrl.slice(commaIndex + 1)
+  const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
+  return Math.max(0, (payload.length * 3) / 4 - padding)
+}
+
 function isDialogueQuoteText(value: string): boolean {
   const normalized = value.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
@@ -208,18 +218,9 @@ function isDialogueQuoteText(value: string): boolean {
 }
 
 function resolveGenericDialogueSpeaker(paragraph: string, context: string): string {
-  const paragraphText = paragraph.replace(/\r\n/g, '\n').trim()
-  const contextText = context.replace(/\r\n/g, '\n').trim()
-  for (const candidate of [paragraphText, contextText]) {
-    if (!candidate) {
-      continue
-    }
-    for (const entry of GENERIC_DIALOGUE_SPEAKER_PATTERNS) {
-      if (entry.pattern.test(candidate)) {
-        return entry.label
-      }
-    }
-  }
+  void paragraph
+  void context
+  void GENERIC_DIALOGUE_SPEAKER_PATTERNS
   return GENERIC_DIALOGUE_SPEAKER_DEFAULT
 }
 
@@ -1033,6 +1034,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterDescriptionDraft, setCharacterDescriptionDraft] = useState('')
   const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
   const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
+  const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
   const [characterAvatarError, setCharacterAvatarError] = useState('')
   const [isSelectingCharacter, setIsSelectingCharacter] = useState(false)
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
@@ -1350,12 +1352,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (defaultSpeaker) {
       names.add(defaultSpeaker)
     }
-    GENERIC_DIALOGUE_SPEAKER_PATTERNS.forEach((entry) => {
-      const normalizedLabel = normalizeCharacterIdentity(entry.label)
-      if (normalizedLabel) {
-        names.add(normalizedLabel)
-      }
-    })
     return names
   }, [])
   const resolveDialogueAvatar = useCallback(
@@ -1498,7 +1494,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setHasLoadedCharacters(true)
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
-        setErrorMessage(detail)
+        if (!silent) {
+          setErrorMessage(detail)
+        }
       } finally {
         if (!silent) {
           setIsLoadingCharacters(false)
@@ -1515,6 +1513,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterDescriptionDraft('')
     setCharacterTriggersDraft('')
     setCharacterAvatarDraft(null)
+    setCharacterAvatarCropSource(null)
     setCharacterAvatarError('')
   }, [])
 
@@ -1550,6 +1549,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterMenuCharacterId(null)
     setDeletionPrompt((previous) => (previous?.type === 'character' ? null : previous))
     setCharacterDialogOpen(false)
+    setCharacterAvatarCropSource(null)
     setCharacterAvatarError('')
   }, [isSavingCharacter, isSelectingCharacter])
 
@@ -1564,6 +1564,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterDescriptionDraft(character.description)
     setCharacterTriggersDraft(character.triggers.join(', '))
     setCharacterAvatarDraft(character.avatar_url)
+    setCharacterAvatarCropSource(null)
     setCharacterAvatarError('')
   }, [])
 
@@ -1588,17 +1589,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     setCharacterAvatarError('')
     try {
-      const compressedDataUrl = await compressImageFileToDataUrl(selectedFile, {
-        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
-        maxDimension: 960,
-      })
-      setCharacterAvatarDraft(compressedDataUrl)
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      setCharacterAvatarCropSource(dataUrl)
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : 'Не удалось обработать аватар персонажа'
       setCharacterAvatarError(detail)
     }
   }, [])
+
+  const handleSaveCroppedCharacterAvatar = useCallback(
+    (croppedDataUrl: string) => {
+      if (isSavingCharacter || !croppedDataUrl) {
+        return
+      }
+      if (estimateDataUrlBytes(croppedDataUrl) > CHARACTER_AVATAR_MAX_BYTES) {
+        setCharacterAvatarError('Avatar is too large after crop. Maximum is 500 KB.')
+        return
+      }
+      setCharacterAvatarDraft(croppedDataUrl)
+      setCharacterAvatarCropSource(null)
+      setCharacterAvatarError('')
+    },
+    [isSavingCharacter],
+  )
 
   const handleSaveCharacter = useCallback(async () => {
     if (isSavingCharacter) {
@@ -4844,7 +4858,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           {blocks.map((block, index) => {
                             if (block.type === 'character') {
                               const nearbyNarrativeContext = blocks
-                                .slice(Math.max(0, index - 3), index)
+                                .slice(Math.max(0, index - 3), Math.min(blocks.length, index + 4))
                                 .filter((candidate) => candidate.type === 'narrative')
                                 .map((candidate) => candidate.text)
                                 .join('\n')
@@ -6464,6 +6478,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
+      <AvatarCropDialog
+        open={Boolean(characterAvatarCropSource)}
+        imageSrc={characterAvatarCropSource}
+        isSaving={isSavingCharacter}
+        outputSize={384}
+        onCancel={() => {
+          if (!isSavingCharacter) {
+            setCharacterAvatarCropSource(null)
+          }
+        }}
+        onSave={handleSaveCroppedCharacterAvatar}
       />
     </Box>
   )
