@@ -32,6 +32,7 @@ import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createCoinTopUpPayment,
@@ -597,6 +598,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingCharacter, setIsSavingCharacter] = useState(false)
   const [deletingCharacterId, setDeletingCharacterId] = useState<number | null>(null)
   const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
+  const [characterManagerDialogOpen, setCharacterManagerDialogOpen] = useState(false)
   const [characterDialogMode, setCharacterDialogMode] = useState<CharacterDialogMode>('manage')
   const [characterDraftMode, setCharacterDraftMode] = useState<CharacterDraftMode>('create')
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null)
@@ -977,10 +979,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [hasLoadedCharacters, isLoadingCharacters, loadCharacters],
   )
 
-  const handleOpenCharacterManager = useCallback(async () => {
-    resetCharacterDraft()
-    await openCharacterDialog('manage')
-  }, [openCharacterDialog, resetCharacterDraft])
+  const handleOpenCharacterManager = useCallback(() => {
+    setCharacterManagerDialogOpen(true)
+  }, [])
 
   const handleOpenCharacterSelectorForMainHero = useCallback(async () => {
     await openCharacterDialog('select-main-hero')
@@ -999,10 +1000,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setDeletionPrompt((previous) => (previous?.type === 'character' ? null : previous))
     setCharacterDialogOpen(false)
     setCharacterAvatarError('')
-    if (characterDialogMode === 'manage') {
-      resetCharacterDraft()
-    }
-  }, [characterDialogMode, isSavingCharacter, isSelectingCharacter, resetCharacterDraft])
+  }, [isSavingCharacter, isSelectingCharacter])
 
   const handleStartCreateCharacter = useCallback(() => {
     resetCharacterDraft()
@@ -5247,6 +5245,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
         </DialogActions>
       </Dialog>
+
+      <CharacterManagerDialog
+        open={characterManagerDialogOpen}
+        authToken={authToken}
+        onClose={() => {
+          setCharacterManagerDialogOpen(false)
+          void loadCharacters({ silent: true })
+        }}
+      />
 
       <Dialog
         open={characterDialogOpen}

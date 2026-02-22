@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, Typography } from '@mui/material'
+import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import { getCommunityWorld, launchCommunityWorld, listCommunityWorlds, rateCommunityWorld } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
@@ -19,13 +20,14 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const HEADER_AVATAR_SIZE = 44
 
 function toStarLabel(value: number): string {
   const safeValue = Math.max(0, Math.min(5, Math.round(value)))
   return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
 }
 
-function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: CommunityWorldsPageProps) {
+function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout }: CommunityWorldsPageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
@@ -37,6 +39,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
   const [communityRatingDraft, setCommunityRatingDraft] = useState(0)
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
+  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
 
   const loadCommunityWorlds = useCallback(async () => {
     setIsCommunityWorldsLoading(true)
@@ -134,7 +137,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
     }
   }, [authToken, isLaunchingCommunityWorld, onNavigate, selectedCommunityWorld])
 
-  const profileName = user.display_name || 'Игрок'
+  const avatarInitial = (user.display_name || user.email || 'И').trim().charAt(0).toUpperCase() || 'И'
 
   return (
     <Box
@@ -165,37 +168,80 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout }: Communit
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
-        rightActionsWidth={300}
         rightActions={
-          <Stack direction="row" spacing={1.2} alignItems="center">
-            <Typography
+          <Stack direction="row" spacing={1.2}>
+            <IconButton
+              aria-label="Поддержка"
+              onClick={(event) => event.preventDefault()}
               sx={{
-                color: APP_TEXT_SECONDARY,
-                fontSize: '0.92rem',
-                maxWidth: 168,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {profileName}
-            </Typography>
-            <Button
-              onClick={onLogout}
-              sx={{
-                minHeight: 42,
-                px: 1.35,
-                borderRadius: '12px',
-                textTransform: 'none',
-                color: APP_TEXT_PRIMARY,
+                width: 44,
+                height: 44,
+                borderRadius: 'var(--morius-radius)',
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                 backgroundColor: APP_CARD_BACKGROUND,
+                transition: 'background-color 180ms ease',
                 '&:hover': {
                   backgroundColor: APP_BUTTON_HOVER,
                 },
               }}
             >
-              Выйти
+              <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <IconButton
+              aria-label="Оформление"
+              onClick={(event) => event.preventDefault()}
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_CARD_BACKGROUND,
+                transition: 'background-color 180ms ease',
+                '&:hover': {
+                  backgroundColor: APP_BUTTON_HOVER,
+                },
+              }}
+            >
+              <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+            </IconButton>
+            <Button
+              variant="text"
+              onClick={() => onNavigate('/dashboard')}
+              aria-label="Открыть профиль"
+              sx={{
+                minWidth: 0,
+                width: HEADER_AVATAR_SIZE,
+                height: HEADER_AVATAR_SIZE,
+                p: 0,
+                borderRadius: '50%',
+                border: `var(--morius-border-width) solid rgba(186, 202, 214, 0.28)`,
+                overflow: 'hidden',
+              }}
+            >
+              {user.avatar_url && user.avatar_url !== failedAvatarUrl ? (
+                <Box
+                  component="img"
+                  src={user.avatar_url}
+                  alt={user.display_name || 'Профиль'}
+                  onError={() => setFailedAvatarUrl(user.avatar_url)}
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
+                    color: APP_TEXT_PRIMARY,
+                    fontWeight: 700,
+                    fontSize: '1rem',
+                  }}
+                >
+                  {avatarInitial}
+                </Box>
+              )}
             </Button>
           </Stack>
         }
