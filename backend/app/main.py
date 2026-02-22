@@ -4994,6 +4994,12 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         if settings.debug:
             detail = f"{detail}: {exc}"
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail) from exc
+    except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
+        logger.exception("Google token verification failed")
+        detail = "Google auth verification is temporarily unavailable"
+        if settings.debug:
+            detail = f"{detail}: {exc}"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
 
     if token_data.get("iss") not in GOOGLE_ISSUERS:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
