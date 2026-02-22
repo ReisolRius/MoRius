@@ -1021,14 +1021,17 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
                 const hasCover = Boolean(game.cover_image_url)
                 return (
-                  <Box key={game.id} sx={{ position: 'relative' }}>
+                  <Box key={game.id} sx={{ position: 'relative', display: 'flex' }}>
                     <Button
                       onClick={() => onNavigate(`/home/${game.id}`)}
                       sx={{
                         borderRadius: 'var(--morius-radius)',
-                        minHeight: { xs: 320, md: 340 },
+                        height: { xs: 340, md: 360 },
+                        minHeight: { xs: 340, md: 360 },
+                        maxHeight: { xs: 340, md: 360 },
                         p: 0,
                         width: '100%',
+                        flex: 1,
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'stretch',
@@ -1071,6 +1074,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                           py: { xs: 1.05, md: 1.2 },
                           background: 'var(--morius-elevated-bg)',
                           borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          flex: 1,
+                          minHeight: 0,
+                          overflow: 'hidden',
                         }}
                       >
                         <Typography
@@ -1094,6 +1102,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                             fontSize: { xs: '0.92rem', md: '0.95rem' },
                             lineHeight: 1.4,
                             mb: 0.95,
+                            overflowWrap: 'anywhere',
+                            wordBreak: 'break-word',
                             display: '-webkit-box',
                             WebkitLineClamp: 2,
                             WebkitBoxOrient: 'vertical',

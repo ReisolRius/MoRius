@@ -33,6 +33,7 @@ from app.models import (
     CoinPurchase,
     EmailVerification,
     StoryCharacter,
+    StoryCommunityWorldLaunch,
     StoryCommunityWorldRating,
     StoryCommunityWorldView,
     StoryGame,
@@ -458,6 +459,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCommunityWorldRating.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_views_world_user_id "
         f"ON {StoryCommunityWorldView.__tablename__} (world_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_launches_world_user_id "
+        f"ON {StoryCommunityWorldLaunch.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
     )
@@ -5294,7 +5297,20 @@ def launch_story_community_world(
         target_game_id=cloned_game.id,
     )
 
-    world.community_launches = max(int(world.community_launches or 0), 0) + 1
+    existing_launch = db.scalar(
+        select(StoryCommunityWorldLaunch).where(
+            StoryCommunityWorldLaunch.world_id == world.id,
+            StoryCommunityWorldLaunch.user_id == user.id,
+        )
+    )
+    if existing_launch is None:
+        db.add(
+            StoryCommunityWorldLaunch(
+                world_id=world.id,
+                user_id=user.id,
+            )
+        )
+        world.community_launches = max(int(world.community_launches or 0), 0) + 1
     _touch_story_game(cloned_game)
     db.commit()
     db.refresh(cloned_game)

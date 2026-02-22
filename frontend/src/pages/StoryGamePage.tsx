@@ -3811,59 +3811,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       const contextState = worldCardContextStateById.get(card.id)
                       const isCardContextActive = Boolean(contextState?.isActive)
                       return (
-                        <Box
-                          key={card.id}
-                          sx={{
-                            borderRadius: '12px',
-                            border: isCardContextActive
-                              ? 'var(--morius-border-width) solid rgba(131, 213, 164, 0.62)'
-                              : 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: isCardContextActive ? 'rgba(18, 30, 24, 0.54)' : 'var(--morius-elevated-bg)',
-                            boxShadow: isCardContextActive ? '0 0 0 1px rgba(79, 164, 116, 0.22) inset' : 'none',
-                            px: 'var(--morius-story-right-padding)',
-                            py: 'var(--morius-story-right-padding)',
-                            height: RIGHT_PANEL_CARD_HEIGHT,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flexWrap: 'wrap', rowGap: 0.45 }}>
-                            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                              {card.kind === 'npc' || card.kind === 'main_hero' ? (
-                                <Button
-                                  onClick={() => handleOpenWorldCardAvatarPicker(card.id)}
-                                  disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
-                                  sx={{
-                                    minWidth: 0,
-                                    minHeight: 0,
-                                    p: 0,
-                                    width: 30,
-                                    height: 30,
-                                    borderRadius: '50%',
-                                    flexShrink: 0,
-                                    lineHeight: 0,
-                                  }}
-                                >
-                                  <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} avatarScale={card.avatar_scale} fallbackLabel={card.title} size={30} />
-                                </Button>
-                              ) : null}
-                              <Typography
-                                sx={{
-                                  color: '#e2e8f3',
-                                  fontWeight: 700,
-                                  fontSize: '0.95rem',
-                                  lineHeight: 1.25,
-                                  flex: 1,
-                                  minWidth: 0,
-                                  whiteSpace: 'nowrap',
-                                  textOverflow: 'ellipsis',
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                {card.title}
-                              </Typography>
-                            </Stack>
+                        <Box key={card.id} sx={{ display: 'flex', flexDirection: 'column', gap: 0.45 }}>
+                          <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap', px: 0.25 }}>
                             <Typography
                               sx={{
                                 color: isCardContextActive ? 'rgba(170, 238, 191, 0.96)' : 'rgba(155, 172, 196, 0.84)',
@@ -3878,7 +3827,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 borderRadius: '999px',
                                 px: 0.55,
                                 py: 0.18,
-                                flexShrink: 0,
                               }}
                             >
                               {formatWorldCardContextStatus(contextState)}
@@ -3897,71 +3845,124 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 borderRadius: '999px',
                                 px: 0.55,
                                 py: 0.18,
-                                flexShrink: 0,
                               }}
                             >
                               {card.ai_edit_enabled ? 'ИИ: РАЗРЕШЕНО' : 'ИИ: ЗАПРЕЩЕНО'}
                             </Typography>
-                            {card.source === 'ai' ? (
-                              <Typography
+                          </Stack>
+                          <Box
+                            sx={{
+                              borderRadius: '12px',
+                              border: isCardContextActive
+                                ? 'var(--morius-border-width) solid rgba(131, 213, 164, 0.62)'
+                                : 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: isCardContextActive ? 'rgba(18, 30, 24, 0.54)' : 'var(--morius-elevated-bg)',
+                              boxShadow: isCardContextActive ? '0 0 0 1px rgba(79, 164, 116, 0.22) inset' : 'none',
+                              px: 'var(--morius-story-right-padding)',
+                              py: 'var(--morius-story-right-padding)',
+                              height: RIGHT_PANEL_CARD_HEIGHT,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                              <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                                {card.kind === 'npc' || card.kind === 'main_hero' ? (
+                                  <Button
+                                    onClick={() => handleOpenWorldCardAvatarPicker(card.id)}
+                                    disabled={isSavingWorldCardAvatar || isGenerating || isCreatingGame}
+                                    sx={{
+                                      minWidth: 0,
+                                      minHeight: 0,
+                                      p: 0,
+                                      width: 30,
+                                      height: 30,
+                                      borderRadius: '50%',
+                                      flexShrink: 0,
+                                      lineHeight: 0,
+                                    }}
+                                  >
+                                    <CharacterAvatar avatarUrl={resolveWorldCardAvatar(card)} avatarScale={card.avatar_scale} fallbackLabel={card.title} size={30} />
+                                  </Button>
+                                ) : null}
+                                <Typography
+                                  sx={{
+                                    color: '#e2e8f3',
+                                    fontWeight: 700,
+                                    fontSize: '0.95rem',
+                                    lineHeight: 1.25,
+                                    flex: 1,
+                                    minWidth: 0,
+                                    whiteSpace: 'nowrap',
+                                    textOverflow: 'ellipsis',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  {card.title}
+                                </Typography>
+                              </Stack>
+                              {card.source === 'ai' ? (
+                                <Typography
+                                  sx={{
+                                    color: 'rgba(165, 188, 224, 0.66)',
+                                    fontSize: '0.68rem',
+                                    lineHeight: 1,
+                                    letterSpacing: 0.2,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  ии
+                                </Typography>
+                              ) : null}
+                              <IconButton
+                                onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
+                                disabled={isWorldCardActionLocked}
                                 sx={{
-                                  color: 'rgba(165, 188, 224, 0.66)',
-                                  fontSize: '0.68rem',
-                                  lineHeight: 1,
-                                  letterSpacing: 0.2,
-                                  flexShrink: 0,
+                                  width: 22,
+                                  height: 22,
+                                  p: 0,
+                                  minWidth: 0,
+                                  color: 'rgba(208, 219, 235, 0.84)',
+                                  backgroundColor: 'transparent',
+                                  border: 'none',
+                                  '&:hover': { backgroundColor: 'transparent' },
+                                  '&:active': { backgroundColor: 'transparent' },
                                 }}
                               >
-                                ии
-                              </Typography>
-                            ) : null}
-                            <IconButton
-                              onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
-                              disabled={isWorldCardActionLocked}
+                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                              </IconButton>
+                            </Stack>
+                            <Typography
                               sx={{
-                                width: 22,
-                                height: 22,
-                                p: 0,
-                                minWidth: 0,
-                                color: 'rgba(208, 219, 235, 0.84)',
-                                backgroundColor: 'transparent',
-                                border: 'none',
-                                '&:hover': { backgroundColor: 'transparent' },
-                                '&:active': { backgroundColor: 'transparent' },
+                                mt: 0.55,
+                                color: 'rgba(207, 217, 232, 0.86)',
+                                fontSize: '0.86rem',
+                                lineHeight: 1.4,
+                                whiteSpace: 'pre-wrap',
+                                display: '-webkit-box',
+                                WebkitLineClamp: 5,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
                               }}
                             >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
-                            </IconButton>
-                          </Stack>
-                          <Typography
-                            sx={{
-                              mt: 0.55,
-                              color: 'rgba(207, 217, 232, 0.86)',
-                              fontSize: '0.86rem',
-                              lineHeight: 1.4,
-                              whiteSpace: 'pre-wrap',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 5,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {card.content}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              mt: 0.45,
-                              color: 'rgba(178, 195, 221, 0.7)',
-                              fontSize: '0.78rem',
-                              lineHeight: 1.3,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
-                          </Typography>
+                              {card.content}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                mt: 0.45,
+                                color: 'rgba(178, 195, 221, 0.7)',
+                                fontSize: '0.78rem',
+                                lineHeight: 1.3,
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              Триггеры: {card.triggers.length > 0 ? card.triggers.join(', ') : '—'}
+                            </Typography>
+                          </Box>
                         </Box>
                       )
                     })}

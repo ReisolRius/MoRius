@@ -119,6 +119,18 @@ class StoryCommunityWorldView(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StoryCommunityWorldLaunch(Base):
+    __tablename__ = "story_community_world_launches"
+    __table_args__ = (
+        UniqueConstraint("world_id", "user_id", name="uq_story_community_world_launches_world_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class StoryMessage(Base):
     __tablename__ = "story_messages"
 
