@@ -34,7 +34,7 @@ export const moriusThemeTokens = {
     bodySize: 16,
   },
   layout: {
-    headerHeight: 80,
+    headerHeight: 40,
     headerTopOffset: 20,
     headerSideOffset: 20,
     headerMenuTop: 80,

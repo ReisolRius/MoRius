@@ -87,7 +87,7 @@ function AppHeader({
           top: 0,
           left: 0,
           right: 0,
-          height: 'calc(var(--morius-header-height) + 28px)',
+          height: 'calc(var(--morius-header-height) + 40px)',
           zIndex: 34,
           pointerEvents: 'none',
           backdropFilter: 'blur(10px)',
