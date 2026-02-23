@@ -1,10 +1,15 @@
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
+export type StoryNarratorModelId =
+  | 'z-ai/glm-5'
+  | 'arcee-ai/trinity-large-preview:free'
+  | 'moonshotai/kimi-k2-0905'
 
 export type StoryGameSummary = {
   id: number
   title: string
   description: string
+  opening_scene: string
   visibility: StoryGameVisibility
   age_rating: '6+' | '16+' | '18+'
   genres: string[]
@@ -18,6 +23,10 @@ export type StoryGameSummary = {
   community_rating_avg: number
   community_rating_count: number
   context_limit_chars: number
+  story_llm_model: StoryNarratorModelId
+  memory_optimization_enabled: boolean
+  story_top_k: number
+  story_top_r: number
   last_activity_at: string
   created_at: string
   updated_at: string

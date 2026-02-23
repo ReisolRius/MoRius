@@ -117,18 +117,32 @@ def _send_email_verification_code_via_resend(
         raise RuntimeError(f"Resend API error ({response.status_code})")
 
 
+def _build_verification_email_subject() -> str:
+    return "MoRius: код подтверждения email"
+
+
+def _build_verification_email_text(*, verification_code: str, ttl_minutes: int) -> str:
+    return (
+        "Код подтверждения для регистрации в MoRius:\n"
+        f"{verification_code}\n\n"
+        f"Код действует {ttl_minutes} минут.\n"
+        "Если вы не запрашивали код, просто проигнорируйте это письмо."
+    )
+
+
 def send_email_verification_code(recipient_email: str, verification_code: str) -> None:
     ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
+    subject = _build_verification_email_subject()
+    text_body = _build_verification_email_text(
+        verification_code=verification_code,
+        ttl_minutes=ttl_minutes,
+    )
+
     message = EmailMessage()
-    message["Subject"] = "MoRius: РєРѕРґ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ email"
+    message["Subject"] = subject
     message["From"] = _build_mail_from_header()
     message["To"] = recipient_email
-    message.set_content(
-        "РљРѕРґ РїРѕРґС‚РІРµСЂР¶РґРµРЅРёСЏ РґР»СЏ СЂРµРіРёСЃС‚СЂР°С†РёРё РІ MoRius:\n"
-        f"{verification_code}\n\n"
-        f"РљРѕРґ РґРµР№СЃС‚РІСѓРµС‚ {ttl_minutes} РјРёРЅСѓС‚.\n"
-        "Р•СЃР»Рё РІС‹ РЅРµ Р·Р°РїСЂР°С€РёРІР°Р»Рё РєРѕРґ, РїСЂРѕСЃС‚Рѕ РїСЂРѕРёРіРЅРѕСЂРёСЂСѓР№С‚Рµ СЌС‚Рѕ РїРёСЃСЊРјРѕ."
-    )
+    message.set_content(text_body, subtype="plain", charset="utf-8")
 
     if settings.resend_api_key:
         if not settings.resend_from_email:
@@ -137,8 +151,8 @@ def send_email_verification_code(recipient_email: str, verification_code: str) -
         _send_email_verification_code_via_resend(
             recipient_email=recipient_email,
             from_header=_build_mail_from_header_for_email(settings.resend_from_email),
-            subject=str(message["Subject"]),
-            text_body=message.get_content(),
+            subject=subject,
+            text_body=text_body,
         )
         return
 

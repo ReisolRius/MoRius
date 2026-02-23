@@ -69,7 +69,32 @@ class StoryGame(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="Новая игра")
     context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=2000, server_default="2000")
+    story_llm_model: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="z-ai/glm-5",
+        server_default="z-ai/glm-5",
+    )
+    memory_optimization_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    story_top_k: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    story_top_r: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=1.0,
+        server_default="1.0",
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    opening_scene: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
     age_rating: Mapped[str] = mapped_column(String(8), nullable=False, default="16+", server_default="16+")
     genres: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")

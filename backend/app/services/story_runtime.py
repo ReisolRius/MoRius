@@ -13,6 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryWorldCardChangeEvent
 from app.schemas import StoryGenerateRequest
+from app.services.story_games import (
+    coerce_story_llm_model,
+    normalize_story_top_k,
+    normalize_story_top_r,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,10 @@ def _stream_story_response(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
+    story_model_name: str | None,
+    story_top_k: int,
+    story_top_r: float,
+    memory_optimization_enabled: bool,
 ):
     assistant_message: StoryMessage | None = None
     try:
@@ -109,6 +118,9 @@ def _stream_story_response(
             plot_cards=plot_cards,
             world_cards=world_cards,
             context_limit_chars=context_limit_chars,
+            story_model_name=story_model_name,
+            story_top_k=story_top_k,
+            story_top_r=story_top_r,
         ):
             produced += chunk
             current_time = time.monotonic()
@@ -173,13 +185,14 @@ def _stream_story_response(
             ]
         except Exception:
             logger.exception("Failed to persist generated world cards")
-        try:
-            plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(db=db, game=game)
-            persisted_plot_card_events = [
-                deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
-            ]
-        except Exception:
-            logger.exception("Failed to update story plot memory card")
+        if memory_optimization_enabled:
+            try:
+                plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(db=db, game=game)
+                persisted_plot_card_events = [
+                    deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
+                ]
+            except Exception:
+                logger.exception("Failed to update story plot memory card")
         yield _sse_event(
             "done",
             {
@@ -209,6 +222,18 @@ def generate_story_response(
     deps.validate_provider_config()
     user = deps.get_current_user(db, authorization)
     game = deps.get_user_story_game_or_404(db, user.id, game_id)
+    story_model_name = coerce_story_llm_model(getattr(game, "story_llm_model", None))
+    if payload.story_llm_model is not None:
+        story_model_name = coerce_story_llm_model(payload.story_llm_model)
+    memory_optimization_enabled = bool(getattr(game, "memory_optimization_enabled", True))
+    if payload.memory_optimization_enabled is not None:
+        memory_optimization_enabled = bool(payload.memory_optimization_enabled)
+    story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None))
+    if payload.story_top_k is not None:
+        story_top_k = normalize_story_top_k(payload.story_top_k)
+    story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
+    if payload.story_top_r is not None:
+        story_top_r = normalize_story_top_r(payload.story_top_r)
     messages = deps.list_story_messages(db, game.id)
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
     source_user_message: StoryMessage | None = None
@@ -292,7 +317,7 @@ def generate_story_response(
         }
         for card in plot_cards[:40]
         if card.title.strip() and card.content.strip()
-    ]
+    ] if memory_optimization_enabled else []
     assistant_turn_index = (
         len([message for message in context_messages if message.role == deps.story_assistant_role]) + 1
     )
@@ -308,6 +333,10 @@ def generate_story_response(
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
         context_limit_chars=deps.normalize_context_limit_chars(game.context_limit_chars),
+        story_model_name=story_model_name,
+        story_top_k=story_top_k,
+        story_top_r=story_top_r,
+        memory_optimization_enabled=memory_optimization_enabled,
     )
     return StreamingResponse(
         stream,

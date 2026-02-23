@@ -84,6 +84,7 @@ class CoinTopUpSyncResponse(BaseModel):
 class StoryGameCreateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4_000)
+    opening_scene: str | None = Field(default=None, max_length=12_000)
     visibility: str | None = Field(default=None, max_length=16)
     age_rating: str | None = Field(default=None, max_length=8)
     genres: list[str] | None = Field(default=None, max_length=3)
@@ -92,15 +93,24 @@ class StoryGameCreateRequest(BaseModel):
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
     context_limit_chars: int | None = Field(default=None, ge=500, le=6_000)
+    story_llm_model: str | None = Field(default=None, max_length=120)
+    memory_optimization_enabled: bool | None = None
+    story_top_k: int | None = Field(default=None, ge=0, le=200)
+    story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int = Field(ge=500, le=6_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=6_000)
+    story_llm_model: str | None = Field(default=None, max_length=120)
+    memory_optimization_enabled: bool | None = None
+    story_top_k: int | None = Field(default=None, ge=0, le=200)
+    story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
 
 
 class StoryGameMetaUpdateRequest(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=4_000)
+    opening_scene: str | None = Field(default=None, max_length=12_000)
     visibility: str | None = Field(default=None, max_length=16)
     age_rating: str | None = Field(default=None, max_length=8)
     genres: list[str] | None = Field(default=None, max_length=3)
@@ -119,6 +129,10 @@ class StoryGenerateRequest(BaseModel):
     prompt: str | None = Field(default=None, min_length=1, max_length=8_000)
     reroll_last_response: bool = False
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
+    story_llm_model: str | None = Field(default=None, max_length=120)
+    memory_optimization_enabled: bool | None = None
+    story_top_k: int | None = Field(default=None, ge=0, le=200)
+    story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
 
 
 class StoryInstructionCardCreateRequest(BaseModel):
@@ -313,6 +327,7 @@ class StoryGameSummaryOut(BaseModel):
     id: int
     title: str
     description: str
+    opening_scene: str
     visibility: str
     age_rating: str
     genres: list[str]
@@ -326,6 +341,10 @@ class StoryGameSummaryOut(BaseModel):
     community_rating_avg: float
     community_rating_count: int
     context_limit_chars: int
+    story_llm_model: str
+    memory_optimization_enabled: bool
+    story_top_k: int
+    story_top_r: float
     last_activity_at: datetime
     created_at: datetime
     updated_at: datetime

@@ -109,6 +109,40 @@ STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
 STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS = 1_800
 STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES = 40
+STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS = 900
+STORY_PLOT_CARD_MEMORY_TARGET_MAX_LINES = 5
+STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS = 150
+STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
+STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
+STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
+    "цель",
+    "задач",
+    "план",
+    "нужно",
+    "долж",
+    "конфликт",
+    "угроз",
+    "опас",
+    "враг",
+    "против",
+    "бой",
+    "рана",
+    "смерт",
+    "плен",
+    "отношен",
+    "союз",
+    "довер",
+    "предал",
+    "тайн",
+    "улик",
+    "артефакт",
+    "ключ",
+    "риск",
+    "последств",
+    "дальше",
+    "следующ",
+    "незакрыт",
+)
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_WORLD_CARD_KIND_WORLD = "world"
@@ -273,6 +307,16 @@ HTTP_SESSION.mount("https://", HTTP_ADAPTER)
 HTTP_SESSION.mount("http://", HTTP_ADAPTER)
 STORY_STREAM_PERSIST_MIN_CHARS = 900
 STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
+STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
+    "arcee-ai/trinity-large-preview:free",
+    "moonshotai/kimi-k2-0905",
+}
+STORY_PLOT_CARD_DEFAULT_TITLE = "Суть текущего эпизода"
+STORY_PLOT_CARD_TITLE_WORD_MAX = 7
+STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
+    r"^(?:контекст|цель|конфликт|факты|факт|риск|незакрытое)\s*:\s*",
+    re.IGNORECASE,
+)
 STORY_SYSTEM_PROMPT = (
     "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
     "Отвечай только на русском языке. "
@@ -1566,10 +1610,25 @@ def _normalize_generated_story_output(
     return _prefix_story_narrator_markup(normalized_text)
 
 
+def _effective_story_llm_provider() -> str:
+    provider = settings.story_llm_provider.strip().lower()
+    if provider != "mock":
+        return provider
+
+    if settings.openrouter_api_key and settings.openrouter_model:
+        return "openrouter"
+    if settings.gigachat_authorization_key:
+        return "gigachat"
+    return "mock"
+
+
 def _validate_story_provider_config() -> None:
-    provider = settings.story_llm_provider
+    provider = _effective_story_llm_provider()
     if provider == "mock":
-        return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Story provider is not configured: set STORY_LLM_PROVIDER=openrouter and OPENROUTER_API_KEY",
+        )
 
     if provider == "gigachat":
         if settings.gigachat_authorization_key:
@@ -1638,10 +1697,11 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
 
 
 def _is_story_translation_enabled() -> bool:
+    provider = _effective_story_llm_provider()
     # For Russian UI + OpenRouter we keep native generation in Russian:
     # this avoids extra translation latency and prevents English fallbacks
     # when translation model is unavailable.
-    if settings.story_llm_provider == "openrouter" and settings.story_user_language == "ru":
+    if provider == "openrouter" and settings.story_user_language == "ru":
         return False
 
     return (
@@ -1650,6 +1710,32 @@ def _is_story_translation_enabled() -> bool:
         and bool(settings.openrouter_translation_model)
         and settings.story_user_language != settings.story_model_language
     )
+
+
+def _can_force_story_output_translation() -> bool:
+    return (
+        bool(settings.openrouter_api_key)
+        and bool(settings.openrouter_translation_model)
+        and bool(settings.story_user_language)
+    )
+
+
+def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
+    normalized_model = (model_name or "").strip().lower()
+    if not normalized_model:
+        return False
+    if settings.story_user_language != "ru":
+        return False
+    if normalized_model not in STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS:
+        return False
+    return _can_force_story_output_translation()
+
+
+def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
+    normalized_model = (model_name or "").strip().lower()
+    if not normalized_model:
+        return False
+    return "deepseek" not in normalized_model
 
 
 def _extract_story_markup_tokens(text_value: str) -> list[str]:
@@ -1814,6 +1900,19 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
         [text_value],
         source_language=source_language,
         target_language=target_language,
+    )
+    return translated[0] if translated else text_value
+
+
+def _force_translate_story_model_output_to_user(text_value: str) -> str:
+    if not text_value.strip():
+        return text_value
+    if not _can_force_story_output_translation():
+        return text_value
+    translated = _translate_text_batch_with_openrouter(
+        [text_value],
+        source_language="auto",
+        target_language=settings.story_user_language,
     )
     return translated[0] if translated else text_value
 
@@ -2555,10 +2654,11 @@ def _generate_story_world_card_change_operations(
 
     messages_payload = _build_story_world_card_change_messages(prompt, assistant_text, existing_cards)
 
+    provider = _effective_story_llm_provider()
     raw_operations: Any = []
-    if settings.story_llm_provider == "openrouter":
+    if provider == "openrouter":
         raw_operations = _request_openrouter_world_card_candidates(messages_payload)
-    elif settings.story_llm_provider == "gigachat":
+    elif provider == "gigachat":
         raw_operations = _request_gigachat_world_card_candidates(messages_payload)
     else:
         return []
@@ -2885,12 +2985,17 @@ def _build_story_plot_card_memory_messages(
         {
             "role": "system",
             "content": (
-                "Ты сжимаешь историю ответов мастера игры в короткую карточку памяти. "
-                "Сохраняй важные факты, имена, отношения, незавершенные конфликты, цели, открытия и текущую сцену. "
-                "Пиши компактно, но без потери смысла. "
-                "Заголовок должен быть конкретным по текущей сцене, без шаблонов вроде 'Сюжетная сводка'. "
-                "Верни строго JSON-объект без markdown: {\"title\": string, \"content\": string}. "
-                "title: до 120 символов. content: до 16000 символов."
+                "Ты редактор краткой долговременной памяти для RPG. "
+                "Задача: максимально сократить текст без потери контекста и важных деталей. "
+                "Сохраняй только управленчески важное: текущий контекст сцены, цель, конфликт/угрозу, ключевые факты, незакрытые линии. "
+                "Удаляй атмосферные описания, повторы, украшения, второстепенные детали и длинные пересказы. "
+                "Заголовок должен передавать суть текущего этапа истории, 3-7 слов, без шаблонов и без копирования первой строки. "
+                "Верни строго JSON без markdown: "
+                "{\"title\": string, \"memory_points\": string[], \"content\": string}. "
+                "memory_points: 4-6 коротких пунктов по делу, каждый <=150 символов. "
+                "Каждый пункт начинай с одной из меток: "
+                "'Контекст:', 'Цель:', 'Конфликт:', 'Факты:', 'Риск:', 'Незакрытое:'. "
+                "content: компактная версия тех же пунктов."
             ),
         },
         {
@@ -2899,13 +3004,156 @@ def _build_story_plot_card_memory_messages(
                 f"Текущая карточка памяти (может быть пусто):\nЗаголовок: {current_title or 'нет'}\n"
                 f"Текст:\n{current_memory or 'нет'}\n\n"
                 f"История ответов мастера JSON:\n{history_json}\n\n"
-                "Обнови карточку памяти. Верни только JSON."
+                "Обнови карточку памяти. Сожми без потери критичных деталей для следующего хода. Верни только JSON."
             ),
         },
     ]
 
 
-def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] | None:
+def _extract_story_plot_memory_points(raw_payload: dict[str, Any]) -> list[str]:
+    extracted: list[str] = []
+    for key in ("memory_points", "points", "bullets", "facts", "items"):
+        raw_value = raw_payload.get(key)
+        if not isinstance(raw_value, list):
+            continue
+        for item in raw_value:
+            if isinstance(item, str):
+                extracted.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            nested_text = (
+                item.get("text")
+                or item.get("content")
+                or item.get("value")
+                or item.get("point")
+            )
+            if isinstance(nested_text, str):
+                extracted.append(nested_text)
+    return extracted
+
+
+def _score_story_plot_memory_line(line: str) -> int:
+    normalized = line.casefold()
+    score = 0
+    if ":" in line[:24]:
+        score += 3
+    if re.search(r"\d", line):
+        score += 2
+    if re.search(r"\b[А-ЯЁA-Z][а-яёa-z]{2,}\b", line):
+        score += 2
+    score += sum(2 for token in STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS if token in normalized)
+    if len(line) < 20:
+        score -= 1
+    if len(line) > STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS:
+        score -= 1
+    return score
+
+
+def _compress_story_plot_memory_content(raw_content: str, *, preferred_lines: list[str] | None = None) -> str:
+    normalized = raw_content.replace("\r\n", "\n").strip()
+    if not normalized and not preferred_lines:
+        return ""
+
+    lines = [line.strip(" -•\t") for line in (preferred_lines or []) if isinstance(line, str) and line.strip()]
+    if not lines and normalized:
+        lines = [line.strip(" -•\t") for line in normalized.split("\n") if line.strip()]
+    if len(lines) <= 1:
+        sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", normalized or ""))
+        lines = [candidate.strip() for candidate in sentence_candidates if candidate.strip()]
+
+    cleaned_lines: list[tuple[int, str]] = []
+    seen_lines: set[str] = set()
+    for index, line in enumerate(lines):
+        compact = re.sub(r"\s+", " ", line).strip()
+        if not compact:
+            continue
+        if len(compact) > STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS:
+            compact = f"{compact[:STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS - 3].rstrip(' ,;:-')}..."
+        compact_key = compact.casefold()
+        if compact_key in seen_lines:
+            continue
+        seen_lines.add(compact_key)
+        cleaned_lines.append((index, compact))
+
+    if not cleaned_lines:
+        single_line = re.sub(r"\s+", " ", normalized).strip()
+        if len(single_line) > STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS:
+            single_line = f"{single_line[:STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS - 3].rstrip()}..."
+        return single_line
+
+    ranked_lines = sorted(
+        (
+            (index, line, _score_story_plot_memory_line(line))
+            for index, line in cleaned_lines
+        ),
+        key=lambda item: (-item[2], item[0]),
+    )
+    selected = ranked_lines[: STORY_PLOT_CARD_MEMORY_TARGET_MAX_LINES]
+
+    latest_index, latest_line = cleaned_lines[-1]
+    if latest_line and all(latest_index != index for index, _, _ in selected):
+        selected.sort(key=lambda item: (item[2], -item[0]))
+        selected[0] = (latest_index, latest_line, _score_story_plot_memory_line(latest_line))
+
+    ordered_lines = [line for _, line, _ in sorted(selected, key=lambda item: item[0])]
+    compact_content = "\n".join(f"- {line}" for line in ordered_lines)
+    if len(compact_content) > STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS:
+        compact_content = compact_content[:STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS].rstrip()
+    return compact_content
+
+
+def _is_story_plot_card_default_title(value: str) -> bool:
+    normalized = " ".join(value.split()).strip().casefold()
+    if not normalized:
+        return True
+    return normalized in {
+        STORY_PLOT_CARD_DEFAULT_TITLE.casefold(),
+        "суть эпизода",
+        "текущий эпизод",
+    }
+
+
+def _derive_story_plot_card_title_from_content(
+    raw_content: str,
+    *,
+    preferred_lines: list[str] | None = None,
+) -> str:
+    line_candidates: list[str] = []
+    if preferred_lines:
+        line_candidates.extend(
+            line
+            for line in preferred_lines
+            if isinstance(line, str) and line.strip()
+        )
+    normalized_content = raw_content.replace("\r\n", "\n").strip()
+    if normalized_content:
+        line_candidates.extend(line for line in normalized_content.split("\n") if line.strip())
+    if not line_candidates:
+        return STORY_PLOT_CARD_DEFAULT_TITLE
+
+    for line in line_candidates:
+        compact = re.sub(r"\s+", " ", line).strip(" -•\t")
+        if not compact:
+            continue
+        compact = STORY_PLOT_CARD_POINT_PREFIX_PATTERN.sub("", compact).strip(" ,;:-.")
+        if len(compact) < 3:
+            continue
+        words = compact.split()
+        if len(words) > STORY_PLOT_CARD_TITLE_WORD_MAX:
+            compact = " ".join(words[:STORY_PLOT_CARD_TITLE_WORD_MAX]).rstrip(" ,;:-.")
+        if len(compact) < 3:
+            continue
+        return compact[0].upper() + compact[1:]
+
+    return STORY_PLOT_CARD_DEFAULT_TITLE
+
+
+def _normalize_story_plot_card_ai_payload(
+    raw_payload: Any,
+    *,
+    fallback_title: str = "",
+) -> tuple[str, str] | None:
     if not isinstance(raw_payload, dict):
         return None
 
@@ -2921,21 +3169,36 @@ def _normalize_story_plot_card_ai_payload(raw_payload: Any) -> tuple[str, str] |
         or raw_payload.get("text")
         or raw_payload.get("текст")
     )
+    raw_points = _extract_story_plot_memory_points(raw_payload)
     if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+        if not isinstance(raw_title, str) and isinstance(raw_content, str):
+            raw_title = fallback_title or STORY_PLOT_CARD_DEFAULT_TITLE
+        if not isinstance(raw_content, str) and raw_points:
+            raw_content = "\n".join(raw_points)
         nested_card = raw_payload.get("card")
         if isinstance(nested_card, dict):
-            return _normalize_story_plot_card_ai_payload(nested_card)
-        return None
+            return _normalize_story_plot_card_ai_payload(nested_card, fallback_title=fallback_title)
+        if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+            return None
 
     title = " ".join(raw_title.split()).strip()
-    content = raw_content.replace("\r\n", "\n").strip()
-    if not title or not content:
+    content = _compress_story_plot_memory_content(raw_content, preferred_lines=raw_points)
+
+    if len(title) < 3:
+        title = ""
+    if not title or _is_story_plot_card_default_title(title):
+        title = fallback_title.strip()
+    if not title or _is_story_plot_card_default_title(title):
+        title = _derive_story_plot_card_title_from_content(content, preferred_lines=raw_points)
+    if not title:
+        title = STORY_PLOT_CARD_DEFAULT_TITLE
+    if not content:
         return None
 
     if len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
         title = title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
     if len(content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
-        content = content[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
+        content = content[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
     if not title or not content:
         return None
 
@@ -2965,31 +3228,18 @@ def _build_story_plot_card_fallback_payload(
         return None
 
     fallback_title = existing_card.title.strip() if existing_card is not None else ""
-    if not fallback_title:
-        for item in reversed(trimmed_history):
-            raw_candidate = item.get("content", "").replace("\r\n", "\n").strip()
-            if not raw_candidate:
-                continue
-            first_line = raw_candidate.split("\n", maxsplit=1)[0].strip(" .,:;!?-\"'В«В»()[]")
-            if not first_line:
-                continue
-            words = first_line.split()
-            if len(words) > 8:
-                first_line = " ".join(words[:8])
-            if len(first_line) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
-                first_line = first_line[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip(" .,:;!?-")
-            if first_line:
-                fallback_title = first_line
-                break
 
+    combined_content = _compress_story_plot_memory_content("\n".join(history_parts[-10:]))
+    if not combined_content:
+        return None
+    if not fallback_title or _is_story_plot_card_default_title(fallback_title):
+        fallback_title = _derive_story_plot_card_title_from_content(combined_content)
     if not fallback_title:
-        fallback_title = "Ключевые события эпизода"
-
-    combined_content = "\n\n".join(history_parts)
+        fallback_title = STORY_PLOT_CARD_DEFAULT_TITLE
 
     return (
         _normalize_story_plot_card_title(fallback_title),
-        _normalize_story_plot_card_content(combined_content, preserve_tail=True),
+        _normalize_story_plot_card_content(combined_content),
     )
 
 
@@ -3001,7 +3251,7 @@ def _upsert_story_plot_memory_card(
     if not settings.openrouter_api_key:
         return (False, [])
 
-    model_name = (settings.openrouter_plot_card_model or settings.openrouter_translation_model).strip()
+    model_name = (settings.openrouter_plot_card_model or "deepseek/deepseek-r1-0528:free").strip()
     if not model_name:
         return (False, [])
 
@@ -3040,11 +3290,18 @@ def _upsert_story_plot_memory_card(
             messages_payload,
             model_name=model_name,
             allow_free_fallback=False,
-            temperature=0.1,
-            request_timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+            temperature=0.0,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
         )
         parsed_payload = _extract_json_object_from_text(raw_response)
-        normalized_payload = _normalize_story_plot_card_ai_payload(parsed_payload)
+        fallback_title = target_card.title.strip() if target_card is not None else ""
+        normalized_payload = _normalize_story_plot_card_ai_payload(
+            parsed_payload,
+            fallback_title=fallback_title,
+        )
     except Exception as exc:
         logger.warning("Plot card memory generation failed, fallback will be used: %s", exc)
 
@@ -3304,6 +3561,9 @@ def _iter_openrouter_story_stream_chunks(
     world_cards: list[dict[str, Any]],
     *,
     context_limit_chars: int,
+    model_name: str | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
 ):
     messages_payload = _build_story_provider_messages(
         context_messages,
@@ -3325,8 +3585,12 @@ def _iter_openrouter_story_stream_chunks(
     if settings.openrouter_app_name:
         headers["X-Title"] = settings.openrouter_app_name
 
-    candidate_models = [settings.openrouter_model]
-    if settings.openrouter_model != "openrouter/free":
+    primary_model = (model_name or settings.openrouter_model).strip()
+    if not primary_model:
+        raise RuntimeError("OpenRouter chat model is not configured")
+
+    candidate_models = [primary_model]
+    if primary_model != "openrouter/free":
         candidate_models.append("openrouter/free")
 
     last_error: RuntimeError | None = None
@@ -3337,6 +3601,10 @@ def _iter_openrouter_story_stream_chunks(
             "messages": messages_payload,
             "stream": True,
         }
+        if top_k is not None:
+            payload["top_k"] = top_k
+        if top_p is not None:
+            payload["top_p"] = top_p
 
         for attempt_index in range(2):
             try:
@@ -3512,6 +3780,8 @@ def _request_openrouter_story_text(
     model_name: str | None = None,
     allow_free_fallback: bool = True,
     temperature: float | None = None,
+    top_k: int | None = None,
+    top_p: float | None = None,
     request_timeout: tuple[int, int] | None = None,
 ) -> str:
     headers = {
@@ -3542,6 +3812,10 @@ def _request_openrouter_story_text(
         }
         if temperature is not None:
             payload["temperature"] = temperature
+        if top_k is not None:
+            payload["top_k"] = top_k
+        if top_p is not None:
+            payload["top_p"] = top_p
         try:
             response = HTTP_SESSION.post(
                 settings.openrouter_chat_url,
@@ -3612,8 +3886,13 @@ def _iter_story_provider_stream_chunks(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
+    story_model_name: str | None = None,
+    story_top_k: int = 0,
+    story_top_r: float = 1.0,
 ):
-    if settings.story_llm_provider == "gigachat":
+    provider = _effective_story_llm_provider()
+
+    if provider == "gigachat":
         if _is_story_translation_enabled():
             payload = _build_story_provider_messages(
                 context_messages,
@@ -3642,19 +3921,33 @@ def _iter_story_provider_stream_chunks(
         )
         return
 
-    if settings.story_llm_provider == "openrouter":
-        if _is_story_translation_enabled():
+    if provider == "openrouter":
+        selected_model_name = (story_model_name or settings.openrouter_model).strip() or settings.openrouter_model
+        apply_sampling = _can_apply_story_sampling_to_model(selected_model_name)
+        top_k_value = story_top_k if apply_sampling else None
+        top_p_value = story_top_r if apply_sampling else None
+        translation_enabled = _is_story_translation_enabled()
+        force_output_translation = _should_force_openrouter_story_output_translation(selected_model_name)
+        if translation_enabled or force_output_translation:
             payload = _build_story_provider_messages(
                 context_messages,
                 instruction_cards,
                 plot_cards,
                 world_cards,
                 context_limit_tokens=context_limit_chars,
-                translate_for_model=True,
+                translate_for_model=translation_enabled,
             )
-            generated_text = _request_openrouter_story_text(payload)
+            generated_text = _request_openrouter_story_text(
+                payload,
+                model_name=selected_model_name,
+                top_k=top_k_value,
+                top_p=top_p_value,
+            )
             try:
-                translated_text = _translate_story_model_output_to_user(generated_text)
+                if force_output_translation and not translation_enabled:
+                    translated_text = _force_translate_story_model_output_to_user(generated_text)
+                else:
+                    translated_text = _translate_story_model_output_to_user(generated_text)
             except Exception as exc:
                 logger.warning("Story output translation failed: %s", exc)
                 translated_text = generated_text
@@ -3668,13 +3961,13 @@ def _iter_story_provider_stream_chunks(
             plot_cards,
             world_cards,
             context_limit_chars=context_limit_chars,
+            model_name=selected_model_name,
+            top_k=top_k_value,
+            top_p=top_p_value,
         )
         return
 
-    response_text = _build_mock_story_response(prompt, turn_index)
-    for chunk in _iter_story_stream_chunks(response_text):
-        yield chunk
-        time.sleep(0.05)
+    raise RuntimeError("Story provider is not configured: expected openrouter or gigachat")
 
 
 def _build_story_runtime_deps() -> StoryRuntimeDeps:

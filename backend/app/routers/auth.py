@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -240,11 +241,30 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google account email is missing")
 
-    google_sub = token_data.get("sub")
+    raw_google_sub = token_data.get("sub")
+    google_sub = str(raw_google_sub).strip() if raw_google_sub is not None else ""
+    google_sub = google_sub or None
     display_name = token_data.get("name") or build_user_name(email)
     avatar_url = token_data.get("picture")
 
-    user = db.scalar(select(User).where(User.email == email))
+    try:
+        user_by_google_sub = db.scalar(select(User).where(User.google_sub == google_sub)) if google_sub else None
+        user_by_email = db.scalar(select(User).where(User.email == email))
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Google auth user lookup failed for email=%s", email)
+        detail = "Authentication service is temporarily unavailable"
+        if settings.debug:
+            detail = f"{detail}: {exc}"
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
+
+    if user_by_google_sub and user_by_email and user_by_google_sub.id != user_by_email.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Google account is already linked to another profile",
+        )
+
+    user = user_by_google_sub or user_by_email
     if user is None:
         user = User(
             email=email,
@@ -255,6 +275,11 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         )
         db.add(user)
     else:
+        if google_sub and user.google_sub and user.google_sub != google_sub:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Google account is already linked to another profile",
+            )
         user.auth_provider = provider_union(user.auth_provider, "google")
         if google_sub and not user.google_sub:
             user.google_sub = google_sub
@@ -263,8 +288,30 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         if avatar_url:
             user.avatar_url = avatar_url
 
-    db.commit()
-    db.refresh(user)
+    try:
+        db.commit()
+        db.refresh(user)
+    except IntegrityError as exc:
+        db.rollback()
+        logger.warning("Google auth integrity error for email=%s google_sub=%s: %s", email, google_sub, exc)
+        integrity_text = str(getattr(exc, "orig", exc)).casefold()
+        if "google_sub" in integrity_text:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Google account is already linked to another profile",
+            ) from exc
+        detail = "Failed to save Google account login"
+        if settings.debug:
+            detail = f"{detail}: {exc}"
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Google auth database write failed for email=%s", email)
+        detail = "Authentication service is temporarily unavailable"
+        if settings.debug:
+            detail = f"{detail}: {exc}"
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
+
     return issue_auth_response(user)
 
 

@@ -676,6 +676,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
         rightActions={
           <Stack direction="row" spacing={1.2}>
             <IconButton

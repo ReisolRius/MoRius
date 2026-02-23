@@ -2,6 +2,7 @@
 import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
+import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { AuthResponse, AuthUser } from './types/auth'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
@@ -28,6 +29,10 @@ function isAuthenticatedPath(pathname: string): boolean {
     pathname === '/worlds/new' ||
     /^\/worlds\/\d+\/edit$/.test(pathname)
   )
+}
+
+function isLegalPath(pathname: string): boolean {
+  return pathname === '/privacy-policy' || pathname === '/terms-of-service'
 }
 
 function extractStoryGameId(pathname: string): number | null {
@@ -84,6 +89,7 @@ const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
 const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
 const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
 const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
+const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'))
 
 function BootSplash({ message }: { message: string }) {
   return (
@@ -221,7 +227,7 @@ function App() {
       return
     }
 
-    if (!isAuthenticatedPath(path)) {
+    if (!isAuthenticatedPath(path) && !isLegalPath(path)) {
       const redirectId = window.setTimeout(() => {
         navigate('/dashboard', { replace: true })
       }, 0)
@@ -272,10 +278,36 @@ function App() {
   const shouldShowMyGamesPage = isAuthenticated && path === '/games'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
+  const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
+  const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowBootScreen = isBootSplashActive || isHydratingSession
 
   if (shouldShowBootScreen) {
     return <BootSplash message="Checking session..." />
+  }
+
+  if (shouldShowPrivacyPolicyPage) {
+    return (
+      <Suspense fallback={<BootSplash message="Loading document..." />}>
+        <LegalDocumentPage
+          title="Политика конфиденциальности"
+          content={PRIVACY_POLICY_TEXT}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  }
+
+  if (shouldShowTermsPage) {
+    return (
+      <Suspense fallback={<BootSplash message="Loading document..." />}>
+        <LegalDocumentPage
+          title="Пользовательское соглашение"
+          content={TERMS_OF_SERVICE_TEXT}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
   }
 
   if (shouldShowStoryGamePage && authUser) {
@@ -352,6 +384,7 @@ function App() {
     <Suspense fallback={<BootSplash message="Loading interface..." />}>
       <PublicLandingPage
         isAuthenticated={isAuthenticated}
+        onNavigate={navigate}
         onGoHome={() => navigate('/dashboard')}
         onAuthSuccess={handleAuthSuccess}
       />

@@ -72,6 +72,10 @@ def _resolve_bool(raw_value: str, *, default: bool) -> bool:
     return normalized in {"1", "true", "yes", "y", "on"}
 
 
+def _is_sqlite_database_url(database_url: str) -> bool:
+    return database_url.strip().lower().startswith("sqlite")
+
+
 if __name__ == "__main__":
     mode = _resolve_app_mode()
     os.environ["APP_MODE"] = mode
@@ -82,6 +86,10 @@ if __name__ == "__main__":
     port = _resolve_port(mode)
     reload_enabled = os.getenv("UVICORN_RELOAD", "0").strip().lower() in {"1", "true", "yes", "on"}
     default_workers = DEFAULT_WORKERS.get(mode, 1)
+    if _is_sqlite_database_url(app_settings.database_url):
+        # SQLite suffers from frequent write locks under multiple worker processes.
+        # Keep a single worker by default unless WEB_CONCURRENCY is explicitly set.
+        default_workers = 1
     raw_workers = os.getenv("WEB_CONCURRENCY", str(default_workers)).strip()
     workers = int(raw_workers) if raw_workers.isdigit() else default_workers
     if workers < 1:

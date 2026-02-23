@@ -7,7 +7,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
-DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "https://mo-rius.vercel.app"]
+DEFAULT_CORS_ORIGINS = [
+    "http://localhost:5173",
+    "https://mo-rius.vercel.app",
+    "https://morius-ai.ru",
+]
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -194,7 +198,7 @@ settings = Settings(
     cors_origins=_parse_origins(os.getenv("CORS_ORIGINS", "")),
     cors_origin_regex=os.getenv(
         "CORS_ORIGIN_REGEX",
-        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://mo-rius(?:-[a-z0-9-]+)?\.vercel\.app$",
+        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://mo-rius(?:-[a-z0-9-]+)?\.vercel\.app$|^https://(?:www\.)?morius-ai\.ru$",
     ).strip(),
     google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
     email_verification_code_ttl_minutes=int(os.getenv("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10")),
@@ -219,7 +223,7 @@ settings = Settings(
     yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", "").strip(),
     yookassa_api_url=os.getenv("YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
     payments_return_url=os.getenv("PAYMENTS_RETURN_URL", "http://localhost:5173/home").strip(),
-    story_llm_provider=os.getenv("STORY_LLM_PROVIDER", "mock").strip().lower(),
+    story_llm_provider=os.getenv("STORY_LLM_PROVIDER", "openrouter").strip().lower(),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
     gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),
     gigachat_oauth_url=os.getenv("GIGACHAT_OAUTH_URL", "https://ngw.devices.sberbank.ru:9443/api/v2/oauth").strip(),

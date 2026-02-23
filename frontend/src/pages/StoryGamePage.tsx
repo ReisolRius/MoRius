@@ -18,14 +18,19 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControl,
   Grow,
+  InputLabel,
   IconButton,
   Menu,
   MenuItem,
+  Select,
   Slider,
   Stack,
+  Switch,
   Typography,
   type GrowProps,
+  type SelectChangeEvent,
 } from '@mui/material'
 import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
@@ -86,6 +91,7 @@ import type {
   StoryGameSummary,
   StoryInstructionCard,
   StoryMessage,
+  StoryNarratorModelId,
   StoryPlotCard,
   StoryPlotCardEvent,
   StoryWorldCard,
@@ -107,6 +113,13 @@ type StoryGamePageProps = {
 type PaymentNotice = {
   severity: AlertColor
   text: string
+}
+
+type StorySettingsOverride = {
+  storyLlmModel: StoryNarratorModelId
+  memoryOptimizationEnabled: boolean
+  storyTopK: number
+  storyTopR: number
 }
 
 
@@ -133,6 +146,11 @@ type AssistantUndoStep = {
   plotEvents: StoryPlotCardEvent[]
   worldEvents: StoryWorldCardEvent[]
 }
+type SpeakerAvatarEntry = {
+  names: string[]
+  avatar: string | null
+  displayName: string
+}
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
@@ -147,6 +165,34 @@ const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 6000
 const STORY_DEFAULT_CONTEXT_LIMIT = 2000
+const STORY_TOP_K_MIN = 0
+const STORY_TOP_K_MAX = 200
+const STORY_DEFAULT_TOP_K = 0
+const STORY_TOP_R_MIN = 0.1
+const STORY_TOP_R_MAX = 1
+const STORY_DEFAULT_TOP_R = 1
+const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'z-ai/glm-5'
+const STORY_NARRATOR_MODEL_OPTIONS: Array<{
+  id: StoryNarratorModelId
+  title: string
+  description: string
+}> = [
+  {
+    id: 'z-ai/glm-5',
+    title: 'GLM 5',
+    description: 'Базовая модель рассказчика',
+  },
+  {
+    id: 'arcee-ai/trinity-large-preview:free',
+    title: 'Trinity',
+    description: 'Дополнительная модель.',
+  },
+  {
+    id: 'moonshotai/kimi-k2-0905',
+    title: 'Kim K2',
+    description: 'Больше деталей.',
+  },
+]
 const RIGHT_PANEL_WIDTH_MIN = 300
 const RIGHT_PANEL_WIDTH_MAX = 460
 const RIGHT_PANEL_WIDTH_DEFAULT = 332
@@ -154,9 +200,11 @@ const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
+const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>$/iu
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
-const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
-const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
+const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
+const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
+const STORY_MATCH_TOKEN_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 10
 const NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS = [5, 10, 15] as const
@@ -199,9 +247,11 @@ function normalizeAssistantMarkerKey(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, '_').trim()
 }
 
+type AssistantMarkerKind = 'narrative' | 'speech' | 'thought'
+
 function resolveAssistantMarkerKind(
   markerKey: string,
-): 'narrative' | 'speech' | 'thought' | null {
+): AssistantMarkerKind | null {
   const compact = markerKey.replace(/_/g, '')
   if (compact === 'narrator' || compact === 'narration' || compact === 'narrative') {
     return 'narrative'
@@ -218,6 +268,58 @@ function resolveAssistantMarkerKind(
   }
   if (compact === 'npcthought' || compact === 'ggthought' || compact === 'thought' || compact === 'think') {
     return 'thought'
+  }
+  return null
+}
+
+type AssistantTagDescriptor = {
+  kind: AssistantMarkerKind
+  defaultSpeakerName: string | null
+}
+
+function resolveAssistantTagKind(markerKey: string): AssistantTagDescriptor | null {
+  const compact = markerKey.replace(/_/g, '')
+  if (compact === 'narrator' || compact === 'narration' || compact === 'narrative') {
+    return {
+      kind: 'narrative',
+      defaultSpeakerName: null,
+    }
+  }
+  if (
+    compact === 'gg' ||
+    compact === 'ggreplick' ||
+    compact === 'ggreplica' ||
+    compact === 'ggspeech' ||
+    compact === 'ggdialogue'
+  ) {
+    return {
+      kind: 'speech',
+      defaultSpeakerName: 'ГГ',
+    }
+  }
+  if (compact === 'ggthought' || compact === 'ggthink') {
+    return {
+      kind: 'thought',
+      defaultSpeakerName: 'ГГ',
+    }
+  }
+  if (
+    compact === 'npc' ||
+    compact === 'npcreplick' ||
+    compact === 'npcreplica' ||
+    compact === 'npcspeech' ||
+    compact === 'npcdialogue'
+  ) {
+    return {
+      kind: 'speech',
+      defaultSpeakerName: GENERIC_DIALOGUE_SPEAKER_DEFAULT,
+    }
+  }
+  if (compact === 'npcthought' || compact === 'npcthink') {
+    return {
+      kind: 'thought',
+      defaultSpeakerName: GENERIC_DIALOGUE_SPEAKER_DEFAULT,
+    }
   }
   return null
 }
@@ -262,14 +364,113 @@ function parseStructuredAssistantParagraph(paragraph: string): AssistantMessageB
   }
 }
 
+function parseTaggedAssistantParagraph(paragraph: string): AssistantMessageBlock | null {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const tagMatch = normalized.match(STRUCTURED_TAG_PATTERN)
+  if (!tagMatch) {
+    return null
+  }
+
+  const openingTagKey = normalizeAssistantMarkerKey(tagMatch[1])
+  const closingTagKey = normalizeAssistantMarkerKey(tagMatch[4])
+  if (!openingTagKey || openingTagKey !== closingTagKey) {
+    return null
+  }
+
+  const tagDescriptor = resolveAssistantTagKind(openingTagKey)
+  if (!tagDescriptor) {
+    return null
+  }
+
+  const bodyText = tagMatch[3].trim()
+  if (!bodyText) {
+    return null
+  }
+
+  if (tagDescriptor.kind === 'narrative') {
+    return { type: 'narrative', text: bodyText }
+  }
+
+  const rawSpeakerName = tagMatch[2]?.trim() ?? ''
+  const explicitSpeakerName = rawSpeakerName.replace(/^["'«„]+|["'»”]+$/g, '').trim()
+  const speakerName = explicitSpeakerName || tagDescriptor.defaultSpeakerName || GENERIC_DIALOGUE_SPEAKER_DEFAULT
+  if (!speakerName) {
+    return null
+  }
+
+  return {
+    type: 'character',
+    speakerName,
+    text: bodyText,
+    delivery: tagDescriptor.kind === 'thought' ? 'thought' : 'speech',
+  }
+}
+
+function parseTaggedAssistantContent(content: string): AssistantMessageBlock[] | null {
+  const normalized = content.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const tagPattern = /<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>/giu
+  const blocks: AssistantMessageBlock[] = []
+  let cursor = 0
+
+  for (const match of normalized.matchAll(tagPattern)) {
+    const fullMatch = match[0]
+    const matchIndex = match.index ?? -1
+    if (matchIndex < 0) {
+      return null
+    }
+
+    const between = normalized.slice(cursor, matchIndex)
+    if (between.trim().length > 0) {
+      return null
+    }
+
+    const parsedBlock = parseTaggedAssistantParagraph(fullMatch)
+    if (!parsedBlock) {
+      return null
+    }
+    blocks.push(parsedBlock)
+    cursor = matchIndex + fullMatch.length
+  }
+
+  const tail = normalized.slice(cursor)
+  if (tail.trim().length > 0) {
+    return null
+  }
+
+  if (blocks.length === 0) {
+    return null
+  }
+
+  return blocks
+}
+
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   const normalized = content.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
     return []
   }
 
+  const taggedContentBlocks = parseTaggedAssistantContent(normalized)
+  if (taggedContentBlocks) {
+    return taggedContentBlocks
+  }
+
   const blocks: AssistantMessageBlock[] = []
   splitAssistantParagraphs(normalized).forEach((paragraph) => {
+    const taggedBlock = parseTaggedAssistantParagraph(paragraph)
+    if (taggedBlock) {
+      blocks.push(taggedBlock)
+      return
+    }
+
     const structuredBlock = parseStructuredAssistantParagraph(paragraph)
     if (structuredBlock) {
       blocks.push(structuredBlock)
@@ -304,6 +505,33 @@ function buildCharacterAliases(value: string): string[] {
     }
   })
   return [...aliases]
+}
+
+function extractSpeakerLookupValues(rawSpeakerName: string): string[] {
+  const normalizedSpeakerName = rawSpeakerName.replace(/\r\n/g, ' ').trim()
+  if (!normalizedSpeakerName) {
+    return []
+  }
+
+  const values = new Set<string>([normalizedSpeakerName])
+
+  if (normalizedSpeakerName.startsWith('@')) {
+    const withoutAt = normalizedSpeakerName.slice(1).trim()
+    if (withoutAt) {
+      values.add(withoutAt)
+      const withoutAtAndPrefix = withoutAt.replace(SPEAKER_REFERENCE_PREFIX_PATTERN, '').trim()
+      if (withoutAtAndPrefix) {
+        values.add(withoutAtAndPrefix)
+      }
+    }
+  }
+
+  const withoutPrefix = normalizedSpeakerName.replace(SPEAKER_REFERENCE_PREFIX_PATTERN, '').trim()
+  if (withoutPrefix && withoutPrefix !== normalizedSpeakerName) {
+    values.add(withoutPrefix)
+  }
+
+  return [...values]
 }
 
 function upsertStoryPlotCard(cards: StoryPlotCard[], card: StoryPlotCard): StoryPlotCard[] {
@@ -556,6 +784,29 @@ function clampStoryContextLimit(value: number): number {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
   return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+}
+
+function clampStoryTopK(value: number): number {
+  if (!Number.isFinite(value)) {
+    return STORY_DEFAULT_TOP_K
+  }
+  return Math.min(STORY_TOP_K_MAX, Math.max(STORY_TOP_K_MIN, Math.round(value)))
+}
+
+function clampStoryTopR(value: number): number {
+  if (!Number.isFinite(value)) {
+    return STORY_DEFAULT_TOP_R
+  }
+  const clampedValue = Math.min(STORY_TOP_R_MAX, Math.max(STORY_TOP_R_MIN, value))
+  return Math.round(clampedValue * 100) / 100
+}
+
+function normalizeStoryNarratorModelId(value: string | null | undefined): StoryNarratorModelId {
+  const normalized = (value ?? '').trim() as StoryNarratorModelId
+  if (STORY_NARRATOR_MODEL_OPTIONS.some((option) => option.id === normalized)) {
+    return normalized
+  }
+  return STORY_DEFAULT_NARRATOR_MODEL_ID
 }
 
 function clampRightPanelWidth(value: number): number {
@@ -909,6 +1160,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
+  const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
+  const [memoryOptimizationEnabled, setMemoryOptimizationEnabled] = useState(true)
+  const [storyTopK, setStoryTopK] = useState(STORY_DEFAULT_TOP_K)
+  const [storyTopR, setStoryTopR] = useState(STORY_DEFAULT_TOP_R)
+  const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
+  const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
+  const [isSavingMemoryOptimization, setIsSavingMemoryOptimization] = useState(false)
+  const [isSavingStorySampling, setIsSavingStorySampling] = useState(false)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
@@ -920,6 +1179,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const instructionDialogGameIdRef = useRef<number | null>(null)
   const plotCardDialogGameIdRef = useRef<number | null>(null)
   const worldCardDialogGameIdRef = useRef<number | null>(null)
+  const hasTriedAutoLoadCharactersRef = useRef(false)
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -930,8 +1190,44 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => getDisplayStoryTitle(activeGameId, customTitleMap),
     [activeGameId, customTitleMap],
   )
+  const selectedStoryModelOption = useMemo(
+    () => STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ?? STORY_NARRATOR_MODEL_OPTIONS[0],
+    [storyLlmModel],
+  )
+
+  const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
+    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars)
+    setContextLimitChars(normalizedContextLimit)
+    setContextLimitDraft(String(normalizedContextLimit))
+    const override = storySettingsOverrides[game.id]
+    if (override) {
+      setStoryLlmModel(override.storyLlmModel)
+      setMemoryOptimizationEnabled(override.memoryOptimizationEnabled)
+      setStoryTopK(clampStoryTopK(override.storyTopK))
+      setStoryTopR(clampStoryTopR(override.storyTopR))
+      return
+    }
+    const runtimeGame = game as Partial<StoryGameSummary>
+    if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
+      setStoryLlmModel(normalizeStoryNarratorModelId(runtimeGame.story_llm_model))
+    }
+    if (typeof runtimeGame.memory_optimization_enabled === 'boolean') {
+      setMemoryOptimizationEnabled(runtimeGame.memory_optimization_enabled)
+    }
+    if (typeof runtimeGame.story_top_k === 'number') {
+      setStoryTopK(clampStoryTopK(runtimeGame.story_top_k))
+    } else {
+      setStoryTopK(STORY_DEFAULT_TOP_K)
+    }
+    if (typeof runtimeGame.story_top_r === 'number') {
+      setStoryTopR(clampStoryTopR(runtimeGame.story_top_r))
+    } else {
+      setStoryTopR(STORY_DEFAULT_TOP_R)
+    }
+  }, [storySettingsOverrides])
 
   const hasMessages = messages.length > 0
+  const quickStartIntroBlocks = useMemo(() => parseAssistantMessageBlocks(quickStartIntro), [quickStartIntro])
   const inputPlaceholder = hasMessages ? NEXT_INPUT_PLACEHOLDER : INITIAL_INPUT_PLACEHOLDER
   const hasUndoneAssistantSteps = undoneAssistantSteps.length > 0
   const canUndoAssistantStep =
@@ -991,14 +1287,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [instructionCards],
   )
   const normalizedPlotCardsForContext = useMemo(
-    () =>
-      plotCards
+    () => {
+      if (!memoryOptimizationEnabled) {
+        return []
+      }
+      return plotCards
         .map((card) => ({
           title: card.title.replace(/\s+/g, ' ').trim(),
           content: card.content.replace(/\r\n/g, '\n').trim(),
         }))
-        .filter((card) => card.title.length > 0 && card.content.length > 0),
-    [plotCards],
+        .filter((card) => card.title.length > 0 && card.content.length > 0)
+    },
+    [memoryOptimizationEnabled, plotCards],
   )
   const worldCardContextStateById = useMemo(
     () => buildWorldCardContextStateById(worldCards, messages),
@@ -1063,17 +1363,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return estimateTextTokens(lines.join('\n'))
   }, [normalizedWorldCardsForContext])
-  const isPlotMemoryActive = normalizedPlotCardsForContext.length > 0
+  const isPlotMemoryActive = memoryOptimizationEnabled && normalizedPlotCardsForContext.length > 0
   const storyMemoryTokensUsed = isPlotMemoryActive ? plotContextTokensUsed : historyContextTokensUsed
   const storyMemoryLabel = isPlotMemoryActive ? 'Карточки сюжета' : 'История сообщений'
-  const storyMemoryHint = isPlotMemoryActive
-    ? `Учитываются карточки сюжета: ${normalizedPlotCardsForContext.length}.`
-    : 'Карточек сюжета нет, учитывается история диалога.'
+  const storyMemoryHint = !memoryOptimizationEnabled
+    ? 'Оптимизация памяти выключена: карточки сюжета не используются в контексте.'
+    : isPlotMemoryActive
+      ? `Учитываются карточки сюжета: ${normalizedPlotCardsForContext.length}.`
+      : 'Карточек сюжета нет, учитывается история диалога.'
   const cardsContextCharsUsed = instructionContextTokensUsed + storyMemoryTokensUsed + worldContextTokensUsed
   const freeContextChars = Math.max(contextLimitChars - cardsContextCharsUsed, 0)
   const cardsContextOverflowChars = Math.max(cardsContextCharsUsed - contextLimitChars, 0)
   const cardsContextUsagePercent =
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
+  const isSavingStorySettings = isSavingContextLimit || isSavingStoryLlmModel || isSavingMemoryOptimization || isSavingStorySampling
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
@@ -1162,7 +1465,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return nextMap
   }, [characters])
   const speakerCardsForAvatar = useMemo(() => {
-    const entries: Array<{ names: string[]; avatar: string | null; displayName: string }> = []
+    const entries: SpeakerAvatarEntry[] = []
     const appendEntry = (names: string[], avatar: string | null, displayName: string) => {
       const normalizedNames = [...new Set(names.filter(Boolean))]
       if (normalizedNames.length === 0) {
@@ -1205,32 +1508,50 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     return names
   }, [])
-  const resolveDialogueAvatar = useCallback(
-    (speakerName: string): string | null => {
-      const normalizedName = normalizeCharacterIdentity(speakerName)
-      if (!normalizedName) {
-        return null
+  const findSpeakerEntryByName = useCallback(
+    (rawSpeakerName: string): SpeakerAvatarEntry | null => {
+      const lookupValues = extractSpeakerLookupValues(rawSpeakerName)
+      for (const lookupValue of lookupValues) {
+        const normalizedName = normalizeCharacterIdentity(lookupValue)
+        if (!normalizedName) {
+          continue
+        }
+
+        const exact = speakerCardsForAvatar.find((entry) =>
+          entry.names.some(
+            (name) => name === normalizedName || name.includes(normalizedName) || normalizedName.includes(name),
+          ),
+        )
+        if (exact) {
+          return exact
+        }
+
+        const fuzzy = speakerCardsForAvatar.find((entry) =>
+          entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
+        )
+        if (fuzzy) {
+          return fuzzy
+        }
       }
 
-      const exact = speakerCardsForAvatar.find((entry) =>
-        entry.names.some((name) => name === normalizedName || name.includes(normalizedName) || normalizedName.includes(name)),
-      )
-      if (exact) {
-        return exact.avatar
-      }
-
-      const fuzzy = speakerCardsForAvatar.find((entry) =>
-        entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
-      )
-      return fuzzy?.avatar ?? null
+      return null
     },
     [speakerCardsForAvatar],
   )
+  const resolveDialogueAvatar = useCallback(
+    (speakerName: string): string | null => {
+      const speakerEntry = findSpeakerEntryByName(speakerName)
+      return speakerEntry?.avatar ?? null
+    },
+    [findSpeakerEntryByName],
+  )
   const resolveDialogueSpeakerName = useCallback(
     (speakerName: string, dialogueText: string, nearbyNarrativeText = ''): string => {
-      const normalizedSpeaker = normalizeCharacterIdentity(speakerName)
+      const speakerLookupValues = extractSpeakerLookupValues(speakerName)
+      const speakerDisplayName = speakerLookupValues[0] ?? speakerName.trim()
+      const normalizedSpeaker = normalizeCharacterIdentity(speakerDisplayName)
 
-      const findEntryByText = (value: string): { names: string[]; avatar: string | null; displayName: string } | null => {
+      const findEntryByText = (value: string): SpeakerAvatarEntry | null => {
         const normalizedText = normalizeCharacterIdentity(value)
         if (!normalizedText) {
           return null
@@ -1244,14 +1565,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       if (normalizedSpeaker) {
-        const speakerEntry = speakerCardsForAvatar.find((entry) =>
-          entry.names.some(
-            (name) =>
-              name === normalizedSpeaker ||
-              name.includes(normalizedSpeaker) ||
-              normalizedSpeaker.includes(name),
-          ),
-        )
+        const speakerEntry = findSpeakerEntryByName(speakerDisplayName)
         if (speakerEntry) {
           const normalizedDisplay = normalizeCharacterIdentity(speakerEntry.displayName)
           if (
@@ -1264,7 +1578,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       if (normalizedSpeaker && !genericDialogueSpeakerNames.has(normalizedSpeaker)) {
-        return speakerName
+        return speakerDisplayName || speakerName
       }
 
       const byDialogue = findEntryByText(dialogueText)
@@ -1276,9 +1590,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return byNarrative.displayName
       }
 
-      return speakerName
+      return speakerDisplayName || speakerName
     },
-    [genericDialogueSpeakerNames, speakerCardsForAvatar],
+    [findSpeakerEntryByName, genericDialogueSpeakerNames, speakerCardsForAvatar],
   )
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
@@ -1336,9 +1650,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const loadCharacters = useCallback(
     async (options?: { silent?: boolean }) => {
       const silent = options?.silent ?? false
-      if (!silent) {
-        setIsLoadingCharacters(true)
-      }
+      setIsLoadingCharacters(true)
       try {
         const loadedCharacters = await listStoryCharacters(authToken)
         setCharacters(loadedCharacters)
@@ -1349,13 +1661,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setErrorMessage(detail)
         }
       } finally {
-        if (!silent) {
-          setIsLoadingCharacters(false)
-        }
+        setIsLoadingCharacters(false)
       }
     },
     [authToken],
   )
+
+  useEffect(() => {
+    if (hasTriedAutoLoadCharactersRef.current) {
+      return
+    }
+    if (hasLoadedCharacters || isLoadingCharacters) {
+      return
+    }
+
+    hasTriedAutoLoadCharactersRef.current = true
+    void loadCharacters({ silent: true })
+  }, [hasLoadedCharacters, isLoadingCharacters, loadCharacters])
 
   const resetCharacterDraft = useCallback(() => {
     setCharacterDraftMode('create')
@@ -1603,9 +1925,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const newGame = await createStoryGame({ token: authToken })
       setGames((previousGames) => sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]))
       setActiveGameId(newGame.id)
-      const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
-      setContextLimitChars(normalizedContextLimit)
-      setContextLimitDraft(String(normalizedContextLimit))
+      applyStoryGameSettings(newGame)
       setInstructionCards([])
       setPlotCards([])
       setWorldCards([])
@@ -1620,7 +1940,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } finally {
       setIsCreatingGame(false)
     }
-  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, onNavigate])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, onNavigate])
 
   const handleSelectCharacterForGame = useCallback(
     async (character: StoryCharacter) => {
@@ -1765,14 +2085,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
       try {
         const payload = await getStoryGame({ token: authToken, gameId })
+        setQuickStartIntro((payload.game.opening_scene ?? '').trim())
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
         setPlotCards(payload.plot_cards ?? [])
         applyPlotCardEvents(payload.plot_card_events ?? [])
         setWorldCards(payload.world_cards)
-        const normalizedContextLimit = clampStoryContextLimit(payload.game.context_limit_chars)
-        setContextLimitChars(normalizedContextLimit)
-        setContextLimitDraft(String(normalizedContextLimit))
+        applyStoryGameSettings(payload.game)
         applyWorldCardEvents(payload.world_card_events ?? [])
         setUndoneAssistantSteps([])
         setGames((previousGames) => {
@@ -1799,7 +2118,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [applyPlotCardEvents, applyWorldCardEvents, authToken],
+    [applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken],
   )
 
   useEffect(() => {
@@ -1843,6 +2162,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setUndoneAssistantSteps([])
           setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
           setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
+          setStoryLlmModel(STORY_DEFAULT_NARRATOR_MODEL_ID)
+          setMemoryOptimizationEnabled(true)
           applyPlotCardEvents([])
           applyWorldCardEvents([])
         }
@@ -1951,6 +2272,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const parsed = JSON.parse(rawPayload) as {
         gameId?: unknown
         title?: unknown
+        opening_scene?: unknown
         description?: unknown
       }
       if (parsed.gameId !== activeGameId) {
@@ -1968,7 +2290,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
 
-      if (typeof parsed.description === 'string') {
+      const openingSceneFromStorage =
+        typeof parsed.opening_scene === 'string'
+          ? parsed.opening_scene.trim()
+          : ''
+      if (openingSceneFromStorage.length > 0) {
+        setQuickStartIntro(openingSceneFromStorage)
+      } else if (typeof parsed.description === 'string') {
         const normalizedDescription = parsed.description.trim()
         if (normalizedDescription.length > 0) {
           setQuickStartIntro(normalizedDescription)
@@ -2170,9 +2498,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
-        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
-        setContextLimitChars(normalizedContextLimit)
-        setContextLimitDraft(String(normalizedContextLimit))
+        applyStoryGameSettings(newGame)
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
@@ -2222,6 +2548,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [
     activeGameId,
+    applyStoryGameSettings,
     authToken,
     editingInstructionId,
     instructionContentDraft,
@@ -2326,9 +2653,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
-        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
-        setContextLimitChars(normalizedContextLimit)
-        setContextLimitDraft(String(normalizedContextLimit))
+        applyStoryGameSettings(newGame)
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
@@ -2375,6 +2700,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [
     activeGameId,
+    applyStoryGameSettings,
     authToken,
     editingPlotCardId,
     isCreatingGame,
@@ -2493,9 +2819,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
-        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
-        setContextLimitChars(normalizedContextLimit)
-        setContextLimitDraft(String(normalizedContextLimit))
+        applyStoryGameSettings(newGame)
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
@@ -2549,6 +2873,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [
     activeGameId,
+    applyStoryGameSettings,
     authToken,
     editingWorldCardId,
     editingWorldCardKind,
@@ -2845,7 +3170,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const persistContextLimit = useCallback(
     async (nextValue: number) => {
       const targetGameId = activeGameId
-      if (!targetGameId || isSavingContextLimit) {
+      if (!targetGameId || isSavingContextLimit || isSavingStoryLlmModel || isSavingMemoryOptimization || isSavingStorySampling) {
         return
       }
 
@@ -2860,9 +3185,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: targetGameId,
           contextLimitTokens: normalizedValue,
         })
-        const persistedValue = clampStoryContextLimit(updatedGame.context_limit_chars)
-        setContextLimitChars(persistedValue)
-        setContextLimitDraft(String(persistedValue))
         setGames((previousGames) =>
           sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
         )
@@ -2873,8 +3195,156 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setIsSavingContextLimit(false)
       }
     },
-    [activeGameId, authToken, isSavingContextLimit],
+    [activeGameId, authToken, isSavingContextLimit, isSavingMemoryOptimization, isSavingStoryLlmModel, isSavingStorySampling],
   )
+
+  const persistStoryNarratorModel = useCallback(
+    async (nextModelId: StoryNarratorModelId) => {
+      const targetGameId = activeGameId
+      if (!targetGameId || isSavingStoryLlmModel || isSavingContextLimit || isSavingMemoryOptimization || isSavingStorySampling || isGenerating) {
+        return
+      }
+
+      const normalizedModel = normalizeStoryNarratorModelId(nextModelId)
+      if (normalizedModel === storyLlmModel) {
+        return
+      }
+      const previousMemoryOptimizationEnabled = memoryOptimizationEnabled
+      const previousStoryTopK = storyTopK
+      const previousStoryTopR = storyTopR
+      setStoryLlmModel(normalizedModel)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          storyLlmModel: normalizedModel,
+          memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+        },
+      }))
+      setErrorMessage('')
+      setIsSavingStoryLlmModel(true)
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          storyLlmModel: normalizedModel,
+          contextLimitTokens: contextLimitChars,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+        })
+        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars)
+        setContextLimitChars(persistedContextLimit)
+        setContextLimitDraft(String(persistedContextLimit))
+        setStoryLlmModel(normalizedModel)
+        setGames((previousGames) =>
+          sortGamesByActivity(
+            previousGames.map((game) =>
+              game.id === updatedGame.id
+                ? {
+                    ...updatedGame,
+                    story_llm_model: normalizedModel,
+                    memory_optimization_enabled: previousMemoryOptimizationEnabled,
+                    story_top_k: previousStoryTopK,
+                    story_top_r: previousStoryTopR,
+                  }
+                : game,
+            ),
+          ),
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить модель рассказчика'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingStoryLlmModel(false)
+      }
+    },
+    [
+      activeGameId,
+      authToken,
+      isGenerating,
+      isSavingContextLimit,
+      isSavingMemoryOptimization,
+      isSavingStorySampling,
+      isSavingStoryLlmModel,
+      contextLimitChars,
+      memoryOptimizationEnabled,
+      storyTopK,
+      storyTopR,
+      storyLlmModel,
+    ],
+  )
+
+  const toggleMemoryOptimization = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (!targetGameId || isSavingMemoryOptimization || isSavingContextLimit || isSavingStoryLlmModel || isSavingStorySampling || isGenerating) {
+      return
+    }
+
+    const nextValue = !memoryOptimizationEnabled
+    const previousStoryLlmModel = storyLlmModel
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    setMemoryOptimizationEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        storyLlmModel: previousStoryLlmModel,
+        memoryOptimizationEnabled: nextValue,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingMemoryOptimization(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        memoryOptimizationEnabled: nextValue,
+        contextLimitTokens: contextLimitChars,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+      })
+      const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars)
+      setContextLimitChars(persistedContextLimit)
+      setContextLimitDraft(String(persistedContextLimit))
+      setMemoryOptimizationEnabled(nextValue)
+      setGames((previousGames) =>
+        sortGamesByActivity(
+          previousGames.map((game) =>
+            game.id === updatedGame.id
+              ? {
+                  ...updatedGame,
+                  story_llm_model: previousStoryLlmModel,
+                  memory_optimization_enabled: nextValue,
+                  story_top_k: previousStoryTopK,
+                  story_top_r: previousStoryTopR,
+                }
+              : game,
+          ),
+        ),
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить оптимизацию памяти'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingMemoryOptimization(false)
+    }
+  }, [
+    activeGameId,
+    authToken,
+    isGenerating,
+    isSavingContextLimit,
+    isSavingMemoryOptimization,
+    isSavingStorySampling,
+    isSavingStoryLlmModel,
+    contextLimitChars,
+    memoryOptimizationEnabled,
+    storyTopK,
+    storyTopR,
+    storyLlmModel,
+  ])
 
   const handleContextLimitSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
     const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
@@ -2919,6 +3389,101 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     await persistContextLimit(normalized)
   }, [contextLimitChars, contextLimitDraft, persistContextLimit])
 
+  const persistStorySamplingSettings = useCallback(
+    async (nextTopK: number, nextTopR: number) => {
+      const targetGameId = activeGameId
+      if (!targetGameId || isSavingStorySampling || isSavingContextLimit || isSavingStoryLlmModel || isSavingMemoryOptimization || isGenerating) {
+        return
+      }
+      const normalizedTopK = clampStoryTopK(nextTopK)
+      const normalizedTopR = clampStoryTopR(nextTopR)
+      const normalizedStoryModel = storyLlmModel
+      const normalizedMemoryOptimization = memoryOptimizationEnabled
+      setStoryTopK(normalizedTopK)
+      setStoryTopR(normalizedTopR)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          storyLlmModel: normalizedStoryModel,
+          memoryOptimizationEnabled: normalizedMemoryOptimization,
+          storyTopK: normalizedTopK,
+          storyTopR: normalizedTopR,
+        },
+      }))
+      setErrorMessage('')
+      setIsSavingStorySampling(true)
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          storyTopK: normalizedTopK,
+          storyTopR: normalizedTopR,
+        })
+        setGames((previousGames) =>
+          sortGamesByActivity(
+            previousGames.map((game) =>
+              game.id === updatedGame.id
+                ? {
+                    ...updatedGame,
+                    story_llm_model: normalizedStoryModel,
+                    memory_optimization_enabled: normalizedMemoryOptimization,
+                    story_top_k: normalizedTopK,
+                    story_top_r: normalizedTopR,
+                  }
+                : game,
+            ),
+          ),
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить температуру'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingStorySampling(false)
+      }
+    },
+    [
+      activeGameId,
+      authToken,
+      isGenerating,
+      isSavingContextLimit,
+      isSavingMemoryOptimization,
+      isSavingStoryLlmModel,
+      isSavingStorySampling,
+      memoryOptimizationEnabled,
+      storyLlmModel,
+    ],
+  )
+
+  const handleStoryTopKSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
+    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+    setStoryTopK(clampStoryTopK(rawValue))
+  }, [])
+
+  const handleStoryTopKSliderCommit = useCallback(
+    async (_event: unknown, nextValue: number | number[]) => {
+      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+      await persistStorySamplingSettings(rawValue, storyTopR)
+    },
+    [persistStorySamplingSettings, storyTopR],
+  )
+
+  const handleStoryTopRSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
+    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+    setStoryTopR(clampStoryTopR(rawValue))
+  }, [])
+
+  const handleStoryTopRSliderCommit = useCallback(
+    async (_event: unknown, nextValue: number | number[]) => {
+      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+      await persistStorySamplingSettings(storyTopK, rawValue)
+    },
+    [persistStorySamplingSettings, storyTopK],
+  )
+
+  const handleResetStorySampling = useCallback(async () => {
+    await persistStorySamplingSettings(STORY_DEFAULT_TOP_K, STORY_DEFAULT_TOP_R)
+  }, [persistStorySamplingSettings])
+
   const runStoryGeneration = useCallback(
     async (options: {
       gameId: number
@@ -2947,6 +3512,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               content: card.content.replace(/\r\n/g, '\n').trim(),
             }))
             .filter((card) => card.title.length > 0 && card.content.length > 0),
+          storyLlmModel,
+          memoryOptimizationEnabled,
+          storyTopK,
+          storyTopR,
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
@@ -3052,7 +3621,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         aborted: wasAborted,
       }
     },
-    [authToken, loadGameById],
+    [authToken, loadGameById, memoryOptimizationEnabled, storyLlmModel, storyTopK, storyTopR],
   )
 
   const handleSendPrompt = useCallback(async () => {
@@ -3079,9 +3648,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
         )
         setActiveGameId(newGame.id)
-        const normalizedContextLimit = clampStoryContextLimit(newGame.context_limit_chars)
-        setContextLimitChars(normalizedContextLimit)
-        setContextLimitDraft(String(normalizedContextLimit))
+        applyStoryGameSettings(newGame)
         setInstructionCards([])
         setPlotCards([])
         setWorldCards([])
@@ -3122,7 +3689,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyWorldCardEvents, authToken, hasUndoneAssistantSteps, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, hasUndoneAssistantSteps, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
 
   const handleUndoAssistantStep = useCallback(() => {
     if (!activeGameId || !canUndoAssistantStep) {
@@ -3462,6 +4029,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           expanded: 'Свернуть правую панель',
           collapsed: 'Развернуть правую панель',
         }}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
         rightActionsWidth={220}
         rightActions={
           <Stack direction="row" sx={{ gap: 'var(--morius-icon-gap)' }}>
@@ -3812,17 +4380,256 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 py: 0.2,
               }}
             >
-              <Typography sx={{ color: '#dfe6f2', fontSize: '0.9rem', fontWeight: 700 }}>Лимит контекста</Typography>
-              <Typography sx={{ mt: 0.4, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.82rem', lineHeight: 1.38 }}>
-                Ограничивает размер отправляемого контекста в токенах.
-              </Typography>
-
               {!activeGameId ? (
                 <Typography sx={{ mt: 0.85, color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.82rem' }}>
                   Настройка появится после создания игры.
                 </Typography>
               ) : (
                 <>
+                  <Typography sx={{ mt: 0.95, color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
+                    Модель рассказчика
+                  </Typography>
+                  <FormControl
+                    fullWidth
+                    size="small"
+                    sx={{
+                      mt: 0.72,
+                      '& .MuiInputLabel-root': {
+                        color: 'rgba(216, 228, 244, 0.88)',
+                      },
+                      '& .MuiInputLabel-root.Mui-focused': {
+                        color: '#f3f8ff',
+                      },
+                    }}
+                  >
+                    <InputLabel
+                      id="story-narrator-model-select-label"
+                      sx={{ color: 'rgba(216, 228, 244, 0.88)', '&.Mui-focused': { color: '#f3f8ff' } }}
+                    >
+                      Выберите модель
+                    </InputLabel>
+                    <Select
+                      labelId="story-narrator-model-select-label"
+                      value={storyLlmModel}
+                      label="Выберите модель"
+                      disabled={isSavingStorySettings || isGenerating}
+                      onChange={(event: SelectChangeEvent<string>) => {
+                        const nextModel = normalizeStoryNarratorModelId(event.target.value)
+                        void persistStoryNarratorModel(nextModel)
+                      }}
+                      MenuProps={{
+                        PaperProps: {
+                          sx: {
+                            mt: 0.45,
+                            borderRadius: '12px',
+                            border: '1px solid rgba(175, 197, 226, 0.48)',
+                            backgroundColor: 'rgba(15, 19, 26, 0.98)',
+                            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                            '& .MuiMenuItem-root': {
+                              color: '#e5eefc',
+                              fontWeight: 600,
+                              fontSize: '1.03rem',
+                              minHeight: 42,
+                            },
+                            '& .MuiMenuItem-root:hover': {
+                              backgroundColor: 'rgba(124, 156, 212, 0.2)',
+                            },
+                            '& .MuiMenuItem-root.Mui-selected': {
+                              backgroundColor: 'rgba(86, 140, 236, 0.38)',
+                              color: '#ffffff',
+                            },
+                            '& .MuiMenuItem-root.Mui-selected:hover': {
+                              backgroundColor: 'rgba(86, 140, 236, 0.46)',
+                            },
+                          },
+                        },
+                      }}
+                      sx={{
+                        color: '#f3f8ff',
+                        fontWeight: 700,
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        '& .MuiSelect-select': {
+                          color: '#f3f8ff',
+                          fontWeight: 700,
+                        },
+                        '& .MuiOutlinedInput-notchedOutline': {
+                          border: '1px solid rgba(168, 189, 218, 0.62)',
+                        },
+                        '&:hover .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(207, 223, 244, 0.92)',
+                        },
+                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                          borderColor: '#d8e8ff',
+                        },
+                        '& .MuiSelect-icon': {
+                          color: '#d8e8ff',
+                        },
+                        '&.Mui-disabled .MuiSelect-select': {
+                          WebkitTextFillColor: 'rgba(211, 223, 240, 0.82)',
+                        },
+                        '&.Mui-disabled .MuiOutlinedInput-notchedOutline': {
+                          borderColor: 'rgba(158, 177, 202, 0.4)',
+                        },
+                      }}
+                    >
+                      {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>
+                          {option.title}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  <Typography sx={{ mt: 0.44, color: 'rgba(186, 202, 220, 0.72)', fontSize: '0.74rem', lineHeight: 1.28 }}>
+                    {selectedStoryModelOption.description}
+                  </Typography>
+
+                  <Box
+                    sx={{
+                      mt: 0.98,
+                      pt: 0.9,
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
+                          Оптимизация памяти
+                        </Typography>
+                        <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
+                          Если выключить, DeepSeek не будет создавать и обновлять карточки сюжета.
+                        </Typography>
+                      </Box>
+                      <Switch
+                        checked={memoryOptimizationEnabled}
+                        onChange={() => {
+                          void toggleMemoryOptimization()
+                        }}
+                        disabled={isSavingStorySettings || isGenerating}
+                        sx={{
+                          '& .MuiSwitch-switchBase.Mui-checked': {
+                            color: 'rgba(182, 242, 211, 0.95)',
+                          },
+                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                            backgroundColor: 'rgba(52, 119, 84, 0.82)',
+                            opacity: 1,
+                          },
+                          '& .MuiSwitch-track': {
+                            backgroundColor: 'rgba(106, 116, 138, 0.46)',
+                            opacity: 1,
+                          },
+                        }}
+                      />
+                    </Stack>
+                  </Box>
+
+                  <Box
+                    sx={{
+                      mt: 0.98,
+                      pt: 0.9,
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.8}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
+                          Температура (Top K / Top R)
+                        </Typography>
+                        <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
+                          Применяется к GLM 5, Trinity и Kim K2. На DeepSeek не влияет.
+                        </Typography>
+                      </Box>
+                      <Button
+                        onClick={() => {
+                          void handleResetStorySampling()
+                        }}
+                        disabled={isSavingStorySettings || isGenerating || (storyTopK === STORY_DEFAULT_TOP_K && storyTopR === STORY_DEFAULT_TOP_R)}
+                        sx={{
+                          minHeight: 30,
+                          px: 1.1,
+                          borderRadius: '10px',
+                          textTransform: 'none',
+                          fontSize: '0.76rem',
+                          color: 'rgba(216, 228, 245, 0.96)',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                          '&:hover': {
+                            backgroundColor: 'var(--morius-button-hover)',
+                          },
+                        }}
+                      >
+                        Сбросить
+                      </Button>
+                    </Stack>
+
+                    <Box sx={{ mt: 0.86 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top K</Typography>
+                        <Typography sx={{ color: 'rgba(194, 208, 227, 0.84)', fontSize: '0.76rem' }}>{storyTopK}</Typography>
+                      </Stack>
+                      <Slider
+                        value={storyTopK}
+                        min={STORY_TOP_K_MIN}
+                        max={STORY_TOP_K_MAX}
+                        step={1}
+                        onChange={handleStoryTopKSliderChange}
+                        onChangeCommitted={(event, value) => {
+                          void handleStoryTopKSliderCommit(event, value)
+                        }}
+                        disabled={isSavingStorySettings || isGenerating}
+                        sx={{
+                          mt: 0.42,
+                          color: '#c6d3e5',
+                          '& .MuiSlider-thumb': {
+                            width: 14,
+                            height: 14,
+                          },
+                        }}
+                      />
+                    </Box>
+
+                    <Box sx={{ mt: 0.34 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top R</Typography>
+                        <Typography sx={{ color: 'rgba(194, 208, 227, 0.84)', fontSize: '0.76rem' }}>{storyTopR.toFixed(2)}</Typography>
+                      </Stack>
+                      <Slider
+                        value={storyTopR}
+                        min={STORY_TOP_R_MIN}
+                        max={STORY_TOP_R_MAX}
+                        step={0.01}
+                        onChange={handleStoryTopRSliderChange}
+                        onChangeCommitted={(event, value) => {
+                          void handleStoryTopRSliderCommit(event, value)
+                        }}
+                        disabled={isSavingStorySettings || isGenerating}
+                        sx={{
+                          mt: 0.42,
+                          color: '#c6d3e5',
+                          '& .MuiSlider-thumb': {
+                            width: 14,
+                            height: 14,
+                          },
+                        }}
+                      />
+                    </Box>
+
+                    {isSavingStorySampling ? <CircularProgress size={14} sx={{ mt: 0.45, color: 'rgba(205, 215, 231, 0.86)' }} /> : null}
+                  </Box>
+
+                  <Box
+                    sx={{
+                      mt: 0.98,
+                      pt: 0.9,
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
+                    <Typography sx={{ color: '#dfe6f2', fontSize: '0.9rem', fontWeight: 700 }}>Лимит контекста</Typography>
+                    <Typography sx={{ mt: 0.4, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.82rem', lineHeight: 1.38 }}>
+                      Ограничивает размер отправляемого контекста в токенах.
+                    </Typography>
+                  </Box>
+
                   <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.15 }}>
                     <Box
                       component="input"
@@ -3837,7 +4644,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           void handleContextLimitDraftCommit()
                         }
                       }}
-                      disabled={isSavingContextLimit || isGenerating}
+                      disabled={isSavingStorySettings || isGenerating}
                       inputMode="numeric"
                       sx={{
                         width: 112,
@@ -3864,7 +4671,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     onChangeCommitted={(event, value) => {
                       void handleContextLimitSliderCommit(event, value)
                     }}
-                    disabled={isSavingContextLimit || isGenerating}
+                    disabled={isSavingStorySettings || isGenerating}
                     sx={{
                       mt: 0.9,
                       color: '#c6d3e5',
@@ -4603,11 +5410,103 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ) : null}
 
             {!isLoadingGameMessages && messages.length === 0 ? (
-              <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
-                <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
-                  {quickStartIntro || INITIAL_STORY_PLACEHOLDER}
-                </Typography>
-              </Stack>
+              quickStartIntroBlocks.length > 0 ? (
+                <Box
+                  sx={{
+                    mb: 'var(--morius-story-message-gap)',
+                    borderRadius: 'var(--morius-radius)',
+                    px: 0.42,
+                    py: 0.3,
+                  }}
+                >
+                  <Stack spacing="var(--morius-story-message-gap)">
+                    {quickStartIntroBlocks.map((block, index) => {
+                      if (block.type === 'character') {
+                        const nearbyNarrativeContext = quickStartIntroBlocks
+                          .slice(Math.max(0, index - 3), Math.min(quickStartIntroBlocks.length, index + 4))
+                          .filter((candidate) => candidate.type === 'narrative')
+                          .map((candidate) => candidate.text)
+                          .join('\n')
+                        const resolvedSpeakerName = resolveDialogueSpeakerName(
+                          block.speakerName,
+                          block.text,
+                          nearbyNarrativeContext,
+                        )
+                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+                        return (
+                          <Stack
+                            key={`quick-start-character-${index}`}
+                            direction="row"
+                            spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
+                            alignItems="flex-start"
+                            sx={{
+                              px: 0.05,
+                              py: 0.05,
+                            }}
+                          >
+                            <CharacterAvatar
+                              avatarUrl={speakerAvatar}
+                              fallbackLabel={resolvedSpeakerName}
+                              size={ASSISTANT_DIALOGUE_AVATAR_SIZE}
+                            />
+                            <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
+                              <Typography
+                                sx={{
+                                  color: block.delivery === 'thought' ? 'rgba(166, 187, 214, 0.9)' : 'rgba(178, 198, 228, 0.9)',
+                                  fontSize: '0.84rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 700,
+                                  letterSpacing: 0.18,
+                                }}
+                              >
+                                {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  color: block.delivery === 'thought' ? 'rgba(207, 220, 237, 0.92)' : 'var(--morius-title-text)',
+                                  lineHeight: 1.54,
+                                  fontSize: { xs: '1rem', md: '1.08rem' },
+                                  fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
+                                  whiteSpace: 'pre-wrap',
+                                }}
+                              >
+                                {block.text}
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        )
+                      }
+
+                      return (
+                        <Box
+                          key={`quick-start-narrative-${index}`}
+                          sx={{
+                            px: 0.05,
+                            py: 0.05,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              color: 'var(--morius-title-text)',
+                              lineHeight: 1.58,
+                              fontSize: { xs: '1.02rem', md: '1.12rem' },
+                              whiteSpace: 'pre-wrap',
+                            }}
+                          >
+                            {block.text}
+                          </Typography>
+                        </Box>
+                      )
+                    })}
+                  </Stack>
+                </Box>
+              ) : (
+                <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
+                  <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
+                    {INITIAL_STORY_PLACEHOLDER}
+                  </Typography>
+                </Stack>
+              )
             ) : null}
 
             {!isLoadingGameMessages
@@ -4789,7 +5688,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
                                 <Box className="morius-generating-pulse-dot" />
                                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
-                                  ИИ генерирует ответ
+                                  Смотрим, что было дальше...
                                 </Typography>
                               </Stack>
                             </Stack>

@@ -5,6 +5,7 @@
   StoryGamePayload,
   StoryGameSummary,
   StoryGameVisibility,
+  StoryNarratorModelId,
   StoryInstructionCard,
   StoryMessage,
   StoryPlotCard,
@@ -52,6 +53,10 @@ export type StoryGenerationStreamOptions = {
   prompt?: string
   rerollLastResponse?: boolean
   instructions?: StoryInstructionCardInput[]
+  storyLlmModel?: StoryNarratorModelId
+  memoryOptimizationEnabled?: boolean
+  storyTopK?: number
+  storyTopR?: number
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
@@ -256,6 +261,7 @@ export async function createStoryGame(payload: {
   token: string
   title?: string
   description?: string
+  opening_scene?: string
   visibility?: StoryGameVisibility
   age_rating?: '6+' | '16+' | '18+'
   genres?: string[]
@@ -272,6 +278,7 @@ export async function createStoryGame(payload: {
     body: JSON.stringify({
       title: payload.title ?? null,
       description: payload.description ?? null,
+      opening_scene: payload.opening_scene ?? null,
       visibility: payload.visibility ?? null,
       age_rating: payload.age_rating ?? null,
       genres: payload.genres ?? null,
@@ -298,16 +305,34 @@ export async function getStoryGame(payload: {
 export async function updateStoryGameSettings(payload: {
   token: string
   gameId: number
-  contextLimitTokens: number
+  contextLimitTokens?: number
+  storyLlmModel?: StoryNarratorModelId
+  memoryOptimizationEnabled?: boolean
+  storyTopK?: number
+  storyTopR?: number
 }): Promise<StoryGameSummary> {
+  const requestPayload: Record<string, unknown> = {}
+  if (typeof payload.contextLimitTokens === 'number') {
+    requestPayload.context_limit_chars = payload.contextLimitTokens
+  }
+  if (typeof payload.storyLlmModel === 'string') {
+    requestPayload.story_llm_model = payload.storyLlmModel
+  }
+  if (typeof payload.memoryOptimizationEnabled === 'boolean') {
+    requestPayload.memory_optimization_enabled = payload.memoryOptimizationEnabled
+  }
+  if (typeof payload.storyTopK === 'number') {
+    requestPayload.story_top_k = payload.storyTopK
+  }
+  if (typeof payload.storyTopR === 'number') {
+    requestPayload.story_top_r = payload.storyTopR
+  }
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      context_limit_chars: payload.contextLimitTokens,
-    }),
+    body: JSON.stringify(requestPayload),
   })
 }
 
@@ -316,6 +341,7 @@ export async function updateStoryGameMeta(payload: {
   gameId: number
   title?: string
   description?: string
+  opening_scene?: string
   visibility?: StoryGameVisibility
   age_rating?: '6+' | '16+' | '18+'
   genres?: string[]
@@ -332,6 +358,7 @@ export async function updateStoryGameMeta(payload: {
     body: JSON.stringify({
       title: payload.title ?? null,
       description: payload.description ?? null,
+      opening_scene: payload.opening_scene ?? null,
       visibility: payload.visibility ?? null,
       age_rating: payload.age_rating ?? null,
       genres: payload.genres ?? null,
@@ -372,6 +399,23 @@ export async function updateStoryMessage(payload: {
 
 export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
   const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
+  const requestPayload: Record<string, unknown> = {
+    prompt: options.prompt,
+    reroll_last_response: Boolean(options.rerollLastResponse),
+    instructions: options.instructions ?? [],
+  }
+  if (typeof options.storyLlmModel === 'string') {
+    requestPayload.story_llm_model = options.storyLlmModel
+  }
+  if (typeof options.memoryOptimizationEnabled === 'boolean') {
+    requestPayload.memory_optimization_enabled = options.memoryOptimizationEnabled
+  }
+  if (typeof options.storyTopK === 'number') {
+    requestPayload.story_top_k = options.storyTopK
+  }
+  if (typeof options.storyTopR === 'number') {
+    requestPayload.story_top_r = options.storyTopR
+  }
   let response: Response
   try {
     response = await fetch(targetUrl, {
@@ -380,11 +424,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
         Authorization: `Bearer ${options.token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        prompt: options.prompt,
-        reroll_last_response: Boolean(options.rerollLastResponse),
-        instructions: options.instructions ?? [],
-      }),
+      body: JSON.stringify(requestPayload),
       signal: options.signal,
     })
   } catch {

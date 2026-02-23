@@ -20,6 +20,8 @@ import tabcoinIcon from './icons/tabcoin.svg'
 import themeIcon from './icons/theme.svg'
 import undoIcon from './icons/undo.svg'
 import worldIcon from './icons/world.svg'
+import menuSettingsIcon from './icons/menu-settings.svg'
+import menuShopIcon from './icons/menu-shop.svg'
 import tavernBackground from './images/tavern-bg.png'
 import cloudsImage from './images/clouds.png'
 
@@ -46,6 +48,8 @@ export const icons = {
   reroll: rerollIcon,
   send: sendIcon,
   settings: settingsIcon,
+  menuSettings: menuSettingsIcon,
+  menuShop: menuShopIcon,
   tabcoin: tabcoinIcon,
   theme: themeIcon,
   undo: undoIcon,

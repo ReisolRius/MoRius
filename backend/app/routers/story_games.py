@@ -40,6 +40,7 @@ from app.services.story_games import (
     STORY_DEFAULT_TITLE,
     STORY_GAME_VISIBILITY_PRIVATE,
     clone_story_world_cards_to_game,
+    coerce_story_llm_model,
     coerce_story_game_age_rating,
     deserialize_story_game_genres,
     normalize_story_context_limit_chars,
@@ -49,7 +50,12 @@ from app.services.story_games import (
     normalize_story_game_age_rating,
     normalize_story_game_description,
     normalize_story_game_genres,
+    normalize_story_game_opening_scene,
     normalize_story_game_visibility,
+    normalize_story_llm_model,
+    normalize_story_memory_optimization_enabled,
+    normalize_story_top_k,
+    normalize_story_top_r,
     serialize_story_game_genres,
     story_author_name,
     story_community_world_summary_to_out,
@@ -142,6 +148,7 @@ def launch_story_community_world(
         user_id=user.id,
         title=title,
         description=world.description or "",
+        opening_scene=world.opening_scene or "",
         visibility=STORY_GAME_VISIBILITY_PRIVATE,
         age_rating=coerce_story_game_age_rating(world.age_rating),
         genres=serialize_story_game_genres(deserialize_story_game_genres(world.genres)),
@@ -155,6 +162,10 @@ def launch_story_community_world(
         community_rating_sum=0,
         community_rating_count=0,
         context_limit_chars=normalize_story_context_limit_chars(world.context_limit_chars),
+        story_llm_model=coerce_story_llm_model(getattr(world, "story_llm_model", None)),
+        memory_optimization_enabled=bool(getattr(world, "memory_optimization_enabled", True)),
+        story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
+        story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
         last_activity_at=_utcnow(),
     )
     db.add(cloned_game)
@@ -253,6 +264,7 @@ def create_story_game(
     if not title:
         title = STORY_DEFAULT_TITLE
     description = normalize_story_game_description(payload.description)
+    opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
     visibility = normalize_story_game_visibility(payload.visibility)
     age_rating = normalize_story_game_age_rating(payload.age_rating)
     genres = normalize_story_game_genres(payload.genres)
@@ -261,11 +273,16 @@ def create_story_game(
     cover_position_x = normalize_story_cover_position(payload.cover_position_x)
     cover_position_y = normalize_story_cover_position(payload.cover_position_y)
     context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
+    story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
+    story_top_k = normalize_story_top_k(payload.story_top_k)
+    story_top_r = normalize_story_top_r(payload.story_top_r)
 
     game = StoryGame(
         user_id=user.id,
         title=title,
         description=description,
+        opening_scene=opening_scene,
         visibility=visibility,
         age_rating=age_rating,
         genres=serialize_story_game_genres(genres),
@@ -279,6 +296,10 @@ def create_story_game(
         community_rating_sum=0,
         community_rating_count=0,
         context_limit_chars=context_limit_chars,
+        story_llm_model=story_llm_model,
+        memory_optimization_enabled=memory_optimization_enabled,
+        story_top_k=story_top_k,
+        story_top_r=story_top_r,
         last_activity_at=_utcnow(),
     )
     db.add(game)
@@ -296,7 +317,16 @@ def update_story_game_settings(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    game.context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
+    if payload.context_limit_chars is not None:
+        game.context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
+    if payload.story_llm_model is not None:
+        game.story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    if payload.memory_optimization_enabled is not None:
+        game.memory_optimization_enabled = bool(payload.memory_optimization_enabled)
+    if payload.story_top_k is not None:
+        game.story_top_k = normalize_story_top_k(payload.story_top_k)
+    if payload.story_top_r is not None:
+        game.story_top_r = normalize_story_top_r(payload.story_top_r)
     touch_story_game(game)
     db.commit()
     db.refresh(game)
@@ -318,6 +348,8 @@ def update_story_game_meta(
         game.title = normalized_title or STORY_DEFAULT_TITLE
     if payload.description is not None:
         game.description = normalize_story_game_description(payload.description)
+    if payload.opening_scene is not None:
+        game.opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
     if payload.visibility is not None:
         game.visibility = normalize_story_game_visibility(payload.visibility)
     if payload.age_rating is not None:

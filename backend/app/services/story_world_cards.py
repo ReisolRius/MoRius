@@ -9,6 +9,7 @@ from app.models import StoryCharacter, StoryWorldCard
 from app.schemas import StoryWorldCardOut
 from app.services.media import normalize_avatar_value
 from app.services.story_characters import (
+    deserialize_triggers,
     normalize_story_avatar_scale,
     normalize_story_character_avatar_url,
 )
@@ -28,6 +29,7 @@ STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
 STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {5, 10, 15}
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
+STORY_WORLD_CARD_TRIGGER_MAX_LENGTH = 80
 
 
 def normalize_story_world_card_title(value: str) -> str:
@@ -50,8 +52,8 @@ def normalize_story_world_card_trigger(value: str) -> str:
     normalized = " ".join(value.replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
-    if len(normalized) > 60:
-        normalized = normalized[:60].rstrip()
+    if len(normalized) > STORY_WORLD_CARD_TRIGGER_MAX_LENGTH:
+        normalized = normalized[:STORY_WORLD_CARD_TRIGGER_MAX_LENGTH].rstrip()
     return normalized
 
 
@@ -244,9 +246,11 @@ def build_story_world_card_from_character(
 ) -> StoryWorldCard:
     normalized_name = normalize_story_world_card_title(character.name)
     normalized_content = normalize_story_world_card_content(character.description)
-    normalized_triggers = deserialize_story_world_card_triggers(character.triggers)
-    if not normalized_triggers:
-        normalized_triggers = normalize_story_world_card_triggers([], fallback_title=normalized_name)
+    character_triggers = deserialize_triggers(character.triggers)
+    normalized_triggers = normalize_story_world_card_triggers(
+        character_triggers,
+        fallback_title=normalized_name,
+    )
     normalized_kind = normalize_story_world_card_kind(kind)
 
     return StoryWorldCard(

@@ -8,22 +8,33 @@ import '@fontsource/nunito-sans/700.css'
 import './index.css'
 import App from './App.tsx'
 import { GOOGLE_CLIENT_ID, IS_GOOGLE_AUTH_CONFIGURED } from './config/env'
-import { moriusCssVariables, moriusMuiTheme, moriusThemeTokens } from './theme'
+import { MoriusThemeProvider, useMoriusThemeController } from './theme'
+
+function ThemedApp() {
+  const { activeTheme, cssVariables, muiTheme } = useMoriusThemeController()
+
+  return (
+    <ThemeProvider theme={muiTheme}>
+      <CssBaseline />
+      <GlobalStyles
+        styles={{
+          ':root': cssVariables,
+          'html, body, #root': {
+            backgroundColor: activeTheme.colors.bootBackground,
+            color: activeTheme.colors.baseText,
+            transition: 'background-color 180ms ease, color 180ms ease',
+          },
+        }}
+      />
+      <App />
+    </ThemeProvider>
+  )
+}
 
 const appNode = (
-  <ThemeProvider theme={moriusMuiTheme}>
-    <CssBaseline />
-    <GlobalStyles
-      styles={{
-        ':root': moriusCssVariables,
-        'html, body, #root': {
-          backgroundColor: moriusThemeTokens.colors.bootBackground,
-          color: moriusThemeTokens.colors.baseText,
-        },
-      }}
-    />
-    <App />
-  </ThemeProvider>
+  <MoriusThemeProvider>
+    <ThemedApp />
+  </MoriusThemeProvider>
 )
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

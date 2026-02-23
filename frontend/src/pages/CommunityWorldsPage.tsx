@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Box, Button, CircularProgress, IconButton, Stack, Typography } from '@mui/material'
-import { icons } from '../assets'
+import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import { getCommunityWorld, launchCommunityWorld, listCommunityWorlds, rateCommunityWorld } from '../services/storyApi'
@@ -169,42 +168,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        hideRightToggle
         rightActions={
-          <Stack direction="row" spacing={1.2}>
-            <IconButton
-              aria-label="Поддержка"
-              onClick={(event) => event.preventDefault()}
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                transition: 'background-color 180ms ease',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
-            <IconButton
-              aria-label="Оформление"
-              onClick={(event) => event.preventDefault()}
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                transition: 'background-color 180ms ease',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
+          <Stack direction="row" spacing={0}>
             <Button
               variant="text"
               onClick={() => onNavigate('/dashboard')}

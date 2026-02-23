@@ -15,6 +15,7 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
 import ImageCropper from '../components/ImageCropper'
 import { icons } from '../assets'
+import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createStoryGame,
   createStoryInstructionCard,
@@ -247,6 +248,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const [openingScene, setOpeningScene] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
   const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
   const [genres, setGenres] = useState<string[]>([])
@@ -283,6 +285,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const hasInitializedDefaultCoverRef = useRef(false)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
+  const openingSceneTagCharacters = useMemo(() => sortedCharacters.slice(0, 8), [sortedCharacters])
   const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHero?.name ?? ''), [mainHero?.name])
   const npcCharacterIds = useMemo(() => new Set(npcs.map((npc) => npc.character_id).filter((id): id is number => Boolean(id))), [npcs])
   const npcNames = useMemo(() => {
@@ -315,6 +318,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const persistTitleForGame = useCallback((gameId: number, nextTitle: string) => {
     const next = setStoryTitle(loadStoryTitleMap(), gameId, nextTitle)
     persistStoryTitleMap(next)
+  }, [])
+
+  const appendOpeningSceneTemplate = useCallback((template: string) => {
+    setOpeningScene((previousValue) => {
+      const trimmed = previousValue.trimEnd()
+      if (!trimmed) {
+        return template
+      }
+      return `${trimmed}\n${template}`
+    })
   }, [])
 
   useEffect(() => {
@@ -379,6 +392,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         if (!active) return
         setTitle(payload.game.title)
         setDescription(payload.game.description)
+        setOpeningScene(payload.game.opening_scene ?? '')
         setVisibility(payload.game.visibility)
         setAgeRating(payload.game.age_rating)
         setGenres(payload.game.genres.slice(0, MAX_WORLD_GENRES))
@@ -553,11 +567,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       let gameId = editingGameId
       const normalizedTitle = title.trim()
       const normalizedDescription = description.trim()
+      const normalizedOpeningScene = openingScene.replace(/\r\n/g, '\n').trim()
       if (gameId === null) {
         const created = await createStoryGame({
           token: authToken,
           title: normalizedTitle,
           description: normalizedDescription,
+          opening_scene: normalizedOpeningScene,
           visibility,
           age_rating: ageRating,
           genres,
@@ -617,13 +633,22 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       }
       for (const npc of existingNpcs) if (!npcs.some((item) => item.id === npc.id)) await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
       persistTitleForGame(gameId, normalizedTitle)
+      localStorage.setItem(
+        QUICK_START_WORLD_STORAGE_KEY,
+        JSON.stringify({
+          gameId,
+          title: normalizedTitle,
+          opening_scene: normalizedOpeningScene,
+          description: normalizedDescription,
+        }),
+      )
       onNavigate(`/home/${gameId}`)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, persistTitleForGame, plotCards, title, visibility])
+  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, title, visibility])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -654,6 +679,45 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
             <Stack spacing={0.35}><Typography sx={{ fontSize: { xs: '1.65rem', md: '1.9rem' }, fontWeight: 800 }}>{heroTitle}</Typography><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Заполните мир и добавьте карточки. После создания он сразу откроется в игре.</Typography></Stack>
             <TextField label="Название мира" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
             <TextField label="Краткое описание" value={description} onChange={(e) => setDescription(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 1000 }} />
+            {!isEditMode ? <>
+            <TextField label="Вступительная сцена" value={openingScene} onChange={(e) => setOpeningScene(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 4000 }} />
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
+              Разметка для вступления: {'\n'}
+              {'<narrative>Ночь была неспокойной...</narrative>'}{'\n'}
+              {'<gg-replick:Алекс>Ты в порядке?</gg-replick>'}{'\n'}
+              {'<npc-replick:Стражник>Стой. Назовись.</npc-replick>'}{'\n'}
+              {'<gg-thought:Алекс>Лучше не спорить...</gg-thought>'}{'\n'}
+              {'<npc-thought:Стражник>Он что-то скрывает.</npc-thought>'}{'\n\n'}
+              Чтобы взять имя и аватар из «Мои персонажи», используйте @Имя:{'\n'}
+              {'<gg-replick:@Алекс Уейт>...</gg-replick>'}{'\n'}
+              {'<npc-replick:@Аками Наито>...</npc-replick>'}
+            </Typography>
+            {openingSceneTagCharacters.length > 0 ? (
+              <Stack spacing={0.55}>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>Быстрые теги из «Мои персонажи»:</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.55 }}>
+                  {openingSceneTagCharacters.map((character) => (
+                    <Button
+                      key={`opening-scene-character-${character.id}`}
+                      onClick={() => appendOpeningSceneTemplate(`<npc-replick:@${character.name}>...</npc-replick>`)}
+                      sx={{
+                        minHeight: 30,
+                        px: 0.95,
+                        borderRadius: '999px',
+                        textTransform: 'none',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                        backgroundColor: APP_CARD_BACKGROUND,
+                        color: APP_TEXT_PRIMARY,
+                        fontSize: '0.82rem',
+                      }}
+                    >
+                      {character.name}
+                    </Button>
+                  ))}
+                </Box>
+              </Stack>
+            ) : null}
+            </> : null}
             <Stack spacing={0.75}>
               <Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Возрастное ограничение</Typography>
               <Stack direction="row" spacing={0.8} flexWrap="wrap">

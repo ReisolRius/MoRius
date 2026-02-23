@@ -57,6 +57,21 @@ STORY_GAME_GENRE_VALUES = {
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 6_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
+STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
+STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
+STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905 = "moonshotai/kimi-k2-0905"
+STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_GLM5
+STORY_SUPPORTED_LLM_MODELS = {
+    STORY_LLM_MODEL_GLM5,
+    STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE,
+    STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905,
+}
+STORY_TOP_K_MIN = 0
+STORY_TOP_K_MAX = 200
+STORY_DEFAULT_TOP_K = 0
+STORY_TOP_R_MIN = 0.1
+STORY_TOP_R_MAX = 1.0
+STORY_DEFAULT_TOP_R = 1.0
 STORY_COVER_SCALE_MIN = 1.0
 STORY_COVER_SCALE_MAX = 3.0
 STORY_COVER_SCALE_DEFAULT = 1.0
@@ -64,6 +79,7 @@ STORY_IMAGE_POSITION_MIN = 0.0
 STORY_IMAGE_POSITION_MAX = 100.0
 STORY_IMAGE_POSITION_DEFAULT = 50.0
 STORY_COVER_MAX_BYTES = 500 * 1024
+STORY_OPENING_SCENE_MAX_LENGTH = 12_000
 STORY_WORLD_CARD_KIND_WORLD = "world"
 STORY_WORLD_CARD_KIND_NPC = "npc"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
@@ -187,10 +203,58 @@ def normalize_story_game_description(value: str | None) -> str:
     return normalized[:4_000].rstrip()
 
 
+def normalize_story_game_opening_scene(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:STORY_OPENING_SCENE_MAX_LENGTH].rstrip()
+
+
 def normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
     return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+
+
+def coerce_story_llm_model(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
+    if normalized in STORY_SUPPORTED_LLM_MODELS:
+        return normalized
+    return STORY_DEFAULT_LLM_MODEL
+
+
+def normalize_story_llm_model(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
+    if normalized not in STORY_SUPPORTED_LLM_MODELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Unsupported story model. "
+                "Use one of: z-ai/glm-5, arcee-ai/trinity-large-preview:free, moonshotai/kimi-k2-0905"
+            ),
+        )
+    return normalized
+
+
+def normalize_story_memory_optimization_enabled(value: bool | None) -> bool:
+    if value is None:
+        return True
+    return bool(value)
+
+
+def normalize_story_top_k(value: int | None) -> int:
+    if value is None:
+        return STORY_DEFAULT_TOP_K
+    return max(STORY_TOP_K_MIN, min(int(value), STORY_TOP_K_MAX))
+
+
+def normalize_story_top_r(value: float | None) -> float:
+    if value is None:
+        return STORY_DEFAULT_TOP_R
+    clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
+    return round(clamped_value, 2)
 
 
 def normalize_story_cover_scale(raw_value: float | int | str | None) -> float:
@@ -231,6 +295,7 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         id=game.id,
         title=game.title,
         description=(game.description or "").strip(),
+        opening_scene=(game.opening_scene or "").strip(),
         visibility=coerce_story_game_visibility(game.visibility),
         age_rating=coerce_story_game_age_rating(game.age_rating),
         genres=deserialize_story_game_genres(game.genres),
@@ -244,6 +309,10 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
         context_limit_chars=game.context_limit_chars,
+        story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
+        memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
+        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
+        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,

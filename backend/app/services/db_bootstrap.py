@@ -86,6 +86,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN description TEXT NOT NULL DEFAULT ''"
         )
+    if "opening_scene" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN opening_scene TEXT NOT NULL DEFAULT ''"
+        )
     if "visibility" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -120,6 +125,26 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN cover_position_y FLOAT NOT NULL DEFAULT 50.0"
+        )
+    if "story_llm_model" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'z-ai/glm-5'"
+        )
+    if "memory_optimization_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN memory_optimization_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    if "story_top_k" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN story_top_k INTEGER NOT NULL DEFAULT 0"
+        )
+    if "story_top_r" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN story_top_r FLOAT NOT NULL DEFAULT 1.0"
         )
     if "source_world_id" not in existing_columns:
         alter_statements.append(

@@ -41,10 +41,35 @@ const featureCards = [
   },
 ]
 
-const footerLinks: Array<{ label: string; href: string; external?: boolean }> = [
-  { label: 'О проекте', href: '#' },
-  { label: 'телеграм', href: '#' },
-  { label: 'Вконтакте', href: 'https://vk.com/optrovert', external: true },
+const tariffPlans = [
+  {
+    id: 'standard',
+    title: 'Стандарт',
+    price: '399₽',
+    coins: '500 коинов',
+  },
+  {
+    id: 'pro',
+    title: 'Про',
+    price: '1099₽',
+    coins: '1500 коинов',
+  },
+  {
+    id: 'mega',
+    title: 'Мега',
+    price: '4000 ₽',
+    coins: '4000 коинов',
+  },
+]
+
+const footerSocialLinks: Array<{ label: string; href: string; external?: boolean }> = [
+  { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+  { label: 'Телеграмм', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+]
+
+const footerInfoLinks: Array<{ label: string; path: string }> = [
+  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
 ]
 
 const ctaButtonSx = {
@@ -67,6 +92,7 @@ const ctaButtonSx = {
 
 type PublicLandingPageProps = {
   isAuthenticated: boolean
+  onNavigate: (path: string) => void
   onGoHome: () => void
   onAuthSuccess: (payload: AuthResponse) => void
 }
@@ -123,7 +149,7 @@ function RevealOnView({ children, delay = 0, y = 26, threshold = 0.2, sx }: Reve
   )
 }
 
-function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicLandingPageProps) {
+function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSuccess }: PublicLandingPageProps) {
   const storySectionRef = useRef<HTMLElement | null>(null)
   const [animationStarted, setAnimationStarted] = useState(false)
   const [typedText, setTypedText] = useState('')
@@ -588,6 +614,66 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
                 </RevealOnView>
               ))}
             </Box>
+
+            <RevealOnView delay={120}>
+              <Stack spacing={1.1} alignItems="center" textAlign="center" sx={{ pt: { xs: 0.8, md: 1.2 } }}>
+                <Typography variant="h3" sx={{ fontSize: { xs: '1.6rem', md: '2.1rem' }, color: '#d3d8e0' }}>
+                  Тарифные планы
+                </Typography>
+                <Typography sx={{ color: 'rgba(214, 221, 231, 0.62)', fontSize: { xs: '0.9rem', md: '0.95rem' } }}>
+                  Выберите пакет коинов под ваш темп игры.
+                </Typography>
+              </Stack>
+            </RevealOnView>
+
+            <Box
+              sx={{
+                width: '100%',
+                display: 'grid',
+                gap: 2.1,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  md: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {tariffPlans.map((plan, index) => (
+                <RevealOnView key={plan.id} delay={index * 95 + 180} y={30} threshold={0.18}>
+                  <Card
+                    sx={{
+                      background: 'linear-gradient(180deg, rgba(18, 22, 30, 0.94) 0%, rgba(14, 18, 25, 0.92) 100%)',
+                      border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.16)',
+                      borderRadius: 'var(--morius-radius)',
+                      minHeight: { xs: 188, md: 202 },
+                      transition:
+                        'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), border-color 280ms ease, box-shadow 280ms ease, background-color 280ms ease',
+                      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.2)',
+                      '&:hover': {
+                        transform: 'translateY(-7px)',
+                        borderColor: 'rgba(185, 198, 214, 0.34)',
+                        backgroundColor: 'rgba(20, 24, 33, 0.96)',
+                        boxShadow: '0 20px 34px rgba(0, 0, 0, 0.3)',
+                      },
+                    }}
+                  >
+                    <CardContent sx={{ p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                      <Stack spacing={1.05} alignItems="flex-start">
+                        <Typography sx={{ color: '#d8dde5', fontSize: '1.35rem', fontWeight: 700 }}>
+                          {plan.title}
+                        </Typography>
+                        <Typography sx={{ color: '#e6edf6', fontSize: '1.95rem', fontWeight: 800, lineHeight: 1.12 }}>
+                          {plan.price}
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(213, 220, 231, 0.72)', fontSize: '0.95rem' }}>
+                          {plan.coins}
+                        </Typography>
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </RevealOnView>
+              ))}
+            </Box>
           </Stack>
         </Container>
       </Box>
@@ -612,41 +698,105 @@ function PublicLandingPage({ isAuthenticated, onGoHome, onAuthSuccess }: PublicL
         </RevealOnView>
       </Box>
 
-      <Box component="footer" sx={{ borderTop: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.14)', py: 4.5 }}>
+      <Box
+        component="footer"
+        sx={{
+          borderTop: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.14)',
+          py: { xs: 3.6, md: 4.3 },
+          background:
+            'linear-gradient(180deg, rgba(7, 10, 16, 0.96) 0%, rgba(6, 9, 14, 0.98) 100%), repeating-linear-gradient(124deg, rgba(255,255,255,0.006) 0, rgba(255,255,255,0.006) 1px, transparent 1px, transparent 30px)',
+        }}
+      >
         <Container maxWidth="lg">
           <RevealOnView>
-            <Stack
-              direction={{ xs: 'column', sm: 'row' }}
-              justifyContent="center"
-              alignItems="center"
-              spacing={{ xs: 1.4, sm: 5, md: 8 }}
-              sx={{ mb: 2.2 }}
+            <Box
+              sx={{
+                borderRadius: '12px',
+                border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.12)',
+                background: 'linear-gradient(130deg, rgba(14, 18, 25, 0.9) 0%, rgba(10, 14, 20, 0.92) 100%)',
+                px: { xs: 1.3, sm: 2.1, md: 2.8 },
+                py: { xs: 1.6, md: 2.1 },
+              }}
             >
-              {footerLinks.map((link) => (
-                <Typography
-                  key={link.label}
-                  component="a"
-                  href={link.href}
-                  target={link.external ? '_blank' : undefined}
-                  rel={link.external ? 'noopener noreferrer' : undefined}
-                  sx={{
-                    color: '#e2e6ed',
-                    textDecoration: 'none',
-                    fontWeight: 600,
-                    transition: 'color 180ms ease, transform 180ms ease',
-                    '&:hover': {
-                      color: '#f0f4fb',
-                      transform: 'translateY(-1px)',
-                    },
-                  }}
-                >
-                  {link.label}
-                </Typography>
-              ))}
-            </Stack>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: { xs: 2, md: 2.8 },
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: '1.25fr 0.8fr 1.25fr' },
+                  mb: 1.7,
+                }}
+              >
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>О проекте</Typography>
+                  <Typography sx={{ color: 'rgba(214, 221, 231, 0.66)', fontSize: '0.9rem', maxWidth: 320, lineHeight: 1.48 }}>
+                    Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
+                  </Typography>
+                </Stack>
+
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>Соц сети</Typography>
+                  {footerSocialLinks.map((link) => (
+                    <Typography
+                      key={link.label}
+                      component="a"
+                      href={link.href}
+                      target={link.external ? '_blank' : undefined}
+                      rel={link.external ? 'noopener noreferrer' : undefined}
+                      sx={{
+                        color: 'rgba(214, 221, 231, 0.74)',
+                        textDecoration: 'none',
+                        fontSize: '0.92rem',
+                        width: 'fit-content',
+                        transition: 'color 170ms ease',
+                        '&:hover': {
+                          color: '#f0f4fb',
+                        },
+                      }}
+                    >
+                      {link.label}
+                    </Typography>
+                  ))}
+                </Stack>
+
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>Информация</Typography>
+                  {footerInfoLinks.map((link) => (
+                    <Box
+                      key={link.label}
+                      component="button"
+                      type="button"
+                      onClick={() => onNavigate(link.path)}
+                      sx={{
+                        p: 0,
+                        m: 0,
+                        border: 'none',
+                        background: 'none',
+                        color: 'rgba(214, 221, 231, 0.74)',
+                        textAlign: 'left',
+                        font: 'inherit',
+                        fontSize: '0.92rem',
+                        width: 'fit-content',
+                        cursor: 'pointer',
+                        transition: 'color 170ms ease',
+                        '&:hover': {
+                          color: '#f0f4fb',
+                        },
+                      }}
+                    >
+                      {link.label}
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+
+              <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.62)', fontSize: '0.84rem' }}>
+                MoRius ©
+              </Typography>
+            </Box>
           </RevealOnView>
-          <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.6)', fontSize: '0.84rem' }}>
-            MoRius ©
+
+          <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.52)', fontSize: '0.78rem', mt: 1.2 }}>
+            Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com
           </Typography>
         </Container>
       </Box>

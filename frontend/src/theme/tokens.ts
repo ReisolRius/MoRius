@@ -59,41 +59,63 @@ export const moriusThemeTokens = {
   },
 } as const
 
-export const moriusCssVariables = {
-  '--morius-app-bg': moriusThemeTokens.colors.appBackground,
-  '--morius-app-base': moriusThemeTokens.colors.appBase,
-  '--morius-card-bg': moriusThemeTokens.colors.appSurface,
-  '--morius-elevated-bg': moriusThemeTokens.colors.appElevated,
-  '--morius-card-border': moriusThemeTokens.colors.appBorder,
-  '--morius-accent': moriusThemeTokens.colors.accent,
-  '--morius-title-text': moriusThemeTokens.colors.titleText,
-  '--morius-text-primary': moriusThemeTokens.colors.textPrimary,
-  '--morius-text-secondary': moriusThemeTokens.colors.textSecondary,
-  '--morius-button-hover': moriusThemeTokens.colors.buttonHover,
-  '--morius-button-active': moriusThemeTokens.colors.buttonActive,
-  '--morius-send-button-bg': moriusThemeTokens.colors.sendButton,
-  '--morius-panel-gradient': moriusThemeTokens.colors.panelGradient,
-  '--morius-radius': `${moriusThemeTokens.radii.app}px`,
-  '--morius-border-width': `${moriusThemeTokens.borders.width}px`,
-  '--morius-heading-size': `${moriusThemeTokens.typography.headingSize}px`,
-  '--morius-subheading-size': `${moriusThemeTokens.typography.subheadingSize}px`,
-  '--morius-body-size': `${moriusThemeTokens.typography.bodySize}px`,
-  '--morius-header-height': `${moriusThemeTokens.layout.headerHeight}px`,
-  '--morius-header-top-offset': `${moriusThemeTokens.layout.headerTopOffset}px`,
-  '--morius-header-side-offset': `${moriusThemeTokens.layout.headerSideOffset}px`,
-  '--morius-header-menu-top': `${moriusThemeTokens.layout.headerMenuTop}px`,
-  '--morius-interface-gap': `${moriusThemeTokens.layout.interfaceGap}px`,
-  '--morius-section-gap': `${moriusThemeTokens.layout.sectionGap}px`,
-  '--morius-cards-title-gap': `${moriusThemeTokens.layout.cardsToTitleGap}px`,
-  '--morius-action-size': `${moriusThemeTokens.layout.actionButtonSize}px`,
-  '--morius-action-icon-size': `${moriusThemeTokens.layout.actionIconSize}px`,
-  '--morius-story-right-padding': `${moriusThemeTokens.layout.storyRightCardPadding}px`,
-  '--morius-story-message-gap': `${moriusThemeTokens.layout.storyMessageGap}px`,
-  '--morius-icon-gap': `${moriusThemeTokens.layout.iconGap}px`,
-  '--morius-scrollbar-offset': `${moriusThemeTokens.layout.scrollbarOffset}px`,
-  '--morius-content-gap': `${moriusThemeTokens.layout.contentGap}px`,
-  '--morius-title-top-gap': `${moriusThemeTokens.layout.titleTopGap}px`,
-  '--morius-title-bottom-gap': `${moriusThemeTokens.layout.titleBottomGap}px`,
-  '--morius-menu-vertical-gap': `${moriusThemeTokens.layout.menuVerticalGap}px`,
-  '--morius-rating-star-gap': `${moriusThemeTokens.layout.ratingStarGap}px`,
-} as const
+export type MoriusThemeColors = {
+  appBackground: string
+  appBase: string
+  appSurface: string
+  appElevated: string
+  appBorder: string
+  accent: string
+  titleText: string
+  textPrimary: string
+  textSecondary: string
+  buttonHover: string
+  buttonActive: string
+  sendButton: string
+  panelGradient: string
+  bootBackground: string
+  baseText: string
+}
+
+export function createMoriusCssVariables(colors: MoriusThemeColors = moriusThemeTokens.colors) {
+  return {
+    '--morius-app-bg': colors.appBackground,
+    '--morius-app-base': colors.appBase,
+    '--morius-card-bg': colors.appSurface,
+    '--morius-elevated-bg': colors.appElevated,
+    '--morius-card-border': colors.appBorder,
+    '--morius-accent': colors.accent,
+    '--morius-title-text': colors.titleText,
+    '--morius-text-primary': colors.textPrimary,
+    '--morius-text-secondary': colors.textSecondary,
+    '--morius-button-hover': colors.buttonHover,
+    '--morius-button-active': colors.buttonActive,
+    '--morius-send-button-bg': colors.sendButton,
+    '--morius-panel-gradient': colors.panelGradient,
+    '--morius-radius': `${moriusThemeTokens.radii.app}px`,
+    '--morius-border-width': `${moriusThemeTokens.borders.width}px`,
+    '--morius-heading-size': `${moriusThemeTokens.typography.headingSize}px`,
+    '--morius-subheading-size': `${moriusThemeTokens.typography.subheadingSize}px`,
+    '--morius-body-size': `${moriusThemeTokens.typography.bodySize}px`,
+    '--morius-header-height': `${moriusThemeTokens.layout.headerHeight}px`,
+    '--morius-header-top-offset': `${moriusThemeTokens.layout.headerTopOffset}px`,
+    '--morius-header-side-offset': `${moriusThemeTokens.layout.headerSideOffset}px`,
+    '--morius-header-menu-top': `${moriusThemeTokens.layout.headerMenuTop}px`,
+    '--morius-interface-gap': `${moriusThemeTokens.layout.interfaceGap}px`,
+    '--morius-section-gap': `${moriusThemeTokens.layout.sectionGap}px`,
+    '--morius-cards-title-gap': `${moriusThemeTokens.layout.cardsToTitleGap}px`,
+    '--morius-action-size': `${moriusThemeTokens.layout.actionButtonSize}px`,
+    '--morius-action-icon-size': `${moriusThemeTokens.layout.actionIconSize}px`,
+    '--morius-story-right-padding': `${moriusThemeTokens.layout.storyRightCardPadding}px`,
+    '--morius-story-message-gap': `${moriusThemeTokens.layout.storyMessageGap}px`,
+    '--morius-icon-gap': `${moriusThemeTokens.layout.iconGap}px`,
+    '--morius-scrollbar-offset': `${moriusThemeTokens.layout.scrollbarOffset}px`,
+    '--morius-content-gap': `${moriusThemeTokens.layout.contentGap}px`,
+    '--morius-title-top-gap': `${moriusThemeTokens.layout.titleTopGap}px`,
+    '--morius-title-bottom-gap': `${moriusThemeTokens.layout.titleBottomGap}px`,
+    '--morius-menu-vertical-gap': `${moriusThemeTokens.layout.menuVerticalGap}px`,
+    '--morius-rating-star-gap': `${moriusThemeTokens.layout.ratingStarGap}px`,
+  } as const
+}
+
+export const moriusCssVariables = createMoriusCssVariables()
