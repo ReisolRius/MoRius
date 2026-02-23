@@ -154,22 +154,7 @@ const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
-const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 .,'’`"-]{0,80})\s*(?:[:：]|[—-])\s+([\s\S]+)$/u
-const SPEAKERLESS_CHARACTER_LINE_PATTERN = /^[:：]\s*([\s\S]+)$/u
-const DIALOGUE_QUOTE_START_PATTERN = /^(?:[—-]\s*|[«„"“])/u
-const THOUGHT_WRAPPED_TEXT_PATTERN = /^\*{1,2}\s*([\s\S]+?)\s*\*{1,2}$/u
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
-const GENERIC_DIALOGUE_SPEAKER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /\bбандит(?:ы|ов|ам|ами|ах)?\b/iu, label: 'Бандит' },
-  { pattern: /\bразбойник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Разбойник' },
-  { pattern: /\bна[её]мник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Наемник' },
-  { pattern: /\bлекар(?:ь|я|ю|ем|и|ей|ями|ях)\b/iu, label: 'Лекарь' },
-  { pattern: /\bцелитель(?:и|я|ю|ем|ей|ями|ях)?\b/iu, label: 'Целитель' },
-  { pattern: /\bстражник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Стражник' },
-  { pattern: /\bохранник(?:и|ов|ам|ами|ах)?\b/iu, label: 'Охранник' },
-  { pattern: /\bсолдат(?:ы|ов|ам|ами|ах)?\b/iu, label: 'Солдат' },
-  { pattern: /\bторгов(?:ец|цы|ца|цев|цу|цам|цем|цами|це|цах)\b/iu, label: 'Торговец' },
-]
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-zа-яё]+|[^\s]/gi
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-zа-яё]+/gi
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
@@ -208,14 +193,6 @@ function estimateDataUrlBytes(dataUrl: string): number {
   const payload = dataUrl.slice(commaIndex + 1)
   const padding = payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0
   return Math.max(0, (payload.length * 3) / 4 - padding)
-}
-
-function isDialogueQuoteText(value: string): boolean {
-  const normalized = value.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return false
-  }
-  return DIALOGUE_QUOTE_START_PATTERN.test(normalized)
 }
 
 function normalizeAssistantMarkerKey(value: string): string {
@@ -285,112 +262,6 @@ function parseStructuredAssistantParagraph(paragraph: string): AssistantMessageB
   }
 }
 
-function resolveGenericDialogueSpeaker(paragraph: string, context: string): string {
-  void paragraph
-  void context
-  void GENERIC_DIALOGUE_SPEAKER_PATTERNS
-  return GENERIC_DIALOGUE_SPEAKER_DEFAULT
-}
-
-type ParsedDialogueLine = {
-  speakerName: string
-  text: string
-  delivery: AssistantDialogueDelivery
-}
-
-function parseCharacterLine(paragraph: string): ParsedDialogueLine | null {
-  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return null
-  }
-
-  const matched = normalized.match(CHARACTER_LINE_PATTERN)
-  if (!matched) {
-    return null
-  }
-
-  const speakerName = matched[1].replace(/^["«„]+|["»”]+$/g, '').trim()
-  const text = matched[2].trim()
-  if (!speakerName || !text) {
-    return null
-  }
-  if (!isDialogueQuoteText(text) && text.length > 260) {
-    return null
-  }
-
-  return { speakerName, text, delivery: 'speech' }
-}
-
-function parseSpeakerlessCharacterLine(paragraph: string, context: string): ParsedDialogueLine | null {
-  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return null
-  }
-
-  const matched = normalized.match(SPEAKERLESS_CHARACTER_LINE_PATTERN)
-  if (!matched) {
-    return null
-  }
-
-  const text = matched[1].trim()
-  if (!text) {
-    return null
-  }
-
-  return {
-    speakerName: resolveGenericDialogueSpeaker(normalized, context),
-    text,
-    delivery: 'speech',
-  }
-}
-
-function parseImplicitThoughtLine(paragraph: string, context: string): ParsedDialogueLine | null {
-  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
-  if (!normalized) {
-    return null
-  }
-  const matched = normalized.match(THOUGHT_WRAPPED_TEXT_PATTERN)
-  if (!matched) {
-    return null
-  }
-
-  const thoughtText = matched[1].trim()
-  if (!thoughtText) {
-    return null
-  }
-
-  return {
-    speakerName: resolveGenericDialogueSpeaker(normalized, context),
-    text: thoughtText,
-    delivery: 'thought',
-  }
-}
-
-function parseImplicitDialogueLine(paragraph: string, context: string): ParsedDialogueLine | null {
-  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
-  if (!normalized || !isDialogueQuoteText(normalized)) {
-    return null
-  }
-  if (parseCharacterLine(normalized)) {
-    return null
-  }
-  const speakerName = resolveGenericDialogueSpeaker(normalized, context)
-  return {
-    speakerName,
-    text: normalized,
-    delivery: 'speech',
-  }
-}
-
-function parseDialogueParagraph(paragraph: string, context: string): ParsedDialogueLine | null {
-  return (
-    parseCharacterLine(paragraph) ??
-    parseSpeakerlessCharacterLine(paragraph, context) ??
-    parseImplicitThoughtLine(paragraph, context) ??
-    parseImplicitDialogueLine(paragraph, context)
-  )
-}
-
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   const normalized = content.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
@@ -405,17 +276,7 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
       return
     }
 
-    const dialogueLine = parseDialogueParagraph(paragraph, normalized)
-    if (dialogueLine) {
-      blocks.push({
-        type: 'character',
-        speakerName: dialogueLine.speakerName,
-        text: dialogueLine.text,
-        delivery: dialogueLine.delivery,
-      })
-      return
-    }
-
+    // Strict mode: any unmarked paragraph is treated as narration only.
     blocks.push({ type: 'narrative', text: paragraph })
   })
 

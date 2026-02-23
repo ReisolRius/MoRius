@@ -234,9 +234,29 @@ STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
     r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
+STORY_MARKUP_MALFORMED_PATTERN = re.compile(
+    r"^(?:\[\[|\[)?\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
+    re.IGNORECASE,
+)
 STORY_NARRATION_MARKER_KEYS = {"narrator", "narration", "narrative"}
 STORY_SPEECH_MARKER_KEYS = {"npc", "gg", "mc", "mainhero", "main_hero", "say", "speech"}
 STORY_THOUGHT_MARKER_KEYS = {"npc_thought", "gg_thought", "thought", "think"}
+STORY_NARRATION_MARKER_COMPACT_KEYS = {"narrator", "narration", "narrative"}
+STORY_SPEECH_MARKER_TO_CANONICAL = {
+    "npc": "NPC",
+    "gg": "GG",
+    "mc": "GG",
+    "mainhero": "GG",
+    "main_hero": "GG",
+    "say": "NPC",
+    "speech": "NPC",
+}
+STORY_THOUGHT_MARKER_TO_CANONICAL = {
+    "npc_thought": "NPC_THOUGHT",
+    "gg_thought": "GG_THOUGHT",
+    "thought": "NPC_THOUGHT",
+    "think": "NPC_THOUGHT",
+}
 STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(
     r"\[\[NPC(?:_THOUGHT)?\s*:\s*([^\]]+)\]\]\s*([\s\S]*?)\s*$",
     re.IGNORECASE,
@@ -1337,6 +1357,53 @@ def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
     }
 
 
+def _canonical_story_marker_token(marker_key: str) -> str | None:
+    compact_key = marker_key.replace("_", "")
+    if compact_key in STORY_NARRATION_MARKER_COMPACT_KEYS:
+        return "NARRATOR"
+    speech_token = STORY_SPEECH_MARKER_TO_CANONICAL.get(marker_key)
+    if speech_token:
+        return speech_token
+    thought_token = STORY_THOUGHT_MARKER_TO_CANONICAL.get(marker_key)
+    if thought_token:
+        return thought_token
+    return None
+
+
+def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return None
+
+    marker_match = STORY_MARKUP_MALFORMED_PATTERN.match(paragraph_value)
+    if marker_match is None:
+        return None
+
+    marker_key = _normalize_story_markup_key(marker_match.group(1))
+    marker_token = _canonical_story_marker_token(marker_key)
+    if marker_token is None:
+        return None
+
+    raw_speaker = marker_match.group(2)
+    text_value = marker_match.group(3).strip()
+    if not text_value:
+        return None
+
+    if marker_token == "NARRATOR":
+        return f"[[NARRATOR]] {text_value}"
+
+    if not isinstance(raw_speaker, str):
+        return None
+    speaker_name = " ".join(raw_speaker.split()).strip(" .,:;!?-\"'()[]")
+    if not speaker_name:
+        return None
+    if len(speaker_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
+        speaker_name = speaker_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    if not speaker_name:
+        return None
+    return f"[[{marker_token}:{speaker_name}]] {text_value}"
+
+
 def _is_story_strict_markup_output(text_value: str) -> bool:
     normalized_text = text_value.replace("\r\n", "\n").strip()
     if not normalized_text:
@@ -1361,7 +1428,51 @@ def _prefix_story_narrator_markup(text_value: str) -> str:
         if _parse_story_markup_paragraph(paragraph_value) is not None:
             normalized_paragraphs.append(paragraph_value)
             continue
+        coerced_paragraph = _coerce_story_markup_paragraph(paragraph_value)
+        if coerced_paragraph is not None and _parse_story_markup_paragraph(coerced_paragraph) is not None:
+            normalized_paragraphs.append(coerced_paragraph)
+            continue
         normalized_paragraphs.append(f"[[NARRATOR]] {paragraph_value}")
+
+    return "\n\n".join(normalized_paragraphs)
+
+
+def _strip_story_markup_for_memory_text(text_value: str) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    normalized_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+
+        parsed = _parse_story_markup_paragraph(paragraph_value)
+        if parsed is None:
+            coerced_paragraph = _coerce_story_markup_paragraph(paragraph_value)
+            parsed = _parse_story_markup_paragraph(coerced_paragraph) if coerced_paragraph is not None else None
+
+        if parsed is None:
+            normalized_paragraphs.append(paragraph_value)
+            continue
+
+        block_kind = parsed.get("kind", "")
+        block_text = parsed.get("text", "").strip()
+        if not block_text:
+            continue
+        if block_kind == "narration":
+            normalized_paragraphs.append(block_text)
+            continue
+
+        speaker_name = parsed.get("speaker", "").strip()
+        if not speaker_name:
+            normalized_paragraphs.append(block_text)
+            continue
+        if block_kind == "thought":
+            normalized_paragraphs.append(f"{speaker_name} (в голове): {block_text}")
+        else:
+            normalized_paragraphs.append(f"{speaker_name}: {block_text}")
 
     return "\n\n".join(normalized_paragraphs)
 
@@ -2699,10 +2810,11 @@ def _persist_generated_story_world_cards(
     assistant_text: str,
 ) -> list[StoryWorldCardChangeEvent]:
     existing_cards = _list_story_world_cards(db, game.id)
+    assistant_text_for_memory = _strip_story_markup_for_memory_text(assistant_text)
     try:
         operations = _generate_story_world_card_change_operations(
             prompt=prompt,
-            assistant_text=assistant_text,
+            assistant_text=assistant_text_for_memory,
             existing_cards=existing_cards,
         )
     except Exception as exc:
@@ -2752,7 +2864,13 @@ def _build_story_plot_card_memory_messages(
         STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS,
     )
     history_items = _trim_story_history_to_context_limit(
-        [{"role": STORY_ASSISTANT_ROLE, "content": message.content} for message in assistant_messages],
+        [
+            {
+                "role": STORY_ASSISTANT_ROLE,
+                "content": _strip_story_markup_for_memory_text(message.content),
+            }
+            for message in assistant_messages
+        ],
         history_limit,
     )
     history_json_payload = [
@@ -2832,7 +2950,13 @@ def _build_story_plot_card_fallback_payload(
 ) -> tuple[str, str] | None:
     history_limit = _normalize_story_context_limit_chars(context_limit_tokens)
     trimmed_history = _trim_story_history_to_context_limit(
-        [{"role": STORY_ASSISTANT_ROLE, "content": message.content} for message in assistant_messages],
+        [
+            {
+                "role": STORY_ASSISTANT_ROLE,
+                "content": _strip_story_markup_for_memory_text(message.content),
+            }
+            for message in assistant_messages
+        ],
         history_limit,
     )
     history_parts = [item.get("content", "").replace("\r\n", "\n").strip() for item in trimmed_history if item.get("content")]
