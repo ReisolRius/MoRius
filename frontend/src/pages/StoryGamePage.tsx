@@ -124,9 +124,10 @@ type DeletionPrompt = {
   title: string
   message: string
 }
+type AssistantDialogueDelivery = 'speech' | 'thought'
 type AssistantMessageBlock =
   | { type: 'narrative'; text: string }
-  | { type: 'character'; speakerName: string; text: string }
+  | { type: 'character'; speakerName: string; text: string; delivery: AssistantDialogueDelivery }
 type AssistantUndoStep = {
   assistantMessage: StoryMessage
   plotEvents: StoryPlotCardEvent[]
@@ -152,11 +153,11 @@ const RIGHT_PANEL_WIDTH_DEFAULT = 332
 const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
-const DIALOGUE_MARKER_PATTERN = /\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*/giu
-const DIALOGUE_MARKER_START_PATTERN = /^\[\[\s*(?:npc|gg|mc|main(?:[\s_-]?hero)?)\s*:\s*([^\]]+?)\s*\]\]\s*([\s\S]*)$/iu
+const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
 const CHARACTER_LINE_PATTERN = /^([A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9 .,'’`"-]{0,80})\s*(?:[:：]|[—-])\s+([\s\S]+)$/u
 const SPEAKERLESS_CHARACTER_LINE_PATTERN = /^[:：]\s*([\s\S]+)$/u
 const DIALOGUE_QUOTE_START_PATTERN = /^(?:[—-]\s*|[«„"“])/u
+const THOUGHT_WRAPPED_TEXT_PATTERN = /^\*{1,2}\s*([\s\S]+?)\s*\*{1,2}$/u
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const GENERIC_DIALOGUE_SPEAKER_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /\bбандит(?:ы|ов|ам|ами|ах)?\b/iu, label: 'Бандит' },
@@ -217,6 +218,73 @@ function isDialogueQuoteText(value: string): boolean {
   return DIALOGUE_QUOTE_START_PATTERN.test(normalized)
 }
 
+function normalizeAssistantMarkerKey(value: string): string {
+  return value.toLowerCase().replace(/[\s-]+/g, '_').trim()
+}
+
+function resolveAssistantMarkerKind(
+  markerKey: string,
+): 'narrative' | 'speech' | 'thought' | null {
+  const compact = markerKey.replace(/_/g, '')
+  if (compact === 'narrator' || compact === 'narration' || compact === 'narrative') {
+    return 'narrative'
+  }
+  if (
+    compact === 'npc' ||
+    compact === 'gg' ||
+    compact === 'mc' ||
+    compact === 'mainhero' ||
+    compact === 'say' ||
+    compact === 'speech'
+  ) {
+    return 'speech'
+  }
+  if (compact === 'npcthought' || compact === 'ggthought' || compact === 'thought' || compact === 'think') {
+    return 'thought'
+  }
+  return null
+}
+
+function parseStructuredAssistantParagraph(paragraph: string): AssistantMessageBlock | null {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const markerMatch = normalized.match(STRUCTURED_MARKER_START_PATTERN)
+  if (!markerMatch) {
+    return null
+  }
+
+  const markerKey = normalizeAssistantMarkerKey(markerMatch[1])
+  const markerKind = resolveAssistantMarkerKind(markerKey)
+  if (!markerKind) {
+    return null
+  }
+
+  const bodyText = markerMatch[3].trim()
+  if (!bodyText) {
+    return null
+  }
+
+  if (markerKind === 'narrative') {
+    return { type: 'narrative', text: bodyText }
+  }
+
+  const rawSpeakerName = markerMatch[2]?.trim() ?? ''
+  const speakerName = rawSpeakerName.replace(/^["«„]+|["»”]+$/g, '').trim()
+  if (!speakerName) {
+    return null
+  }
+
+  return {
+    type: 'character',
+    speakerName,
+    text: bodyText,
+    delivery: markerKind === 'thought' ? 'thought' : 'speech',
+  }
+}
+
 function resolveGenericDialogueSpeaker(paragraph: string, context: string): string {
   void paragraph
   void context
@@ -224,7 +292,13 @@ function resolveGenericDialogueSpeaker(paragraph: string, context: string): stri
   return GENERIC_DIALOGUE_SPEAKER_DEFAULT
 }
 
-function parseCharacterLine(paragraph: string): { speakerName: string; text: string } | null {
+type ParsedDialogueLine = {
+  speakerName: string
+  text: string
+  delivery: AssistantDialogueDelivery
+}
+
+function parseCharacterLine(paragraph: string): ParsedDialogueLine | null {
   const normalized = paragraph.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
     return null
@@ -237,14 +311,17 @@ function parseCharacterLine(paragraph: string): { speakerName: string; text: str
 
   const speakerName = matched[1].replace(/^["«„]+|["»”]+$/g, '').trim()
   const text = matched[2].trim()
-  if (!speakerName || !text || !isDialogueQuoteText(text)) {
+  if (!speakerName || !text) {
+    return null
+  }
+  if (!isDialogueQuoteText(text) && text.length > 260) {
     return null
   }
 
-  return { speakerName, text }
+  return { speakerName, text, delivery: 'speech' }
 }
 
-function parseSpeakerlessCharacterLine(paragraph: string, context: string): { speakerName: string; text: string } | null {
+function parseSpeakerlessCharacterLine(paragraph: string, context: string): ParsedDialogueLine | null {
   const normalized = paragraph.replace(/\r\n/g, '\n').trim()
   if (!normalized) {
     return null
@@ -263,10 +340,33 @@ function parseSpeakerlessCharacterLine(paragraph: string, context: string): { sp
   return {
     speakerName: resolveGenericDialogueSpeaker(normalized, context),
     text,
+    delivery: 'speech',
   }
 }
 
-function parseImplicitDialogueLine(paragraph: string, context: string): { speakerName: string; text: string } | null {
+function parseImplicitThoughtLine(paragraph: string, context: string): ParsedDialogueLine | null {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+  const matched = normalized.match(THOUGHT_WRAPPED_TEXT_PATTERN)
+  if (!matched) {
+    return null
+  }
+
+  const thoughtText = matched[1].trim()
+  if (!thoughtText) {
+    return null
+  }
+
+  return {
+    speakerName: resolveGenericDialogueSpeaker(normalized, context),
+    text: thoughtText,
+    delivery: 'thought',
+  }
+}
+
+function parseImplicitDialogueLine(paragraph: string, context: string): ParsedDialogueLine | null {
   const normalized = paragraph.replace(/\r\n/g, '\n').trim()
   if (!normalized || !isDialogueQuoteText(normalized)) {
     return null
@@ -278,13 +378,15 @@ function parseImplicitDialogueLine(paragraph: string, context: string): { speake
   return {
     speakerName,
     text: normalized,
+    delivery: 'speech',
   }
 }
 
-function parseDialogueParagraph(paragraph: string, context: string): { speakerName: string; text: string } | null {
+function parseDialogueParagraph(paragraph: string, context: string): ParsedDialogueLine | null {
   return (
     parseCharacterLine(paragraph) ??
     parseSpeakerlessCharacterLine(paragraph, context) ??
+    parseImplicitThoughtLine(paragraph, context) ??
     parseImplicitDialogueLine(paragraph, context)
   )
 }
@@ -295,139 +397,27 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
     return []
   }
 
-  const markerMatches = [...normalized.matchAll(DIALOGUE_MARKER_PATTERN)]
-  if (markerMatches.length === 0) {
-    const plainBlocks: AssistantMessageBlock[] = []
-    splitAssistantParagraphs(normalized).forEach((paragraph) => {
-      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
-      if (dialogueLine) {
-        plainBlocks.push({
-          type: 'character',
-          speakerName: dialogueLine.speakerName,
-          text: dialogueLine.text,
-        })
-        return
-      }
-      plainBlocks.push({ type: 'narrative', text: paragraph })
-    })
-    return plainBlocks
-  }
-
   const blocks: AssistantMessageBlock[] = []
-  const pushNarrativeParagraphs = (value: string) => {
-    if (!value) {
-      return
-    }
-    splitAssistantParagraphs(value).forEach((paragraph) => {
-      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
-      if (dialogueLine) {
-        blocks.push({
-          type: 'character',
-          speakerName: dialogueLine.speakerName,
-          text: dialogueLine.text,
-        })
-        return
-      }
-      blocks.push({ type: 'narrative', text: paragraph })
-    })
-  }
-  const pushCharacterParagraphs = (speakerName: string, value: string) => {
-    splitAssistantParagraphs(value).forEach((paragraph) => {
-      const nestedMarker = paragraph.match(DIALOGUE_MARKER_START_PATTERN)
-      if (nestedMarker) {
-        const nestedSpeakerName = nestedMarker[1].trim()
-        const nestedText = nestedMarker[2].trim()
-        if (nestedSpeakerName && nestedText) {
-          if (isDialogueQuoteText(nestedText)) {
-            blocks.push({
-              type: 'character',
-              speakerName: nestedSpeakerName,
-              text: nestedText,
-            })
-          } else {
-            blocks.push({ type: 'narrative', text: nestedText })
-          }
-          return
-        }
-      }
-
-      const characterLine = parseCharacterLine(paragraph)
-      if (characterLine) {
-        blocks.push({
-          type: 'character',
-          speakerName: characterLine.speakerName,
-          text: characterLine.text,
-        })
-        return
-      }
-
-      const speakerlessDialogue = parseSpeakerlessCharacterLine(paragraph, normalized)
-      if (speakerlessDialogue) {
-        blocks.push({
-          type: 'character',
-          speakerName,
-          text: speakerlessDialogue.text,
-        })
-        return
-      }
-
-      if (isDialogueQuoteText(paragraph)) {
-        blocks.push({
-          type: 'character',
-          speakerName,
-          text: paragraph,
-        })
-        return
-      }
-
-      blocks.push({ type: 'narrative', text: paragraph })
-    })
-  }
-
-  let cursor = 0
-  markerMatches.forEach((markerMatch, index) => {
-    const markerStartIndex = markerMatch.index ?? 0
-    const markerEndIndex = markerStartIndex + markerMatch[0].length
-    const nextMarkerIndex =
-      index < markerMatches.length - 1 ? (markerMatches[index + 1].index ?? normalized.length) : normalized.length
-
-    const narrativeBefore = normalized.slice(cursor, markerStartIndex).trim()
-    if (narrativeBefore) {
-      pushNarrativeParagraphs(narrativeBefore)
-    }
-
-    const speakerName = markerMatch[1].trim()
-    const speakerText = normalized.slice(markerEndIndex, nextMarkerIndex).trim()
-
-    if (!speakerName || !speakerText) {
-      const fallbackText = normalized.slice(markerStartIndex, nextMarkerIndex).trim()
-      if (fallbackText) {
-        pushNarrativeParagraphs(fallbackText)
-      }
-      cursor = nextMarkerIndex
+  splitAssistantParagraphs(normalized).forEach((paragraph) => {
+    const structuredBlock = parseStructuredAssistantParagraph(paragraph)
+    if (structuredBlock) {
+      blocks.push(structuredBlock)
       return
     }
 
-    pushCharacterParagraphs(speakerName, speakerText)
-    cursor = nextMarkerIndex
+    const dialogueLine = parseDialogueParagraph(paragraph, normalized)
+    if (dialogueLine) {
+      blocks.push({
+        type: 'character',
+        speakerName: dialogueLine.speakerName,
+        text: dialogueLine.text,
+        delivery: dialogueLine.delivery,
+      })
+      return
+    }
+
+    blocks.push({ type: 'narrative', text: paragraph })
   })
-
-  if (blocks.length === 0) {
-    const fallbackBlocks: AssistantMessageBlock[] = []
-    splitAssistantParagraphs(normalized).forEach((paragraph) => {
-      const dialogueLine = parseDialogueParagraph(paragraph, normalized)
-      if (dialogueLine) {
-        fallbackBlocks.push({
-          type: 'character',
-          speakerName: dialogueLine.speakerName,
-          text: dialogueLine.text,
-        })
-        return
-      }
-      fallbackBlocks.push({ type: 'narrative', text: paragraph })
-    })
-    return fallbackBlocks
-  }
 
   return blocks
 }
@@ -4887,20 +4877,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
                                       sx={{
-                                        color: 'rgba(178, 198, 228, 0.9)',
+                                        color: block.delivery === 'thought' ? 'rgba(166, 187, 214, 0.9)' : 'rgba(178, 198, 228, 0.9)',
                                         fontSize: '0.84rem',
                                         lineHeight: 1.2,
                                         fontWeight: 700,
                                         letterSpacing: 0.18,
                                       }}
                                     >
-                                      {resolvedSpeakerName}
+                                      {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
                                     </Typography>
                                     <Typography
                                       sx={{
-                                        color: 'var(--morius-title-text)',
+                                        color: block.delivery === 'thought' ? 'rgba(207, 220, 237, 0.92)' : 'var(--morius-title-text)',
                                         lineHeight: 1.54,
                                         fontSize: { xs: '1rem', md: '1.08rem' },
+                                        fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
                                         whiteSpace: 'pre-wrap',
                                       }}
                                     >

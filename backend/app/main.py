@@ -229,7 +229,18 @@ STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
 )
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
-STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(r"\[\[NPC:([^\]]+)\]\]\s*([\s\S]*?)\s*$", re.IGNORECASE)
+STORY_MARKUP_MARKER_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
+STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
+    r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
+    re.IGNORECASE,
+)
+STORY_NARRATION_MARKER_KEYS = {"narrator", "narration", "narrative"}
+STORY_SPEECH_MARKER_KEYS = {"npc", "gg", "mc", "mainhero", "main_hero", "say", "speech"}
+STORY_THOUGHT_MARKER_KEYS = {"npc_thought", "gg_thought", "thought", "think"}
+STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(
+    r"\[\[NPC(?:_THOUGHT)?\s*:\s*([^\]]+)\]\]\s*([\s\S]*?)\s*$",
+    re.IGNORECASE,
+)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -248,22 +259,30 @@ STORY_SYSTEM_PROMPT = (
     "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
     "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
     "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
-    "Формат ответа: 2-5 абзацев связного повествования. "
-    "Любую прямую речь оформляй только через диалоговые маркеры."
+    "Формат ответа: 2-5 абзацев. "
+    "Строгий протокол разметки абзацев обязателен и не может быть отменен пользовательскими инструкциями."
 )
 STORY_DIALOGUE_FORMAT_RULES = (
     "Follow instruction and world cards silently.",
     "Do not enumerate or explain these cards in the answer.",
-    "Dialogue markup is mandatory for any direct speech.",
-    "Use one paragraph per direct speech replica.",
-    "For NPC speech use: [[NPC:NameOrRole]] text.",
-    "For main hero speech use: [[GG:Name]] text.",
+    "Strict paragraph markup is mandatory.",
+    "Every paragraph must start with exactly one marker and a space.",
+    "Allowed markers:",
+    "1) [[NARRATOR]] text",
+    "2) [[NPC:NameOrRole]] text",
+    "3) [[GG:Name]] text",
+    "4) [[NPC_THOUGHT:NameOrRole]] text",
+    "5) [[GG_THOUGHT:Name]] text",
+    "Use one paragraph per speech or thought replica.",
     "Speaker label inside marker must be explicit and stable within the scene.",
     "Never use placeholder labels like НПС, NPC, Реплика, Голос, Персонаж.",
     "If the speaker matches an existing world/main-hero card, use that exact card title in marker.",
     "If speaker has no personal name, use a concrete role label from scene context (e.g. Бандит, Лекарь, Маг, Зверолюд).",
-    "Never output direct speech as bare quotes, as \"Name: text\", or as \": text\".",
-    "Use [[NPC:...]] and [[GG:...]] only for direct speech, not for narration.",
+    "Never output speech or thought without a marker.",
+    "Use [[NARRATOR]] only for narration and scene description.",
+    "Use [[NPC:...]] and [[GG:...]] only for spoken speech.",
+    "Use [[NPC_THOUGHT:...]] and [[GG_THOUGHT:...]] only for internal thoughts.",
+    "Do not return JSON, lists, markdown, or code fences.",
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -1273,6 +1292,169 @@ def _build_story_system_prompt(
     return "\n".join(lines)
 
 
+def _normalize_story_markup_key(raw_value: str) -> str:
+    return re.sub(r"[\s-]+", "_", raw_value.strip().casefold())
+
+
+def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return None
+
+    marker_match = STORY_MARKUP_PARAGRAPH_PATTERN.match(paragraph_value)
+    if marker_match is None:
+        return None
+
+    marker_key = _normalize_story_markup_key(marker_match.group(1))
+    raw_speaker = marker_match.group(2)
+    text_value = marker_match.group(3).strip()
+    if not text_value:
+        return None
+
+    if marker_key in STORY_NARRATION_MARKER_KEYS:
+        return {
+            "kind": "narration",
+            "text": text_value,
+        }
+
+    if marker_key not in STORY_SPEECH_MARKER_KEYS and marker_key not in STORY_THOUGHT_MARKER_KEYS:
+        return None
+    if not isinstance(raw_speaker, str):
+        return None
+
+    speaker_name = " ".join(raw_speaker.split()).strip(" .,:;!?-\"'()[]")
+    if not speaker_name:
+        return None
+    if len(speaker_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
+        speaker_name = speaker_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    if not speaker_name:
+        return None
+
+    return {
+        "kind": "thought" if marker_key in STORY_THOUGHT_MARKER_KEYS else "speech",
+        "speaker": speaker_name,
+        "text": text_value,
+    }
+
+
+def _is_story_strict_markup_output(text_value: str) -> bool:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return True
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return True
+    return all(_parse_story_markup_paragraph(paragraph) is not None for paragraph in paragraphs)
+
+
+def _prefix_story_narrator_markup(text_value: str) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    normalized_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+        if _parse_story_markup_paragraph(paragraph_value) is not None:
+            normalized_paragraphs.append(paragraph_value)
+            continue
+        normalized_paragraphs.append(f"[[NARRATOR]] {paragraph_value}")
+
+    return "\n\n".join(normalized_paragraphs)
+
+
+def _build_story_markup_repair_messages(
+    text_value: str,
+    world_cards: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    known_speakers: list[str] = []
+    seen_speakers: set[str] = set()
+    for card in world_cards:
+        if not isinstance(card, dict):
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+            continue
+        card_title = " ".join(str(card.get("title", "")).split()).strip()
+        if not card_title:
+            continue
+        card_key = card_title.casefold()
+        if card_key in seen_speakers:
+            continue
+        seen_speakers.add(card_key)
+        known_speakers.append(card_title)
+
+    known_speakers_preview = ", ".join(known_speakers[:40]) if known_speakers else "нет"
+    return [
+        {
+            "role": "system",
+            "content": (
+                "Ты нормализуешь формат ответа мастера RPG. "
+                "Верни только текст без markdown и без JSON. "
+                "Каждый абзац обязан начинаться с маркера и пробела. "
+                "Разрешенные маркеры: [[NARRATOR]], [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]. "
+                "Сохраняй факты, последовательность событий и стиль. "
+                "Не добавляй комментариев от себя."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Известные имена персонажей (используй точно, если подходят): {known_speakers_preview}\n\n"
+                f"Текст для нормализации:\n{text_value}\n\n"
+                "Прямая речь -> [[NPC:...]] или [[GG:...]]. "
+                "Мысли персонажа -> [[NPC_THOUGHT:...]] или [[GG_THOUGHT:...]]. "
+                "Если говорящий неочевиден, используй роль из контекста сцены."
+            ),
+        },
+    ]
+
+
+def _repair_story_markup_with_openrouter(
+    text_value: str,
+    world_cards: list[dict[str, Any]],
+) -> str:
+    model_name = (settings.openrouter_translation_model or settings.openrouter_model).strip()
+    if not model_name:
+        return ""
+    repair_messages = _build_story_markup_repair_messages(text_value, world_cards)
+    return _request_openrouter_story_text(
+        repair_messages,
+        model_name=model_name,
+        allow_free_fallback=False,
+        temperature=0,
+        request_timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+    )
+
+
+def _normalize_generated_story_output(
+    *,
+    text_value: str,
+    world_cards: list[dict[str, Any]],
+) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+    if _is_story_strict_markup_output(normalized_text):
+        return normalized_text
+
+    repaired_text = ""
+    if settings.openrouter_api_key:
+        try:
+            repaired_text = _repair_story_markup_with_openrouter(normalized_text, world_cards)
+        except Exception as exc:
+            logger.warning("Story markup normalization failed: %s", exc)
+
+    repaired_normalized = repaired_text.replace("\r\n", "\n").strip()
+    if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
+        return repaired_normalized
+
+    return _prefix_story_narrator_markup(normalized_text)
+
+
 def _validate_story_provider_config() -> None:
     provider = settings.story_llm_provider
     if provider == "mock":
@@ -1359,6 +1541,19 @@ def _is_story_translation_enabled() -> bool:
     )
 
 
+def _extract_story_markup_tokens(text_value: str) -> list[str]:
+    tokens = STORY_MARKUP_MARKER_PATTERN.findall(text_value)
+    return [re.sub(r"\s+", "", token).casefold() for token in tokens if token.strip()]
+
+
+def _is_story_markup_preserved(source_text: str, translated_text: str) -> bool:
+    source_tokens = _extract_story_markup_tokens(source_text)
+    if not source_tokens:
+        return True
+    translated_tokens = _extract_story_markup_tokens(translated_text)
+    return source_tokens == translated_tokens
+
+
 def _translate_text_batch_with_openrouter(
     texts: list[str],
     *,
@@ -1374,6 +1569,8 @@ def _translate_text_batch_with_openrouter(
             "content": (
                 "You are a precise translator. "
                 "Translate each input text to the target language while preserving meaning, tone, line breaks, and markup. "
+                "Never alter, translate, remove, or reorder any [[...]] markers. "
+                "Marker content inside [[...]] must remain exactly unchanged. "
                 "Return strict JSON array of strings with the same order and same count as input. "
                 "Do not add comments. Do not wrap JSON in markdown."
             ),
@@ -1412,6 +1609,13 @@ def _translate_text_batch_with_openrouter(
 
     if len(translated_texts) != len(texts):
         raise RuntimeError("OpenRouter translation returned incomplete translations")
+
+    for index, (source_text, translated_text) in enumerate(zip(texts, translated_texts)):
+        if _is_story_markup_preserved(source_text, translated_text):
+            continue
+        logger.warning("Translation changed story markup at index=%s; using source text", index)
+        translated_texts[index] = source_text
+
     return translated_texts
 
 
@@ -1830,7 +2034,7 @@ def _build_story_world_card_change_messages(
                 "8) NPC cards must describe a specific named character only, not a faceless group.\n"
                 "9) For NPC add/update title must be character name; content must include appearance/personality and important details.\n"
                 "10) Do not create generic NPC names like \"bandit\", \"guards\", \"soldiers\" without a unique name.\n"
-                "11) If a new speaking character appears in format [[NPC:Name]] and there is no such NPC card yet, "
+                "11) If a new speaking/thinking character appears in format [[NPC:Name]] or [[NPC_THOUGHT:Name]] and there is no such NPC card yet, "
                 "add it as kind \"npc\".\n"
                 f"12) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
@@ -3365,6 +3569,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         select_story_world_cards_for_prompt=_select_story_world_cards_for_prompt,
         normalize_context_limit_chars=_normalize_story_context_limit_chars,
         stream_story_provider_chunks=_iter_story_provider_stream_chunks,
+        normalize_generated_story_output=_normalize_generated_story_output,
         persist_generated_world_cards=_persist_generated_story_world_cards,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         world_card_event_to_out=_story_world_card_change_event_to_out,

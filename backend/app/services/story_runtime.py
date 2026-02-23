@@ -33,6 +33,7 @@ class StoryRuntimeDeps:
     select_story_world_cards_for_prompt: Callable[[list[StoryMessage], list[Any]], list[dict[str, Any]]]
     normalize_context_limit_chars: Callable[[int | None], int]
     stream_story_provider_chunks: Callable[..., Any]
+    normalize_generated_story_output: Callable[..., str]
     persist_generated_world_cards: Callable[..., list[Any]]
     upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
     world_card_event_to_out: Callable[[Any], Any]
@@ -131,8 +132,19 @@ def _stream_story_response(
         error_detail = _public_story_error_detail(exc)
         yield _sse_event("error", {"detail": error_detail})
 
+    normalized_output = produced
+    if produced.strip():
+        try:
+            normalized_output = deps.normalize_generated_story_output(
+                text_value=produced,
+                world_cards=world_cards,
+            )
+        except Exception:
+            logger.exception("Failed to normalize generated story output")
+            normalized_output = produced
+
     try:
-        assistant_message.content = produced
+        assistant_message.content = normalized_output
         deps.touch_story_game(game)
         db.commit()
         db.refresh(assistant_message)
