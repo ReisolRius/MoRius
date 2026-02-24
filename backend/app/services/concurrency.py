@@ -70,3 +70,41 @@ def grant_purchase_coins_once(
         .values(coins=User.coins + coins)
     )
     return True
+
+
+def spend_user_tokens_if_sufficient(
+    db: Session,
+    *,
+    user_id: int,
+    tokens: int,
+) -> bool:
+    normalized_tokens = int(tokens)
+    if normalized_tokens <= 0:
+        return True
+
+    update_result = db.execute(
+        sa_update(User)
+        .where(
+            User.id == user_id,
+            User.coins >= normalized_tokens,
+        )
+        .values(coins=User.coins - normalized_tokens)
+    )
+    return (update_result.rowcount or 0) > 0
+
+
+def add_user_tokens(
+    db: Session,
+    *,
+    user_id: int,
+    tokens: int,
+) -> None:
+    normalized_tokens = int(tokens)
+    if normalized_tokens <= 0:
+        return
+
+    db.execute(
+        sa_update(User)
+        .where(User.id == user_id)
+        .values(coins=User.coins + normalized_tokens)
+    )

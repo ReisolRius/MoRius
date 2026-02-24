@@ -26,6 +26,8 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
+import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
@@ -36,6 +38,7 @@ import {
   getCoinTopUpPlans,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
+  updateCurrentUserProfile,
   type CoinTopUpPlan,
 } from '../services/authApi'
 import { deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
@@ -87,37 +90,6 @@ const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'created_desc', label: 'Созданы: новые' },
   { value: 'created_asc', label: 'Созданы: старые' },
 ]
-
-const CARD_PALETTES = [
-  {
-    base: '214, 32%, 17%',
-    deep: '223, 40%, 11%',
-    accent: '198, 26%, 58%',
-    accentSoft: '186, 18%, 52%',
-    warm: '34, 22%, 56%',
-  },
-  {
-    base: '206, 30%, 16%',
-    deep: '215, 38%, 10%',
-    accent: '192, 24%, 56%',
-    accentSoft: '210, 20%, 60%',
-    warm: '26, 20%, 54%',
-  },
-  {
-    base: '220, 28%, 15%',
-    deep: '231, 34%, 9%',
-    accent: '208, 22%, 60%',
-    accentSoft: '174, 18%, 54%',
-    warm: '42, 18%, 52%',
-  },
-  {
-    base: '212, 26%, 14%',
-    deep: '222, 32%, 8%',
-    accent: '200, 20%, 57%',
-    accentSoft: '224, 18%, 62%',
-    warm: '30, 16%, 50%',
-  },
-] as const
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
@@ -174,42 +146,6 @@ function normalizePreview(messages: StoryMessage[]): string {
   return `${compact.slice(0, 142)}...`
 }
 
-function buildCardArtwork(gameId: number): string {
-  const palette = CARD_PALETTES[gameId % CARD_PALETTES.length]
-  const variant = Math.floor(gameId / CARD_PALETTES.length) % 4
-
-  if (variant === 0) {
-    return [
-      `repeating-radial-gradient(circle at 0 0, hsla(${palette.accent}, 0.18) 0 4px, transparent 4px 18px)`,
-      `radial-gradient(circle at 78% 16%, hsla(${palette.warm}, 0.12), transparent 42%)`,
-      `linear-gradient(145deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
-    ].join(', ')
-  }
-
-  if (variant === 1) {
-    return [
-      `repeating-linear-gradient(28deg, hsla(${palette.accentSoft}, 0.2) 0 10px, transparent 10px 24px)`,
-      `repeating-linear-gradient(118deg, hsla(${palette.warm}, 0.14) 0 12px, transparent 12px 26px)`,
-      `linear-gradient(160deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
-    ].join(', ')
-  }
-
-  if (variant === 2) {
-    return [
-      `repeating-conic-gradient(from 0deg at 84% 14%, hsla(${palette.accent}, 0.22) 0deg 22deg, transparent 22deg 46deg)`,
-      `radial-gradient(circle at 12% 82%, hsla(${palette.accentSoft}, 0.2), transparent 48%)`,
-      `linear-gradient(155deg, hsla(${palette.base}, 0.97) 0%, hsla(${palette.deep}, 0.99) 100%)`,
-    ].join(', ')
-  }
-
-  return [
-    `repeating-linear-gradient(90deg, hsla(${palette.accent}, 0.18) 0 2px, transparent 2px 14px)`,
-    `repeating-linear-gradient(0deg, hsla(${palette.warm}, 0.12) 0 16px, transparent 16px 32px)`,
-    `radial-gradient(circle at 70% 18%, hsla(${palette.accentSoft}, 0.18), transparent 46%)`,
-    `linear-gradient(165deg, hsla(${palette.base}, 0.98) 0%, hsla(${palette.deep}, 0.99) 100%)`,
-  ].join(', ')
-}
-
 function SearchGlyph() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
@@ -232,11 +168,6 @@ function SortGlyph() {
   )
 }
 
-function toStarLabel(value: number): string {
-  const safeValue = Math.max(0, Math.min(5, Math.round(value)))
-  return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
-}
-
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -256,9 +187,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [isRatingSaving, setIsRatingSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
-  const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
+  const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
@@ -424,6 +355,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
     setCharacterManagerOpen(false)
+    setInstructionTemplateDialogOpen(false)
     setTopUpDialogOpen(false)
     onLogout()
   }
@@ -432,7 +364,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
     setTopUpDialogOpen(false)
+    setInstructionTemplateDialogOpen(false)
     setCharacterManagerOpen(true)
+  }
+
+  const handleOpenInstructionTemplateDialog = () => {
+    setConfirmLogoutOpen(false)
+    setProfileDialogOpen(false)
+    setTopUpDialogOpen(false)
+    setCharacterManagerOpen(false)
+    setInstructionTemplateDialogOpen(true)
   }
 
   const handleChooseAvatar = () => {
@@ -492,6 +433,17 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
   }
 
+  const handleUpdateProfileName = useCallback(
+    async (nextName: string) => {
+      const updatedUser = await updateCurrentUserProfile({
+        token: authToken,
+        display_name: nextName,
+      })
+      onUserUpdate(updatedUser)
+    },
+    [authToken, onUserUpdate],
+  )
+
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
     setTopUpError('')
@@ -527,7 +479,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentNotice({
             severity: 'success',
-            text: `Баланс пополнен: +${response.coins} монет.`,
+            text: `Баланс пополнен: +${response.coins} токенов.`,
           })
           return
         }
@@ -544,7 +496,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
           setPaymentNotice({
             severity: 'info',
-            text: 'Платеж обрабатывается. Монеты будут начислены после подтверждения оплаты.',
+            text: 'Платеж обрабатывается. Токены будут начислены после подтверждения оплаты.',
           })
         }
       } catch (error) {
@@ -584,9 +536,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   }
 
   const handleOpenRatingDialog = useCallback(
-    (event: MouseEvent<HTMLButtonElement>, game: StoryGameSummary) => {
-      event.preventDefault()
-      event.stopPropagation()
+    (game: StoryGameSummary) => {
       if (!game.source_world_id) {
         return
       }
@@ -641,11 +591,14 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
 
     return sortGames(filtered, sortMode)
   }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
-
+  const gameMenuTarget = useMemo(() => {
+    if (!gameMenuGameId) {
+      return null
+    }
+    return games.find((game) => game.id === gameMenuGameId) ?? null
+  }, [gameMenuGameId, games])
   const pageTitle = mode === 'all' ? 'Комьюнити миры' : 'Мои игры'
   const profileName = user.display_name || 'Игрок'
-
-  const formatUpdatedAtLabel = (value: string) => `Обновлено ${new Date(value).toLocaleString('ru-RU')}`
 
   return (
     <Box
@@ -670,12 +623,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           expanded: 'Свернуть меню страниц',
           collapsed: 'Открыть меню страниц',
         }}
-        isRightPanelOpen={isHeaderActionsOpen}
-        onToggleRightPanel={() => setIsHeaderActionsOpen((previous) => !previous)}
+        isRightPanelOpen
+        onToggleRightPanel={() => undefined}
         rightToggleLabels={{
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
         rightActions={
           <Stack direction="row" spacing={1.2}>
@@ -683,6 +637,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               aria-label="Поддержка"
               onClick={(event) => event.preventDefault()}
               sx={{
+                display: 'none',
                 width: 44,
                 height: 44,
                 borderRadius: 'var(--morius-radius)',
@@ -700,6 +655,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               aria-label="Оформление"
               onClick={(event) => event.preventDefault()}
               sx={{
+                display: 'none',
                 width: 44,
                 height: 44,
                 borderRadius: 'var(--morius-radius)',
@@ -951,145 +907,37 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               {visibleGames.map((game) => {
                 const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
                 const hasCover = Boolean(game.cover_image_url)
+                const descriptionCandidate = (game.description || '').trim() || (gamePreviews[game.id] ?? 'Загружаем превью...')
+                const cardDescription = descriptionCandidate.replace(/\s+/g, ' ').trim()
+                const communityViews = sourceWorld?.community_views ?? game.community_views
+                const communityLaunches = sourceWorld?.community_launches ?? game.community_launches
+                const communityRatingAvg = sourceWorld?.community_rating_avg ?? game.community_rating_avg
+                const communityRatingCount = sourceWorld?.community_rating_count ?? game.community_rating_count
                 return (
                   <Box key={game.id} sx={{ position: 'relative', display: 'flex' }}>
-                    <Button
-                      onClick={() => onNavigate(`/home/${game.id}`)}
-                      sx={{
-                        borderRadius: 'var(--morius-radius)',
-                        height: { xs: 340, md: 360 },
-                        minHeight: { xs: 340, md: 360 },
-                        maxHeight: { xs: 340, md: 360 },
-                        p: 0,
-                        width: '100%',
-                        flex: 1,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'stretch',
-                        textTransform: 'none',
-                        textAlign: 'left',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        overflow: 'hidden',
-                        background: APP_CARD_BACKGROUND,
-                        color: APP_TEXT_PRIMARY,
-                        transition: 'transform 180ms ease, border-color 180ms ease',
-                        '&:hover': {
-                          borderColor: 'rgba(203, 216, 234, 0.38)',
-                          transform: 'translateY(-2px)',
-                        },
+                    <CommunityWorldCard
+                      world={{
+                        id: game.id,
+                        title: resolveDisplayTitle(game.id),
+                        description: cardDescription || 'Описание пока не указано.',
+                        author_name: profileName,
+                        author_avatar_url: user.avatar_url ?? null,
+                        age_rating: game.age_rating,
+                        genres: game.genres,
+                        cover_image_url: hasCover ? game.cover_image_url : null,
+                        cover_scale: game.cover_scale,
+                        cover_position_x: game.cover_position_x,
+                        cover_position_y: game.cover_position_y,
+                        community_views: communityViews,
+                        community_launches: communityLaunches,
+                        community_rating_avg: communityRatingAvg,
+                        community_rating_count: communityRatingCount,
+                        user_rating: sourceWorld?.user_rating ?? null,
+                        created_at: game.created_at,
+                        updated_at: game.updated_at,
                       }}
-                    >
-                      <Box
-                        sx={{
-                          minHeight: { xs: 174, md: 194 },
-                          backgroundImage: hasCover ? `url(${game.cover_image_url})` : buildCardArtwork(game.id),
-                          backgroundSize: hasCover ? `${Math.max(1, game.cover_scale || 1) * 100}%` : 'cover',
-                          backgroundPosition: hasCover ? `${game.cover_position_x || 50}% ${game.cover_position_y || 50}%` : 'center',
-                          position: 'relative',
-                        }}
-                      >
-                        <Box
-                          aria-hidden
-                          sx={{
-                            position: 'absolute',
-                            inset: 0,
-                            background:
-                              'linear-gradient(180deg, rgba(5, 8, 12, 0.14) 0%, rgba(5, 8, 12, 0.24) 58%, rgba(5, 8, 12, 0.42) 100%)',
-                          }}
-                        />
-                      </Box>
-                      <Box
-                        sx={{
-                          width: '100%',
-                          px: { xs: 1.35, md: 1.55 },
-                          py: { xs: 1.15, md: 1.3 },
-                          background: 'var(--morius-elevated-bg)',
-                          borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          flex: 1,
-                          minHeight: 0,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: { xs: '1.12rem', md: '1.16rem' },
-                            fontWeight: 800,
-                            lineHeight: 1.2,
-                            color: APP_TEXT_PRIMARY,
-                            mb: 0.68,
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            minHeight: '2.4em',
-                          }}
-                        >
-                          {resolveDisplayTitle(game.id)}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            color: APP_TEXT_SECONDARY,
-                            fontSize: { xs: '0.92rem', md: '0.95rem' },
-                            lineHeight: 1.4,
-                            mb: 0.95,
-                            overflowWrap: 'anywhere',
-                            wordBreak: 'break-word',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            minHeight: '2.8em',
-                          }}
-                        >
-                          {gamePreviews[game.id] ?? 'Загружаем превью...'}
-                        </Typography>
-                        <Stack spacing={0.25} sx={{ mb: 0.72, minHeight: 58 }}>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                            {game.source_world_id
-                              ? sourceWorld
-                                ? `Комьюнити: просмотры ${sourceWorld.community_views}, запуски ${sourceWorld.community_launches}`
-                                : 'Комьюнити мир'
-                              : 'Приватный мир'}
-                          </Typography>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                            {game.source_world_id
-                              ? sourceWorld
-                                ? `Рейтинг ${sourceWorld.community_rating_avg.toFixed(1)} (${sourceWorld.community_rating_count})`
-                                : 'Рейтинг: откройте оценку'
-                              : 'Рейтинг недоступен'}
-                          </Typography>
-                          {game.source_world_id ? (
-                            <Button
-                              onClick={(event) => handleOpenRatingDialog(event, game)}
-                              disabled={isRatingSaving}
-                              sx={{
-                                alignSelf: 'flex-start',
-                                minHeight: 28,
-                                px: 1,
-                                py: 0.2,
-                                borderRadius: 'var(--morius-radius)',
-                                textTransform: 'none',
-                                color: APP_TEXT_PRIMARY,
-                                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                                backgroundColor: 'var(--morius-elevated-bg)',
-                                fontSize: '0.78rem',
-                              }}
-                            >
-                              {sourceWorld?.user_rating ? `Ваша оценка: ${toStarLabel(sourceWorld.user_rating)}` : 'Оценить мир'}
-                            </Button>
-                          ) : (
-                            <Box sx={{ minHeight: 28 }} />
-                          )}
-                        </Stack>
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem', mt: 'auto' }}>
-                          {formatUpdatedAtLabel(game.last_activity_at)}
-                        </Typography>
-                      </Box>
-                    </Button>
+                      onClick={() => onNavigate(`/home/${game.id}`)}
+                    />
 
                     <IconButton
                       onClick={(event) => handleOpenGameMenu(event, game.id)}
@@ -1107,7 +955,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         fontSize: '1rem',
                       }}
                     >
-                      ⋯
+                      {String.fromCharCode(8943)}
                     </IconButton>
                   </Box>
                 )
@@ -1130,6 +978,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         }}
       >
         <MenuItem onClick={handleEditGameFromMenu}>Редактировать</MenuItem>
+        {gameMenuTarget?.source_world_id ? (
+          <MenuItem
+            onClick={() => {
+              handleOpenRatingDialog(gameMenuTarget)
+              handleCloseGameMenu()
+            }}
+          >
+            Оценить мир
+          </MenuItem>
+        ) : null}
         <MenuItem onClick={() => void handleDeleteGameFromMenu()} disabled={deletingGameId !== null}>
           {deletingGameId === gameMenuGameId ? 'Удаляем...' : 'Удалить'}
         </MenuItem>
@@ -1174,7 +1032,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                     fontSize: '1.15rem',
                   }}
                 >
-                  {value <= ratingDraft ? '★' : '☆'}
+                  {value <= ratingDraft ? String.fromCharCode(9733) : String.fromCharCode(9734)}
                 </Button>
               ))}
             </Stack>
@@ -1216,7 +1074,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         onAvatarChange={handleAvatarChange}
         onOpenTopUp={handleOpenTopUpDialog}
         onOpenCharacterManager={handleOpenCharacterManager}
+        onOpenInstructionTemplates={handleOpenInstructionTemplateDialog}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
+        onUpdateProfileName={handleUpdateProfileName}
       />
 
       <TopUpDialog
@@ -1254,10 +1114,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         authToken={authToken}
         onClose={() => setCharacterManagerOpen(false)}
       />
+
+      <InstructionTemplateDialog
+        open={instructionTemplateDialogOpen}
+        authToken={authToken}
+        mode="manage"
+        onClose={() => setInstructionTemplateDialogOpen(false)}
+      />
     </Box>
   )
 }
 
 export default MyGamesPage
+
 
 

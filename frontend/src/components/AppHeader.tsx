@@ -36,17 +36,16 @@ const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
   height: HEADER_BUTTON_SIZE,
   borderRadius: '10px',
-  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  backgroundColor: 'var(--morius-elevated-bg)',
+  border: 'none',
+  backgroundColor: 'transparent',
   color: 'var(--morius-accent)',
-  transition: 'background-color 180ms ease, border-color 180ms ease, color 180ms ease',
+  transition: 'color 180ms ease',
   '&:hover': {
-    backgroundColor: 'var(--morius-button-hover)',
-    borderColor: 'var(--morius-card-border)',
     color: 'var(--morius-accent)',
+    backgroundColor: 'transparent',
   },
   '&:active': {
-    backgroundColor: 'var(--morius-button-active)',
+    backgroundColor: 'transparent',
   },
 } as const
 
@@ -198,7 +197,7 @@ function AppHeader({
             <IconButton aria-label="Поддержка" onClick={handleOpenSupportDialog} sx={menuFooterButtonSx}>
               <Box component="img" src={icons.help} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
             </IconButton>
-            <IconButton aria-label="Пополнение монет" onClick={handleOpenTopUpDialog} sx={menuFooterButtonSx}>
+            <IconButton aria-label="Пополнение токенов" onClick={handleOpenTopUpDialog} sx={menuFooterButtonSx}>
               <Box component="img" src={icons.menuShop} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
             </IconButton>
           </Stack>
@@ -252,17 +251,6 @@ function AppHeader({
                     transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
                     pointerEvents: isRightPanelOpen ? 'auto' : 'none',
                     overflow: 'hidden',
-                    '& .MuiButtonBase-root': {
-                      border: 'none !important',
-                      backgroundColor: 'transparent !important',
-                      boxShadow: 'none !important',
-                    },
-                    '& .MuiButtonBase-root:hover': {
-                      backgroundColor: 'var(--morius-button-hover) !important',
-                    },
-                    '& .MuiButtonBase-root:active': {
-                      backgroundColor: 'var(--morius-button-active) !important',
-                    },
                     transition: 'max-width 260ms ease, margin-left 260ms ease, opacity 220ms ease, transform 220ms ease',
                   }
             }

@@ -19,6 +19,20 @@ Required env:
 - `DATABASE_URL` (Render Postgres recommended)
 - `JWT_SECRET_KEY`
 - `CORS_ORIGINS=https://your-vercel-domain.vercel.app`
+- `YOOKASSA_SHOP_ID`
+- `YOOKASSA_SECRET_KEY`
+- `YOOKASSA_API_URL=https://api.yookassa.ru/v3`
+- `PAYMENTS_RETURN_URL=https://your-vercel-domain.vercel.app/dashboard`
+- `YOOKASSA_WEBHOOK_TOKEN=<strong-random-token>`
+- `YOOKASSA_WEBHOOK_TRUSTED_IPS_ONLY=true`
+- `YOOKASSA_RECEIPT_ENABLED=true`
+- `YOOKASSA_RECEIPT_VAT_CODE=1`
+- `YOOKASSA_RECEIPT_PAYMENT_MODE=full_payment`
+- `YOOKASSA_RECEIPT_PAYMENT_SUBJECT=service`
+
+YooKassa webhook URL in merchant cabinet:
+
+- `https://your-render-backend.onrender.com/api/payments/yookassa/webhook?token=<YOOKASSA_WEBHOOK_TOKEN>`
 
 ## Split Services on Render (Later)
 

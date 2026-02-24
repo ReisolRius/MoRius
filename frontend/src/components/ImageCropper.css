@@ -131,7 +131,7 @@
 }
 
 .image-cropper-button--primary {
-  color: var(--morius-accent);
+  color: var(--morius-elevated-bg);
   background: var(--morius-send-button-bg);
 }
 

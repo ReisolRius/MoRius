@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -55,8 +56,13 @@ STORY_GAME_GENRE_VALUES = {
     "Повседневность",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 6_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
+STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX = 1_500
+STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX = 3_000
+STORY_TURN_COST_LOW = 1
+STORY_TURN_COST_MEDIUM = 2
+STORY_TURN_COST_HIGH = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
 STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905 = "moonshotai/kimi-k2-0905"
@@ -218,6 +224,15 @@ def normalize_story_context_limit_chars(value: int | None) -> int:
     return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
 
 
+def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
+    normalized_usage = max(int(context_usage_tokens or 0), 0)
+    if normalized_usage <= STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_LOW
+    if normalized_usage <= STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_MEDIUM
+    return STORY_TURN_COST_HIGH
+
+
 def coerce_story_llm_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
     if normalized in STORY_SUPPORTED_LLM_MODELS:
@@ -255,6 +270,33 @@ def normalize_story_top_r(value: float | None) -> float:
         return STORY_DEFAULT_TOP_R
     clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
     return round(clamped_value, 2)
+
+
+def normalize_story_ambient_enabled(value: bool | None) -> bool:
+    if value is None:
+        return True
+    return bool(value)
+
+
+def serialize_story_ambient_profile(value: dict[str, Any] | None) -> str:
+    if not isinstance(value, dict):
+        return ""
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return ""
+
+
+def deserialize_story_ambient_profile(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
 
 
 def normalize_story_cover_scale(raw_value: float | int | str | None) -> float:
@@ -313,6 +355,8 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,
@@ -327,10 +371,17 @@ def story_author_name(user: User | None) -> str:
     return user.email.split("@", maxsplit=1)[0]
 
 
+def story_author_avatar_url(user: User | None) -> str | None:
+    if user is None:
+        return None
+    return normalize_avatar_value(user.avatar_url)
+
+
 def story_community_world_summary_to_out(
     world: StoryGame,
     *,
     author_name: str,
+    author_avatar_url: str | None,
     user_rating: int | None,
 ) -> StoryCommunityWorldSummaryOut:
     summary = story_game_summary_to_out(world)
@@ -339,6 +390,7 @@ def story_community_world_summary_to_out(
         title=summary.title,
         description=summary.description,
         author_name=author_name,
+        author_avatar_url=author_avatar_url,
         age_rating=summary.age_rating,
         genres=summary.genres,
         cover_image_url=summary.cover_image_url,

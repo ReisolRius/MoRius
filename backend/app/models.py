@@ -93,6 +93,18 @@ class StoryGame(Base):
         default=1.0,
         server_default="1.0",
     )
+    ambient_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    ambient_profile: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     opening_scene: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
@@ -178,6 +190,21 @@ class StoryInstructionCard(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryInstructionTemplate(Base):
+    __tablename__ = "story_instruction_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

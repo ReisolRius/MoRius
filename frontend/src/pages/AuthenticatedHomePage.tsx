@@ -27,31 +27,34 @@ import {
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
-import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
+  updateCurrentUserProfile,
   type CoinTopUpPlan,
 } from '../services/authApi'
 import {
-  createStoryGame,
+  deleteStoryGame,
   getCommunityWorld,
   launchCommunityWorld,
   listCommunityWorlds,
+  listStoryGames,
   rateCommunityWorld,
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary } from '../types/story'
+import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -72,14 +75,6 @@ type DashboardNewsItem = {
   title: string
   description: string
   dateLabel: string
-}
-
-type PresetWorld = {
-  id: string
-  title: string
-  teaser: string
-  description: string
-  artwork: string
 }
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
@@ -114,36 +109,6 @@ const DASHBOARD_NEWS: DashboardNewsItem[] = [
   },
 ]
 
-const PRESET_WORLDS: PresetWorld[] = [
-  {
-    id: 'fantasy',
-    title: 'Фэнтези',
-    teaser: 'Древние королевства, магические ордена и забытые руины.',
-    description:
-      'Мир высоких гор, лунных лесов и старых трактов. Между княжествами идёт холодная война, а в тенях пробуждаются силы, которые когда-то считались легендой.',
-    artwork:
-      'repeating-linear-gradient(24deg, hsla(42, 30%, 55%, 0.16) 0 12px, transparent 12px 28px), radial-gradient(circle at 78% 22%, hsla(40, 44%, 62%, 0.18), transparent 42%), linear-gradient(152deg, hsla(208, 34%, 17%, 0.98) 0%, hsla(219, 38%, 11%, 0.99) 100%)',
-  },
-  {
-    id: 'cyberpunk',
-    title: 'Киберпанк',
-    teaser: 'Неоновые кварталы, корпорации и хаос нижнего города.',
-    description:
-      'Мегаполис под кислотным дождём. В небе висят рекламные дроны, а на уровне улиц власть делят синдикаты, уличные сети и корпоративные отделы безопасности.',
-    artwork:
-      'repeating-linear-gradient(118deg, hsla(195, 34%, 58%, 0.16) 0 10px, transparent 10px 24px), radial-gradient(circle at 16% 80%, hsla(207, 42%, 60%, 0.17), transparent 46%), linear-gradient(160deg, hsla(214, 32%, 16%, 0.98) 0%, hsla(226, 40%, 10%, 0.99) 100%)',
-  },
-  {
-    id: 'modern',
-    title: 'Современность',
-    teaser: 'Знакомый мир, где каждая мелочь может изменить сюжет.',
-    description:
-      'Большой город, пригородные трассы, офисные кварталы и тихие спальные районы. Реалистичный сеттинг для историй о выборе, риске, расследовании и личных границах.',
-    artwork:
-      'repeating-radial-gradient(circle at 0 0, hsla(205, 24%, 58%, 0.16) 0 4px, transparent 4px 18px), radial-gradient(circle at 70% 12%, hsla(28, 24%, 58%, 0.12), transparent 40%), linear-gradient(148deg, hsla(210, 28%, 17%, 0.98) 0%, hsla(221, 34%, 11%, 0.99) 100%)',
-  },
-]
-
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -172,16 +137,12 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function toStarLabel(value: number): string {
-  const safeValue = Math.max(0, Math.min(5, Math.round(value)))
-  return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
-}
-
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
+  const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
@@ -193,7 +154,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
-  const [quickStartTarget, setQuickStartTarget] = useState<string | null>(null)
   const [selectedNewsItem, setSelectedNewsItem] = useState<DashboardNewsItem | null>(null)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
@@ -203,8 +163,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityRatingDraft, setCommunityRatingDraft] = useState(0)
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
+  const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
+  const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
-  const presetWorldsSliderRef = useRef<HTMLDivElement | null>(null)
   const communityWorldsSliderRef = useRef<HTMLDivElement | null>(null)
 
   const handleCloseProfileDialog = () => {
@@ -231,6 +192,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
     setCharacterManagerOpen(false)
+    setInstructionTemplateDialogOpen(false)
     setTopUpDialogOpen(false)
     onLogout()
   }
@@ -239,7 +201,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpDialogOpen(false)
+    setInstructionTemplateDialogOpen(false)
     setCharacterManagerOpen(true)
+  }
+
+  const handleOpenInstructionTemplateDialog = () => {
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setTopUpDialogOpen(false)
+    setCharacterManagerOpen(false)
+    setInstructionTemplateDialogOpen(true)
   }
 
   const handleChooseAvatar = () => {
@@ -299,41 +270,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }
 
-  const handleStartQuickGame = useCallback(
-    async (world?: PresetWorld) => {
-      if (quickStartTarget) {
-        return
-      }
-
-      setQuickStartTarget(world?.id ?? 'blank')
-      setPaymentNotice(null)
-      try {
-        const game = await createStoryGame({ token: authToken })
-        if (world) {
-          localStorage.setItem(
-            QUICK_START_WORLD_STORAGE_KEY,
-            JSON.stringify({
-              gameId: game.id,
-              title: world.title,
-              description: world.description,
-            }),
-          )
-        } else {
-          localStorage.removeItem(QUICK_START_WORLD_STORAGE_KEY)
-        }
-
-        onNavigate(`/home/${game.id}`)
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось создать новую игру'
-        setPaymentNotice({
-          severity: 'error',
-          text: detail,
-        })
-      } finally {
-        setQuickStartTarget(null)
-      }
+  const handleUpdateProfileName = useCallback(
+    async (nextName: string) => {
+      const updatedUser = await updateCurrentUserProfile({
+        token: authToken,
+        display_name: nextName,
+      })
+      onUserUpdate(updatedUser)
     },
-    [authToken, onNavigate, quickStartTarget],
+    [authToken, onUserUpdate],
   )
 
   const loadCommunityWorlds = useCallback(async () => {
@@ -354,6 +299,19 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   useEffect(() => {
     void loadCommunityWorlds()
   }, [loadCommunityWorlds])
+
+  const syncCommunityWorldGameIds = useCallback(async () => {
+    try {
+      const games = await listStoryGames(authToken)
+      setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+    } catch {
+      // Optional metadata for UI; skip hard error when unavailable.
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    void syncCommunityWorldGameIds()
+  }, [syncCommunityWorldGameIds])
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -385,23 +343,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   )
 
   const handleCloseCommunityWorldDialog = useCallback(() => {
-    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving) {
+    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving || isCommunityWorldMyGamesSaving) {
       return
     }
     setSelectedCommunityWorld(null)
     setCommunityRatingDraft(0)
-  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isLaunchingCommunityWorld])
+  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld])
 
-  const handleRateCommunityWorld = useCallback(async () => {
-    if (!selectedCommunityWorld || communityRatingDraft < 1 || communityRatingDraft > 5 || isCommunityRatingSaving) {
+  const handleRateCommunityWorld = useCallback(async (ratingValue: number) => {
+    if (!selectedCommunityWorld || ratingValue < 1 || ratingValue > 5 || isCommunityRatingSaving) {
       return
     }
+    setCommunityRatingDraft(ratingValue)
     setIsCommunityRatingSaving(true)
     try {
       const updatedWorld = await rateCommunityWorld({
         token: authToken,
         worldId: selectedCommunityWorld.world.id,
-        rating: communityRatingDraft,
+        rating: ratingValue,
       })
       setSelectedCommunityWorld((previous) => (previous ? { ...previous, world: updatedWorld } : previous))
       setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
@@ -414,17 +373,25 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     } finally {
       setIsCommunityRatingSaving(false)
     }
-  }, [authToken, communityRatingDraft, isCommunityRatingSaving, selectedCommunityWorld])
+  }, [authToken, isCommunityRatingSaving, selectedCommunityWorld])
 
   const handleLaunchCommunityWorld = useCallback(async () => {
     if (!selectedCommunityWorld || isLaunchingCommunityWorld) {
       return
     }
+    const worldId = selectedCommunityWorld.world.id
     setIsLaunchingCommunityWorld(true)
     try {
       const game = await launchCommunityWorld({
         token: authToken,
-        worldId: selectedCommunityWorld.world.id,
+        worldId,
+      })
+      setCommunityWorldGameIds((previous) => {
+        const nextIds = [...new Set([...(previous[worldId] ?? []), game.id])]
+        return {
+          ...previous,
+          [worldId]: nextIds,
+        }
       })
       onNavigate(`/home/${game.id}`)
     } catch (error) {
@@ -437,6 +404,51 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       setIsLaunchingCommunityWorld(false)
     }
   }, [authToken, isLaunchingCommunityWorld, onNavigate, selectedCommunityWorld])
+
+  const handleToggleCommunityWorldInMyGames = useCallback(async () => {
+    if (!selectedCommunityWorld || isCommunityWorldMyGamesSaving || isLaunchingCommunityWorld) {
+      return
+    }
+
+    const worldId = selectedCommunityWorld.world.id
+    const existingGameIds = communityWorldGameIds[worldId] ?? []
+    setIsCommunityWorldMyGamesSaving(true)
+    try {
+      if (existingGameIds.length > 0) {
+        await Promise.all(
+          existingGameIds.map((gameId) =>
+            deleteStoryGame({
+              token: authToken,
+              gameId,
+            }),
+          ),
+        )
+        setCommunityWorldGameIds((previous) => {
+          const nextMap = { ...previous }
+          delete nextMap[worldId]
+          return nextMap
+        })
+        return
+      }
+
+      const game = await launchCommunityWorld({
+        token: authToken,
+        worldId,
+      })
+      setCommunityWorldGameIds((previous) => ({
+        ...previous,
+        [worldId]: [...new Set([...(previous[worldId] ?? []), game.id])],
+      }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить список "Мои игры"'
+      setPaymentNotice({
+        severity: 'error',
+        text: detail,
+      })
+    } finally {
+      setIsCommunityWorldMyGamesSaving(false)
+    }
+  }, [authToken, communityWorldGameIds, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld, selectedCommunityWorld])
 
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
@@ -473,7 +485,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentNotice({
             severity: 'success',
-            text: `Баланс пополнен: +${response.coins} монет.`,
+            text: `Баланс пополнен: +${response.coins} токенов.`,
           })
           return
         }
@@ -490,7 +502,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
           setPaymentNotice({
             severity: 'info',
-            text: 'Платеж обрабатывается. Монеты будут начислены после подтверждения оплаты.',
+            text: 'Платеж обрабатывается. Токены будут начислены после подтверждения оплаты.',
           })
         }
       } catch (error) {
@@ -544,19 +556,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
 
     const scrollStep = Math.max(300, slider.clientWidth * 0.9)
-    slider.scrollBy({
-      left: direction === 'left' ? scrollStep : -scrollStep,
-      behavior: 'smooth',
-    })
-  }, [])
-
-  const handleScrollPresetWorlds = useCallback((direction: 'left' | 'right') => {
-    const slider = presetWorldsSliderRef.current
-    if (!slider) {
-      return
-    }
-
-    const scrollStep = Math.max(280, slider.clientWidth * 0.9)
+    // Keep this mapping stable: left button must scroll left, right button must scroll right.
     slider.scrollBy({
       left: direction === 'left' ? -scrollStep : scrollStep,
       behavior: 'smooth',
@@ -568,12 +568,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       return
     }
 
-    event.preventDefault()
     event.currentTarget.scrollLeft += event.deltaY
   }, [])
 
+  const selectedCommunityWorldGameIds = selectedCommunityWorld
+    ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
+    : []
+  const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
   const profileName = user.display_name || 'Игрок'
-  const isQuickStartBusy = Boolean(quickStartTarget)
   const communityWorldsPreview = communityWorlds.slice(0, 9)
   const dashboardView = 'welcome' as const
 
@@ -808,173 +810,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           )}
 
-          <Stack spacing={0.45} sx={{ mb: 'var(--morius-cards-title-gap)' }}>
-            <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-              Предустановленные миры
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
-              Выберите сеттинг, получите заготовку контекста и сразу переходите к игре.
-            </Typography>
-          </Stack>
-
-          <Stack direction="row" justifyContent="flex-end" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)', mb: 1 }}>
-            <IconButton
-              aria-label="Прокрутить предустановленные миры влево"
-              onClick={() => handleScrollPresetWorlds('left')}
-              disabled={PRESET_WORLDS.length <= 1}
-              sx={{
-                width: 'var(--morius-action-size)',
-                height: 'var(--morius-action-size)',
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: 'var(--morius-elevated-bg)',
-                color: 'var(--morius-accent)',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-                '&:active': {
-                  backgroundColor: APP_BUTTON_ACTIVE,
-                },
-              }}
-            >
-              <Box
-                component="img"
-                src={icons.arrowback}
-                alt=""
-                sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9, transform: 'rotate(180deg)' }}
-              />
-            </IconButton>
-            <IconButton
-              aria-label="Прокрутить предустановленные миры вправо"
-              onClick={() => handleScrollPresetWorlds('right')}
-              disabled={PRESET_WORLDS.length <= 1}
-              sx={{
-                width: 'var(--morius-action-size)',
-                height: 'var(--morius-action-size)',
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: 'var(--morius-elevated-bg)',
-                color: 'var(--morius-accent)',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-                '&:active': {
-                  backgroundColor: APP_BUTTON_ACTIVE,
-                },
-              }}
-            >
-              <Box
-                component="img"
-                src={icons.arrowback}
-                alt=""
-                sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9 }}
-              />
-            </IconButton>
-          </Stack>
-
-          <Box
-            ref={presetWorldsSliderRef}
-            onWheel={handleCommunityWorldsWheel}
-            sx={{
-              display: 'grid',
-              gridAutoFlow: 'column',
-              gridAutoColumns: {
-                xs: 'minmax(268px, 86vw)',
-                sm: 'minmax(284px, 46vw)',
-                md: 'calc((100% - 20px) / 2)',
-                xl: 'calc((100% - 40px) / 3)',
-              },
-              gap: 'var(--morius-interface-gap)',
-              overflowX: 'auto',
-              pb: 'var(--morius-story-right-padding)',
-              pr: 'var(--morius-scrollbar-offset)',
-              scrollSnapType: 'x mandatory',
-              overscrollBehaviorX: 'contain',
-              '&::-webkit-scrollbar': {
-                height: 8,
-              },
-              '&::-webkit-scrollbar-thumb': {
-                backgroundColor: 'rgba(154, 172, 196, 0.32)',
-                borderRadius: '999px',
-              },
-            }}
-          >
-            {PRESET_WORLDS.map((world) => (
-              <Button
-                key={world.id}
-                onClick={() => void handleStartQuickGame(world)}
-                disabled={isQuickStartBusy}
-                sx={{
-                  p: 0,
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  textTransform: 'none',
-                  textAlign: 'left',
-                  alignItems: 'stretch',
-                  background: APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
-                  minHeight: 256,
-                  scrollSnapAlign: 'start',
-                  transition: 'transform 180ms ease, border-color 180ms ease',
-                  '&:hover': {
-                    transform: 'translateY(-2px)',
-                    borderColor: 'rgba(203, 216, 234, 0.36)',
-                  },
-                }}
-              >
-                <Box
-                  sx={{
-                    minHeight: { xs: 188, md: 214 },
-                    display: 'flex',
-                    flexDirection: 'column',
-                    backgroundImage: world.artwork,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }}
-                >
-                  <Box
-                    sx={{
-                      mt: 'auto',
-                      px: 1.2,
-                      py: 1.05,
-                      background:
-                        'linear-gradient(180deg, rgba(6, 9, 14, 0.26) 0%, rgba(6, 9, 14, 0.94) 48%, rgba(6, 9, 14, 0.98) 100%)',
-                    }}
-                  >
-                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.16, mb: 0.42 }}>
-                      {world.title}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ px: 1.2, py: 1.05 }}>
-                  <Typography
-                    sx={{
-                      color: APP_TEXT_SECONDARY,
-                      fontSize: '0.92rem',
-                      lineHeight: 1.42,
-                      display: '-webkit-box',
-                      WebkitLineClamp: 4,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {world.description}
-                  </Typography>
-                </Box>
-
-                {quickStartTarget === world.id ? (
-                  <Box sx={{ mt: 'auto', px: 1.2, pb: 1.15 }}>
-                    <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} />
-                  </Box>
-                ) : null}
-              </Button>
-            ))}
-          </Box>
-
           <Stack
             direction={{ xs: 'column', md: 'row' }}
             justifyContent="space-between"
@@ -999,13 +834,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: 'var(--morius-elevated-bg)',
+                  border: 'var(--morius-border-width) solid transparent',
+                  backgroundColor: 'transparent',
                   color: 'var(--morius-accent)',
                   '&:hover': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_HOVER,
                   },
                   '&:active': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_ACTIVE,
                   },
                 }}
@@ -1025,13 +862,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: 'var(--morius-elevated-bg)',
+                  border: 'var(--morius-border-width) solid transparent',
+                  backgroundColor: 'transparent',
                   color: 'var(--morius-accent)',
                   '&:hover': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_HOVER,
                   },
                   '&:active': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_ACTIVE,
                   },
                 }}
@@ -1051,13 +890,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   borderRadius: 'var(--morius-radius)',
                   textTransform: 'none',
                   fontWeight: 700,
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: 'var(--morius-elevated-bg)',
+                  border: 'var(--morius-border-width) solid transparent',
+                  backgroundColor: 'transparent',
                   color: 'var(--morius-accent)',
                   '&:hover': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_HOVER,
                   },
                   '&:active': {
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: APP_BUTTON_ACTIVE,
                   },
                 }}
@@ -1117,89 +958,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               }}
             >
               {communityWorldsPreview.map((world) => (
-                <Button
+                <CommunityWorldCard
                   key={world.id}
+                  world={world}
                   onClick={() => void handleOpenCommunityWorld(world.id)}
                   disabled={isCommunityWorldDialogLoading}
-                  sx={{
-                    p: 0,
-                    borderRadius: 'var(--morius-radius)',
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    textTransform: 'none',
-                    textAlign: 'left',
-                    alignItems: 'stretch',
-                    background: APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
-                    minHeight: 256,
-                    scrollSnapAlign: 'start',
-                    '&:hover': {
-                      borderColor: 'rgba(203, 216, 234, 0.36)',
-                      transform: 'translateY(-2px)',
-                    },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      minHeight: { xs: 168, md: 186 },
-                      backgroundImage: world.cover_image_url
-                        ? `url(${world.cover_image_url})`
-                        : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
-                      backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
-                      backgroundPosition: world.cover_image_url
-                        ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
-                        : 'center',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        mt: 'auto',
-                        px: 1.2,
-                        py: 1,
-                        background:
-                          'linear-gradient(180deg, rgba(6, 9, 14, 0.22) 0%, rgba(6, 9, 14, 0.92) 50%, rgba(6, 9, 14, 0.98) 100%)',
-                      }}
-                    >
-                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.14rem', fontWeight: 800, lineHeight: 1.18 }}>
-                        {world.title}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Stack spacing={0.6} sx={{ px: 1.2, py: 1.05 }}>
-                    <Typography sx={{ fontSize: '0.001rem', lineHeight: 0, opacity: 0 }} aria-hidden>
-                      {world.title}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        color: APP_TEXT_SECONDARY,
-                        fontSize: '0.9rem',
-                        lineHeight: 1.42,
-                        overflowWrap: 'anywhere',
-                        wordBreak: 'break-word',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {world.description}
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>Автор: {world.author_name}</Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      Просмотры {world.community_views} • Запуски {world.community_launches}
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      Рейтинг {world.community_rating_avg.toFixed(1)} ({world.community_rating_count})
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      {world.user_rating ? `Ваша оценка: ${toStarLabel(world.user_rating)}` : 'Нажмите, чтобы открыть и оценить'}
-                    </Typography>
-                  </Stack>
-                </Button>
+                  sx={{ scrollSnapAlign: 'start' }}
+                />
               ))}
             </Box>
           )}
@@ -1250,10 +1015,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         ratingDraft={communityRatingDraft}
         isRatingSaving={isCommunityRatingSaving}
         isLaunching={isLaunchingCommunityWorld}
+        isInMyGames={isSelectedCommunityWorldInMyGames}
+        isMyGamesToggleSaving={isCommunityWorldMyGamesSaving}
         onClose={handleCloseCommunityWorldDialog}
         onPlay={() => void handleLaunchCommunityWorld()}
-        onChangeRating={setCommunityRatingDraft}
-        onSaveRating={() => void handleRateCommunityWorld()}
+        onRate={(value) => void handleRateCommunityWorld(value)}
+        onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
       />
       <ProfileDialog
         open={profileDialogOpen}
@@ -1268,7 +1035,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onAvatarChange={handleAvatarChange}
         onOpenTopUp={handleOpenTopUpDialog}
         onOpenCharacterManager={handleOpenCharacterManager}
+        onOpenInstructionTemplates={handleOpenInstructionTemplateDialog}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
+        onUpdateProfileName={handleUpdateProfileName}
       />
 
       <TopUpDialog
@@ -1306,8 +1075,29 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         authToken={authToken}
         onClose={() => setCharacterManagerOpen(false)}
       />
+
+      <InstructionTemplateDialog
+        open={instructionTemplateDialogOpen}
+        authToken={authToken}
+        mode="manage"
+        onClose={() => setInstructionTemplateDialogOpen(false)}
+      />
     </Box>
   )
+}
+
+function buildCommunityWorldGameMap(games: StoryGameSummary[]): Record<number, number[]> {
+  const nextMap: Record<number, number[]> = {}
+  games.forEach((game) => {
+    if (!game.source_world_id || game.source_world_id <= 0) {
+      return
+    }
+    const worldId = game.source_world_id
+    const currentIds = nextMap[worldId] ?? []
+    currentIds.push(game.id)
+    nextMap[worldId] = currentIds
+  })
+  return nextMap
 }
 
 export default AuthenticatedHomePage

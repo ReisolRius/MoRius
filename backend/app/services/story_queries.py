@@ -10,6 +10,7 @@ from app.models import (
     StoryCharacter,
     StoryGame,
     StoryInstructionCard,
+    StoryInstructionTemplate,
     StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -92,6 +93,30 @@ def list_story_characters(db: Session, user_id: int) -> list[StoryCharacter]:
     ).all()
 
 
+def list_story_instruction_templates(db: Session, user_id: int) -> list[StoryInstructionTemplate]:
+    return db.scalars(
+        select(StoryInstructionTemplate)
+        .where(StoryInstructionTemplate.user_id == user_id)
+        .order_by(StoryInstructionTemplate.id.asc())
+    ).all()
+
+
+def get_story_instruction_template_for_user_or_404(
+    db: Session,
+    user_id: int,
+    template_id: int,
+) -> StoryInstructionTemplate:
+    template = db.scalar(
+        select(StoryInstructionTemplate).where(
+            StoryInstructionTemplate.id == template_id,
+            StoryInstructionTemplate.user_id == user_id,
+        )
+    )
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instruction template not found")
+    return template
+
+
 def get_story_character_for_user_or_404(db: Session, user_id: int, character_id: int) -> StoryCharacter:
     character = db.scalar(
         select(StoryCharacter).where(
@@ -145,4 +170,3 @@ def list_story_world_card_events(
         query = query.where(StoryWorldCardChangeEvent.undone_at.is_(None))
     query = query.order_by(StoryWorldCardChangeEvent.id.asc())
     return db.scalars(query).all()
-

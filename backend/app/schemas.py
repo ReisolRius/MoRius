@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -40,6 +41,10 @@ class GoogleAuthRequest(BaseModel):
 class AvatarUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
 
 
 class AuthResponse(BaseModel):
@@ -92,19 +97,21 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=500, le=6_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
     story_llm_model: str | None = Field(default=None, max_length=120)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    ambient_enabled: bool | None = None
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=500, le=6_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
     story_llm_model: str | None = Field(default=None, max_length=120)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    ambient_enabled: bool | None = None
 
 
 class StoryGameMetaUpdateRequest(BaseModel):
@@ -133,6 +140,7 @@ class StoryGenerateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    ambient_enabled: bool | None = None
 
 
 class StoryInstructionCardCreateRequest(BaseModel):
@@ -141,6 +149,16 @@ class StoryInstructionCardCreateRequest(BaseModel):
 
 
 class StoryInstructionCardUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+class StoryInstructionTemplateCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8_000)
+
+
+class StoryInstructionTemplateUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)
 
@@ -226,6 +244,17 @@ class StoryInstructionCardOut(BaseModel):
 
     id: int
     game_id: int
+    title: str
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryInstructionTemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
     title: str
     content: str
     created_at: datetime
@@ -345,6 +374,8 @@ class StoryGameSummaryOut(BaseModel):
     memory_optimization_enabled: bool
     story_top_k: int
     story_top_r: float
+    ambient_enabled: bool
+    ambient_profile: dict[str, Any] | None
     last_activity_at: datetime
     created_at: datetime
     updated_at: datetime
@@ -355,6 +386,7 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     title: str
     description: str
     author_name: str
+    author_avatar_url: str | None
     age_rating: str
     genres: list[str]
     cover_image_url: str | None

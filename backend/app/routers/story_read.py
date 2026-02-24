@@ -21,6 +21,7 @@ from app.services.story_events import (
     story_world_card_change_event_to_out,
 )
 from app.services.story_games import (
+    story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
     story_game_summary_to_out,
@@ -82,6 +83,7 @@ def get_story_community_world(
         world=story_community_world_summary_to_out(
             world,
             author_name=story_author_name(author),
+            author_avatar_url=story_author_avatar_url(author),
             user_rating=int(user_rating) if user_rating is not None else None,
         ),
         context_limit_chars=world.context_limit_chars,

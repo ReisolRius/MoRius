@@ -5,9 +5,15 @@ import aiIcon from './icons/ai.svg'
 import coinIcon from './icons/coin.svg'
 import communityAgeIcon from './icons/community-age.svg'
 import communityCommentsIcon from './icons/community-comments.svg'
+import communityCardsIcon from './icons/community-cards.svg'
+import communityAddIcon from './icons/community-add.svg'
+import communityCheckIcon from './icons/community-check.svg'
 import communityEditIcon from './icons/community-edit.svg'
 import communityInfoIcon from './icons/community-info.svg'
 import communityPlayIcon from './icons/community-play.svg'
+import communityShareIcon from './icons/community-share.svg'
+import communityStarFilledIcon from './icons/community-star-filled.svg'
+import communityStarOutlineIcon from './icons/community-star-outline.svg'
 import helpIcon from './icons/help.svg'
 import homeIcon from './icons/home.svg'
 import menuIcon from './icons/menu.svg'
@@ -36,10 +42,16 @@ export const icons = {
   back: backIcon,
   coin: coinIcon,
   communityAge: communityAgeIcon,
+  communityAdd: communityAddIcon,
+  communityCards: communityCardsIcon,
+  communityCheck: communityCheckIcon,
   communityComments: communityCommentsIcon,
   communityEdit: communityEditIcon,
   communityInfo: communityInfoIcon,
   communityPlay: communityPlayIcon,
+  communityShare: communityShareIcon,
+  communityStarFilled: communityStarFilledIcon,
+  communityStarOutline: communityStarOutlineIcon,
   help: helpIcon,
   home: homeIcon,
   menu: menuIcon,

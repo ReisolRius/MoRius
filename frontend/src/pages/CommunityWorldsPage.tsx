@@ -1,15 +1,29 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
 import AppHeader from '../components/AppHeader'
+import AvatarCropDialog from '../components/AvatarCropDialog'
+import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
-import { getCommunityWorld, launchCommunityWorld, listCommunityWorlds, rateCommunityWorld } from '../services/storyApi'
+import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import ProfileDialog from '../components/profile/ProfileDialog'
+import UserAvatar from '../components/profile/UserAvatar'
+import { updateCurrentUserAvatar, updateCurrentUserProfile } from '../services/authApi'
+import {
+  deleteStoryGame,
+  getCommunityWorld,
+  launchCommunityWorld,
+  listCommunityWorlds,
+  listStoryGames,
+  rateCommunityWorld,
+} from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
-import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary } from '../types/story'
+import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 
 type CommunityWorldsPageProps = {
   user: AuthUser
   authToken: string
   onNavigate: (path: string) => void
+  onUserUpdate: (user: AuthUser) => void
   onLogout: () => void
 }
 
@@ -20,16 +34,31 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const HEADER_AVATAR_SIZE = 44
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 
-function toStarLabel(value: number): string {
-  const safeValue = Math.max(0, Math.min(5, Math.round(value)))
-  return '★'.repeat(safeValue) + '☆'.repeat(5 - safeValue)
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Не удалось прочитать файл'))
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Некорректный формат файла'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
-function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout }: CommunityWorldsPageProps) {
-  void _onLogout
+function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogout }: CommunityWorldsPageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
+  const [isAvatarSaving, setIsAvatarSaving] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+  const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
@@ -39,7 +68,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
   const [communityRatingDraft, setCommunityRatingDraft] = useState(0)
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
-  const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null)
+  const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
+  const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const loadCommunityWorlds = useCallback(async () => {
     setIsCommunityWorldsLoading(true)
@@ -59,6 +90,19 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
   useEffect(() => {
     void loadCommunityWorlds()
   }, [loadCommunityWorlds])
+
+  const syncCommunityWorldGameIds = useCallback(async () => {
+    try {
+      const games = await listStoryGames(authToken)
+      setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+    } catch {
+      // Optional data for dialog button state; ignore failures.
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    void syncCommunityWorldGameIds()
+  }, [syncCommunityWorldGameIds])
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -88,24 +132,25 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
   )
 
   const handleCloseCommunityWorldDialog = useCallback(() => {
-    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving) {
+    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving || isCommunityWorldMyGamesSaving) {
       return
     }
     setSelectedCommunityWorld(null)
     setCommunityRatingDraft(0)
-  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isLaunchingCommunityWorld])
+  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld])
 
-  const handleRateCommunityWorld = useCallback(async () => {
-    if (!selectedCommunityWorld || communityRatingDraft < 1 || communityRatingDraft > 5 || isCommunityRatingSaving) {
+  const handleRateCommunityWorld = useCallback(async (ratingValue: number) => {
+    if (!selectedCommunityWorld || ratingValue < 1 || ratingValue > 5 || isCommunityRatingSaving) {
       return
     }
+    setCommunityRatingDraft(ratingValue)
     setActionError('')
     setIsCommunityRatingSaving(true)
     try {
       const updatedWorld = await rateCommunityWorld({
         token: authToken,
         worldId: selectedCommunityWorld.world.id,
-        rating: communityRatingDraft,
+        rating: ratingValue,
       })
       setSelectedCommunityWorld((previous) => (previous ? { ...previous, world: updatedWorld } : previous))
       setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
@@ -115,18 +160,26 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
     } finally {
       setIsCommunityRatingSaving(false)
     }
-  }, [authToken, communityRatingDraft, isCommunityRatingSaving, selectedCommunityWorld])
+  }, [authToken, isCommunityRatingSaving, selectedCommunityWorld])
 
   const handleLaunchCommunityWorld = useCallback(async () => {
     if (!selectedCommunityWorld || isLaunchingCommunityWorld) {
       return
     }
+    const worldId = selectedCommunityWorld.world.id
     setActionError('')
     setIsLaunchingCommunityWorld(true)
     try {
       const game = await launchCommunityWorld({
         token: authToken,
-        worldId: selectedCommunityWorld.world.id,
+        worldId,
+      })
+      setCommunityWorldGameIds((previous) => {
+        const nextIds = [...new Set([...(previous[worldId] ?? []), game.id])]
+        return {
+          ...previous,
+          [worldId]: nextIds,
+        }
       })
       onNavigate(`/home/${game.id}`)
     } catch (error) {
@@ -137,7 +190,134 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
     }
   }, [authToken, isLaunchingCommunityWorld, onNavigate, selectedCommunityWorld])
 
-  const avatarInitial = (user.display_name || user.email || 'И').trim().charAt(0).toUpperCase() || 'И'
+  const profileName = user.display_name || 'Игрок'
+
+  const handleToggleCommunityWorldInMyGames = useCallback(async () => {
+    if (!selectedCommunityWorld || isCommunityWorldMyGamesSaving || isLaunchingCommunityWorld) {
+      return
+    }
+
+    const worldId = selectedCommunityWorld.world.id
+    const existingGameIds = communityWorldGameIds[worldId] ?? []
+    setActionError('')
+    setIsCommunityWorldMyGamesSaving(true)
+    try {
+      if (existingGameIds.length > 0) {
+        await Promise.all(
+          existingGameIds.map((gameId) =>
+            deleteStoryGame({
+              token: authToken,
+              gameId,
+            }),
+          ),
+        )
+        setCommunityWorldGameIds((previous) => {
+          const nextMap = { ...previous }
+          delete nextMap[worldId]
+          return nextMap
+        })
+        return
+      }
+
+      const game = await launchCommunityWorld({
+        token: authToken,
+        worldId,
+      })
+      setCommunityWorldGameIds((previous) => ({
+        ...previous,
+        [worldId]: [...new Set([...(previous[worldId] ?? []), game.id])],
+      }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ СЃРїРёСЃРѕРє "РњРѕРё РёРіСЂС‹"'
+      setActionError(detail)
+    } finally {
+      setIsCommunityWorldMyGamesSaving(false)
+    }
+  }, [authToken, communityWorldGameIds, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld, selectedCommunityWorld])
+
+  const handleCloseProfileDialog = () => {
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setAvatarCropSource(null)
+    setAvatarError('')
+  }
+
+  const handleChooseAvatar = () => {
+    if (isAvatarSaving) {
+      return
+    }
+    avatarInputRef.current?.click()
+  }
+
+  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setAvatarError('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
+      return
+    }
+
+    if (selectedFile.size > AVATAR_MAX_BYTES) {
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      return
+    }
+
+    setAvatarError('')
+    try {
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      setAvatarCropSource(dataUrl)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
+      setAvatarError(detail)
+    }
+  }
+
+  const handleSaveCroppedAvatar = async (croppedDataUrl: string) => {
+    if (isAvatarSaving) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarSaving(true)
+    try {
+      const updatedUser = await updateCurrentUserAvatar({
+        token: authToken,
+        avatar_url: croppedDataUrl,
+        avatar_scale: 1,
+      })
+      onUserUpdate(updatedUser)
+      setAvatarCropSource(null)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsAvatarSaving(false)
+    }
+  }
+
+  const handleUpdateProfileName = useCallback(
+    async (nextName: string) => {
+      const updatedUser = await updateCurrentUserProfile({
+        token: authToken,
+        display_name: nextName,
+      })
+      onUserUpdate(updatedUser)
+    },
+    [authToken, onUserUpdate],
+  )
+
+  const handleConfirmLogout = () => {
+    setConfirmLogoutOpen(false)
+    setProfileDialogOpen(false)
+    onLogout()
+  }
+
+  const selectedCommunityWorldGameIds = selectedCommunityWorld ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? [] : []
+  const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
 
   return (
     <Box
@@ -173,7 +353,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
           <Stack direction="row" spacing={0}>
             <Button
               variant="text"
-              onClick={() => onNavigate('/dashboard')}
+              onClick={() => setProfileDialogOpen(true)}
               aria-label="Открыть профиль"
               sx={{
                 minWidth: 0,
@@ -188,30 +368,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
                 },
               }}
             >
-              {user.avatar_url && user.avatar_url !== failedAvatarUrl ? (
-                <Box
-                  component="img"
-                  src={user.avatar_url}
-                  alt={user.display_name || 'Профиль'}
-                  onError={() => setFailedAvatarUrl(user.avatar_url)}
-                  sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                />
-              ) : (
-                <Box
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: 'linear-gradient(180deg, rgba(40, 49, 62, 0.86), rgba(20, 24, 31, 0.95))',
-                    color: APP_TEXT_PRIMARY,
-                    fontWeight: 700,
-                    fontSize: '1rem',
-                  }}
-                >
-                  {avatarInitial}
-                </Box>
-              )}
+              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
             </Button>
           </Stack>
         }
@@ -292,91 +449,21 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
             <Box
               sx={{
                 display: 'grid',
-                gap: 1.3,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
+                gap: 1.4,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
               }}
             >
               {communityWorlds.map((world) => (
-                <Button
+                <CommunityWorldCard
                   key={world.id}
+                  world={world}
                   onClick={() => void handleOpenCommunityWorld(world.id)}
                   disabled={isCommunityWorldDialogLoading}
-                  sx={{
-                    p: 0,
-                    borderRadius: 'var(--morius-radius)',
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    overflow: 'hidden',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    textTransform: 'none',
-                    textAlign: 'left',
-                    alignItems: 'stretch',
-                    background: APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
-                    minHeight: 256,
-                    '&:hover': {
-                      borderColor: 'rgba(203, 216, 234, 0.36)',
-                      transform: 'translateY(-2px)',
-                    },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      minHeight: { xs: 168, md: 186 },
-                      backgroundImage: world.cover_image_url
-                        ? `url(${world.cover_image_url})`
-                        : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
-                      backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
-                      backgroundPosition: world.cover_image_url
-                        ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
-                        : 'center',
-                      display: 'flex',
-                      flexDirection: 'column',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        mt: 'auto',
-                        px: 1.2,
-                        py: 1,
-                        background:
-                          'linear-gradient(180deg, rgba(6, 9, 14, 0.22) 0%, rgba(6, 9, 14, 0.92) 50%, rgba(6, 9, 14, 0.98) 100%)',
-                      }}
-                    >
-                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.14rem', fontWeight: 800, lineHeight: 1.18 }}>
-                        {world.title}
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Stack spacing={0.6} sx={{ px: 1.2, py: 1.05 }}>
-                    <Typography sx={{ fontSize: '0.001rem', lineHeight: 0, opacity: 0 }} aria-hidden>
-                      {world.title}
-                    </Typography>
-                    <Typography
-                      sx={{
-                        color: APP_TEXT_SECONDARY,
-                        fontSize: '0.9rem',
-                        lineHeight: 1.42,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 3,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                      }}
-                    >
-                      {world.description}
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>Автор: {world.author_name}</Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      Просмотры {world.community_views} • Запуски {world.community_launches}
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      Рейтинг {world.community_rating_avg.toFixed(1)} ({world.community_rating_count})
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-                      {world.user_rating ? `Ваша оценка: ${toStarLabel(world.user_rating)}` : 'Нажмите, чтобы открыть и оценить'}
-                    </Typography>
-                  </Stack>
-                </Button>
+                />
               ))}
             </Box>
           )}
@@ -390,13 +477,62 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onLogout: _onLogout 
         ratingDraft={communityRatingDraft}
         isRatingSaving={isCommunityRatingSaving}
         isLaunching={isLaunchingCommunityWorld}
+        isInMyGames={isSelectedCommunityWorldInMyGames}
+        isMyGamesToggleSaving={isCommunityWorldMyGamesSaving}
         onClose={handleCloseCommunityWorldDialog}
         onPlay={() => void handleLaunchCommunityWorld()}
-        onChangeRating={setCommunityRatingDraft}
-        onSaveRating={() => void handleRateCommunityWorld()}
+        onRate={(value) => void handleRateCommunityWorld(value)}
+        onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
+      />
+      <ProfileDialog
+        open={profileDialogOpen}
+        user={user}
+        profileName={profileName}
+        avatarInputRef={avatarInputRef}
+        avatarError={avatarError}
+        isAvatarSaving={isAvatarSaving}
+        onClose={handleCloseProfileDialog}
+        onChooseAvatar={handleChooseAvatar}
+        onAvatarChange={handleAvatarChange}
+        onOpenTopUp={() => onNavigate('/dashboard')}
+        onOpenCharacterManager={() => onNavigate('/dashboard')}
+        onOpenInstructionTemplates={() => onNavigate('/dashboard')}
+        onRequestLogout={() => setConfirmLogoutOpen(true)}
+        onUpdateProfileName={handleUpdateProfileName}
+      />
+      <ConfirmLogoutDialog
+        open={confirmLogoutOpen}
+        onClose={() => setConfirmLogoutOpen(false)}
+        onConfirm={handleConfirmLogout}
+      />
+      <AvatarCropDialog
+        open={Boolean(avatarCropSource)}
+        imageSrc={avatarCropSource}
+        isSaving={isAvatarSaving}
+        onCancel={() => {
+          if (!isAvatarSaving) {
+            setAvatarCropSource(null)
+          }
+        }}
+        onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
       />
     </Box>
   )
 }
 
+function buildCommunityWorldGameMap(games: StoryGameSummary[]): Record<number, number[]> {
+  const nextMap: Record<number, number[]> = {}
+  games.forEach((game) => {
+    if (!game.source_world_id || game.source_world_id <= 0) {
+      return
+    }
+    const worldId = game.source_world_id
+    const currentIds = nextMap[worldId] ?? []
+    currentIds.push(game.id)
+    nextMap[worldId] = currentIds
+  })
+  return nextMap
+}
+
 export default CommunityWorldsPage
+

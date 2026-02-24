@@ -1,4 +1,4 @@
-﻿import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import { getCurrentUser } from './services/authApi'
 import { brandLogo, heroBackground } from './assets'
@@ -8,6 +8,7 @@ import type { AuthResponse, AuthUser } from './types/auth'
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
 const MIN_BOOT_SPLASH_MS = 650
+const YANDEX_METRIKA_ID = 106989437
 
 type AuthSession = {
   token: string | null
@@ -153,11 +154,24 @@ function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
   const [isBootSplashActive, setIsBootSplashActive] = useState(true)
+  const hasTrackedInitialRouteRef = useRef(false)
 
   useEffect(() => {
     const timerId = window.setTimeout(() => setIsBootSplashActive(false), MIN_BOOT_SPLASH_MS)
     return () => window.clearTimeout(timerId)
   }, [])
+
+  useEffect(() => {
+    const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
+    if (typeof ym !== 'function') {
+      return
+    }
+    if (!hasTrackedInitialRouteRef.current) {
+      hasTrackedInitialRouteRef.current = true
+      return
+    }
+    ym(YANDEX_METRIKA_ID, 'hit', window.location.href)
+  }, [path])
 
   useEffect(() => {
     const handlePopState = () => setPath(normalizePath(window.location.pathname))
@@ -347,6 +361,7 @@ function App() {
           user={authUser}
           authToken={authToken!}
           onNavigate={navigate}
+          onUserUpdate={handleUserUpdate}
           onLogout={handleLogout}
         />
       </Suspense>

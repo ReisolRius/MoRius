@@ -7,6 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
+OPENROUTER_GEMMA_FREE_MODEL = "google/gemma-3-12b-it:free"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -141,6 +142,13 @@ class Settings:
     yookassa_secret_key: str
     yookassa_api_url: str
     payments_return_url: str
+    yookassa_webhook_token: str
+    yookassa_webhook_trusted_ips_only: bool
+    yookassa_receipt_enabled: bool
+    yookassa_receipt_tax_system_code: int
+    yookassa_receipt_vat_code: int
+    yookassa_receipt_payment_mode: str
+    yookassa_receipt_payment_subject: str
     story_llm_provider: str
     gigachat_authorization_key: str
     gigachat_scope: str
@@ -222,7 +230,14 @@ settings = Settings(
     yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", "").strip(),
     yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", "").strip(),
     yookassa_api_url=os.getenv("YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
-    payments_return_url=os.getenv("PAYMENTS_RETURN_URL", "http://localhost:5173/home").strip(),
+    payments_return_url=os.getenv("PAYMENTS_RETURN_URL", "").strip(),
+    yookassa_webhook_token=os.getenv("YOOKASSA_WEBHOOK_TOKEN", "").strip(),
+    yookassa_webhook_trusted_ips_only=_to_bool(os.getenv("YOOKASSA_WEBHOOK_TRUSTED_IPS_ONLY"), default=False),
+    yookassa_receipt_enabled=_to_bool(os.getenv("YOOKASSA_RECEIPT_ENABLED"), default=False),
+    yookassa_receipt_tax_system_code=min(_to_int(os.getenv("YOOKASSA_RECEIPT_TAX_SYSTEM_CODE"), 0, minimum=0), 6),
+    yookassa_receipt_vat_code=min(_to_int(os.getenv("YOOKASSA_RECEIPT_VAT_CODE"), 1, minimum=1), 6),
+    yookassa_receipt_payment_mode=os.getenv("YOOKASSA_RECEIPT_PAYMENT_MODE", "full_payment").strip(),
+    yookassa_receipt_payment_subject=os.getenv("YOOKASSA_RECEIPT_PAYMENT_SUBJECT", "service").strip(),
     story_llm_provider=os.getenv("STORY_LLM_PROVIDER", "openrouter").strip().lower(),
     gigachat_authorization_key=os.getenv("GIGACHAT_AUTHORIZATION_KEY", "").strip(),
     gigachat_scope=os.getenv("GIGACHAT_SCOPE", "GIGACHAT_API_PERS").strip(),
@@ -235,15 +250,15 @@ settings = Settings(
     openrouter_model=os.getenv("OPENROUTER_MODEL", "z-ai/glm-5").strip(),
     openrouter_world_card_model=os.getenv(
         "OPENROUTER_WORLD_CARD_MODEL",
-        "deepseek/deepseek-r1-0528:free",
+        OPENROUTER_GEMMA_FREE_MODEL,
     ).strip(),
     openrouter_translation_model=os.getenv(
         "OPENROUTER_TRANSLATION_MODEL",
-        "deepseek/deepseek-r1-0528:free",
+        OPENROUTER_GEMMA_FREE_MODEL,
     ).strip(),
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",
-        "deepseek/deepseek-r1-0528:free",
+        OPENROUTER_GEMMA_FREE_MODEL,
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),

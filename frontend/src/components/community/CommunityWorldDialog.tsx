@@ -1,4 +1,4 @@
-import { Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, CircularProgress, Snackbar, Stack, Typography } from '@mui/material'
 import { useMemo, useState } from 'react'
 import { icons } from '../../assets'
 import type { StoryCommunityWorldPayload } from '../../types/story'
@@ -10,9 +10,12 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const HEADING_FONT_SIZE = '40px'
+const SUBHEADING_FONT_SIZE = '20px'
+const BASE_GAP = '20px'
 
 type CommunityPreviewBadgeTone = 'green' | 'blue'
-type DialogTab = 'description' | 'comments'
+type DialogTab = 'description' | 'cards' | 'comments'
 
 type CommunityWorldDialogProps = {
   open: boolean
@@ -21,10 +24,12 @@ type CommunityWorldDialogProps = {
   ratingDraft: number
   isRatingSaving: boolean
   isLaunching: boolean
+  isInMyGames: boolean
+  isMyGamesToggleSaving: boolean
   onClose: () => void
   onPlay: () => void
-  onChangeRating: (value: number) => void
-  onSaveRating: () => void
+  onRate: (value: number) => void
+  onToggleMyGames: () => void
 }
 
 type CommunityPreviewCardProps = {
@@ -62,6 +67,47 @@ function formatDateLabel(value: string): string {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
+function resolveAuthorInitials(authorName: string): string {
+  const cleaned = authorName.trim()
+  if (!cleaned) {
+    return '??'
+  }
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) {
+    return parts[0].slice(0, 1).toUpperCase()
+  }
+  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
+}
+
+async function copyTextToClipboard(value: string): Promise<void> {
+  if (!value) {
+    return
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(value)
+    return
+  }
+
+  if (typeof document === 'undefined') {
+    throw new Error('Clipboard unavailable')
+  }
+
+  const temporaryTextarea = document.createElement('textarea')
+  temporaryTextarea.value = value
+  temporaryTextarea.style.position = 'fixed'
+  temporaryTextarea.style.left = '-9999px'
+  temporaryTextarea.style.top = '0'
+  document.body.appendChild(temporaryTextarea)
+  temporaryTextarea.focus()
+  temporaryTextarea.select()
+  const copied = document.execCommand('copy')
+  document.body.removeChild(temporaryTextarea)
+  if (!copied) {
+    throw new Error('Copy failed')
+  }
+}
+
 function CommunityPreviewCard({
   title,
   content,
@@ -79,18 +125,17 @@ function CommunityPreviewCard({
     <Box
       sx={{
         width: '100%',
-        minHeight: 186,
+        minHeight: 198,
         borderRadius: 'var(--morius-radius)',
         border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
         background: 'var(--morius-elevated-bg)',
-        boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
-      <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
-        <Stack direction="row" spacing={0.7} alignItems="center">
+      <Box sx={{ px: 1.3, py: 1.15, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+        <Stack direction="row" spacing={1} alignItems="center">
           <Box
             sx={{
               width: 34,
@@ -104,7 +149,7 @@ function CommunityPreviewCard({
               placeItems: 'center',
               color: APP_TEXT_PRIMARY,
               fontWeight: 800,
-              fontSize: '0.86rem',
+              fontSize: '0.9rem',
             }}
           >
             {avatarUrl ? (
@@ -142,15 +187,15 @@ function CommunityPreviewCard({
           <Typography
             sx={{
               color: badgeColor,
-              fontSize: '0.63rem',
+              fontSize: '0.68rem',
               lineHeight: 1,
               letterSpacing: 0.22,
               textTransform: 'uppercase',
               fontWeight: 700,
               border: `var(--morius-border-width) solid ${badgeBorder}`,
               borderRadius: '999px',
-              px: 0.58,
-              py: 0.18,
+              px: 0.7,
+              py: 0.22,
               flexShrink: 0,
             }}
           >
@@ -158,12 +203,12 @@ function CommunityPreviewCard({
           </Typography>
         </Stack>
       </Box>
-      <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
+      <Box sx={{ px: 1.3, py: 1.2, display: 'flex', flexDirection: 'column', flex: 1 }}>
         <Typography
           sx={{
             color: 'rgba(208, 219, 235, 0.88)',
-            fontSize: '0.86rem',
-            lineHeight: 1.4,
+            fontSize: '0.94rem',
+            lineHeight: 1.45,
             whiteSpace: 'pre-wrap',
             display: '-webkit-box',
             WebkitLineClamp: 5,
@@ -182,14 +227,14 @@ function CommunityPreviewCard({
 
 function DetailRow({ iconSrc, label, value }: { iconSrc: string; label: string; value: string }) {
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
-      <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
-        <Box component="img" src={iconSrc} alt="" sx={{ width: 16, height: 16, opacity: 0.88, flexShrink: 0 }} />
-        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5}>
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+        <Box component="img" src={iconSrc} alt="" sx={{ width: 18, height: 18, opacity: 0.9, flexShrink: 0 }} />
+        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {label}
         </Typography>
       </Stack>
-      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 700, textAlign: 'right' }}>{value}</Typography>
+      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700, textAlign: 'right' }}>{value}</Typography>
     </Stack>
   )
 }
@@ -201,12 +246,15 @@ function CommunityWorldDialog({
   ratingDraft,
   isRatingSaving,
   isLaunching,
+  isInMyGames,
+  isMyGamesToggleSaving,
   onClose,
   onPlay,
-  onChangeRating,
-  onSaveRating,
+  onRate,
+  onToggleMyGames,
 }: CommunityWorldDialogProps) {
   const [tab, setTab] = useState<DialogTab>('description')
+  const [isShareNoticeOpen, setIsShareNoticeOpen] = useState(false)
 
   const world = worldPayload?.world ?? null
   const cardsCount = useMemo(() => {
@@ -215,13 +263,37 @@ function CommunityWorldDialog({
     }
     return worldPayload.instruction_cards.length + worldPayload.plot_cards.length + worldPayload.world_cards.length
   }, [worldPayload])
+  const authorName = world?.author_name.trim() || 'Unknown author'
+  const authorAvatarUrl = world?.author_avatar_url ?? null
+  const authorInitials = resolveAuthorInitials(authorName)
+  const isActionLocked = isLaunching || isRatingSaving || isMyGamesToggleSaving
+
+  const shareLink = useMemo(() => {
+    if (!world || typeof window === 'undefined') {
+      return ''
+    }
+    return `${window.location.origin}/games/all?worldId=${world.id}`
+  }, [world])
+
+  const handleShareWorld = async () => {
+    if (!world || isActionLocked) {
+      return
+    }
+    try {
+      await copyTextToClipboard(shareLink)
+      setIsShareNoticeOpen(true)
+    } catch {
+      // Keep UI silent on clipboard restrictions.
+    }
+  }
 
   return (
     <BaseDialog
       open={open}
       onClose={() => {
-        if (!isLaunching && !isRatingSaving) {
+        if (!isLaunching && !isRatingSaving && !isMyGamesToggleSaving) {
           setTab('description')
+          setIsShareNoticeOpen(false)
           onClose()
         }
       }}
@@ -232,271 +304,325 @@ function CommunityWorldDialog({
         background: APP_CARD_BACKGROUND,
         boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
         animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+        overflow: 'hidden',
       }}
       rawChildren
     >
-      <Box sx={{ p: { xs: 1.2, md: 1.6 } }}>
+      <Box
+        className="morius-scrollbar"
+        sx={{
+          p: 0,
+          maxHeight: { xs: '88vh', md: '90vh' },
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          overscrollBehavior: 'contain',
+          scrollbarWidth: 'thin',
+          scrollbarColor: 'rgba(186, 202, 214, 0.72) rgba(21, 26, 35, 0.7)',
+          '&::-webkit-scrollbar': {
+            width: 10,
+          },
+          '&::-webkit-scrollbar-track': {
+            background: 'rgba(21, 26, 35, 0.7)',
+            borderRadius: '999px',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            background: 'rgba(186, 202, 214, 0.72)',
+            borderRadius: '999px',
+            border: '1px solid rgba(49, 48, 46, 0.82)',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            background: 'rgba(204, 216, 232, 0.84)',
+          },
+        }}
+      >
         {isLoading || !world || !worldPayload ? (
-          <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
+          <Stack alignItems="center" justifyContent="center" sx={{ py: 8 }}>
             <CircularProgress size={30} />
           </Stack>
         ) : (
-          <Stack spacing={1.2}>
+          <Stack spacing={0}>
             <Box
               sx={{
                 position: 'relative',
-                minHeight: { xs: 180, md: 300 },
-                borderRadius: 'var(--morius-radius)',
+                width: '100%',
+                aspectRatio: '4 / 3',
+                minHeight: { xs: 240, md: 300 },
+                maxHeight: { xs: '52vh', md: '64vh' },
                 overflow: 'hidden',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundImage: world.cover_image_url
-                  ? `url(${world.cover_image_url})`
-                  : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
-                backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
-                backgroundPosition: world.cover_image_url
-                  ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
-                  : 'center',
               }}
             >
               <Box
                 sx={{
                   position: 'absolute',
                   inset: 0,
-                  background:
-                    'linear-gradient(180deg, rgba(6, 9, 14, 0.1) 0%, rgba(6, 9, 14, 0.4) 60%, rgba(6, 9, 14, 0.86) 100%)',
+                  backgroundImage: world.cover_image_url
+                    ? `url(${world.cover_image_url})`
+                    : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
+                  backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
+                  backgroundPosition: world.cover_image_url
+                    ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
+                    : 'center',
                 }}
               />
               <Box
                 sx={{
                   position: 'absolute',
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  width: 'fit-content',
-                  maxWidth: 'calc(100% - 24px)',
-                  borderRadius: 1.2,
-                  px: 1.2,
-                  py: 0.55,
-                  background: 'rgba(14, 18, 26, 0.74)',
-                  backdropFilter: 'blur(4px)',
-                  WebkitBackdropFilter: 'blur(4px)',
+                  inset: 0,
+                  background: 'linear-gradient(180deg, rgba(6, 9, 14, 0.06) 0%, rgba(6, 9, 14, 0.58) 100%)',
+                }}
+              />
+              <Typography
+                sx={{
+                  position: 'absolute',
+                  left: 20,
+                  right: 20,
+                  bottom: 20,
+                  color: APP_TEXT_PRIMARY,
+                  fontWeight: 800,
+                  fontSize: { xs: '2rem', md: HEADING_FONT_SIZE },
+                  lineHeight: 1.1,
+                  textShadow: 'none',
+                  overflowWrap: 'anywhere',
+                  wordBreak: 'break-word',
                 }}
               >
-                <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: { xs: '1.24rem', md: '1.85rem' }, lineHeight: 1.2 }}>
-                  {world.title}
-                </Typography>
-              </Box>
+                {world.title}
+              </Typography>
             </Box>
 
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }}>
-              <Box
-                sx={{
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: 'var(--morius-elevated-bg)',
-                  px: 1.05,
-                  py: 0.8,
-                }}
+            <Box sx={{ borderTop: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderBottom: `var(--morius-border-width) solid ${APP_BORDER_COLOR}` }}>
+              <Stack
+                direction={{ xs: 'column', xl: 'row' }}
+                justifyContent="space-between"
+                alignItems={{ xs: 'stretch', xl: 'center' }}
+                sx={{ px: BASE_GAP, py: BASE_GAP, rowGap: BASE_GAP, columnGap: BASE_GAP }}
               >
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  flexWrap="wrap"
-                  sx={{ columnGap: 'var(--morius-rating-star-gap)', rowGap: 'var(--morius-rating-star-gap)' }}
-                >
-                  {[1, 2, 3, 4, 5].map((value) => (
-                    <Button
-                      key={value}
-                      onClick={() => onChangeRating(value)}
-                      disabled={isRatingSaving || isLaunching}
-                      sx={{
-                        minWidth: 34,
-                        minHeight: 34,
-                        p: 0,
-                        borderRadius: '10px',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: value <= ratingDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                        color: APP_TEXT_PRIMARY,
-                        fontSize: '0.98rem',
-                        lineHeight: 1,
-                      }}
-                    >
-                      {value <= ratingDraft ? '★' : '☆'}
-                    </Button>
-                  ))}
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: '1.02rem', ml: 0.45 }}>
-                    {world.community_rating_avg.toFixed(1)}
-                  </Typography>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>
-                    ({world.community_rating_count})
-                  </Typography>
-                  <Button
-                    onClick={() => void onSaveRating()}
-                    disabled={ratingDraft < 1 || isRatingSaving || isLaunching}
+                <Stack direction="row" flexWrap="wrap" sx={{ gap: BASE_GAP, flex: 1 }}>
+                  <Box
                     sx={{
-                      minHeight: 34,
-                      px: 1.05,
-                      borderRadius: '10px',
+                      borderRadius: '12px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      px: BASE_GAP,
+                      py: BASE_GAP,
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Stack direction="row" alignItems="center" sx={{ columnGap: '10px' }}>
+                      {[1, 2, 3, 4, 5].map((value) => (
+                        <Button
+                          key={value}
+                          onClick={() => onRate(value)}
+                          disabled={isActionLocked}
+                          sx={{
+                            p: 0,
+                            minWidth: 0,
+                            minHeight: 0,
+                            border: 'none',
+                            borderRadius: 0,
+                            backgroundColor: 'transparent',
+                            '&:hover': {
+                              backgroundColor: 'transparent',
+                            },
+                            '&:active': {
+                              backgroundColor: 'transparent',
+                            },
+                          }}
+                        >
+                          <Box
+                            component="img"
+                            src={value <= ratingDraft ? icons.communityStarFilled : icons.communityStarOutline}
+                            alt=""
+                            sx={{ height: 20, width: 'auto', display: 'block' }}
+                          />
+                        </Button>
+                      ))}
+                    </Stack>
+                    <Typography sx={{ ml: BASE_GAP, color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
+                      {world.community_rating_avg.toFixed(1)}
+                    </Typography>
+                  </Box>
+
+                  <Button
+                    onClick={onToggleMyGames}
+                    disabled={isActionLocked}
+                    sx={{
+                      minHeight: 0,
+                      px: BASE_GAP,
+                      py: BASE_GAP,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: isInMyGames ? 'rgba(40, 64, 48, 0.7)' : APP_BUTTON_ACTIVE,
+                      color: APP_TEXT_PRIMARY,
+                      columnGap: BASE_GAP,
+                      '&:hover': {
+                        backgroundColor: APP_BUTTON_HOVER,
+                      },
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={isInMyGames ? icons.communityCheck : icons.communityAdd}
+                      alt=""
+                      sx={{ width: 20, height: 20, opacity: 0.95 }}
+                    />
+                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>
+                      {isInMyGames ? 'Добавлено' : 'Добавить'}
+                    </Typography>
+                  </Button>
+
+                  <Button
+                    onClick={() => void handleShareWorld()}
+                    disabled={isActionLocked}
+                    sx={{
+                      minHeight: 0,
+                      px: BASE_GAP,
+                      py: BASE_GAP,
+                      borderRadius: '12px',
                       textTransform: 'none',
                       border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: APP_BUTTON_ACTIVE,
                       color: APP_TEXT_PRIMARY,
-                      '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                      columnGap: BASE_GAP,
+                      '&:hover': {
+                        backgroundColor: APP_BUTTON_HOVER,
+                      },
                     }}
                   >
-                    {isRatingSaving ? <CircularProgress size={14} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Сохранить'}
+                    <Box component="img" src={icons.communityShare} alt="" sx={{ width: 20, height: 20, opacity: 0.95 }} />
+                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Поделиться</Typography>
                   </Button>
                 </Stack>
-              </Box>
 
-              <Button
-                onClick={onPlay}
-                disabled={isLaunching || isLoading}
-                sx={{
-                  minWidth: 164,
-                  minHeight: 44,
-                  borderRadius: 'var(--morius-radius)',
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_BUTTON_ACTIVE,
-                  color: APP_TEXT_PRIMARY,
-                  '&:hover': {
-                    backgroundColor: APP_BUTTON_HOVER,
-                  },
-                }}
-              >
-                {isLaunching ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
-              </Button>
-            </Stack>
+                <Button
+                  onClick={onPlay}
+                  disabled={isLaunching || isLoading}
+                  sx={{
+                    minHeight: 0,
+                    px: '60px',
+                    py: BASE_GAP,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: APP_BUTTON_ACTIVE,
+                    color: APP_TEXT_PRIMARY,
+                    fontSize: SUBHEADING_FONT_SIZE,
+                    '&:hover': {
+                      backgroundColor: APP_BUTTON_HOVER,
+                    },
+                  }}
+                >
+                  {isLaunching ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
+                </Button>
+              </Stack>
+            </Box>
 
-            <Stack direction="row" spacing={0.8} flexWrap="wrap">
-              <Button
-                onClick={() => setTab('description')}
-                sx={{
-                  minHeight: 40,
-                  px: 1.3,
-                  borderRadius: 'var(--morius-radius)',
-                  textTransform: 'none',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: tab === 'description' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
-                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                }}
-              >
-                <Stack direction="row" spacing={0.6} alignItems="center">
-                  <Box component="img" src={icons.communityInfo} alt="" sx={{ width: 15, height: 15, opacity: 0.9 }} />
-                  <span>Описание</span>
-                </Stack>
-              </Button>
-              <Button
-                onClick={() => setTab('comments')}
-                sx={{
-                  minHeight: 40,
-                  px: 1.3,
-                  borderRadius: 'var(--morius-radius)',
-                  textTransform: 'none',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: tab === 'comments' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                  color: APP_TEXT_PRIMARY,
-                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                }}
-              >
-                <Stack direction="row" spacing={0.6} alignItems="center">
-                  <Box component="img" src={icons.communityComments} alt="" sx={{ width: 15, height: 15, opacity: 0.9 }} />
-                  <span>Комментарии</span>
-                </Stack>
-              </Button>
-            </Stack>
+            <Box sx={{ px: BASE_GAP, pt: BASE_GAP }}>
+              <Stack direction="row" flexWrap="wrap" sx={{ gap: BASE_GAP }}>
+                <Button
+                  onClick={() => setTab('description')}
+                  sx={{
+                    minHeight: 0,
+                    px: BASE_GAP,
+                    py: BASE_GAP,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: tab === 'description' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    columnGap: 1.1,
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  <Box component="img" src={icons.communityInfo} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Описание</Typography>
+                </Button>
+                <Button
+                  onClick={() => setTab('cards')}
+                  sx={{
+                    minHeight: 0,
+                    px: BASE_GAP,
+                    py: BASE_GAP,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: tab === 'cards' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    columnGap: 1.1,
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  <Box component="img" src={icons.communityCards} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Карточки</Typography>
+                </Button>
+                <Button
+                  onClick={() => setTab('comments')}
+                  sx={{
+                    minHeight: 0,
+                    px: BASE_GAP,
+                    py: BASE_GAP,
+                    borderRadius: '12px',
+                    textTransform: 'none',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: tab === 'comments' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    columnGap: 1.1,
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  <Box component="img" src={icons.communityComments} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Комментарии</Typography>
+                </Button>
+              </Stack>
+            </Box>
 
-            {tab === 'comments' ? (
-              <Box
-                sx={{
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: 'var(--morius-elevated-bg)',
-                  p: 1.35,
-                }}
-              >
-                <Stack spacing={0.8} alignItems="flex-start">
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: '1rem' }}>
-                    Раздел комментариев в разработке
-                  </Typography>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
-                    Пока можно оценить мир и запустить игру. Комментарии появятся в одном из следующих обновлений.
-                  </Typography>
-                  <Button
-                    disabled
-                    sx={{
-                      minHeight: 36,
-                      px: 1.15,
-                      borderRadius: 'var(--morius-radius)',
-                      textTransform: 'none',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_CARD_BACKGROUND,
-                      color: APP_TEXT_SECONDARY,
-                    }}
-                  >
-                    Комментарии скоро
-                  </Button>
-                </Stack>
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.35,
-                  gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 320px' },
-                  alignItems: 'start',
-                }}
-              >
-                <Stack spacing={1}>
-                  <Stack direction="row" alignItems="center" spacing={0.7}>
-                    <Box
+            <Box sx={{ px: BASE_GAP, py: BASE_GAP }}>
+              {tab === 'comments' ? (
+                <Box
+                  sx={{
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    p: BASE_GAP,
+                  }}
+                >
+                  <Stack spacing={BASE_GAP} alignItems="flex-start">
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
+                      Раздел комментариев в разработке
+                    </Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>
+                      Пока можно оценить мир, добавить его в Мои игры, поделиться ссылкой и запустить игру.
+                    </Typography>
+                    <Button
+                      disabled
                       sx={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: '50%',
+                        minHeight: 0,
+                        px: BASE_GAP,
+                        py: BASE_GAP,
+                        borderRadius: '12px',
+                        textTransform: 'none',
                         border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        display: 'grid',
-                        placeItems: 'center',
-                        color: APP_TEXT_PRIMARY,
-                        fontWeight: 800,
-                        fontSize: '0.8rem',
-                        background: APP_CARD_BACKGROUND,
-                      }}
-                    >
-                      {world.author_name.trim().charAt(0).toUpperCase() || 'A'}
-                    </Box>
-                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>
-                      {world.author_name}
-                    </Typography>
-                  </Stack>
-
-                  <Stack spacing={0.5}>
-                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 700 }}>Описание</Typography>
-                    <Typography
-                      sx={{
+                        backgroundColor: APP_CARD_BACKGROUND,
                         color: APP_TEXT_SECONDARY,
-                        fontSize: '0.96rem',
-                        lineHeight: 1.56,
-                        whiteSpace: 'pre-wrap',
-                        overflowWrap: 'anywhere',
-                        wordBreak: 'break-word',
                       }}
                     >
-                      {world.description || 'Описание мира пока отсутствует.'}
-                    </Typography>
+                      Комментарии скоро
+                    </Button>
                   </Stack>
+                </Box>
+              ) : null}
 
-                  <Stack spacing={0.6}>
-                    <Typography sx={{ fontWeight: 700 }}>Карточки инструкций</Typography>
+              {tab === 'cards' ? (
+                <Stack spacing={BASE_GAP}>
+                  <Stack spacing={BASE_GAP}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>Карточки инструкций</Typography>
                     {worldPayload.instruction_cards.length === 0 ? (
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек инструкций.</Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>Нет карточек инструкций.</Typography>
                     ) : (
-                      <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                      <Box sx={{ display: 'grid', gap: BASE_GAP, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
                         {worldPayload.instruction_cards.map((card) => (
                           <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="ИНСТРУКЦИЯ" />
                         ))}
@@ -504,12 +630,12 @@ function CommunityWorldDialog({
                     )}
                   </Stack>
 
-                  <Stack spacing={0.6}>
-                    <Typography sx={{ fontWeight: 700 }}>Карточки сюжета</Typography>
+                  <Stack spacing={BASE_GAP}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>Карточки сюжета</Typography>
                     {worldPayload.plot_cards.length === 0 ? (
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек сюжета.</Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>Нет карточек сюжета.</Typography>
                     ) : (
-                      <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                      <Box sx={{ display: 'grid', gap: BASE_GAP, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
                         {worldPayload.plot_cards.map((card) => (
                           <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="СЮЖЕТ" />
                         ))}
@@ -517,12 +643,12 @@ function CommunityWorldDialog({
                     )}
                   </Stack>
 
-                  <Stack spacing={0.6}>
-                    <Typography sx={{ fontWeight: 700 }}>Карточки мира и персонажей</Typography>
+                  <Stack spacing={BASE_GAP}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>Карточки мира и персонажей</Typography>
                     {worldPayload.world_cards.length === 0 ? (
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>Нет карточек мира.</Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>Нет карточек мира.</Typography>
                     ) : (
-                      <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
+                      <Box sx={{ display: 'grid', gap: BASE_GAP, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
                         {worldPayload.world_cards.map((card) => (
                           <CommunityPreviewCard
                             key={card.id}
@@ -538,40 +664,88 @@ function CommunityWorldDialog({
                     )}
                   </Stack>
                 </Stack>
+              ) : null}
 
-                <Stack spacing={0.7}>
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: '1.22rem' }}>Подробнее</Typography>
-                  <Box
-                    sx={{
-                      borderRadius: 'var(--morius-radius)',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: 'var(--morius-elevated-bg)',
-                      p: 1.05,
-                    }}
-                  >
-                    <Stack spacing={0.9}>
+              {tab === 'description' ? (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: BASE_GAP,
+                    gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 360px' },
+                    alignItems: 'start',
+                  }}
+                >
+                  <Stack spacing={BASE_GAP}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Box
+                        sx={{
+                          width: 34,
+                          height: 34,
+                          borderRadius: '50%',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          overflow: 'hidden',
+                          display: 'grid',
+                          placeItems: 'center',
+                          color: APP_TEXT_PRIMARY,
+                          fontWeight: 800,
+                          fontSize: '0.84rem',
+                          background: APP_CARD_BACKGROUND,
+                        }}
+                      >
+                        {authorAvatarUrl ? (
+                          <Box component="img" src={authorAvatarUrl} alt={authorName} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          authorInitials
+                        )}
+                      </Box>
+                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700 }}>
+                        {authorName}
+                      </Typography>
+                    </Stack>
+
+                    <Stack spacing={BASE_GAP}>
+                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700 }}>Описание</Typography>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_SECONDARY,
+                          fontSize: '1rem',
+                          lineHeight: 1.56,
+                          whiteSpace: 'pre-wrap',
+                          overflowWrap: 'anywhere',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {world.description || 'Описание мира пока отсутствует.'}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+
+                  <Stack spacing={BASE_GAP}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>Подробности</Typography>
+                    <Stack spacing={BASE_GAP}>
                       <DetailRow iconSrc={icons.communityPlay} label="Игр проведено" value={formatCompactCount(world.community_launches)} />
+                      <DetailRow iconSrc={icons.communityStarFilled} label="Оценено" value={`${world.community_rating_count} раз`} />
                       <DetailRow iconSrc={icons.communityEdit} label="Создано" value={formatDateLabel(world.created_at)} />
                       <DetailRow iconSrc={icons.reload} label="Обновлено" value={formatDateLabel(world.updated_at)} />
                       <DetailRow iconSrc={icons.world} label="Готовые карточки" value={`${cardsCount} шт`} />
                       <DetailRow iconSrc={icons.communityAge} label="Возраст" value={world.age_rating} />
-                      <Stack spacing={0.35}>
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem', fontWeight: 700 }}>Жанры</Typography>
+                      <Stack spacing={1}>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', fontWeight: 700 }}>Жанры</Typography>
                         {world.genres.length === 0 ? (
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem' }}>Не указаны</Typography>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>Не указаны</Typography>
                         ) : (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.45 }}>
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.8 }}>
                             {world.genres.map((genre) => (
                               <Box
                                 key={genre}
                                 sx={{
-                                  px: 0.7,
-                                  py: 0.24,
+                                  px: 1,
+                                  py: 0.35,
                                   borderRadius: '999px',
                                   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                                   backgroundColor: APP_CARD_BACKGROUND,
                                   color: APP_TEXT_PRIMARY,
-                                  fontSize: '0.76rem',
+                                  fontSize: '0.86rem',
                                 }}
                               >
                                 {genre}
@@ -581,19 +755,19 @@ function CommunityWorldDialog({
                         )}
                       </Stack>
                     </Stack>
-                  </Box>
-                </Stack>
-              </Box>
-            )}
+                  </Stack>
+                </Box>
+              ) : null}
+            </Box>
 
-            <Stack direction="row" justifyContent="flex-end">
+            <Stack direction="row" justifyContent="flex-end" sx={{ px: BASE_GAP, pb: BASE_GAP }}>
               <Button
                 onClick={() => {
                   setTab('description')
                   onClose()
                 }}
                 sx={{ color: APP_TEXT_SECONDARY }}
-                disabled={isLaunching || isRatingSaving}
+                disabled={isActionLocked}
               >
                 Закрыть
               </Button>
@@ -601,6 +775,27 @@ function CommunityWorldDialog({
           </Stack>
         )}
       </Box>
+
+      <Snackbar
+        open={isShareNoticeOpen}
+        autoHideDuration={1000}
+        onClose={() => setIsShareNoticeOpen(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          icon={false}
+          severity="success"
+          sx={{
+            borderRadius: '12px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            backgroundColor: 'rgba(21, 30, 25, 0.96)',
+            color: APP_TEXT_PRIMARY,
+            fontWeight: 700,
+          }}
+        >
+          Ссылка скопирована!
+        </Alert>
+      </Snackbar>
     </BaseDialog>
   )
 }

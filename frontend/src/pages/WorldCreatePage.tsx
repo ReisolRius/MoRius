@@ -11,6 +11,7 @@ import {
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
 import ImageCropper from '../components/ImageCropper'
@@ -269,6 +270,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [cardDialogTargetLocalId, setCardDialogTargetLocalId] = useState<string | null>(null)
   const [cardTitleDraft, setCardTitleDraft] = useState('')
   const [cardContentDraft, setCardContentDraft] = useState('')
+  const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
 
   const [characterPickerTarget, setCharacterPickerTarget] = useState<'main_hero' | 'npc' | null>(null)
   const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
@@ -468,6 +470,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     })
     setCardDialogOpen(false)
   }, [cardContentDraft, cardDialogKind, cardDialogTargetLocalId, cardTitleDraft])
+
+  const handleApplyInstructionTemplate = useCallback(async (template: { title: string; content: string }) => {
+    const normalizedTitle = template.title.replace(/\s+/g, ' ').trim()
+    const normalizedContent = template.content.replace(/\r\n/g, '\n').trim()
+    if (!normalizedTitle || !normalizedContent) {
+      setErrorMessage('Шаблон инструкции пустой')
+      return
+    }
+    setInstructionCards((previous) => [...previous, { localId: makeLocalId(), title: normalizedTitle, content: normalizedContent }])
+  }, [])
 
   const openCharacterDialog = useCallback((target: 'main_hero' | 'npc', card?: EditableCharacterCard) => {
     setCharacterDialogTarget(target)
@@ -779,7 +791,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 500 KB. Изображение автоматически сжимается перед сохранением.</Typography>
             </Stack>
             <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки инструкций</Typography><Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 36 }}>Добавить</Button></Stack>{instructionCards.length === 0 ? helpEmpty('Добавьте первую инструкцию. Например: стиль повествования, ограничения или тон диалогов.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{instructionCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
+            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки инструкций</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 36 }}>Добавить</Button><Button onClick={() => setInstructionTemplateDialogOpen(true)} sx={{ minHeight: 36 }}>Из шаблона</Button></Stack></Stack>{instructionCards.length === 0 ? helpEmpty('Добавьте первую инструкцию. Например: стиль повествования, ограничения или тон диалогов.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{instructionCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
             <Divider />
             <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки сюжета</Typography><Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 36 }}>Добавить</Button></Stack>{plotCards.length === 0 ? helpEmpty('Сюжетные карточки помогут быстро держать контекст истории и ключевые события.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{plotCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
             <Divider />
@@ -909,6 +921,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         
       </FormDialog>
 
+      <InstructionTemplateDialog
+        open={instructionTemplateDialogOpen}
+        authToken={authToken}
+        mode="picker"
+        onClose={() => setInstructionTemplateDialogOpen(false)}
+        onSelectTemplate={(template) => handleApplyInstructionTemplate(template)}
+      />
+
       <AvatarCropDialog
         open={Boolean(characterAvatarCropSource)}
         imageSrc={characterAvatarCropSource}
@@ -931,3 +951,4 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 }
 
 export default WorldCreatePage
+

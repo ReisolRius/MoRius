@@ -168,7 +168,10 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
   const [characterDeleteTarget, setCharacterDeleteTarget] = useState<StoryCharacter | null>(null)
 
   const sortedCharacters = useMemo(
-    () => [...characters].sort((left, right) => left.id - right.id),
+    () =>
+      characters
+        .filter((item): item is StoryCharacter => Boolean(item) && typeof item.id === 'number')
+        .sort((left, right) => left.id - right.id),
     [characters],
   )
   const selectedCharacterMenuItem = useMemo(
@@ -196,10 +199,21 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setIsLoadingCharacters(true)
     try {
       const loadedCharacters = await listStoryCharacters(authToken)
-      setCharacters(loadedCharacters)
+      const normalizedCharacters = loadedCharacters
+        .filter((item): item is StoryCharacter => Boolean(item) && typeof item.id === 'number')
+        .map((item) => ({
+          ...item,
+          name: typeof item.name === 'string' ? item.name : '',
+          description: typeof item.description === 'string' ? item.description : '',
+          triggers: Array.isArray(item.triggers) ? item.triggers.filter((value): value is string => typeof value === 'string') : [],
+          avatar_url: typeof item.avatar_url === 'string' ? item.avatar_url : null,
+          avatar_scale: typeof item.avatar_scale === 'number' ? item.avatar_scale : 1,
+        }))
+      setCharacters(normalizedCharacters)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
       setErrorMessage(detail)
+      setCharacters([])
     } finally {
       setIsLoadingCharacters(false)
     }
@@ -338,7 +352,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setIsSavingCharacter(true)
     try {
       if (draftMode === 'create') {
-        const createdCharacter = await createStoryCharacter({
+        await createStoryCharacter({
           token: authToken,
           input: {
             name: normalizedName,
@@ -348,9 +362,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             avatar_scale: avatarScaleDraft,
           },
         })
-        setCharacters((previous) => [...previous, createdCharacter])
       } else if (editingCharacterId !== null) {
-        const updatedCharacter = await updateStoryCharacter({
+        await updateStoryCharacter({
           token: authToken,
           characterId: editingCharacterId,
           input: {
@@ -361,10 +374,8 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
             avatar_scale: avatarScaleDraft,
           },
         })
-        setCharacters((previous) =>
-          previous.map((character) => (character.id === updatedCharacter.id ? updatedCharacter : character)),
-        )
       }
+      await loadCharacters()
 
       setIsEditorOpen(false)
       resetDraft()
@@ -374,7 +385,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     } finally {
       setIsSavingCharacter(false)
     }
-  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, nameDraft, resetDraft, triggersDraft])
+  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, loadCharacters, nameDraft, resetDraft, triggersDraft])
 
   const handleDeleteCharacter = useCallback(
     async (characterId: number) => {
@@ -389,7 +400,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
           token: authToken,
           characterId,
         })
-        setCharacters((previous) => previous.filter((item) => item.id !== characterId))
+        await loadCharacters()
         if (editingCharacterId === characterId) {
           setIsEditorOpen(false)
           resetDraft()
@@ -401,7 +412,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
         setDeletingCharacterId(null)
       }
     },
-    [authToken, deletingCharacterId, editingCharacterId, isSavingCharacter, resetDraft],
+    [authToken, deletingCharacterId, editingCharacterId, isSavingCharacter, loadCharacters, resetDraft],
   )
 
   const handleOpenCharacterItemMenu = useCallback((event: ReactMouseEvent<HTMLElement>, characterId: number) => {
@@ -845,3 +856,5 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
 }
 
 export default CharacterManagerDialog
+
+

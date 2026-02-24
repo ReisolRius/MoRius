@@ -19,6 +19,7 @@ from app.schemas import (
     GoogleAuthRequest,
     LoginRequest,
     MessageResponse,
+    ProfileUpdateRequest,
     RegisterRequest,
     RegisterVerifyRequest,
     UserOut,
@@ -26,9 +27,11 @@ from app.schemas import (
 from app.security import hash_password, verify_password
 from app.services.auth_identity import (
     build_user_name,
+    coerce_display_name,
     get_current_user,
     is_allowed_google_audience,
     issue_auth_response,
+    normalize_profile_display_name,
     normalize_email,
     parse_google_client_ids,
     provider_union,
@@ -60,6 +63,17 @@ def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _sync_user_display_name(user: User, *, fallback_email: str) -> bool:
+    normalized_display_name = coerce_display_name(
+        user.display_name,
+        fallback_email=fallback_email,
+    )
+    if user.display_name == normalized_display_name:
+        return False
+    user.display_name = normalized_display_name
+    return True
 
 
 @router.post("/api/auth/register", response_model=MessageResponse)
@@ -160,8 +174,6 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     if existing_user and not existing_user.password_hash:
         existing_user.password_hash = verification.password_hash
         existing_user.auth_provider = provider_union(existing_user.auth_provider, "email")
-        if not existing_user.display_name:
-            existing_user.display_name = build_user_name(normalized_email)
         user = existing_user
     else:
         user = User(
@@ -172,6 +184,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
         )
         db.add(user)
 
+    _sync_user_display_name(user, fallback_email=normalized_email)
     db.delete(verification)
     db.commit()
     db.refresh(user)
@@ -189,6 +202,10 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
 
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    if _sync_user_display_name(user, fallback_email=normalized_email):
+        db.commit()
+        db.refresh(user)
 
     return issue_auth_response(user)
 
@@ -244,7 +261,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
     raw_google_sub = token_data.get("sub")
     google_sub = str(raw_google_sub).strip() if raw_google_sub is not None else ""
     google_sub = google_sub or None
-    display_name = token_data.get("name") or build_user_name(email)
+    display_name = coerce_display_name(token_data.get("name"), fallback_email=email)
     avatar_url = token_data.get("picture")
 
     try:
@@ -283,8 +300,9 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         user.auth_provider = provider_union(user.auth_provider, "google")
         if google_sub and not user.google_sub:
             user.google_sub = google_sub
-        if display_name and (not user.display_name or user.auth_provider == "google"):
+        if not (user.display_name or "").strip():
             user.display_name = display_name
+        _sync_user_display_name(user, fallback_email=email)
         if avatar_url:
             user.avatar_url = avatar_url
 
@@ -327,7 +345,10 @@ def me(
     db: Session = Depends(get_db),
 ) -> UserOut:
     user = get_current_user(db, authorization)
+    display_name_changed = _sync_user_display_name(user, fallback_email=user.email)
     sync_user_pending_purchases(db, user)
+    if display_name_changed:
+        db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)
 
@@ -349,6 +370,19 @@ def update_avatar(
             max_value=AVATAR_SCALE_MAX,
         )
 
+    db.commit()
+    db.refresh(user)
+    return UserOut.model_validate(user)
+
+
+@router.patch("/api/auth/me/profile", response_model=UserOut)
+def update_profile(
+    payload: ProfileUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserOut:
+    user = get_current_user(db, authorization)
+    user.display_name = normalize_profile_display_name(payload.display_name)
     db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)

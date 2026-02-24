@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import time
 from dataclasses import dataclass
+from threading import Thread
 from typing import Any, Callable
 
 from fastapi import HTTPException, status
@@ -11,8 +14,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import Session
 
+from app.database import SessionLocal
 from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryWorldCardChangeEvent
-from app.schemas import StoryGenerateRequest
+from app.schemas import StoryGenerateRequest, UserOut
 from app.services.story_games import (
     coerce_story_llm_model,
     normalize_story_top_k,
@@ -20,6 +24,9 @@ from app.services.story_games import (
 )
 
 logger = logging.getLogger(__name__)
+STORY_POSTPROCESS_HEARTBEAT_SECONDS = 2.0
+STORY_POSTPROCESS_MAX_WAIT_SECONDS = 60.0
+STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -37,6 +44,9 @@ class StoryRuntimeDeps:
     list_story_world_cards: Callable[[Session, int], list[Any]]
     select_story_world_cards_for_prompt: Callable[[list[StoryMessage], list[Any]], list[dict[str, Any]]]
     normalize_context_limit_chars: Callable[[int | None], int]
+    get_story_turn_cost_tokens: Callable[[int | None], int]
+    spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
+    add_user_tokens: Callable[[Session, int, int], None]
     stream_story_provider_chunks: Callable[..., Any]
     normalize_generated_story_output: Callable[..., str]
     persist_generated_world_cards: Callable[..., list[Any]]
@@ -54,6 +64,22 @@ def _sse_event(event: str, payload: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _safe_dump_stream_events(events: list[Any]) -> list[dict[str, Any]]:
+    serialized: list[dict[str, Any]] = []
+    for event in events:
+        if hasattr(event, "model_dump"):
+            try:
+                dumped = event.model_dump(mode="json")
+            except Exception:
+                continue
+            if isinstance(dumped, dict):
+                serialized.append(dumped)
+            continue
+        if isinstance(event, dict):
+            serialized.append(event)
+    return serialized
+
+
 def _public_story_error_detail(exc: Exception) -> str:
     detail = str(exc).strip()
     if not detail:
@@ -61,11 +87,142 @@ def _public_story_error_detail(exc: Exception) -> str:
     return detail[:500]
 
 
+def _estimate_story_tokens(value: str) -> int:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return 0
+    matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
+    if matches:
+        return len(matches)
+    return max(1, math.ceil(len(normalized) / 4))
+
+
+def _estimate_story_context_usage_tokens(
+    *,
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+    memory_optimization_enabled: bool,
+) -> int:
+    instruction_payload = "\n".join(
+        f"{index}. {card['title']}: {card['content']}"
+        for index, card in enumerate(instruction_cards, start=1)
+        if card.get("title", "").strip() and card.get("content", "").strip()
+    )
+    instruction_tokens_used = _estimate_story_tokens(instruction_payload)
+
+    plot_payload = "\n".join(
+        f"{index}. {card['title']}: {card['content']}"
+        for index, card in enumerate(plot_cards, start=1)
+        if card.get("title", "").strip() and card.get("content", "").strip()
+    )
+    plot_tokens_used = _estimate_story_tokens(plot_payload)
+
+    history_lines: list[str] = []
+    for message in context_messages:
+        if message.role not in {"user", "assistant"}:
+            continue
+        normalized_content = message.content.replace("\r\n", "\n").strip()
+        if not normalized_content:
+            continue
+        speaker_label = "Игрок" if message.role == "user" else "ИИ"
+        history_lines.append(f"{speaker_label}: {normalized_content}")
+    history_payload = "\n".join(history_lines)
+    history_tokens_used = _estimate_story_tokens(history_payload)
+
+    world_lines: list[str] = []
+    for index, card in enumerate(world_cards, start=1):
+        title = str(card.get("title", "")).replace("\r\n", " ").strip()
+        content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+        raw_triggers = card.get("triggers", [])
+        normalized_triggers = [str(trigger).replace("\r\n", " ").strip() for trigger in raw_triggers if str(trigger).strip()]
+        world_lines.append(f"{index}. {title}: {content}")
+        world_lines.append(f"Триггеры: {', '.join(normalized_triggers) if normalized_triggers else 'нет'}")
+    world_tokens_used = _estimate_story_tokens("\n".join(world_lines))
+
+    story_memory_tokens_used = (
+        plot_tokens_used
+        if memory_optimization_enabled and len(plot_cards) > 0
+        else history_tokens_used
+    )
+    return max(instruction_tokens_used + story_memory_tokens_used + world_tokens_used, 0)
+
+
+def _run_story_postprocessing_job(
+    *,
+    deps: StoryRuntimeDeps,
+    game_id: int,
+    assistant_message_id: int,
+    prompt: str,
+    assistant_text: str,
+    memory_optimization_enabled: bool,
+) -> dict[str, Any]:
+    logger.info(
+        "Story post-processing started: game_id=%s assistant_message_id=%s",
+        game_id,
+        assistant_message_id,
+    )
+    db_bg = SessionLocal()
+    world_card_events_out: list[Any] = []
+    plot_card_events_out: list[Any] = []
+    plot_card_created = False
+    try:
+        game = db_bg.get(StoryGame, game_id)
+        assistant_message = db_bg.get(StoryMessage, assistant_message_id)
+        if game is None or assistant_message is None:
+            return {
+                "world_card_events": [],
+                "plot_card_events": [],
+                "plot_card_created": False,
+            }
+
+        try:
+            generated_events = deps.persist_generated_world_cards(
+                db=db_bg,
+                game=game,
+                assistant_message=assistant_message,
+                prompt=prompt,
+                assistant_text=assistant_text,
+            )
+            world_card_events_out = [
+                deps.world_card_event_to_out(event) for event in generated_events if event.undone_at is None
+            ]
+        except Exception:
+            logger.exception("Failed to persist generated world cards")
+
+        if memory_optimization_enabled:
+            try:
+                plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(db=db_bg, game=game)
+                plot_card_events_out = [
+                    deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
+                ]
+            except Exception:
+                logger.exception("Failed to update story plot memory card")
+    finally:
+        db_bg.close()
+        logger.info(
+            "Story post-processing finished: game_id=%s assistant_message_id=%s",
+            game_id,
+            assistant_message_id,
+        )
+
+    return {
+        "world_card_events": world_card_events_out,
+        "plot_card_events": plot_card_events_out,
+        "plot_card_created": plot_card_created,
+    }
+
+
 def _stream_story_response(
     *,
     deps: StoryRuntimeDeps,
     db: Session,
     game: StoryGame,
+    user: Any,
+    turn_cost_tokens: int,
     source_user_message: StoryMessage | None,
     prompt: str,
     turn_index: int,
@@ -168,47 +325,103 @@ def _stream_story_response(
             yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
         return
 
-    if not aborted and stream_error is None:
-        persisted_world_card_events: list[Any] = []
-        persisted_plot_card_events: list[Any] = []
-        plot_card_created = False
+    response_has_content = bool(normalized_output.strip())
+    if turn_cost_tokens > 0 and not response_has_content and not aborted:
         try:
-            generated_events = deps.persist_generated_world_cards(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                prompt=prompt,
-                assistant_text=assistant_message.content,
+            deps.add_user_tokens(
+                db,
+                int(user.id),
+                turn_cost_tokens,
             )
-            persisted_world_card_events = [
-                deps.world_card_event_to_out(event) for event in generated_events if event.undone_at is None
-            ]
+            db.commit()
+            db.refresh(user)
         except Exception:
-            logger.exception("Failed to persist generated world cards")
-        if memory_optimization_enabled:
+            logger.exception(
+                "Failed to refund story turn tokens: game_id=%s user_id=%s tokens=%s",
+                game.id,
+                user.id,
+                turn_cost_tokens,
+            )
+            db.rollback()
+
+    if not aborted and stream_error is None:
+        postprocess_result: dict[str, Any] = {
+            "world_card_events": [],
+            "plot_card_events": [],
+            "plot_card_created": False,
+        }
+        postprocess_error: Exception | None = None
+
+        def _postprocess_worker() -> None:
+            nonlocal postprocess_result, postprocess_error
             try:
-                plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(db=db, game=game)
-                persisted_plot_card_events = [
-                    deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
-                ]
-            except Exception:
-                logger.exception("Failed to update story plot memory card")
-        yield _sse_event(
-            "done",
-            {
-                "message": {
-                    "id": assistant_message.id,
-                    "game_id": assistant_message.game_id,
-                    "role": assistant_message.role,
-                    "content": assistant_message.content,
-                    "created_at": assistant_message.created_at.isoformat(),
-                    "updated_at": assistant_message.updated_at.isoformat(),
-                },
-                "world_card_events": [event.model_dump(mode="json") for event in persisted_world_card_events],
-                "plot_card_events": [event.model_dump(mode="json") for event in persisted_plot_card_events],
-                "plot_card_created": plot_card_created,
-            },
+                postprocess_result = _run_story_postprocessing_job(
+                    deps=deps,
+                    game_id=game.id,
+                    assistant_message_id=assistant_message.id,
+                    prompt=prompt,
+                    assistant_text=assistant_message.content,
+                    memory_optimization_enabled=memory_optimization_enabled,
+                )
+            except Exception as exc:
+                postprocess_error = exc
+
+        worker_thread = Thread(
+            target=_postprocess_worker,
+            name=f"story-postprocess-{game.id}-{assistant_message.id}",
+            daemon=True,
         )
+        worker_thread.start()
+
+        wait_started_at = time.monotonic()
+        postprocess_pending = False
+        while worker_thread.is_alive():
+            worker_thread.join(timeout=STORY_POSTPROCESS_HEARTBEAT_SECONDS)
+            if worker_thread.is_alive():
+                # Heartbeat to keep downstream chunked stream alive
+                # while Gemma/OpenRouter post-processing is running.
+                yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": ""})
+            if time.monotonic() - wait_started_at >= STORY_POSTPROCESS_MAX_WAIT_SECONDS:
+                postprocess_pending = True
+                logger.warning(
+                    "Story post-processing wait timeout reached: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                break
+
+        if not postprocess_pending and postprocess_error is not None:
+            logger.exception("Story post-processing worker failed", exc_info=postprocess_error)
+
+        done_payload = {
+            "message": {
+                "id": assistant_message.id,
+                "game_id": assistant_message.game_id,
+                "role": assistant_message.role,
+                "content": assistant_message.content,
+                "created_at": assistant_message.created_at.isoformat(),
+                "updated_at": assistant_message.updated_at.isoformat(),
+            },
+            "user": UserOut.model_validate(user).model_dump(mode="json"),
+            "turn_cost_tokens": turn_cost_tokens,
+            "world_card_events": (
+                _safe_dump_stream_events(postprocess_result.get("world_card_events", []))
+                if not postprocess_pending
+                else []
+            ),
+            "plot_card_events": (
+                _safe_dump_stream_events(postprocess_result.get("plot_card_events", []))
+                if not postprocess_pending
+                else []
+            ),
+            "plot_card_created": bool(postprocess_result.get("plot_card_created", False)) if not postprocess_pending else False,
+            "postprocess_pending": postprocess_pending,
+        }
+        try:
+            yield _sse_event("done", done_payload)
+        except Exception as exc:
+            logger.exception("Failed to emit stream done event")
+            yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
 
 
 def generate_story_response(
@@ -234,9 +447,39 @@ def generate_story_response(
     story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
     if payload.story_top_r is not None:
         story_top_r = normalize_story_top_r(payload.story_top_r)
+    context_limit_chars = deps.normalize_context_limit_chars(game.context_limit_chars)
+    turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
     source_user_message: StoryMessage | None = None
+
+    def _calculate_turn_cost_tokens(context_messages_for_cost: list[StoryMessage]) -> int:
+        plot_cards_for_cost = deps.list_story_plot_cards(db, game.id)
+        world_cards_for_cost = deps.list_story_world_cards(db, game.id)
+        active_world_cards_for_cost = deps.select_story_world_cards_for_prompt(
+            context_messages_for_cost,
+            world_cards_for_cost,
+        )
+        active_plot_cards_for_cost = (
+            [
+                {
+                    "title": card.title.replace("\r\n", " ").strip(),
+                    "content": card.content.replace("\r\n", "\n").strip(),
+                }
+                for card in plot_cards_for_cost[:40]
+                if card.title.strip() and card.content.strip()
+            ]
+            if memory_optimization_enabled
+            else []
+        )
+        context_usage_tokens = _estimate_story_context_usage_tokens(
+            context_messages=context_messages_for_cost,
+            instruction_cards=instruction_cards,
+            plot_cards=active_plot_cards_for_cost,
+            world_cards=active_world_cards_for_cost,
+            memory_optimization_enabled=memory_optimization_enabled,
+        )
+        return max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
 
     if payload.reroll_last_response:
         if not messages:
@@ -290,10 +533,27 @@ def generate_story_response(
                 detail=f"Failed to prepare reroll: {_public_story_error_detail(exc)}",
             ) from exc
         prompt_text = source_user_message.content
+        messages = deps.list_story_messages(db, game.id)
+        turn_cost_tokens = _calculate_turn_cost_tokens(messages)
+        if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Недостаточно токенов для хода",
+            )
+        db.commit()
+        db.refresh(user)
     else:
         if payload.prompt is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
         prompt_text = deps.normalize_text(payload.prompt)
+        turn_cost_tokens = _calculate_turn_cost_tokens(messages)
+        if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Недостаточно токенов для хода",
+            )
         source_user_message = StoryMessage(
             game_id=game.id,
             role=deps.story_user_role,
@@ -305,6 +565,7 @@ def generate_story_response(
         deps.touch_story_game(game)
         db.commit()
         db.refresh(source_user_message)
+        db.refresh(user)
 
     plot_cards = deps.list_story_plot_cards(db, game.id)
     world_cards = deps.list_story_world_cards(db, game.id)
@@ -325,6 +586,8 @@ def generate_story_response(
         deps=deps,
         db=db,
         game=game,
+        user=user,
+        turn_cost_tokens=turn_cost_tokens,
         source_user_message=source_user_message,
         prompt=prompt_text,
         turn_index=assistant_turn_index,
@@ -332,14 +595,28 @@ def generate_story_response(
         instruction_cards=instruction_cards,
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
-        context_limit_chars=deps.normalize_context_limit_chars(game.context_limit_chars),
+        context_limit_chars=context_limit_chars,
         story_model_name=story_model_name,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
     )
+
+    def _safe_stream():
+        try:
+            yield from stream
+        except GeneratorExit:
+            raise
+        except BaseException as exc:
+            logger.exception("Unhandled story stream failure")
+            detail_source = exc if isinstance(exc, Exception) else RuntimeError(str(exc))
+            try:
+                yield _sse_event("error", {"detail": _public_story_error_detail(detail_source)})
+            except Exception:
+                return
+
     return StreamingResponse(
-        stream,
+        _safe_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

@@ -37,6 +37,7 @@ from app.routers.story_cards import router as story_cards_router
 from app.routers.story_characters import router as story_characters_router
 from app.routers.story_generate import router as story_generate_router
 from app.routers.story_games import router as story_games_router
+from app.routers.story_instruction_templates import router as story_instruction_templates_router
 from app.routers.story_messages import router as story_messages_router
 from app.routers.story_read import router as story_read_router
 from app.routers.story_undo import router as story_undo_router
@@ -52,6 +53,10 @@ from app.services.auth_identity import (
 )
 from app.services.auth_verification import close_http_session as _close_auth_verification_http_session
 from app.services.db_bootstrap import StoryBootstrapDefaults, bootstrap_database
+from app.services.concurrency import (
+    add_user_tokens as _add_user_tokens_raw,
+    spend_user_tokens_if_sufficient as _spend_user_tokens_if_sufficient_raw,
+)
 from app.services.payments import (
     close_http_session as _close_payments_http_session,
 )
@@ -88,6 +93,9 @@ from app.services.story_text import normalize_story_text as _normalize_story_tex
 from app.services.story_undo import (
     rollback_story_card_events_for_assistant_message as _rollback_story_card_events_for_assistant_message,
 )
+from app.services.story_games import (
+    get_story_turn_cost_tokens as _get_story_turn_cost_tokens,
+)
 from app.services.story_runtime import (
     StoryRuntimeDeps,
     generate_story_response as _generate_story_response,
@@ -103,7 +111,7 @@ STORY_GAME_VISIBILITY_VALUES = {
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 6_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
 STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
@@ -311,6 +319,9 @@ STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
     "arcee-ai/trinity-large-preview:free",
     "moonshotai/kimi-k2-0905",
 }
+STORY_NON_SAMPLING_MODEL_HINTS = {
+    "google/gemma-3-12b-it:free",
+}
 STORY_PLOT_CARD_DEFAULT_TITLE = "Суть текущего эпизода"
 STORY_PLOT_CARD_TITLE_WORD_MAX = 7
 STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
@@ -376,6 +387,7 @@ app.include_router(story_cards_router)
 app.include_router(story_characters_router)
 app.include_router(story_generate_router)
 app.include_router(story_games_router)
+app.include_router(story_instruction_templates_router)
 app.include_router(story_messages_router)
 app.include_router(story_read_router)
 app.include_router(story_undo_router)
@@ -437,6 +449,22 @@ def _normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
     return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+
+
+def _spend_user_tokens_if_sufficient(db: Session, user_id: int, tokens: int) -> bool:
+    return _spend_user_tokens_if_sufficient_raw(
+        db,
+        user_id=int(user_id),
+        tokens=max(int(tokens), 0),
+    )
+
+
+def _add_user_tokens(db: Session, user_id: int, tokens: int) -> None:
+    _add_user_tokens_raw(
+        db,
+        user_id=int(user_id),
+        tokens=max(int(tokens), 0),
+    )
 
 
 def _estimate_story_tokens(value: str) -> int:
@@ -1721,21 +1749,17 @@ def _can_force_story_output_translation() -> bool:
 
 
 def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
-    normalized_model = (model_name or "").strip().lower()
-    if not normalized_model:
-        return False
-    if settings.story_user_language != "ru":
-        return False
-    if normalized_model not in STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS:
-        return False
-    return _can_force_story_output_translation()
+    # Emergency safeguard: forced post-translation makes generation fully non-streaming
+    # for some models and may trigger upstream/proxy chunk interruptions.
+    # Keep direct model output streaming until provider-side stability is confirmed.
+    return False
 
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
     normalized_model = (model_name or "").strip().lower()
     if not normalized_model:
         return False
-    return "deepseek" not in normalized_model
+    return all(model_hint not in normalized_model for model_hint in STORY_NON_SAMPLING_MODEL_HINTS)
 
 
 def _extract_story_markup_tokens(text_value: str) -> list[str]:
@@ -3251,7 +3275,7 @@ def _upsert_story_plot_memory_card(
     if not settings.openrouter_api_key:
         return (False, [])
 
-    model_name = (settings.openrouter_plot_card_model or "deepseek/deepseek-r1-0528:free").strip()
+    model_name = (settings.openrouter_plot_card_model or "google/gemma-3-12b-it:free").strip()
     if not model_name:
         return (False, [])
 
@@ -3658,6 +3682,7 @@ def _iter_openrouter_story_stream_chunks(
                 # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
                 response.encoding = "utf-8"
                 emitted_delta = False
+                last_keepalive_at = time.monotonic()
                 for raw_line in response.iter_lines(decode_unicode=True):
                     if raw_line is None:
                         continue
@@ -3693,6 +3718,10 @@ def _iter_openrouter_story_stream_chunks(
                             emitted_delta = True
                             yield content_delta
                             continue
+                        # Keep downstream SSE alive while model emits non-content deltas.
+                        if not emitted_delta and time.monotonic() - last_keepalive_at >= 8.0:
+                            last_keepalive_at = time.monotonic()
+                            yield ""
 
                     if emitted_delta:
                         continue
@@ -3701,10 +3730,25 @@ def _iter_openrouter_story_stream_chunks(
                     if isinstance(message_value, dict):
                         content_value = _extract_text_from_model_content(message_value.get("content"))
                         if content_value:
+                            emitted_delta = True
                             for chunk in _iter_story_stream_chunks(content_value):
                                 yield chunk
                             break
 
+                if emitted_delta:
+                    return
+
+                # Fallback when stream completed without textual content chunks.
+                fallback_text = _request_openrouter_story_text(
+                    messages_payload,
+                    model_name=model_name,
+                    allow_free_fallback=False,
+                    top_k=top_k,
+                    top_p=top_p,
+                )
+                if fallback_text:
+                    for chunk in _iter_story_stream_chunks(fallback_text):
+                        yield chunk
                 return
             finally:
                 response.close()
@@ -3985,6 +4029,9 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         list_story_world_cards=_list_story_world_cards,
         select_story_world_cards_for_prompt=_select_story_world_cards_for_prompt,
         normalize_context_limit_chars=_normalize_story_context_limit_chars,
+        get_story_turn_cost_tokens=_get_story_turn_cost_tokens,
+        spend_user_tokens_if_sufficient=_spend_user_tokens_if_sufficient,
+        add_user_tokens=_add_user_tokens,
         stream_story_provider_chunks=_iter_story_provider_stream_chunks,
         normalize_generated_story_output=_normalize_generated_story_output,
         persist_generated_world_cards=_persist_generated_story_world_cards,

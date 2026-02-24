@@ -1,19 +1,25 @@
-import { type ChangeEvent, type RefObject } from 'react'
+import { useEffect, useState, type ChangeEvent, type RefObject } from 'react'
 import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   Stack,
+  SvgIcon,
+  TextField,
   Typography,
   type DialogProps,
 } from '@mui/material'
 import { icons } from '../../assets'
 import type { AuthUser } from '../../types/auth'
 import UserAvatar from './UserAvatar'
+
+const PROFILE_NAME_MAX_LENGTH = 25
 
 type ProfileDialogProps = {
   open: boolean
@@ -28,7 +34,9 @@ type ProfileDialogProps = {
   onAvatarChange: (event: ChangeEvent<HTMLInputElement>) => void
   onOpenTopUp: () => void
   onOpenCharacterManager: () => void
+  onOpenInstructionTemplates: () => void
   onRequestLogout: () => void
+  onUpdateProfileName: (nextName: string) => Promise<void>
 }
 
 function ProfileDialog({
@@ -44,8 +52,72 @@ function ProfileDialog({
   onAvatarChange,
   onOpenTopUp,
   onOpenCharacterManager,
+  onOpenInstructionTemplates,
   onRequestLogout,
+  onUpdateProfileName,
 }: ProfileDialogProps) {
+  const [isProfileNameEditing, setIsProfileNameEditing] = useState(false)
+  const [profileNameDraft, setProfileNameDraft] = useState(profileName)
+  const [isProfileNameSaving, setIsProfileNameSaving] = useState(false)
+  const [profileNameError, setProfileNameError] = useState('')
+
+  useEffect(() => {
+    if (!open) {
+      setIsProfileNameEditing(false)
+      setProfileNameError('')
+      setProfileNameDraft(profileName)
+      return
+    }
+    if (!isProfileNameEditing) {
+      setProfileNameDraft(profileName)
+    }
+  }, [isProfileNameEditing, open, profileName])
+
+  const handleStartProfileNameEdit = () => {
+    if (isProfileNameSaving) {
+      return
+    }
+    setIsProfileNameEditing(true)
+    setProfileNameError('')
+    setProfileNameDraft(profileName)
+  }
+
+  const handleCancelProfileNameEdit = () => {
+    if (isProfileNameSaving) {
+      return
+    }
+    setIsProfileNameEditing(false)
+    setProfileNameError('')
+    setProfileNameDraft(profileName)
+  }
+
+  const handleSaveProfileName = async () => {
+    if (isProfileNameSaving) {
+      return
+    }
+    const normalizedName = profileNameDraft.trim()
+    if (!normalizedName) {
+      setProfileNameError('Введите никнейм.')
+      return
+    }
+    if (normalizedName.length > PROFILE_NAME_MAX_LENGTH) {
+      setProfileNameError(`Максимум ${PROFILE_NAME_MAX_LENGTH} символов.`)
+      return
+    }
+
+    setProfileNameError('')
+    setIsProfileNameSaving(true)
+    try {
+      await onUpdateProfileName(normalizedName)
+      setIsProfileNameEditing(false)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить никнейм'
+      setProfileNameError(detail)
+    } finally {
+      setIsProfileNameSaving(false)
+    }
+  }
+
   return (
     <Dialog
       open={open}
@@ -136,8 +208,127 @@ function ProfileDialog({
                 </Box>
               </Box>
             </Box>
-            <Stack spacing={0.3} sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: '1.24rem', fontWeight: 700 }}>{profileName}</Typography>
+            <Stack spacing={0.4} sx={{ minWidth: 0, flex: 1 }}>
+              {isProfileNameEditing ? (
+                <Stack spacing={0.8}>
+                  <TextField
+                    value={profileNameDraft}
+                    autoFocus
+                    size="small"
+                    disabled={isProfileNameSaving}
+                    onChange={(event) => {
+                      setProfileNameDraft(event.target.value.slice(0, PROFILE_NAME_MAX_LENGTH))
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        void handleSaveProfileName()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        handleCancelProfileNameEdit()
+                      }
+                    }}
+                    inputProps={{
+                      maxLength: PROFILE_NAME_MAX_LENGTH,
+                    }}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        backgroundColor: 'rgba(12, 17, 27, 0.72)',
+                      },
+                    }}
+                  />
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant="text"
+                      onClick={handleCancelProfileNameEdit}
+                      disabled={isProfileNameSaving}
+                      sx={{ minHeight: 30, px: 1.05, color: 'text.secondary' }}
+                    >
+                      Отмена
+                    </Button>
+                    <Button
+                      variant="contained"
+                      onClick={() => void handleSaveProfileName()}
+                      disabled={isProfileNameSaving}
+                      sx={{
+                        minHeight: 30,
+                        px: 1.15,
+                        borderRadius: 'var(--morius-radius)',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-button-active)',
+                        color: 'var(--morius-text-primary)',
+                        fontWeight: 700,
+                        '&:hover': {
+                          backgroundColor: 'var(--morius-button-hover)',
+                        },
+                      }}
+                    >
+                      {isProfileNameSaving ? (
+                        <CircularProgress size={15} sx={{ color: 'var(--morius-text-primary)' }} />
+                      ) : (
+                        'Сохранить'
+                      )}
+                    </Button>
+                  </Stack>
+                </Stack>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    columnGap: 0.6,
+                    minWidth: 0,
+                    '& .morius-profile-name-edit': {
+                      opacity: 0,
+                      pointerEvents: 'none',
+                      transform: 'translateX(2px)',
+                    },
+                    '&:hover .morius-profile-name-edit, &:focus-within .morius-profile-name-edit': {
+                      opacity: 1,
+                      pointerEvents: 'auto',
+                      transform: 'translateX(0)',
+                    },
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: '1.24rem',
+                      fontWeight: 700,
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {profileName}
+                  </Typography>
+                  <IconButton
+                    className="morius-profile-name-edit"
+                    size="small"
+                    aria-label="Редактировать никнейм"
+                    onClick={handleStartProfileNameEdit}
+                    sx={{
+                      width: 30,
+                      height: 30,
+                      border: 'var(--morius-border-width) solid rgba(195, 204, 218, 0.32)',
+                      color: 'var(--morius-text-secondary)',
+                      transition: 'opacity 180ms ease, transform 180ms ease',
+                      '&:hover': {
+                        color: 'var(--morius-text-primary)',
+                        borderColor: 'rgba(220, 229, 244, 0.55)',
+                        backgroundColor: 'rgba(33, 45, 61, 0.42)',
+                      },
+                    }}
+                  >
+                    <SvgIcon sx={{ width: 17, height: 17 }}>
+                      <path d="M3 17.25V21h3.75l11.06-11.06-3.75-3.75L3 17.25zm2.41 2.34H5.5v-.91l8.17-8.17.91.91-8.17 8.17zm12.53-10.2 1.77-1.77a1 1 0 0 0 0-1.41l-2.31-2.31a1 1 0 0 0-1.41 0L14.22 5.7l3.72 3.69z" />
+                    </SvgIcon>
+                  </IconButton>
+                </Box>
+              )}
+              {profileNameError ? <Alert severity="error">{profileNameError}</Alert> : null}
               <Typography
                 sx={{
                   color: 'text.secondary',
@@ -175,7 +366,7 @@ function ProfileDialog({
               <Stack direction="row" spacing={1.1} alignItems="center">
                 <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
                 <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
-                  Монеты: {user.coins.toLocaleString('ru-RU')}
+                  Токены: {user.coins.toLocaleString('ru-RU')}
                 </Typography>
               </Stack>
               <Button
@@ -216,6 +407,22 @@ function ProfileDialog({
 
           <Button
             variant="outlined"
+            onClick={onOpenInstructionTemplates}
+            sx={{
+              minHeight: 42,
+              borderColor: 'rgba(186, 202, 214, 0.38)',
+              color: 'var(--morius-text-primary)',
+              '&:hover': {
+                borderColor: 'rgba(206, 220, 237, 0.54)',
+                backgroundColor: 'rgba(34, 45, 62, 0.32)',
+              },
+            }}
+          >
+            {'\u041c\u043e\u0438 \u0448\u0430\u0431\u043b\u043e\u043d\u044b \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0439'}
+          </Button>
+
+          <Button
+            variant="outlined"
             onClick={onRequestLogout}
             sx={{
               minHeight: 42,
@@ -247,3 +454,4 @@ function ProfileDialog({
 }
 
 export default ProfileDialog
+

@@ -11,9 +11,20 @@ from app.models import User
 from app.schemas import AuthResponse, UserOut
 from app.security import create_access_token, safe_decode_access_token
 
+DISPLAY_NAME_MAX_LENGTH = 25
+DISPLAY_NAME_FALLBACK = "Player"
+
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _compact_display_name(value: str | None) -> str:
+    return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())
+
+
+def _truncate_display_name(value: str) -> str:
+    return value[:DISPLAY_NAME_MAX_LENGTH]
 
 
 def provider_union(current_provider: str, next_provider: str) -> str:
@@ -23,7 +34,28 @@ def provider_union(current_provider: str, next_provider: str) -> str:
 
 
 def build_user_name(email: str) -> str:
-    return email.split("@", maxsplit=1)[0]
+    local_part = normalize_email(email).split("@", maxsplit=1)[0]
+    compact_value = _compact_display_name(local_part)
+    if not compact_value:
+        compact_value = DISPLAY_NAME_FALLBACK
+    return _truncate_display_name(compact_value)
+
+
+def coerce_display_name(value: str | None, *, fallback_email: str) -> str:
+    compact_value = _compact_display_name(value)
+    if not compact_value:
+        compact_value = build_user_name(fallback_email)
+    return _truncate_display_name(compact_value)
+
+
+def normalize_profile_display_name(value: str) -> str:
+    compact_value = _compact_display_name(value)
+    if not compact_value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Display name should not be empty",
+        )
+    return _truncate_display_name(compact_value)
 
 
 def parse_google_client_ids(raw_value: str) -> set[str]:

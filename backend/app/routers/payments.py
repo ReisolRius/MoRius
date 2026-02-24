@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import CoinPurchase, User
 from app.schemas import (
@@ -27,6 +28,8 @@ from app.services.payments import (
     get_coin_plan,
     grant_purchase_coins_once_for_purchase,
     is_payments_configured,
+    is_yookassa_webhook_source_ip_allowed,
+    is_yookassa_webhook_token_valid,
     sync_purchase_status,
 )
 
@@ -150,8 +153,24 @@ def sync_coin_top_up_payment(
 
 
 @router.post("/api/payments/yookassa/webhook", response_model=MessageResponse)
-def yookassa_webhook(payload: dict[str, Any], db: Session = Depends(get_db)) -> MessageResponse:
+def yookassa_webhook(
+    payload: dict[str, Any],
+    request: Request,
+    x_forwarded_for: str | None = Header(default=None, alias="X-Forwarded-For"),
+    token: str | None = Query(default=None, alias="token"),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
     if not is_payments_configured():
+        return MessageResponse(message="ignored")
+    if not is_yookassa_webhook_token_valid(token):
+        return MessageResponse(message="ignored")
+
+    source_ip: str | None = None
+    if settings.app_trust_proxy_headers and x_forwarded_for:
+        source_ip = x_forwarded_for.split(",", 1)[0].strip()
+    if not source_ip and request.client is not None:
+        source_ip = request.client.host
+    if settings.yookassa_webhook_trusted_ips_only and not is_yookassa_webhook_source_ip_allowed(source_ip):
         return MessageResponse(message="ignored")
 
     event = str(payload.get("event", "")).strip().lower()
@@ -187,4 +206,3 @@ def yookassa_webhook(payload: dict[str, Any], db: Session = Depends(get_db)) -> 
         return MessageResponse(message="ignored")
 
     return MessageResponse(message="ok")
-

@@ -111,6 +111,25 @@ export async function updateCurrentUserAvatar(payload: {
   )
 }
 
+export async function updateCurrentUserProfile(payload: {
+  token: string
+  display_name: string
+}): Promise<AuthUser> {
+  return requestJson<AuthUser>(
+    '/api/auth/me/profile',
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        display_name: payload.display_name,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function getCoinTopUpPlans(): Promise<CoinTopUpPlan[]> {
   const response = await requestJson<CoinPlanListResponse>('/api/payments/plans', { method: 'GET' })
   return response.plans

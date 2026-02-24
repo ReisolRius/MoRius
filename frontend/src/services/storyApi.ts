@@ -7,6 +7,7 @@
   StoryGameVisibility,
   StoryNarratorModelId,
   StoryInstructionCard,
+  StoryInstructionTemplate,
   StoryMessage,
   StoryPlotCard,
   StoryStreamChunkPayload,
@@ -57,6 +58,7 @@ export type StoryGenerationStreamOptions = {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  ambientEnabled?: boolean
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
@@ -163,6 +165,7 @@ export async function listStoryGames(token: string): Promise<StoryGameSummary[]>
 export async function listCommunityWorlds(token: string): Promise<StoryCommunityWorldSummary[]> {
   return request<StoryCommunityWorldSummary[]>('/api/story/community/worlds', {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -175,6 +178,7 @@ export async function getCommunityWorld(payload: {
 }): Promise<StoryCommunityWorldPayload> {
   return request<StoryCommunityWorldPayload>(`/api/story/community/worlds/${payload.worldId}`, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
@@ -257,6 +261,62 @@ export async function deleteStoryCharacter(payload: {
   })
 }
 
+export async function listStoryInstructionTemplates(token: string): Promise<StoryInstructionTemplate[]> {
+  return request<StoryInstructionTemplate[]>('/api/story/instruction-templates', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
+export async function createStoryInstructionTemplate(payload: {
+  token: string
+  title: string
+  content: string
+}): Promise<StoryInstructionTemplate> {
+  return request<StoryInstructionTemplate>('/api/story/instruction-templates', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function updateStoryInstructionTemplate(payload: {
+  token: string
+  templateId: number
+  title: string
+  content: string
+}): Promise<StoryInstructionTemplate> {
+  return request<StoryInstructionTemplate>(`/api/story/instruction-templates/${payload.templateId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function deleteStoryInstructionTemplate(payload: {
+  token: string
+  templateId: number
+}): Promise<void> {
+  return requestNoContent(`/api/story/instruction-templates/${payload.templateId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
 export async function createStoryGame(payload: {
   token: string
   title?: string
@@ -269,6 +329,7 @@ export async function createStoryGame(payload: {
   cover_scale?: number
   cover_position_x?: number
   cover_position_y?: number
+  ambient_enabled?: boolean
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
     method: 'POST',
@@ -286,6 +347,7 @@ export async function createStoryGame(payload: {
       cover_scale: payload.cover_scale ?? null,
       cover_position_x: payload.cover_position_x ?? null,
       cover_position_y: payload.cover_position_y ?? null,
+      ambient_enabled: payload.ambient_enabled ?? null,
     }),
   })
 }
@@ -310,6 +372,7 @@ export async function updateStoryGameSettings(payload: {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  ambientEnabled?: boolean
 }): Promise<StoryGameSummary> {
   const requestPayload: Record<string, unknown> = {}
   if (typeof payload.contextLimitTokens === 'number') {
@@ -326,6 +389,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.storyTopR === 'number') {
     requestPayload.story_top_r = payload.storyTopR
+  }
+  if (typeof payload.ambientEnabled === 'boolean') {
+    requestPayload.ambient_enabled = payload.ambientEnabled
   }
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
@@ -415,6 +481,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.storyTopR === 'number') {
     requestPayload.story_top_r = options.storyTopR
+  }
+  if (typeof options.ambientEnabled === 'boolean') {
+    requestPayload.ambient_enabled = options.ambientEnabled
   }
   let response: Response
   try {

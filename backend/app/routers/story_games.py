@@ -43,6 +43,7 @@ from app.services.story_games import (
     coerce_story_llm_model,
     coerce_story_game_age_rating,
     deserialize_story_game_genres,
+    normalize_story_ambient_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
     normalize_story_cover_position,
@@ -57,6 +58,7 @@ from app.services.story_games import (
     normalize_story_top_k,
     normalize_story_top_r,
     serialize_story_game_genres,
+    story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
     story_game_summary_to_out,
@@ -115,6 +117,7 @@ def list_story_community_worlds(
     author_ids = sorted({world.user_id for world in worlds})
     authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
+    author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
 
     user_rating_rows = db.scalars(
         select(StoryCommunityWorldRating).where(
@@ -128,6 +131,7 @@ def list_story_community_worlds(
         story_community_world_summary_to_out(
             world,
             author_name=author_name_by_id.get(world.user_id, "Unknown"),
+            author_avatar_url=author_avatar_by_id.get(world.user_id),
             user_rating=user_rating_by_world_id.get(world.id),
         )
         for world in worlds
@@ -166,6 +170,8 @@ def launch_story_community_world(
         memory_optimization_enabled=bool(getattr(world, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
+        ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
+        ambient_profile=str(getattr(world, "ambient_profile", "") or ""),
         last_activity_at=_utcnow(),
     )
     db.add(cloned_game)
@@ -249,6 +255,7 @@ def rate_story_community_world(
     return story_community_world_summary_to_out(
         world,
         author_name=story_author_name(author),
+        author_avatar_url=story_author_avatar_url(author),
         user_rating=rating_value,
     )
 
@@ -277,6 +284,7 @@ def create_story_game(
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
     story_top_k = normalize_story_top_k(payload.story_top_k)
     story_top_r = normalize_story_top_r(payload.story_top_r)
+    ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
 
     game = StoryGame(
         user_id=user.id,
@@ -300,6 +308,8 @@ def create_story_game(
         memory_optimization_enabled=memory_optimization_enabled,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
+        ambient_enabled=ambient_enabled,
+        ambient_profile="",
         last_activity_at=_utcnow(),
     )
     db.add(game)
@@ -327,6 +337,8 @@ def update_story_game_settings(
         game.story_top_k = normalize_story_top_k(payload.story_top_k)
     if payload.story_top_r is not None:
         game.story_top_r = normalize_story_top_r(payload.story_top_r)
+    if payload.ambient_enabled is not None:
+        game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     touch_story_game(game)
     db.commit()
     db.refresh(game)

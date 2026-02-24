@@ -14,6 +14,7 @@ from app.models import (
     StoryCommunityWorldView,
     StoryGame,
     StoryInstructionCard,
+    StoryInstructionTemplate,
     StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -145,6 +146,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN story_top_r FLOAT NOT NULL DEFAULT 1.0"
+        )
+    if "ambient_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN ambient_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    if "ambient_profile" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN ambient_profile TEXT NOT NULL DEFAULT ''"
         )
     if "source_world_id" not in existing_columns:
         alter_statements.append(
@@ -282,6 +293,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryMessage.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
         f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_user_id_id "
+        f"ON {StoryInstructionTemplate.__tablename__} (user_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_plot_cards_game_id_id "
         f"ON {StoryPlotCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "

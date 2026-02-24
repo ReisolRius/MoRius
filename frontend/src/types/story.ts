@@ -1,3 +1,5 @@
+import type { AuthUser } from './auth'
+
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
 export type StoryNarratorModelId =
@@ -27,6 +29,8 @@ export type StoryGameSummary = {
   memory_optimization_enabled: boolean
   story_top_k: number
   story_top_r: number
+  ambient_enabled: boolean
+  ambient_profile: StoryAmbientProfile | null
   last_activity_at: string
   created_at: string
   updated_at: string
@@ -44,6 +48,15 @@ export type StoryMessage = {
 export type StoryInstructionCard = {
   id: number
   game_id: number
+  title: string
+  content: string
+  created_at: string
+  updated_at: string
+}
+
+export type StoryInstructionTemplate = {
+  id: number
+  user_id: number
   title: string
   content: string
   created_at: string
@@ -165,6 +178,7 @@ export type StoryCommunityWorldSummary = {
   title: string
   description: string
   author_name: string
+  author_avatar_url: string | null
   age_rating: '6+' | '16+' | '18+'
   genres: string[]
   cover_image_url: string | null
@@ -198,9 +212,24 @@ export type StoryStreamChunkPayload = {
   delta: string
 }
 
+export type StoryAmbientProfile = {
+  scene: string
+  lighting: string
+  primary_color: string
+  secondary_color: string
+  highlight_color: string
+  glow_strength: number
+  background_mix: number
+  vignette_strength: number
+}
+
 export type StoryStreamDonePayload = {
   message: StoryMessage
+  user?: AuthUser
+  turn_cost_tokens?: number
   world_card_events?: StoryWorldCardEvent[]
   plot_card_events?: StoryPlotCardEvent[]
   plot_card_created?: boolean
+  ambient?: StoryAmbientProfile
+  postprocess_pending?: boolean
 }
