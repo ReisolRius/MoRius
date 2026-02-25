@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -12,11 +12,65 @@ class UserOut(BaseModel):
     id: int
     email: EmailStr
     display_name: str | None
+    profile_description: str
     avatar_url: str | None
     avatar_scale: float
     auth_provider: str
+    role: str
+    level: int
     coins: int
+    is_banned: bool
+    ban_expires_at: datetime | None
     created_at: datetime
+
+
+class ProfilePrivacyOut(BaseModel):
+    show_subscriptions: bool
+    show_public_worlds: bool
+    show_private_worlds: bool
+
+
+class ProfilePrivacyUpdateRequest(BaseModel):
+    show_subscriptions: bool | None = None
+    show_public_worlds: bool | None = None
+    show_private_worlds: bool | None = None
+
+
+class ProfileSubscriptionUserOut(BaseModel):
+    id: int
+    display_name: str
+    avatar_url: str | None
+    avatar_scale: float
+
+
+class ProfileUserOut(BaseModel):
+    id: int
+    display_name: str
+    profile_description: str
+    avatar_url: str | None
+    avatar_scale: float
+    created_at: datetime
+
+
+class ProfileViewOut(BaseModel):
+    user: ProfileUserOut
+    is_self: bool
+    is_following: bool
+    followers_count: int
+    subscriptions_count: int
+    privacy: ProfilePrivacyOut
+    can_view_subscriptions: bool
+    can_view_public_worlds: bool
+    can_view_private_worlds: bool
+    subscriptions: list[ProfileSubscriptionUserOut]
+    published_worlds: list["StoryCommunityWorldSummaryOut"]
+    unpublished_worlds: list["StoryGameSummaryOut"]
+
+
+class ProfileFollowStateOut(BaseModel):
+    is_following: bool
+    followers_count: int
+    subscriptions_count: int
 
 
 class RegisterRequest(BaseModel):
@@ -44,7 +98,8 @@ class AvatarUpdateRequest(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
-    display_name: str = Field(min_length=1, max_length=120)
+    display_name: str | None = Field(default=None, max_length=120)
+    profile_description: str | None = Field(default=None, max_length=2_000)
 
 
 class AuthResponse(BaseModel):
@@ -55,6 +110,47 @@ class AuthResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class AdminUserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: EmailStr
+    display_name: str | None
+    role: str
+    coins: int
+    is_banned: bool
+    ban_expires_at: datetime | None
+    created_at: datetime
+
+
+class AdminUserListResponse(BaseModel):
+    users: list[AdminUserOut]
+
+
+class AdminUserTokensUpdateRequest(BaseModel):
+    operation: Literal["add", "subtract"]
+    amount: int = Field(ge=1, le=1_000_000_000)
+
+
+class AdminUserBanRequest(BaseModel):
+    duration_hours: int | None = Field(default=None, ge=1, le=24 * 365 * 5)
+
+
+class AdminWorldReportOut(BaseModel):
+    world_id: int
+    world_title: str
+    world_cover_image_url: str | None
+    world_author_name: str
+    open_reports_count: int
+    latest_reason: str
+    latest_description: str
+    latest_created_at: datetime
+
+
+class AdminWorldReportListResponse(BaseModel):
+    reports: list[AdminWorldReportOut]
 
 
 class CoinPlanOut(BaseModel):
@@ -98,6 +194,8 @@ class StoryGameCreateRequest(BaseModel):
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
     context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
+    response_max_tokens: int | None = Field(default=None, ge=200, le=800)
+    response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
@@ -105,8 +203,18 @@ class StoryGameCreateRequest(BaseModel):
     ambient_enabled: bool | None = None
 
 
+class StoryGameCloneRequest(BaseModel):
+    copy_instructions: bool = True
+    copy_plot: bool = True
+    copy_world: bool = True
+    copy_main_hero: bool = True
+    copy_history: bool = True
+
+
 class StoryGameSettingsUpdateRequest(BaseModel):
     context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
+    response_max_tokens: int | None = Field(default=None, ge=200, le=800)
+    response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
@@ -137,6 +245,7 @@ class StoryGenerateRequest(BaseModel):
     reroll_last_response: bool = False
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
     story_llm_model: str | None = Field(default=None, max_length=120)
+    response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
@@ -226,6 +335,11 @@ class StoryMessageUpdateRequest(BaseModel):
 
 class StoryCommunityWorldRatingRequest(BaseModel):
     rating: int = Field(ge=1, le=5)
+
+
+class StoryCommunityWorldReportCreateRequest(BaseModel):
+    reason: Literal["cp", "politics", "racism", "nationalism", "other"]
+    description: str = Field(min_length=1, max_length=2_000)
 
 
 class StoryMessageOut(BaseModel):
@@ -370,6 +484,8 @@ class StoryGameSummaryOut(BaseModel):
     community_rating_avg: float
     community_rating_count: int
     context_limit_chars: int
+    response_max_tokens: int
+    response_max_tokens_enabled: bool
     story_llm_model: str
     memory_optimization_enabled: bool
     story_top_k: int
@@ -385,6 +501,7 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     id: int
     title: str
     description: str
+    author_id: int
     author_name: str
     author_avatar_url: str | None
     age_rating: str
@@ -398,6 +515,8 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     community_rating_avg: float
     community_rating_count: int
     user_rating: int | None
+    is_reported_by_user: bool
+    is_favorited_by_user: bool
     created_at: datetime
     updated_at: datetime
 

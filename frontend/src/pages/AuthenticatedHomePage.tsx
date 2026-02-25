@@ -2,6 +2,7 @@ import {
   forwardRef,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -13,26 +14,27 @@ import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   DialogActions,
   DialogContent,
   DialogTitle,
   Grow,
   IconButton,
+  Skeleton,
   Stack,
   Typography,
-  type AlertColor,
   type GrowProps,
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
@@ -46,11 +48,15 @@ import {
 } from '../services/authApi'
 import {
   deleteStoryGame,
+  favoriteCommunityWorld,
   getCommunityWorld,
   launchCommunityWorld,
   listCommunityWorlds,
   listStoryGames,
   rateCommunityWorld,
+  reportCommunityWorld,
+  unfavoriteCommunityWorld,
+  type StoryCommunityWorldReportReason,
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
@@ -62,11 +68,6 @@ type AuthenticatedHomePageProps = {
   onNavigate: (path: string) => void
   onUserUpdate: (user: AuthUser) => void
   onLogout: () => void
-}
-
-type PaymentNotice = {
-  severity: AlertColor
-  text: string
 }
 
 type DashboardNewsItem = {
@@ -85,6 +86,8 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const HOME_NEWS_SKELETON_KEYS = Array.from({ length: 3 }, (_, index) => `home-news-skeleton-${index}`)
+const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 3 }, (_, index) => `home-community-skeleton-${index}`)
 const DASHBOARD_NEWS: DashboardNewsItem[] = [
   {
     id: 'news-1',
@@ -112,7 +115,6 @@ const DASHBOARD_NEWS: DashboardNewsItem[] = [
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -153,7 +155,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
-  const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
+  const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [selectedNewsItem, setSelectedNewsItem] = useState<DashboardNewsItem | null>(null)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
@@ -163,6 +165,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityRatingDraft, setCommunityRatingDraft] = useState(0)
   const [isCommunityRatingSaving, setIsCommunityRatingSaving] = useState(false)
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
+  const [isCommunityReportSubmitting, setIsCommunityReportSubmitting] = useState(false)
+  const [favoriteWorldActionById, setFavoriteWorldActionById] = useState<Record<number, boolean>>({})
+  const [storyGames, setStoryGames] = useState<StoryGameSummary[]>([])
+  const [isDashboardDataLoading, setIsDashboardDataLoading] = useState(true)
   const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -301,11 +307,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   }, [loadCommunityWorlds])
 
   const syncCommunityWorldGameIds = useCallback(async () => {
+    setIsDashboardDataLoading(true)
     try {
       const games = await listStoryGames(authToken)
+      setStoryGames(games)
       setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
     } catch {
       // Optional metadata for UI; skip hard error when unavailable.
+      setStoryGames([])
+      setCommunityWorldGameIds({})
+    } finally {
+      setIsDashboardDataLoading(false)
     }
   }, [authToken])
 
@@ -331,10 +343,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         )
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось открыть мир'
-        setPaymentNotice({
-          severity: 'error',
-          text: detail,
-        })
+        setCommunityWorldsError(detail)
       } finally {
         setIsCommunityWorldDialogLoading(false)
       }
@@ -343,12 +352,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   )
 
   const handleCloseCommunityWorldDialog = useCallback(() => {
-    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving || isCommunityWorldMyGamesSaving) {
+    if (
+      isCommunityWorldDialogLoading ||
+      isLaunchingCommunityWorld ||
+      isCommunityRatingSaving ||
+      isCommunityWorldMyGamesSaving ||
+      isCommunityReportSubmitting
+    ) {
       return
     }
     setSelectedCommunityWorld(null)
     setCommunityRatingDraft(0)
-  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld])
+  }, [
+    isCommunityRatingSaving,
+    isCommunityReportSubmitting,
+    isCommunityWorldDialogLoading,
+    isCommunityWorldMyGamesSaving,
+    isLaunchingCommunityWorld,
+  ])
 
   const handleRateCommunityWorld = useCallback(async (ratingValue: number) => {
     if (!selectedCommunityWorld || ratingValue < 1 || ratingValue > 5 || isCommunityRatingSaving) {
@@ -366,14 +387,75 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить рейтинг'
-      setPaymentNotice({
-        severity: 'error',
-        text: detail,
-      })
+      setCommunityWorldsError(detail)
     } finally {
       setIsCommunityRatingSaving(false)
     }
   }, [authToken, isCommunityRatingSaving, selectedCommunityWorld])
+
+  const handleReportCommunityWorld = useCallback(
+    async (payload: { reason: StoryCommunityWorldReportReason; description: string }) => {
+      if (!selectedCommunityWorld || isCommunityReportSubmitting) {
+        return
+      }
+      setIsCommunityReportSubmitting(true)
+      try {
+        const updatedWorld = await reportCommunityWorld({
+          token: authToken,
+          worldId: selectedCommunityWorld.world.id,
+          reason: payload.reason,
+          description: payload.description,
+        })
+        setSelectedCommunityWorld((previous) => (previous ? { ...previous, world: updatedWorld } : previous))
+        setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось отправить жалобу'
+        setCommunityWorldsError(detail)
+        throw error
+      } finally {
+        setIsCommunityReportSubmitting(false)
+      }
+    },
+    [authToken, isCommunityReportSubmitting, selectedCommunityWorld],
+  )
+
+  const handleToggleFavoriteWorld = useCallback(
+    async (world: StoryCommunityWorldSummary) => {
+      if (favoriteWorldActionById[world.id]) {
+        return
+      }
+
+      setFavoriteWorldActionById((previous) => ({
+        ...previous,
+        [world.id]: true,
+      }))
+      setCommunityWorldsError('')
+      try {
+        const updatedWorld = world.is_favorited_by_user
+          ? await unfavoriteCommunityWorld({
+              token: authToken,
+              worldId: world.id,
+            })
+          : await favoriteCommunityWorld({
+              token: authToken,
+              worldId: world.id,
+            })
+
+        setCommunityWorlds((previous) => previous.map((item) => (item.id === updatedWorld.id ? updatedWorld : item)))
+        setSelectedCommunityWorld((previous) => (previous && previous.world.id === updatedWorld.id ? { ...previous, world: updatedWorld } : previous))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить любимые миры'
+        setCommunityWorldsError(detail)
+      } finally {
+        setFavoriteWorldActionById((previous) => {
+          const next = { ...previous }
+          delete next[world.id]
+          return next
+        })
+      }
+    },
+    [authToken, favoriteWorldActionById],
+  )
 
   const handleLaunchCommunityWorld = useCallback(async () => {
     if (!selectedCommunityWorld || isLaunchingCommunityWorld) {
@@ -393,13 +475,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           [worldId]: nextIds,
         }
       })
+      setStoryGames((previousGames) => sortStoryGamesByActivity([game, ...previousGames.filter((item) => item.id !== game.id)]))
       onNavigate(`/home/${game.id}`)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось запустить мир'
-      setPaymentNotice({
-        severity: 'error',
-        text: detail,
-      })
+      setCommunityWorldsError(detail)
     } finally {
       setIsLaunchingCommunityWorld(false)
     }
@@ -428,6 +508,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           delete nextMap[worldId]
           return nextMap
         })
+        setStoryGames((previousGames) => previousGames.filter((game) => !existingGameIds.includes(game.id)))
         return
       }
 
@@ -439,12 +520,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         ...previous,
         [worldId]: [...new Set([...(previous[worldId] ?? []), game.id])],
       }))
+      setStoryGames((previousGames) => sortStoryGamesByActivity([game, ...previousGames.filter((item) => item.id !== game.id)]))
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось обновить список "Мои игры"'
-      setPaymentNotice({
-        severity: 'error',
-        text: detail,
-      })
+      setCommunityWorldsError(detail)
     } finally {
       setIsCommunityWorldMyGamesSaving(false)
     }
@@ -483,34 +562,18 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onUserUpdate(response.user)
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'success',
-            text: `Баланс пополнен: +${response.coins} токенов.`,
-          })
+          setPaymentSuccessCoins(response.coins)
           return
         }
 
-        if (response.status === 'canceled') {
+        if (FINAL_PAYMENT_STATUSES.has(response.status)) {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'error',
-            text: 'Оплата не прошла. Можно попробовать снова.',
-          })
-          return
-        }
-
-        if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
-          setPaymentNotice({
-            severity: 'info',
-            text: 'Платеж обрабатывается. Токены будут начислены после подтверждения оплаты.',
-          })
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось проверить статус оплаты'
-        setPaymentNotice({
-          severity: 'error',
-          text: detail,
-        })
+        const detail = error instanceof Error ? error.message : 'Failed to sync payment status'
+        if (detail.includes('404')) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
       }
     },
     [authToken, onUserUpdate],
@@ -578,6 +641,25 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const profileName = user.display_name || 'Игрок'
   const communityWorldsPreview = communityWorlds.slice(0, 9)
   const dashboardView = 'welcome' as const
+  const dashboardLastPlayedGame = useMemo(() => selectLastPlayedGame(storyGames), [storyGames])
+  const hasDashboardLastPlayedGame = dashboardLastPlayedGame !== null
+  const dashboardHeroCoverUrl =
+    hasDashboardLastPlayedGame && dashboardLastPlayedGame.cover_image_url
+      ? dashboardLastPlayedGame.cover_image_url.trim()
+      : ''
+  const dashboardHeroCoverPositionX = hasDashboardLastPlayedGame
+    ? clampCoverPosition(dashboardLastPlayedGame.cover_position_x)
+    : 50
+  const dashboardHeroCoverPositionY = hasDashboardLastPlayedGame
+    ? clampCoverPosition(dashboardLastPlayedGame.cover_position_y)
+    : 50
+  const dashboardHeroTitle = hasDashboardLastPlayedGame
+    ? buildDashboardGameTitle(dashboardLastPlayedGame)
+    : `Добро пожаловать, ${profileName}.`
+  const dashboardHeroDescription = hasDashboardLastPlayedGame
+    ? buildDashboardGameDescription(dashboardLastPlayedGame)
+    : 'Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.'
+  const dashboardHeroButtonLabel = hasDashboardLastPlayedGame ? 'Продолжить' : 'Начать новую игру'
 
   return (
     <Box
@@ -614,7 +696,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           <Stack direction="row" spacing={0}>
             <Button
               variant="text"
-              onClick={() => setProfileDialogOpen(true)}
+              onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
               sx={{
                 minWidth: 0,
@@ -638,11 +720,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
-          {paymentNotice ? (
-            <Alert severity={paymentNotice.severity} onClose={() => setPaymentNotice(null)} sx={{ mb: 2.2, borderRadius: '12px' }}>
-              {paymentNotice.text}
-            </Alert>
-          ) : null}
 
           {dashboardView === 'welcome' ? (
             <Box
@@ -659,7 +736,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   overflow: 'hidden',
                   borderRadius: 'var(--morius-radius)',
                   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  minHeight: { xs: 286, md: 362 },
+                  aspectRatio: '3 / 2',
                   p: { xs: 2, md: 2.6 },
                   display: 'flex',
                   alignItems: 'flex-end',
@@ -667,111 +744,184 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   boxShadow: '0 28px 44px rgba(0, 0, 0, 0.35)',
                 }}
               >
-                <Box
-                  aria-hidden
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    background:
-                      'radial-gradient(circle at 84% 20%, rgba(233, 178, 91, 0.22), transparent 34%), repeating-linear-gradient(128deg, rgba(189, 205, 223, 0.09) 0 6px, transparent 6px 20px)',
-                  }}
-                />
-                <Box
-                  aria-hidden
-                  sx={{
-                    position: 'absolute',
-                    inset: 0,
-                    background:
-                      'linear-gradient(180deg, rgba(4, 7, 11, 0.44) 0%, rgba(4, 7, 11, 0.58) 54%, rgba(4, 7, 11, 0.74) 100%)',
-                  }}
-                />
-                <Box
-                  aria-hidden
-                  sx={{
-                    position: 'absolute',
-                    right: -82,
-                    top: -88,
-                    width: 320,
-                    height: 320,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(214, 158, 74, 0.22) 0%, rgba(214, 158, 74, 0) 68%)',
-                  }}
-                />
+                {isDashboardDataLoading ? (
+                  <Stack spacing={1.2} sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: { xs: '100%', lg: 560 } }}>
+                    <Skeleton variant="text" width={92} height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.22)' }} />
+                    <Skeleton variant="rounded" width="100%" height={58} sx={{ borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                    <Skeleton variant="text" width="96%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                    <Skeleton variant="text" width="82%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                    <Skeleton variant="rounded" width={220} height={46} sx={{ mt: 0.6, borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                  </Stack>
+                ) : (
+                  <>
+                    {dashboardHeroCoverUrl ? (
+                      <Box
+                        aria-hidden
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundImage: `url(${dashboardHeroCoverUrl})`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundSize: 'cover',
+                          backgroundPosition: `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`,
+                        }}
+                      />
+                    ) : null}
+                    {!hasDashboardLastPlayedGame ? (
+                      <Box
+                        aria-hidden
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          background:
+                            'radial-gradient(circle at 84% 20%, rgba(233, 178, 91, 0.22), transparent 34%), repeating-linear-gradient(128deg, rgba(189, 205, 223, 0.09) 0 6px, transparent 6px 20px)',
+                        }}
+                      />
+                    ) : null}
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        background:
+                          'linear-gradient(180deg, rgba(4, 7, 11, 0.32) 0%, rgba(4, 7, 11, 0.56) 54%, rgba(4, 7, 11, 0.8) 100%)',
+                      }}
+                    />
+                    {!hasDashboardLastPlayedGame ? (
+                      <Box
+                        aria-hidden
+                        sx={{
+                          position: 'absolute',
+                          right: -82,
+                          top: -88,
+                          width: 320,
+                          height: 320,
+                          borderRadius: '50%',
+                          background: 'radial-gradient(circle, rgba(214, 158, 74, 0.22) 0%, rgba(214, 158, 74, 0) 68%)',
+                        }}
+                      />
+                    ) : null}
 
-                <Stack spacing={1.05} sx={{ position: 'relative', zIndex: 1, maxWidth: { xs: '100%', lg: 560 } }}>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, letterSpacing: '0.08em', fontWeight: 700, fontSize: '0.78rem' }}>
-                    WELCOME
-                  </Typography>
-                  <Typography sx={{ fontSize: { xs: '1.74rem', md: '2.38rem' }, fontWeight: 800, lineHeight: 1.14, color: APP_TEXT_PRIMARY }}>
-                    Добро пожаловать, {profileName}.
-                  </Typography>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: { xs: '1rem', md: '1.06rem' }, lineHeight: 1.46 }}>
-                    Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.
-                  </Typography>
-                  <Button
-                    onClick={() => onNavigate('/worlds/new')}
-                    sx={{
-                      mt: 0.6,
-                      minHeight: 46,
-                      maxWidth: 236,
-                      borderRadius: '12px',
-                      textTransform: 'none',
-                      fontWeight: 800,
-                      color: APP_TEXT_PRIMARY,
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_BUTTON_ACTIVE,
-                      '&:hover': {
-                        backgroundColor: APP_BUTTON_HOVER,
-                      },
-                    }}
-                  >
-                    Начать новую игру
-                  </Button>
-                </Stack>
-              </Box>
-
-              <Stack spacing={1.05}>
-                {DASHBOARD_NEWS.map((item) => (
-                  <Button
-                    key={item.id}
-                    onClick={() => handleOpenNewsDetails(item)}
-                    sx={{
-                      width: '100%',
-                      justifyContent: 'flex-start',
-                      minHeight: 112,
-                      borderRadius: 'var(--morius-radius)',
-                      p: 1.3,
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      background: APP_CARD_BACKGROUND,
-                      textTransform: 'none',
-                      textAlign: 'left',
-                      alignItems: 'flex-start',
-                    }}
-                  >
-                    <Stack spacing={0.42}>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-                        {item.category}
-                      </Typography>
-                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 700, lineHeight: 1.2 }}>
-                        {item.title}
+                    <Stack spacing={1.05} sx={{ position: 'relative', zIndex: 1, maxWidth: { xs: '100%', lg: 560 } }}>
+                      {!hasDashboardLastPlayedGame ? (
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, letterSpacing: '0.08em', fontWeight: 700, fontSize: '0.78rem' }}>
+                          WELCOME
+                        </Typography>
+                      ) : null}
+                      <Typography sx={{ fontSize: { xs: '1.74rem', md: '2.38rem' }, fontWeight: 800, lineHeight: 1.14, color: APP_TEXT_PRIMARY }}>
+                        {dashboardHeroTitle}
                       </Typography>
                       <Typography
                         sx={{
                           color: APP_TEXT_SECONDARY,
-                          fontSize: '0.9rem',
-                          lineHeight: 1.4,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
+                          fontSize: { xs: '1rem', md: '1.06rem' },
+                          lineHeight: 1.46,
+                          ...(hasDashboardLastPlayedGame
+                            ? {
+                                display: '-webkit-box',
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }
+                            : {}),
                         }}
                       >
-                        {item.description}
+                        {dashboardHeroDescription}
                       </Typography>
-                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>{item.dateLabel}</Typography>
+                      <Button
+                        onClick={() => {
+                          if (dashboardLastPlayedGame) {
+                            onNavigate(`/home/${dashboardLastPlayedGame.id}`)
+                            return
+                          }
+                          onNavigate('/worlds/new')
+                        }}
+                        sx={{
+                          mt: 0.6,
+                          minHeight: 46,
+                          maxWidth: 236,
+                          borderRadius: '12px',
+                          textTransform: 'none',
+                          fontWeight: 800,
+                          color: APP_TEXT_PRIMARY,
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: APP_BUTTON_ACTIVE,
+                          '&:hover': {
+                            backgroundColor: APP_BUTTON_HOVER,
+                          },
+                        }}
+                      >
+                        {dashboardHeroButtonLabel}
+                      </Button>
                     </Stack>
-                  </Button>
-                ))}
+                  </>
+                )}
+              </Box>
+
+              <Stack spacing={1.05}>
+                {isDashboardDataLoading
+                  ? HOME_NEWS_SKELETON_KEYS.map((itemKey) => (
+                      <Box
+                        key={itemKey}
+                        sx={{
+                          width: '100%',
+                          minHeight: 112,
+                          borderRadius: 'var(--morius-radius)',
+                          p: 1.3,
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          background: APP_CARD_BACKGROUND,
+                        }}
+                      >
+                        <Stack spacing={0.58}>
+                          <Skeleton variant="text" width="26%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                          <Skeleton variant="text" width="78%" height={30} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                          <Skeleton variant="text" width="92%" height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                          <Skeleton variant="text" width="84%" height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                          <Skeleton variant="text" width="34%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                        </Stack>
+                      </Box>
+                    ))
+                  : DASHBOARD_NEWS.map((item) => (
+                      <Button
+                        key={item.id}
+                        onClick={() => handleOpenNewsDetails(item)}
+                        sx={{
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                          minHeight: 112,
+                          borderRadius: 'var(--morius-radius)',
+                          p: 1.3,
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          background: APP_CARD_BACKGROUND,
+                          textTransform: 'none',
+                          textAlign: 'left',
+                          alignItems: 'flex-start',
+                        }}
+                      >
+                        <Stack spacing={0.42}>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                            {item.category}
+                          </Typography>
+                          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 700, lineHeight: 1.2 }}>
+                            {item.title}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              color: APP_TEXT_SECONDARY,
+                              fontSize: '0.9rem',
+                              lineHeight: 1.4,
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {item.description}
+                          </Typography>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>{item.dateLabel}</Typography>
+                        </Stack>
+                      </Button>
+                    ))}
               </Stack>
             </Box>
           ) : (
@@ -915,9 +1065,31 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           ) : null}
 
           {isCommunityWorldsLoading ? (
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 3 }}>
-              <CircularProgress size={28} />
-            </Stack>
+            <Box
+              className="morius-scrollbar"
+              sx={{
+                display: 'grid',
+                gridAutoFlow: 'column',
+                gridAutoColumns: {
+                  xs: 'minmax(268px, 86vw)',
+                  sm: 'minmax(284px, 46vw)',
+                  md: 'calc((100% - 20px) / 2)',
+                  xl: 'calc((100% - 40px) / 3)',
+                },
+                gap: 'var(--morius-interface-gap)',
+                overflowX: 'auto',
+                pb: 'var(--morius-story-right-padding)',
+                pr: 'var(--morius-scrollbar-offset)',
+                scrollSnapType: 'x mandatory',
+                overscrollBehaviorX: 'contain',
+              }}
+            >
+              {HOME_COMMUNITY_SKELETON_CARD_KEYS.map((cardKey) => (
+                <Box key={cardKey} sx={{ scrollSnapAlign: 'start' }}>
+                  <CommunityWorldCardSkeleton showFavoriteButton />
+                </Box>
+              ))}
+            </Box>
           ) : communityWorlds.length === 0 ? (
             <Box
               sx={{
@@ -931,6 +1103,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           ) : (
             <Box
+              className="morius-scrollbar"
               ref={communityWorldsSliderRef}
               onWheel={handleCommunityWorldsWheel}
               sx={{
@@ -948,13 +1121,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 pr: 'var(--morius-scrollbar-offset)',
                 scrollSnapType: 'x mandatory',
                 overscrollBehaviorX: 'contain',
-                '&::-webkit-scrollbar': {
-                  height: 8,
-                },
-                '&::-webkit-scrollbar-thumb': {
-                  backgroundColor: 'rgba(154, 172, 196, 0.32)',
-                  borderRadius: '999px',
-                },
               }}
             >
               {communityWorldsPreview.map((world) => (
@@ -962,7 +1128,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   key={world.id}
                   world={world}
                   onClick={() => void handleOpenCommunityWorld(world.id)}
+                  onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
                   disabled={isCommunityWorldDialogLoading}
+                  showFavoriteButton
+                  isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                  onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
                   sx={{ scrollSnapAlign: 'start' }}
                 />
               ))}
@@ -1021,10 +1191,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onPlay={() => void handleLaunchCommunityWorld()}
         onRate={(value) => void handleRateCommunityWorld(value)}
         onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
+        onAuthorClick={(authorId) => {
+          setSelectedCommunityWorld(null)
+          onNavigate(`/profile/${authorId}`)
+        }}
+        onSubmitReport={(payload) => handleReportCommunityWorld(payload)}
+        isReportSubmitting={isCommunityReportSubmitting}
       />
       <ProfileDialog
         open={profileDialogOpen}
         user={user}
+        authToken={authToken}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}
@@ -1070,6 +1247,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
       />
 
+      <PaymentSuccessDialog
+        open={paymentSuccessCoins !== null}
+        coins={paymentSuccessCoins ?? 0}
+        transitionComponent={DialogTransition}
+        onClose={() => setPaymentSuccessCoins(null)}
+      />
+
       <CharacterManagerDialog
         open={characterManagerOpen}
         authToken={authToken}
@@ -1098,6 +1282,54 @@ function buildCommunityWorldGameMap(games: StoryGameSummary[]): Record<number, n
     nextMap[worldId] = currentIds
   })
   return nextMap
+}
+
+function parseStoryGameTimestamp(rawValue: string): number {
+  const parsed = Date.parse(rawValue)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function getStoryGameActivityTimestamp(game: StoryGameSummary): number {
+  return Math.max(
+    parseStoryGameTimestamp(game.last_activity_at),
+    parseStoryGameTimestamp(game.updated_at),
+    parseStoryGameTimestamp(game.created_at),
+  )
+}
+
+function sortStoryGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
+  return [...games].sort((left, right) => getStoryGameActivityTimestamp(right) - getStoryGameActivityTimestamp(left))
+}
+
+function selectLastPlayedGame(games: StoryGameSummary[]): StoryGameSummary | null {
+  if (games.length === 0) {
+    return null
+  }
+  const sortedGames = sortStoryGamesByActivity(games)
+  return sortedGames[0] ?? null
+}
+
+function clampCoverPosition(rawValue: number): number {
+  if (!Number.isFinite(rawValue)) {
+    return 50
+  }
+  return Math.max(0, Math.min(rawValue, 100))
+}
+
+function buildDashboardGameTitle(game: StoryGameSummary): string {
+  const normalizedTitle = game.title.replace(/\s+/g, ' ').trim()
+  if (normalizedTitle.length > 0) {
+    return normalizedTitle
+  }
+  return `Игра #${game.id}`
+}
+
+function buildDashboardGameDescription(game: StoryGameSummary): string {
+  const descriptionSource = (game.description || game.opening_scene || '').replace(/\s+/g, ' ').trim()
+  if (!descriptionSource) {
+    return 'Продолжите историю с последнего хода.'
+  }
+  return descriptionSource
 }
 
 export default AuthenticatedHomePage

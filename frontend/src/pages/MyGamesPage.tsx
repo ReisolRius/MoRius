@@ -21,15 +21,16 @@ import {
 } from '@mui/material'
 import type { MouseEvent } from 'react'
 import { useRef } from 'react'
-import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
@@ -41,7 +42,7 @@ import {
   updateCurrentUserProfile,
   type CoinTopUpPlan,
 } from '../services/authApi'
-import { deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
+import { cloneStoryGame, deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
@@ -56,14 +57,11 @@ type MyGamesPageProps = {
   onLogout: () => void
 }
 
-type PaymentNotice = {
-  severity: AlertColor
-  text: string
-}
-
 
 
 type GamesSortMode = 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
+type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history'
+type CloneSelectionState = Record<CloneSectionKey, boolean>
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
@@ -83,6 +81,20 @@ const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
+const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
+  instructions: true,
+  plot: true,
+  world: true,
+  main_hero: true,
+  history: true,
+}
+const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
+  { key: 'instructions', label: 'Инструкции' },
+  { key: 'plot', label: 'Сюжет' },
+  { key: 'world', label: 'Мир' },
+  { key: 'main_hero', label: 'ГГ' },
+  { key: 'history', label: 'История' },
+]
 
 const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'updated_desc', label: 'Недавние' },
@@ -90,6 +102,8 @@ const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
   { value: 'created_desc', label: 'Созданы: новые' },
   { value: 'created_asc', label: 'Созданы: старые' },
 ]
+
+const MY_GAMES_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `my-game-skeleton-${index}`)
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
@@ -168,6 +182,50 @@ function SortGlyph() {
   )
 }
 
+function EditGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+      <path
+        d="m15.7 3.3 5 5-9.8 9.8-5.8.8.8-5.8zm-11.2 16.4h15.5v1.8H4.5z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
+function CloneGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+      <path
+        d="M8 8h10a2 2 0 0 1 2 2v10H10a2 2 0 0 1-2-2zm-4-4h10a2 2 0 0 1 2 2v1.8H8A3.8 3.8 0 0 0 4.2 12V20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
+function DeleteGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+      <path
+        d="M8 4h8l1 2h4v2H3V6h4zm1 6h2v8H9zm4 0h2v8h-2zm-7 0h12l-1 10a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
+function RatingGlyph() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+      <path
+        d="m12 3 2.6 5.3 5.9.8-4.3 4.2 1 5.9L12 16.4 6.8 19.2l1-5.9L3.5 9l5.9-.8z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 const DialogTransition = forwardRef(function DialogTransition(
   props: GrowProps & {
     children: ReactElement
@@ -200,13 +258,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
-  const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
+  const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [sortMode, setSortMode] = useState<GamesSortMode>('updated_desc')
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
   const [gameMenuAnchorEl, setGameMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [gameMenuGameId, setGameMenuGameId] = useState<number | null>(null)
   const [deletingGameId, setDeletingGameId] = useState<number | null>(null)
+  const [cloneDialogSourceGame, setCloneDialogSourceGame] = useState<StoryGameSummary | null>(null)
+  const [cloneSelection, setCloneSelection] = useState<CloneSelectionState>({ ...DEFAULT_CLONE_SELECTION })
+  const [isGameCloning, setIsGameCloning] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -294,6 +355,61 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     onNavigate(`/worlds/${gameMenuGameId}/edit`)
     handleCloseGameMenu()
   }, [gameMenuGameId, handleCloseGameMenu, onNavigate])
+
+  const handleOpenCloneDialogFromMenu = useCallback(() => {
+    if (!gameMenuGameId) {
+      return
+    }
+    const targetGame = games.find((game) => game.id === gameMenuGameId) ?? null
+    if (!targetGame) {
+      return
+    }
+    setCloneDialogSourceGame(targetGame)
+    setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
+    handleCloseGameMenu()
+  }, [gameMenuGameId, games, handleCloseGameMenu])
+
+  const handleCloseCloneDialog = useCallback(() => {
+    if (isGameCloning) {
+      return
+    }
+    setCloneDialogSourceGame(null)
+    setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
+  }, [isGameCloning])
+
+  const handleToggleCloneSection = useCallback((key: CloneSectionKey) => {
+    setCloneSelection((previous) => ({
+      ...previous,
+      [key]: !previous[key],
+    }))
+  }, [])
+
+  const handleSubmitGameClone = useCallback(async () => {
+    if (!cloneDialogSourceGame || isGameCloning) {
+      return
+    }
+    setErrorMessage('')
+    setIsGameCloning(true)
+    try {
+      await cloneStoryGame({
+        token: authToken,
+        gameId: cloneDialogSourceGame.id,
+        copy_instructions: cloneSelection.instructions,
+        copy_plot: cloneSelection.plot,
+        copy_world: cloneSelection.world,
+        copy_main_hero: cloneSelection.main_hero,
+        copy_history: cloneSelection.history,
+      })
+      setCloneDialogSourceGame(null)
+      setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
+      await loadGames()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось клонировать мир'
+      setErrorMessage(detail)
+    } finally {
+      setIsGameCloning(false)
+    }
+  }, [authToken, cloneDialogSourceGame, cloneSelection, isGameCloning, loadGames])
 
   const handleDeleteGameFromMenu = useCallback(async () => {
     if (!gameMenuGameId || deletingGameId !== null) {
@@ -477,34 +593,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         onUserUpdate(response.user)
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'success',
-            text: `Баланс пополнен: +${response.coins} токенов.`,
-          })
+          setPaymentSuccessCoins(response.coins)
           return
         }
 
-        if (response.status === 'canceled') {
+        if (FINAL_PAYMENT_STATUSES.has(response.status)) {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'error',
-            text: 'Оплата не прошла. Можно попробовать снова.',
-          })
-          return
-        }
-
-        if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
-          setPaymentNotice({
-            severity: 'info',
-            text: 'Платеж обрабатывается. Токены будут начислены после подтверждения оплаты.',
-          })
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось проверить статус оплаты'
-        setPaymentNotice({
-          severity: 'error',
-          text: detail,
-        })
+        const detail = error instanceof Error ? error.message : 'Failed to sync payment status'
+        if (detail.includes('404')) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
       }
     },
     [authToken, onUserUpdate],
@@ -671,7 +771,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             </IconButton>
             <Button
               variant="text"
-              onClick={() => setProfileDialogOpen(true)}
+              onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
               sx={{
                 minWidth: 0,
@@ -698,11 +798,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           {errorMessage ? (
             <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 2.2, borderRadius: '12px' }}>
               {errorMessage}
-            </Alert>
-          ) : null}
-          {paymentNotice ? (
-            <Alert severity={paymentNotice.severity} onClose={() => setPaymentNotice(null)} sx={{ mb: 2.2, borderRadius: '12px' }}>
-              {paymentNotice.text}
             </Alert>
           ) : null}
 
@@ -874,9 +969,21 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           </Box>
 
           {isLoadingGames ? (
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 8 }}>
-              <CircularProgress size={34} />
-            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.4,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {MY_GAMES_SKELETON_CARD_KEYS.map((cardKey) => (
+                <CommunityWorldCardSkeleton key={cardKey} />
+              ))}
+            </Box>
           ) : visibleGames.length === 0 ? (
             <Box
               sx={{
@@ -920,6 +1027,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         id: game.id,
                         title: resolveDisplayTitle(game.id),
                         description: cardDescription || 'Описание пока не указано.',
+                        author_id: user.id,
                         author_name: profileName,
                         author_avatar_url: user.avatar_url ?? null,
                         age_rating: game.age_rating,
@@ -933,9 +1041,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         community_rating_avg: communityRatingAvg,
                         community_rating_count: communityRatingCount,
                         user_rating: sourceWorld?.user_rating ?? null,
+                        is_reported_by_user: sourceWorld?.is_reported_by_user ?? false,
+                        is_favorited_by_user: sourceWorld?.is_favorited_by_user ?? false,
                         created_at: game.created_at,
                         updated_at: game.updated_at,
                       }}
+                      onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
                       onClick={() => onNavigate(`/home/${game.id}`)}
                     />
 
@@ -977,7 +1088,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           },
         }}
       >
-        <MenuItem onClick={handleEditGameFromMenu}>Редактировать</MenuItem>
+        <MenuItem onClick={handleEditGameFromMenu}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <EditGlyph />
+            <Box component="span">Редактировать</Box>
+          </Stack>
+        </MenuItem>
+        <MenuItem onClick={handleOpenCloneDialogFromMenu}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CloneGlyph />
+            <Box component="span">Клонировать</Box>
+          </Stack>
+        </MenuItem>
         {gameMenuTarget?.source_world_id ? (
           <MenuItem
             onClick={() => {
@@ -985,13 +1107,99 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               handleCloseGameMenu()
             }}
           >
-            Оценить мир
+            <Stack direction="row" spacing={1} alignItems="center">
+              <RatingGlyph />
+              <Box component="span">Оценить мир</Box>
+            </Stack>
           </MenuItem>
         ) : null}
         <MenuItem onClick={() => void handleDeleteGameFromMenu()} disabled={deletingGameId !== null}>
-          {deletingGameId === gameMenuGameId ? 'Удаляем...' : 'Удалить'}
+          <Stack direction="row" spacing={1} alignItems="center">
+            <DeleteGlyph />
+            <Box component="span">{deletingGameId === gameMenuGameId ? 'Удаляем...' : 'Удалить'}</Box>
+          </Stack>
         </MenuItem>
       </Menu>
+
+      <BaseDialog
+        open={Boolean(cloneDialogSourceGame)}
+        onClose={handleCloseCloneDialog}
+        maxWidth="sm"
+        transitionComponent={DialogTransition}
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          background: APP_CARD_BACKGROUND,
+        }}
+        rawChildren
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Клонировать мир</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY }}>
+              {cloneDialogSourceGame
+                ? `Выберите, что перенести в новый мир из «${resolveDisplayTitle(cloneDialogSourceGame.id)}».`
+                : 'Выберите, что нужно перенести в новый мир.'}
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={0.85}>
+              {CLONE_SECTION_ITEMS.map((item) => {
+                const isSelected = cloneSelection[item.key]
+                return (
+                  <Button
+                    key={item.key}
+                    onClick={() => handleToggleCloneSection(item.key)}
+                    disabled={isGameCloning}
+                    sx={{
+                      minHeight: 34,
+                      px: 1.2,
+                      borderRadius: '10px',
+                      textTransform: 'none',
+                      color: APP_TEXT_PRIMARY,
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: isSelected ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                      '&:hover': {
+                        backgroundColor: APP_BUTTON_HOVER,
+                      },
+                    }}
+                  >
+                    <Stack direction="row" spacing={0.65} alignItems="center">
+                      <Box component="span" sx={{ fontSize: '0.9rem', lineHeight: 1 }}>
+                        {isSelected ? String.fromCharCode(10003) : String.fromCharCode(9711)}
+                      </Box>
+                      <Box component="span">{item.label}</Box>
+                    </Stack>
+                  </Button>
+                )
+              })}
+            </Stack>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>
+              Пункты можно выбрать или оставить пустыми.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button
+            onClick={handleCloseCloneDialog}
+            disabled={isGameCloning}
+            sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleSubmitGameClone()}
+            disabled={isGameCloning}
+            sx={{
+              textTransform: 'none',
+              color: APP_TEXT_PRIMARY,
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              backgroundColor: APP_BUTTON_ACTIVE,
+              '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+            }}
+          >
+            {isGameCloning ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Клонировать'}
+          </Button>
+        </DialogActions>
+      </BaseDialog>
 
       <BaseDialog
         open={Boolean(ratingDialogGame)}
@@ -1064,6 +1272,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <ProfileDialog
         open={profileDialogOpen}
         user={user}
+        authToken={authToken}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}
@@ -1107,6 +1316,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           }
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
+
+      <PaymentSuccessDialog
+        open={paymentSuccessCoins !== null}
+        coins={paymentSuccessCoins ?? 0}
+        transitionComponent={DialogTransition}
+        onClose={() => setPaymentSuccessCoins(null)}
       />
 
       <CharacterManagerDialog

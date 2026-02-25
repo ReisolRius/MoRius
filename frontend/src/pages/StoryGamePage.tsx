@@ -27,6 +27,7 @@ import {
   Menu,
   MenuItem,
   Select,
+  Skeleton,
   Slider,
   Stack,
   Switch,
@@ -35,7 +36,6 @@ import {
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
-import type { AlertColor } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
@@ -43,6 +43,7 @@ import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar, { AvatarPlaceholder } from '../components/profile/UserAvatar'
@@ -117,13 +118,10 @@ type StoryGamePageProps = {
   onUserUpdate: (user: AuthUser) => void
 }
 
-type PaymentNotice = {
-  severity: AlertColor
-  text: string
-}
-
 type StorySettingsOverride = {
   storyLlmModel: StoryNarratorModelId
+  responseMaxTokens: number
+  responseMaxTokensEnabled: boolean
   memoryOptimizationEnabled: boolean
   storyTopK: number
   storyTopR: number
@@ -174,7 +172,10 @@ const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 4000
-const STORY_DEFAULT_CONTEXT_LIMIT = 2000
+const STORY_DEFAULT_CONTEXT_LIMIT = 1500
+const STORY_RESPONSE_MAX_TOKENS_MIN = 200
+const STORY_RESPONSE_MAX_TOKENS_MAX = 800
+const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX = 1500
 const STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX = 3000
 const STORY_TOP_K_MIN = 0
@@ -191,17 +192,17 @@ const STORY_NARRATOR_MODEL_OPTIONS: Array<{
 }> = [
   {
     id: 'z-ai/glm-5',
-    title: 'GLM 5',
+    title: 'Стандартная',
     description: 'Базовая модель рассказчика',
   },
   {
     id: 'arcee-ai/trinity-large-preview:free',
-    title: 'Trinity',
+    title: 'Трин',
     description: 'Дополнительная модель.',
   },
   {
     id: 'moonshotai/kimi-k2-0905',
-    title: 'Kim K2',
+    title: 'Кими',
     description: 'Больше деталей.',
   },
 ]
@@ -216,7 +217,72 @@ const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
+const STORY_SENTENCE_MATCH_PATTERN = /[^.!?…]+[.!?…]?/gu
+const STORY_BULLET_PREFIX_PATTERN = /^\s*[-•*]+\s*/u
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
+const STORY_CYRILLIC_TOKEN_PATTERN = /^[\u0430-\u044f\u0451]+$/i
+const STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP: Record<string, string> = {
+  a: 'а',
+  b: 'в',
+  c: 'с',
+  e: 'е',
+  h: 'н',
+  k: 'к',
+  m: 'м',
+  o: 'о',
+  p: 'р',
+  t: 'т',
+  x: 'х',
+  y: 'у',
+}
+const STORY_RUSSIAN_INFLECTION_ENDINGS = [
+  'иями',
+  'ями',
+  'ами',
+  'его',
+  'ого',
+  'ему',
+  'ому',
+  'ыми',
+  'ими',
+  'иях',
+  'ях',
+  'ах',
+  'ов',
+  'ев',
+  'ей',
+  'ой',
+  'ий',
+  'ый',
+  'ая',
+  'яя',
+  'ое',
+  'ее',
+  'ую',
+  'юю',
+  'ою',
+  'ею',
+  'ам',
+  'ям',
+  'ом',
+  'ем',
+  'ия',
+  'ья',
+  'ие',
+  'ье',
+  'ию',
+  'ью',
+  'а',
+  'я',
+  'ы',
+  'и',
+  'у',
+  'ю',
+  'е',
+  'о',
+  'й',
+  'ь',
+] as const
 const INLINE_EDIT_RAIL_COLOR = 'color-mix(in srgb, var(--morius-title-text) 76%, transparent)'
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 10
@@ -637,6 +703,45 @@ function buildCharacterAliases(value: string): string[] {
   return [...aliases]
 }
 
+function buildIdentityTriggerAliases(title: string, triggers: string[]): string[] {
+  const titleTokens = normalizeStoryMatchTokens(title)
+  const primaryTitleToken = titleTokens[0] ?? ''
+  if (!primaryTitleToken) {
+    return []
+  }
+
+  const aliases = new Set<string>()
+  triggers
+    .flatMap((trigger) => splitStoryTriggerCandidates(trigger))
+    .forEach((trigger) => {
+      const normalizedTrigger = normalizeCharacterIdentity(trigger)
+      if (!normalizedTrigger) {
+        return
+      }
+
+      const triggerTokens = normalizeStoryMatchTokens(normalizedTrigger)
+      const primaryTriggerToken = triggerTokens[0] ?? ''
+      if (!primaryTriggerToken) {
+        return
+      }
+
+      const isRelatedIdentity =
+        primaryTriggerToken === primaryTitleToken ||
+        (primaryTriggerToken.length >= 4 && primaryTitleToken.startsWith(primaryTriggerToken)) ||
+        (primaryTitleToken.length >= 4 && primaryTriggerToken.startsWith(primaryTitleToken))
+      if (!isRelatedIdentity) {
+        return
+      }
+
+      aliases.add(normalizedTrigger)
+      if (triggerTokens.length <= 2) {
+        aliases.add(primaryTriggerToken)
+      }
+    })
+
+  return [...aliases]
+}
+
 function extractSpeakerLookupValues(rawSpeakerName: string): string[] {
   const normalizedSpeakerName = rawSpeakerName.replace(/\r\n/g, ' ').trim()
   if (!normalizedSpeakerName) {
@@ -899,7 +1004,7 @@ function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle: string): 
     normalized.push(trimmed)
   }
 
-  draft.split(',').forEach((part) => pushTrigger(part))
+  splitStoryTriggerCandidates(draft).forEach((part) => pushTrigger(part))
   pushTrigger(fallbackTitle)
 
   return normalized.slice(0, 40)
@@ -914,6 +1019,13 @@ function clampStoryContextLimit(value: number): number {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
   return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+}
+
+function clampStoryResponseMaxTokens(value: number): number {
+  if (!Number.isFinite(value)) {
+    return STORY_DEFAULT_RESPONSE_MAX_TOKENS
+  }
+  return Math.min(STORY_RESPONSE_MAX_TOKENS_MAX, Math.max(STORY_RESPONSE_MAX_TOKENS_MIN, Math.round(value)))
 }
 
 function getStoryTurnCostTokens(contextUsageTokens: number): number {
@@ -966,43 +1078,317 @@ function estimateTextTokens(value: string): number {
   if (!normalized) {
     return 0
   }
-  const matches = normalized.toLowerCase().replace(/ё/g, 'е').match(STORY_TOKEN_ESTIMATE_PATTERN)
+  const matches = normalized.toLowerCase().replace(/\u0451/g, '\u0435').match(STORY_TOKEN_ESTIMATE_PATTERN)
   if (matches && matches.length > 0) {
     return matches.length
   }
   return Math.max(1, Math.ceil(normalized.length / 4))
 }
 
+function trimStoryTextTailByTokens(value: string, tokenLimit: number): string {
+  const normalized = value.replace(/\r\n/g, '\n').trim()
+  if (!normalized || tokenLimit <= 0) {
+    return ''
+  }
+  const tokenPattern = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
+  const matches = [...normalized.toLowerCase().replace(/\u0451/g, '\u0435').matchAll(tokenPattern)]
+  if (matches.length === 0) {
+    const charLimit = Math.max(tokenLimit * 4, 1)
+    return normalized.slice(-charLimit)
+  }
+  if (matches.length <= tokenLimit) {
+    return normalized
+  }
+  const startIndex = matches[matches.length - tokenLimit]?.index ?? 0
+  return normalized.slice(startIndex).trimStart()
+}
+
+function splitStoryTextIntoSentences(value: string): string[] {
+  const normalized = value.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const sentences: string[] = []
+  normalized.split('\n').forEach((rawLine) => {
+    const line = rawLine.replace(STORY_BULLET_PREFIX_PATTERN, '').trim()
+    if (!line) {
+      return
+    }
+    const compactLine = line.replace(/\s+/g, ' ').trim()
+    if (!compactLine) {
+      return
+    }
+    const matches = compactLine.match(STORY_SENTENCE_MATCH_PATTERN)
+    if (!matches || matches.length === 0) {
+      sentences.push(compactLine)
+      return
+    }
+    matches.forEach((sentence) => {
+      const compactSentence = sentence.trim()
+      if (compactSentence) {
+        sentences.push(compactSentence)
+      }
+    })
+  })
+  return sentences
+}
+
+function formatStorySentences(sentences: string[], useBullets: boolean): string {
+  if (sentences.length === 0) {
+    return ''
+  }
+  if (useBullets) {
+    return sentences.map((sentence) => `- ${sentence}`).join('\n')
+  }
+  return sentences.join(' ')
+}
+
+function trimStoryTextTailBySentenceTokens(value: string, tokenLimit: number): string {
+  const normalized = value.replace(/\r\n/g, '\n').trim()
+  if (!normalized || tokenLimit <= 0) {
+    return ''
+  }
+  const sentences = splitStoryTextIntoSentences(normalized)
+  if (sentences.length === 0) {
+    return trimStoryTextTailByTokens(normalized, tokenLimit)
+  }
+
+  const useBullets = normalized.split('\n').some((line) => STORY_BULLET_PREFIX_PATTERN.test(line))
+  const selectedReversed: string[] = []
+  let consumedTokens = 0
+
+  for (let index = sentences.length - 1; index >= 0; index -= 1) {
+    const sentence = sentences[index]
+    const sentenceCost = estimateTextTokens(sentence) + 1
+    if (consumedTokens + sentenceCost <= tokenLimit) {
+      selectedReversed.push(sentence)
+      consumedTokens += sentenceCost
+      continue
+    }
+    if (selectedReversed.length === 0) {
+      const tailSentence = trimStoryTextTailByTokens(sentence, Math.max(tokenLimit, 1))
+      if (tailSentence) {
+        selectedReversed.push(tailSentence)
+      }
+    }
+    break
+  }
+
+  return formatStorySentences(selectedReversed.reverse(), useBullets)
+}
+
+function estimatePlotCardsTokensWithinBudget(
+  plotCards: Array<{ title: string; content: string }>,
+  tokenBudget: number,
+): number {
+  if (plotCards.length === 0 || tokenBudget <= 0) {
+    return 0
+  }
+
+  const selectedReversed: Array<{ title: string; content: string }> = []
+  let consumedTokens = 0
+
+  for (let index = plotCards.length - 1; index >= 0; index -= 1) {
+    const plotCard = plotCards[index]
+    const title = plotCard.title.replace(/\s+/g, ' ').trim()
+    const content = plotCard.content.replace(/\r\n/g, '\n').trim()
+    if (!title || !content) {
+      continue
+    }
+
+    const cardCost = estimateTextTokens(title) + estimateTextTokens(content) + 6
+    if (consumedTokens + cardCost <= tokenBudget) {
+      selectedReversed.push({ title, content })
+      consumedTokens += cardCost
+      continue
+    }
+
+    if (selectedReversed.length === 0) {
+      const titleCost = estimateTextTokens(title) + 6
+      const contentBudget = Math.max(tokenBudget - titleCost, 1)
+      const trimmedContent = trimStoryTextTailBySentenceTokens(content, contentBudget)
+      if (trimmedContent) {
+        selectedReversed.push({ title, content: trimmedContent })
+      }
+    }
+    break
+  }
+
+  const selected = selectedReversed.reverse()
+  if (selected.length === 0) {
+    return 0
+  }
+
+  const payload = selected.map((plotCard, index) => `${index + 1}. ${plotCard.title}: ${plotCard.content}`).join('\n')
+  return estimateTextTokens(payload)
+}
+
+function estimateHistoryTokensWithinBudget(
+  history: Array<{ role: 'user' | 'assistant'; content: string }>,
+  tokenBudget: number,
+): number {
+  if (history.length === 0 || tokenBudget <= 0) {
+    return 0
+  }
+
+  const selectedReversed: Array<{ role: 'user' | 'assistant'; content: string }> = []
+  let consumedTokens = 0
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index]
+    const content = message.content.replace(/\r\n/g, '\n').trim()
+    if (!content) {
+      continue
+    }
+
+    const messageCost = estimateTextTokens(content) + 4
+    if (consumedTokens + messageCost <= tokenBudget) {
+      selectedReversed.push({ role: message.role, content })
+      consumedTokens += messageCost
+      continue
+    }
+
+    if (selectedReversed.length === 0) {
+      const trimmedContent = trimStoryTextTailByTokens(content, Math.max(tokenBudget - 4, 1))
+      if (trimmedContent) {
+        selectedReversed.push({ role: message.role, content: trimmedContent })
+      }
+    }
+    break
+  }
+
+  const selected = selectedReversed.reverse()
+  if (selected.length === 0) {
+    return 0
+  }
+
+  const payload = selected
+    .map((message) => `${message.role === 'user' ? 'Игрок' : 'ИИ'}: ${message.content}`)
+    .join('\n')
+  return estimateTextTokens(payload)
+}
+
 function normalizeStoryMatchTokens(value: string): string[] {
-  const normalized = value.toLowerCase().replace(/ё/g, 'е')
-  return normalized.match(STORY_MATCH_TOKEN_PATTERN) ?? []
+  const normalized = value.toLowerCase().replace(/\u0451/g, '\u0435')
+  const rawTokens = normalized.match(STORY_MATCH_TOKEN_PATTERN) ?? []
+  return rawTokens.map((token) => normalizeStoryTokenScript(token)).filter((token) => token.length > 0)
+}
+
+function normalizeStoryTokenScript(token: string): string {
+  const normalized = token.trim().toLowerCase().replace(/\u0451/g, '\u0435')
+  if (!normalized) {
+    return ''
+  }
+  const hasCyrillic = /[\u0430-\u044f]/i.test(normalized)
+  const hasLatin = /[a-z]/i.test(normalized)
+  if (!hasCyrillic || !hasLatin) {
+    return normalized
+  }
+  return normalized
+    .split('')
+    .map((char) => STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP[char] ?? char)
+    .join('')
+}
+
+function splitStoryTriggerCandidates(value: string): string[] {
+  return value
+    .replace(/\r\n/g, '\n')
+    .split(/[,\n;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function deriveStoryRussianStems(token: string): string[] {
+  if (token.length < 4 || !STORY_CYRILLIC_TOKEN_PATTERN.test(token)) {
+    return [token]
+  }
+
+  const stems = new Set<string>([token])
+  let candidate = token
+  for (let pass = 0; pass < 2; pass += 1) {
+    let stripped = false
+    for (const ending of STORY_RUSSIAN_INFLECTION_ENDINGS) {
+      if (!candidate.endsWith(ending)) {
+        continue
+      }
+      if (candidate.length - ending.length < 3) {
+        continue
+      }
+      candidate = candidate.slice(0, candidate.length - ending.length)
+      if (candidate.length > 0) {
+        stems.add(candidate)
+        const compact = candidate.replace(/[\u044c\u0439]+$/i, '')
+        if (compact.length >= 3) {
+          stems.add(compact)
+        }
+      }
+      stripped = true
+      break
+    }
+    if (!stripped) {
+      break
+    }
+  }
+  return [...stems]
+}
+
+function buildStoryTokenMatchForms(token: string): string[] {
+  const normalized = normalizeStoryTokenScript(token)
+  if (!normalized) {
+    return []
+  }
+  const forms = new Set<string>([normalized])
+  deriveStoryRussianStems(normalized).forEach((stem) => forms.add(stem))
+  return [...forms]
+}
+
+function isStoryTokenMatch(triggerToken: string, promptToken: string): boolean {
+  const triggerForms = buildStoryTokenMatchForms(triggerToken)
+  const promptForms = buildStoryTokenMatchForms(promptToken)
+  if (triggerForms.length === 0 || promptForms.length === 0) {
+    return false
+  }
+
+  if (triggerForms.some((triggerForm) => promptForms.includes(triggerForm))) {
+    return true
+  }
+
+  return triggerForms.some((triggerForm) => {
+    if (triggerForm.length < 4) {
+      return false
+    }
+    return promptForms.some((promptForm) => {
+      if (promptForm.length < 4) {
+        return false
+      }
+      if (promptForm.startsWith(triggerForm) || triggerForm.startsWith(promptForm)) {
+        return true
+      }
+      const shorter = triggerForm.length <= promptForm.length ? triggerForm : promptForm
+      const longer = triggerForm.length <= promptForm.length ? promptForm : triggerForm
+      return shorter.length >= 5 && longer.startsWith(shorter)
+    })
+  })
 }
 
 function isStoryTriggerMatch(trigger: string, promptTokens: string[]): boolean {
-  const triggerTokens = normalizeStoryMatchTokens(trigger)
+  const triggerCandidates = splitStoryTriggerCandidates(trigger)
+  if (triggerCandidates.length > 1) {
+    return triggerCandidates.some((candidate) => isStoryTriggerMatch(candidate, promptTokens))
+  }
+
+  const triggerTokens = normalizeStoryMatchTokens(trigger).filter((token) => token.length >= 2)
   if (triggerTokens.length === 0) {
     return false
   }
 
   if (triggerTokens.length === 1) {
     const [triggerToken] = triggerTokens
-    if (triggerToken.length < 2) {
-      return false
-    }
-    return promptTokens.some((token) => {
-      if (token === triggerToken || token.startsWith(triggerToken)) {
-        return true
-      }
-      return token.length >= 4 && triggerToken.startsWith(token)
-    })
+    return promptTokens.some((token) => isStoryTokenMatch(triggerToken, token))
   }
 
-  return triggerTokens.every((triggerToken) =>
-    promptTokens.some(
-      (token) =>
-        token === triggerToken || token.startsWith(triggerToken) || (token.length >= 4 && triggerToken.startsWith(token)),
-    ),
-  )
+  return triggerTokens.every((triggerToken) => promptTokens.some((token) => isStoryTokenMatch(triggerToken, token)))
 }
 
 function formatTurnsWord(value: number): string {
@@ -1102,6 +1488,7 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
 
     const fallbackTrigger = card.title.replace(/\s+/g, ' ').trim()
     const triggers = card.triggers
+      .flatMap((trigger) => splitStoryTriggerCandidates(trigger))
       .map((trigger) => trigger.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
     if (fallbackTrigger.length > 0 && !triggers.some((trigger) => trigger.toLowerCase() === fallbackTrigger.toLowerCase())) {
@@ -1209,6 +1596,65 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
   return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
 }
 
+function StoryTitleLoadingSkeleton() {
+  return (
+    <Skeleton
+      variant="rounded"
+      height={40}
+      sx={{
+        width: { xs: '68%', md: '42%' },
+        borderRadius: '12px',
+        bgcolor: 'rgba(166, 181, 204, 0.2)',
+        mb: 1.1,
+        mx: { xs: 0.3, md: 0.8 },
+      }}
+    />
+  )
+}
+
+function StoryMessagesLoadingSkeleton() {
+  return (
+    <Stack spacing="var(--morius-story-message-gap)" sx={{ mt: 0.1, maxWidth: 860 }}>
+      <Stack spacing={0.52}>
+        <Skeleton variant="text" height={30} width="95%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+        <Skeleton variant="text" height={30} width="89%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+        <Skeleton variant="text" height={30} width="64%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+      </Stack>
+      <Stack direction="row" spacing={ASSISTANT_DIALOGUE_AVATAR_GAP} alignItems="flex-start">
+        <Skeleton
+          variant="circular"
+          width={ASSISTANT_DIALOGUE_AVATAR_SIZE}
+          height={ASSISTANT_DIALOGUE_AVATAR_SIZE}
+          sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }}
+        />
+        <Stack spacing={0.48} sx={{ minWidth: 0, flex: 1 }}>
+          <Skeleton variant="text" height={21} width="29%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+          <Skeleton variant="text" height={28} width="92%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+          <Skeleton variant="text" height={28} width="86%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+        </Stack>
+      </Stack>
+      <Stack spacing={0.52}>
+        <Skeleton variant="text" height={30} width="93%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+        <Skeleton variant="text" height={30} width="78%" sx={{ bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+      </Stack>
+    </Stack>
+  )
+}
+
+function StoryRightPanelLoadingSkeleton() {
+  return (
+    <Stack spacing={0.88} sx={{ minHeight: 0, flex: 1 }}>
+      <Skeleton variant="rounded" height={40} sx={{ borderRadius: '12px', bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+      <Skeleton variant="rounded" height={40} sx={{ borderRadius: '12px', bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.85, minHeight: 0, flex: 1 }}>
+        <Skeleton variant="rounded" height={RIGHT_PANEL_CARD_HEIGHT} sx={{ borderRadius: '12px', bgcolor: 'rgba(166, 181, 204, 0.18)' }} />
+        <Skeleton variant="rounded" height={RIGHT_PANEL_CARD_HEIGHT} sx={{ borderRadius: '12px', bgcolor: 'rgba(166, 181, 204, 0.18)' }} />
+      </Box>
+      <Skeleton variant="rounded" height={40} sx={{ borderRadius: '12px', bgcolor: 'rgba(166, 181, 204, 0.2)' }} />
+    </Stack>
+  )
+}
+
 function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, onUserUpdate }: StoryGamePageProps) {
   const [, setGames] = useState<StoryGameSummary[]>([])
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
@@ -1218,6 +1664,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [quickStartIntro, setQuickStartIntro] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isLoadingGameMessages, setIsLoadingGameMessages] = useState(false)
+  const [isBootstrappingGameData, setIsBootstrappingGameData] = useState(true)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
@@ -1240,7 +1687,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
-  const [paymentNotice, setPaymentNotice] = useState<PaymentNotice | null>(null)
+  const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
@@ -1302,11 +1749,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
+  const [responseMaxTokens, setResponseMaxTokens] = useState(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
+  const [responseMaxTokensEnabled, setResponseMaxTokensEnabled] = useState(false)
+  const [isSavingResponseMaxTokens, setIsSavingResponseMaxTokens] = useState(false)
+  const [isSavingResponseMaxTokensEnabled, setIsSavingResponseMaxTokensEnabled] = useState(false)
   const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
   const [memoryOptimizationEnabled, setMemoryOptimizationEnabled] = useState(true)
   const [storyTopK, setStoryTopK] = useState(STORY_DEFAULT_TOP_K)
   const [storyTopR, setStoryTopR] = useState(STORY_DEFAULT_TOP_R)
-  const [ambientEnabled, setAmbientEnabled] = useState(true)
+  const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
   const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
@@ -1409,6 +1860,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setContextLimitChars(normalizedContextLimit)
     setContextLimitDraft(String(normalizedContextLimit))
     const runtimeGame = game as Partial<StoryGameSummary>
+    const normalizedResponseMaxTokens = clampStoryResponseMaxTokens(runtimeGame.response_max_tokens ?? STORY_DEFAULT_RESPONSE_MAX_TOKENS)
+    const normalizedResponseMaxTokensEnabled =
+      typeof runtimeGame.response_max_tokens_enabled === 'boolean'
+        ? runtimeGame.response_max_tokens_enabled
+        : false
+    setResponseMaxTokens(normalizedResponseMaxTokens)
+    setResponseMaxTokensEnabled(normalizedResponseMaxTokensEnabled)
     const rawAmbientProfile = runtimeGame.ambient_profile
     if (rawAmbientProfile && typeof rawAmbientProfile === 'object') {
       setPersistedAmbientProfile(normalizeStoryAmbientProfile(rawAmbientProfile))
@@ -1418,6 +1876,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const override = storySettingsOverrides[game.id]
     if (override) {
       setStoryLlmModel(override.storyLlmModel)
+      setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
+      setResponseMaxTokensEnabled(override.responseMaxTokensEnabled)
       setMemoryOptimizationEnabled(override.memoryOptimizationEnabled)
       setStoryTopK(clampStoryTopK(override.storyTopK))
       setStoryTopR(clampStoryTopR(override.storyTopR))
@@ -1443,11 +1903,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (typeof runtimeGame.ambient_enabled === 'boolean') {
       setAmbientEnabled(runtimeGame.ambient_enabled)
     } else {
-      setAmbientEnabled(true)
+      setAmbientEnabled(false)
     }
   }, [storySettingsOverrides])
 
+  const isAdministrator = user.role === 'administrator'
   const hasMessages = messages.length > 0
+  const shouldShowStoryTitleLoadingSkeleton = isBootstrappingGameData
+  const shouldShowStoryMessagesLoadingSkeleton = (isBootstrappingGameData || isLoadingGameMessages) && messages.length === 0
+  const shouldShowRightPanelLoadingSkeleton =
+    isBootstrappingGameData && instructionCards.length === 0 && plotCards.length === 0 && worldCards.length === 0
   const quickStartIntroBlocks = useMemo(() => parseAssistantMessageBlocks(quickStartIntro), [quickStartIntro])
   const hasUndoneAssistantSteps = undoneAssistantSteps.length > 0
   const canUndoAssistantStep =
@@ -1533,7 +1998,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         .map((card) => ({
           title: card.title.replace(/\s+/g, ' ').trim(),
           content: card.content.replace(/\r\n/g, '\n').trim(),
-          triggers: card.triggers.map((trigger) => trigger.replace(/\s+/g, ' ').trim()).filter(Boolean),
+          triggers: card.triggers
+            .flatMap((trigger) => splitStoryTriggerCandidates(trigger))
+            .map((trigger) => trigger.replace(/\s+/g, ' ').trim())
+            .filter(Boolean),
         }))
         .filter((card) => card.title.length > 0 && card.content.length > 0),
     [activeWorldCardsForContext],
@@ -1547,30 +2015,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       .join('\n')
     return estimateTextTokens(payload)
   }, [normalizedInstructionCardsForContext])
-  const plotContextTokensUsed = useMemo(() => {
-    if (normalizedPlotCardsForContext.length === 0) {
-      return 0
-    }
-    const payload = normalizedPlotCardsForContext.map((card, index) => `${index + 1}. ${card.title}: ${card.content}`).join('\n')
-    return estimateTextTokens(payload)
-  }, [normalizedPlotCardsForContext])
-  const historyContextTokensUsed = useMemo(() => {
-    const normalizedHistory = messages
-      .filter((message) => message.role === 'user' || message.role === 'assistant')
-      .map((message) => ({
-        role: message.role,
-        content: message.content.replace(/\r\n/g, '\n').trim(),
-      }))
-      .filter((message) => message.content.length > 0)
-    if (normalizedHistory.length === 0) {
-      return 0
-    }
-
-    const payload = normalizedHistory
-      .map((message) => `${message.role === 'user' ? 'Игрок' : 'ИИ'}: ${message.content}`)
-      .join('\n')
-    return estimateTextTokens(payload)
-  }, [messages])
   const worldContextTokensUsed = useMemo(() => {
     if (normalizedWorldCardsForContext.length === 0) {
       return 0
@@ -1582,8 +2026,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return estimateTextTokens(lines.join('\n'))
   }, [normalizedWorldCardsForContext])
+  const effectiveHistoryContextTokensUsed = useMemo(() => {
+    const normalizedHistory = messages
+      .filter((message) => message.role === 'user' || message.role === 'assistant')
+      .map((message) => ({
+        role: message.role as 'user' | 'assistant',
+        content: message.content.replace(/\r\n/g, '\n').trim(),
+      }))
+      .filter((message) => message.content.length > 0)
+    if (normalizedHistory.length === 0) {
+      return 0
+    }
+    const historyBudgetTokens = Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0)
+    return estimateHistoryTokensWithinBudget(normalizedHistory, historyBudgetTokens)
+  }, [contextLimitChars, instructionContextTokensUsed, messages, worldContextTokensUsed])
+  const effectivePlotContextTokensUsed = useMemo(() => {
+    if (!memoryOptimizationEnabled || normalizedPlotCardsForContext.length === 0) {
+      return 0
+    }
+    const plotBudgetTokens = Math.max(contextLimitChars - instructionContextTokensUsed - worldContextTokensUsed, 0)
+    return estimatePlotCardsTokensWithinBudget(normalizedPlotCardsForContext, plotBudgetTokens)
+  }, [
+    contextLimitChars,
+    instructionContextTokensUsed,
+    memoryOptimizationEnabled,
+    normalizedPlotCardsForContext,
+    worldContextTokensUsed,
+  ])
   const isPlotMemoryActive = memoryOptimizationEnabled && normalizedPlotCardsForContext.length > 0
-  const storyMemoryTokensUsed = isPlotMemoryActive ? plotContextTokensUsed : historyContextTokensUsed
+  const storyMemoryTokensUsed = isPlotMemoryActive ? effectivePlotContextTokensUsed : effectiveHistoryContextTokensUsed
   const storyMemoryLabel = isPlotMemoryActive ? 'Карточки сюжета' : 'История сообщений'
   const storyMemoryHint = !memoryOptimizationEnabled
     ? 'Оптимизация памяти выключена: карточки сюжета не используются в контексте.'
@@ -1603,7 +2074,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       ? NEXT_INPUT_PLACEHOLDER
       : INITIAL_INPUT_PLACEHOLDER
   const isSavingStorySettings =
-    isSavingContextLimit || isSavingStoryLlmModel || isSavingMemoryOptimization || isSavingStorySampling || isSavingAmbientEnabled
+    isSavingContextLimit ||
+    isSavingResponseMaxTokens ||
+    isSavingResponseMaxTokensEnabled ||
+    isSavingStoryLlmModel ||
+    isSavingMemoryOptimization ||
+    isSavingStorySampling ||
+    isSavingAmbientEnabled
   const isInstructionCardActionLocked = isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
@@ -1707,9 +2184,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
       const aliasSet = new Set<string>()
-      ;[card.title, ...card.triggers].forEach((value) => {
-        buildCharacterAliases(value).forEach((alias) => aliasSet.add(alias))
-      })
+      buildCharacterAliases(card.title).forEach((alias) => aliasSet.add(alias))
+      buildIdentityTriggerAliases(card.title, card.triggers).forEach((alias) => aliasSet.add(alias))
 
       const linkedCharacter =
         card.character_id && card.character_id > 0 ? charactersById.get(card.character_id) ?? null : null
@@ -1745,19 +2221,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
 
         const exact = speakerCardsForAvatar.find((entry) =>
-          entry.names.some(
-            (name) => name === normalizedName || name.includes(normalizedName) || normalizedName.includes(name),
-          ),
+          entry.names.some((name) => name === normalizedName),
         )
         if (exact) {
           return exact
-        }
-
-        const fuzzy = speakerCardsForAvatar.find((entry) =>
-          entry.names.some((name) => name.startsWith(normalizedName) || normalizedName.startsWith(name)),
-        )
-        if (fuzzy) {
-          return fuzzy
         }
       }
 
@@ -1773,23 +2240,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [findSpeakerEntryByName],
   )
   const resolveDialogueSpeakerName = useCallback(
-    (speakerName: string, dialogueText: string, nearbyNarrativeText = ''): string => {
+    (speakerName: string, _dialogueText: string, _nearbyNarrativeText = ''): string => {
+      void _dialogueText
+      void _nearbyNarrativeText
       const speakerLookupValues = extractSpeakerLookupValues(speakerName)
       const speakerDisplayName = speakerLookupValues[0] ?? speakerName.trim()
       const normalizedSpeaker = normalizeCharacterIdentity(speakerDisplayName)
-
-      const findEntryByText = (value: string): SpeakerAvatarEntry | null => {
-        const normalizedText = normalizeCharacterIdentity(value)
-        if (!normalizedText) {
-          return null
-        }
-        const paddedText = ` ${normalizedText} `
-        return (
-          speakerCardsForAvatar.find((entry) =>
-            entry.names.some((name) => name.length > 0 && paddedText.includes(` ${name} `)),
-          ) ?? null
-        )
-      }
 
       if (normalizedSpeaker) {
         const speakerEntry = findSpeakerEntryByName(speakerDisplayName)
@@ -1808,18 +2264,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return speakerDisplayName || speakerName
       }
 
-      const byDialogue = findEntryByText(dialogueText)
-      if (byDialogue) {
-        return byDialogue.displayName
-      }
-      const byNarrative = findEntryByText(nearbyNarrativeText)
-      if (byNarrative) {
-        return byNarrative.displayName
-      }
-
       return speakerDisplayName || speakerName
     },
-    [findSpeakerEntryByName, genericDialogueSpeakerNames, speakerCardsForAvatar],
+    [findSpeakerEntryByName, genericDialogueSpeakerNames],
   )
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
@@ -2164,8 +2611,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
       setErrorMessage(detail)
       return null
-    } finally {
-
     }
   }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, onNavigate])
 
@@ -2312,7 +2757,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
       try {
         const payload = await getStoryGame({ token: authToken, gameId })
-        setQuickStartIntro((payload.game.opening_scene ?? '').trim())
+        const serverOpeningScene = (payload.game.opening_scene ?? '').trim()
+        setQuickStartIntro((previousIntro) => (serverOpeningScene.length > 0 ? serverOpeningScene : previousIntro))
         setMessages(payload.messages)
         setInstructionCards(payload.instruction_cards)
         setPlotCards(payload.plot_cards ?? [])
@@ -2352,6 +2798,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     let isActive = true
 
     const bootstrap = async () => {
+      setIsBootstrappingGameData(true)
       try {
         const loadedGames = await listStoryGames(authToken)
         if (!isActive) {
@@ -2391,9 +2838,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setUndoneAssistantSteps([])
           setContextLimitChars(STORY_DEFAULT_CONTEXT_LIMIT)
           setContextLimitDraft(String(STORY_DEFAULT_CONTEXT_LIMIT))
+          setResponseMaxTokens(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
+          setResponseMaxTokensEnabled(false)
           setStoryLlmModel(STORY_DEFAULT_NARRATOR_MODEL_ID)
           setMemoryOptimizationEnabled(true)
-          setAmbientEnabled(true)
+          setAmbientEnabled(false)
           applyPlotCardEvents([])
           applyWorldCardEvents([])
         }
@@ -2403,6 +2852,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
         setErrorMessage(detail)
+      } finally {
+        if (isActive) {
+          setIsBootstrappingGameData(false)
+        }
       }
     }
 
@@ -3527,6 +3980,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (
         !targetGameId ||
         isSavingContextLimit ||
+        isSavingResponseMaxTokens ||
+        isSavingResponseMaxTokensEnabled ||
         isSavingStoryLlmModel ||
         isSavingMemoryOptimization ||
         isSavingStorySampling ||
@@ -3562,8 +4017,62 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingAmbientEnabled,
       isSavingContextLimit,
       isSavingMemoryOptimization,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
       isSavingStoryLlmModel,
       isSavingStorySampling,
+    ],
+  )
+
+  const persistStoryResponseMaxTokens = useCallback(
+    async (nextValue: number) => {
+      const targetGameId = activeGameId
+      if (
+        !targetGameId ||
+        !responseMaxTokensEnabled ||
+        isSavingResponseMaxTokens ||
+        isSavingResponseMaxTokensEnabled ||
+        isSavingContextLimit ||
+        isSavingStoryLlmModel ||
+        isSavingMemoryOptimization ||
+        isSavingStorySampling ||
+        isSavingAmbientEnabled
+      ) {
+        return
+      }
+
+      const normalizedValue = clampStoryResponseMaxTokens(nextValue)
+      setResponseMaxTokens(normalizedValue)
+      setErrorMessage('')
+      setIsSavingResponseMaxTokens(true)
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          responseMaxTokens: normalizedValue,
+          responseMaxTokensEnabled: true,
+        })
+        setGames((previousGames) =>
+          sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
+        )
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответа ИИ'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingResponseMaxTokens(false)
+      }
+    },
+    [
+      activeGameId,
+      authToken,
+      isSavingAmbientEnabled,
+      isSavingContextLimit,
+      isSavingMemoryOptimization,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
+      isSavingStoryLlmModel,
+      isSavingStorySampling,
+      responseMaxTokensEnabled,
     ],
   )
 
@@ -3573,6 +4082,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (
         !targetGameId ||
         isSavingStoryLlmModel ||
+        isSavingResponseMaxTokens ||
+        isSavingResponseMaxTokensEnabled ||
         isSavingContextLimit ||
         isSavingMemoryOptimization ||
         isSavingStorySampling ||
@@ -3590,11 +4101,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousStoryTopK = storyTopK
       const previousStoryTopR = storyTopR
       const previousAmbientEnabled = ambientEnabled
+      const previousResponseMaxTokens = responseMaxTokens
+      const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
       setStoryLlmModel(normalizedModel)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
         [targetGameId]: {
           storyLlmModel: normalizedModel,
+          responseMaxTokens: previousResponseMaxTokens,
+          responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
           storyTopK: previousStoryTopK,
           storyTopR: previousStoryTopR,
@@ -3609,6 +4124,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: targetGameId,
           storyLlmModel: normalizedModel,
           contextLimitTokens: contextLimitChars,
+          responseMaxTokens: previousResponseMaxTokens,
+          responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           storyTopK: previousStoryTopK,
           storyTopR: previousStoryTopR,
           ambientEnabled: previousAmbientEnabled,
@@ -3646,9 +4163,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingAmbientEnabled,
       isSavingContextLimit,
       isSavingMemoryOptimization,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
       isSavingStorySampling,
       isSavingStoryLlmModel,
       contextLimitChars,
+      responseMaxTokens,
+      responseMaxTokensEnabled,
       memoryOptimizationEnabled,
       ambientEnabled,
       storyTopK,
@@ -3662,6 +4183,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (
       !targetGameId ||
       isSavingMemoryOptimization ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
       isSavingContextLimit ||
       isSavingStoryLlmModel ||
       isSavingStorySampling ||
@@ -3676,11 +4199,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const previousStoryTopK = storyTopK
     const previousStoryTopR = storyTopR
     const previousAmbientEnabled = ambientEnabled
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
     setMemoryOptimizationEnabled(nextValue)
     setStorySettingsOverrides((previousOverrides) => ({
       ...previousOverrides,
       [targetGameId]: {
         storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
         memoryOptimizationEnabled: nextValue,
         storyTopK: previousStoryTopK,
         storyTopR: previousStoryTopR,
@@ -3695,6 +4222,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         memoryOptimizationEnabled: nextValue,
         contextLimitTokens: contextLimitChars,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
         storyTopK: previousStoryTopK,
         storyTopR: previousStoryTopR,
         ambientEnabled: previousAmbientEnabled,
@@ -3731,9 +4260,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingAmbientEnabled,
     isSavingContextLimit,
     isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
     isSavingStorySampling,
     isSavingStoryLlmModel,
     contextLimitChars,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
     memoryOptimizationEnabled,
     ambientEnabled,
     storyTopK,
@@ -3746,6 +4279,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (
       !targetGameId ||
       isSavingAmbientEnabled ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
       isSavingContextLimit ||
       isSavingStoryLlmModel ||
       isSavingMemoryOptimization ||
@@ -3760,11 +4295,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const previousMemoryOptimization = memoryOptimizationEnabled
     const previousStoryTopK = storyTopK
     const previousStoryTopR = storyTopR
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
     setAmbientEnabled(nextValue)
     setStorySettingsOverrides((previousOverrides) => ({
       ...previousOverrides,
       [targetGameId]: {
         storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
         memoryOptimizationEnabled: previousMemoryOptimization,
         storyTopK: previousStoryTopK,
         storyTopR: previousStoryTopR,
@@ -3779,6 +4318,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         ambientEnabled: nextValue,
         contextLimitTokens: contextLimitChars,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
         storyTopK: previousStoryTopK,
         storyTopR: previousStoryTopR,
       })
@@ -3814,13 +4355,106 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingAmbientEnabled,
     isSavingContextLimit,
     isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
     isSavingStoryLlmModel,
     isSavingStorySampling,
     memoryOptimizationEnabled,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
     storyTopK,
     storyTopR,
     storyLlmModel,
   ])
+
+  const toggleResponseMaxTokensEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !targetGameId ||
+      isSavingResponseMaxTokensEnabled ||
+      isSavingResponseMaxTokens ||
+      isSavingContextLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingAmbientEnabled ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const nextValue = !responseMaxTokensEnabled
+    const normalizedResponseMaxTokens = clampStoryResponseMaxTokens(responseMaxTokens)
+    const previousStoryLlmModel = storyLlmModel
+    const previousMemoryOptimization = memoryOptimizationEnabled
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    const previousAmbientEnabled = ambientEnabled
+    setResponseMaxTokensEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: normalizedResponseMaxTokens,
+        responseMaxTokensEnabled: nextValue,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        ambientEnabled: previousAmbientEnabled,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingResponseMaxTokensEnabled(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        responseMaxTokensEnabled: nextValue,
+        responseMaxTokens: normalizedResponseMaxTokens,
+      })
+      setResponseMaxTokensEnabled(nextValue)
+      setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
+      setGames((previousGames) =>
+        sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа ИИ'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingResponseMaxTokensEnabled(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    authToken,
+    isGenerating,
+    isSavingAmbientEnabled,
+    isSavingContextLimit,
+    isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingStoryLlmModel,
+    isSavingStorySampling,
+    memoryOptimizationEnabled,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    storyTopK,
+    storyTopR,
+    storyLlmModel,
+  ])
+
+  const handleResponseMaxTokensSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
+    const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+    setResponseMaxTokens(clampStoryResponseMaxTokens(rawValue))
+  }, [])
+
+  const handleResponseMaxTokensSliderCommit = useCallback(
+    async (_event: unknown, nextValue: number | number[]) => {
+      const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
+      await persistStoryResponseMaxTokens(rawValue)
+    },
+    [persistStoryResponseMaxTokens],
+  )
 
   const handleContextLimitSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
     const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
@@ -3871,6 +4505,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (
         !targetGameId ||
         isSavingStorySampling ||
+        isSavingResponseMaxTokens ||
+        isSavingResponseMaxTokensEnabled ||
         isSavingContextLimit ||
         isSavingStoryLlmModel ||
         isSavingMemoryOptimization ||
@@ -3884,12 +4520,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const normalizedStoryModel = storyLlmModel
       const normalizedMemoryOptimization = memoryOptimizationEnabled
       const normalizedAmbientEnabled = ambientEnabled
+      const normalizedResponseMaxTokens = responseMaxTokens
+      const normalizedResponseMaxTokensEnabled = responseMaxTokensEnabled
       setStoryTopK(normalizedTopK)
       setStoryTopR(normalizedTopR)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
         [targetGameId]: {
           storyLlmModel: normalizedStoryModel,
+          responseMaxTokens: normalizedResponseMaxTokens,
+          responseMaxTokensEnabled: normalizedResponseMaxTokensEnabled,
           memoryOptimizationEnabled: normalizedMemoryOptimization,
           storyTopK: normalizedTopK,
           storyTopR: normalizedTopR,
@@ -3904,6 +4544,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: targetGameId,
           storyTopK: normalizedTopK,
           storyTopR: normalizedTopR,
+          responseMaxTokens: normalizedResponseMaxTokens,
+          responseMaxTokensEnabled: normalizedResponseMaxTokensEnabled,
           ambientEnabled: normalizedAmbientEnabled,
         })
         setGames((previousGames) =>
@@ -3935,10 +4577,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingAmbientEnabled,
       isSavingContextLimit,
       isSavingMemoryOptimization,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
       isSavingStoryLlmModel,
       isSavingStorySampling,
       memoryOptimizationEnabled,
       ambientEnabled,
+      responseMaxTokens,
+      responseMaxTokensEnabled,
       storyLlmModel,
     ],
   )
@@ -4003,6 +4649,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }))
             .filter((card) => card.title.length > 0 && card.content.length > 0),
           storyLlmModel,
+          responseMaxTokens: responseMaxTokensEnabled ? responseMaxTokens : undefined,
           memoryOptimizationEnabled,
           storyTopK,
           storyTopR,
@@ -4170,7 +4817,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         aborted: wasAborted,
       }
     },
-    [ambientEnabled, authToken, loadGameById, memoryOptimizationEnabled, onUserUpdate, storyLlmModel, storyTopK, storyTopR],
+    [
+      ambientEnabled,
+      authToken,
+      loadGameById,
+      memoryOptimizationEnabled,
+      onUserUpdate,
+      responseMaxTokensEnabled,
+      responseMaxTokens,
+      storyLlmModel,
+      storyTopK,
+      storyTopR,
+    ],
   )
 
   const handleSendPrompt = useCallback(async () => {
@@ -4220,8 +4878,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setErrorMessage(detail)
 
         return
-      } finally {
-
       }
     }
 
@@ -4547,34 +5203,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onUserUpdate(response.user)
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'success',
-            text: `Баланс пополнен: +${response.coins} токенов.`,
-          })
+          setPaymentSuccessCoins(response.coins)
           return
         }
 
-        if (response.status === 'canceled') {
+        if (FINAL_PAYMENT_STATUSES.has(response.status)) {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
-          setPaymentNotice({
-            severity: 'error',
-            text: 'Оплата не прошла. Можно попробовать снова.',
-          })
-          return
-        }
-
-        if (!FINAL_PAYMENT_STATUSES.has(response.status)) {
-          setPaymentNotice({
-            severity: 'info',
-            text: 'Платеж обрабатывается. Токены будут начислены после подтверждения оплаты.',
-          })
         }
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось проверить статус оплаты'
-        setPaymentNotice({
-          severity: 'error',
-          text: detail,
-        })
+        const detail = error instanceof Error ? error.message : 'Failed to sync payment status'
+        if (detail.includes('404')) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
       }
     },
     [authToken, onUserUpdate],
@@ -4708,7 +5348,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </IconButton>
             <Button
               variant="text"
-              onClick={() => setProfileDialogOpen(true)}
+              onClick={() => onNavigate('/profile')}
               sx={{
                 minWidth: 0,
                 width: HEADER_AVATAR_SIZE,
@@ -4853,7 +5493,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
           </Box>
         </Box>
-        <Box sx={{ p: 'var(--morius-story-right-padding)', display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+        <Box
+          sx={{
+            p: 'var(--morius-story-right-padding)',
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            '--morius-scrollbar-offset': '0px',
+            '--morius-scrollbar-gutter': 'auto',
+          }}
+        >
           <Box
             key={rightPanelContentKey}
             className="morius-scrollbar"
@@ -4865,7 +5515,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               flex: 1,
               overflowY: 'auto',
               overflowX: 'hidden',
-              pr: 0.2,
+              pr: 0,
               animation: 'morius-panel-content-enter 240ms cubic-bezier(0.22, 1, 0.36, 1)',
               '@keyframes morius-panel-content-enter': {
                 from: { opacity: 0, transform: 'translateY(8px)' },
@@ -4873,7 +5523,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               },
             }}
           >
-          {rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
+          {shouldShowRightPanelLoadingSkeleton ? <StoryRightPanelLoadingSkeleton /> : null}
+
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' && activeAiPanelTab === 'instructions' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {instructionCards.length === 0 ? (
                 <>
@@ -4938,7 +5590,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       flex: 1,
                       minHeight: 0,
                       overflowY: 'auto',
-                      pr: 0.25,
+                      pr: 0,
                     }}
                   >
                     <Stack spacing={0.85}>
@@ -5028,11 +5680,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       ))}
                     </Stack>
                   </Box>
-                  <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 0.75,
+                      gridTemplateColumns: {
+                        xs: '1fr',
+                        md: 'repeat(2, minmax(0, 1fr))',
+                      },
+                    }}
+                  >
                     <Button
                       onClick={handleOpenCreateInstructionDialog}
                       disabled={isGenerating || isSavingInstruction || deletingInstructionId !== null || isCreatingGame}
                       sx={{
+                        width: '100%',
                         minHeight: 40,
                         borderRadius: '12px',
                         textTransform: 'none',
@@ -5047,6 +5709,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       onClick={handleOpenInstructionTemplateDialog}
                       disabled={isGenerating || isSavingInstruction || deletingInstructionId !== null || isCreatingGame}
                       sx={{
+                        width: '100%',
                         minHeight: 40,
                         borderRadius: '12px',
                         textTransform: 'none',
@@ -5057,16 +5720,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     >
                       Из шаблона
                     </Button>
-                  </Stack>
+                  </Box>
                 </>
               )}
             </Box>
           ) : null}
 
-          {rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'ai' && activeAiPanelTab === 'settings' ? (
             <Box
               sx={{
-                px: 0.25,
+                px: 0,
                 py: 0.2,
               }}
             >
@@ -5187,7 +5850,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           Оптимизация памяти
                         </Typography>
                         <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
-                          Если выключить, Gemma не будет создавать и обновлять карточки сюжета.
+                          Если выключить, ИИ не будет создавать и обновлять карточки сюжета.
                         </Typography>
                       </Box>
                       <Switch
@@ -5223,10 +5886,92 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                       <Box sx={{ minWidth: 0 }}>
                         <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
+                          Ответ ИИ в токенах
+                        </Typography>
+                        <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
+                          {responseMaxTokensEnabled
+                            ? 'Чем выше значение, тем длиннее и подробнее ответ.'
+                            : 'Выключено: лимит не применяется.'}
+                        </Typography>
+                      </Box>
+                      <Switch
+                        checked={responseMaxTokensEnabled}
+                        onChange={() => {
+                          void toggleResponseMaxTokensEnabled()
+                        }}
+                        disabled={isSavingStorySettings || isGenerating}
+                        sx={{
+                          '& .MuiSwitch-switchBase.Mui-checked': {
+                            color: 'rgba(183, 215, 255, 0.96)',
+                          },
+                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                            backgroundColor: 'rgba(64, 96, 148, 0.82)',
+                            opacity: 1,
+                          },
+                          '& .MuiSwitch-track': {
+                            backgroundColor: 'rgba(106, 116, 138, 0.46)',
+                            opacity: 1,
+                          },
+                        }}
+                      />
+                    </Stack>
+
+                    <Box sx={{ mt: 0.86 }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>
+                          Лимит ответа
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(194, 208, 227, 0.84)', fontSize: '0.76rem' }}>{responseMaxTokens}</Typography>
+                      </Stack>
+                      <Slider
+                        value={responseMaxTokens}
+                        min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                        max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                        step={1}
+                        onChange={handleResponseMaxTokensSliderChange}
+                        onChangeCommitted={(event, value) => {
+                          void handleResponseMaxTokensSliderCommit(event, value)
+                        }}
+                        disabled={!responseMaxTokensEnabled || isSavingStorySettings || isGenerating}
+                        sx={{
+                          mt: 0.42,
+                          color: '#c6d3e5',
+                          '& .MuiSlider-thumb': {
+                            width: 14,
+                            height: 14,
+                          },
+                        }}
+                      />
+                    </Box>
+
+                    <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.28 }}>
+                      <Typography sx={{ color: 'rgba(184, 198, 219, 0.62)', fontSize: '0.74rem' }}>
+                        {STORY_RESPONSE_MAX_TOKENS_MIN}
+                      </Typography>
+                      <Typography sx={{ color: 'rgba(184, 198, 219, 0.62)', fontSize: '0.74rem' }}>
+                        {STORY_RESPONSE_MAX_TOKENS_MAX}
+                      </Typography>
+                    </Stack>
+
+                    {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
+                      <CircularProgress size={14} sx={{ mt: 0.45, color: 'rgba(205, 215, 231, 0.86)' }} />
+                    ) : null}
+                  </Box>
+
+                  <Box
+                    sx={{
+                      mt: 0.98,
+                      pt: 0.9,
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
+                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
                           Эмбиент подсветка
                         </Typography>
                         <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
-                          Выключено: подсветка скрыта и Gemma не вызывается для анализа окружения.
+                          Выключено: подсветка скрыта и ИИ не вызывается для анализа окружения.
                         </Typography>
                       </Box>
                       <Switch
@@ -5261,11 +6006,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   >
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={0.8}>
                       <Box sx={{ minWidth: 0 }}>
-                        <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
-                          Температура (Top K / Top R)
-                        </Typography>
+                        <Stack direction="row" alignItems="center" spacing={0.5}>
+                          <Typography sx={{ color: '#dfe6f2', fontSize: '0.88rem', fontWeight: 700 }}>
+                            Температура
+                          </Typography>
+                          <Tooltip
+                            title="Определяет, насколько ответ будет более сдержанным или более креативным. Ниже можно точнее подстроить поведение через Top-P и Top-K."
+                            placement="top"
+                          >
+                            <Box
+                              component="span"
+                              sx={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: '50%',
+                                border: '1px solid rgba(180, 199, 225, 0.72)',
+                                color: 'rgba(207, 222, 244, 0.9)',
+                                fontSize: '0.67rem',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                lineHeight: 1,
+                                cursor: 'help',
+                                userSelect: 'none',
+                              }}
+                            >
+                              i
+                            </Box>
+                          </Tooltip>
+                        </Stack>
                         <Typography sx={{ mt: 0.24, color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.75rem', lineHeight: 1.35 }}>
-                          Применяется к GLM 5, Trinity и Kim K2. На Gemma не влияет.
+                          Управляет креативностью и предсказуемостью ответа ИИ.
                         </Typography>
                       </Box>
                       <Button
@@ -5293,7 +6065,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
                     <Box sx={{ mt: 0.86 }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top K</Typography>
+                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top-K</Typography>
                         <Typography sx={{ color: 'rgba(194, 208, 227, 0.84)', fontSize: '0.76rem' }}>{storyTopK}</Typography>
                       </Stack>
                       <Slider
@@ -5319,7 +6091,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
                     <Box sx={{ mt: 0.34 }}>
                       <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top R</Typography>
+                        <Typography sx={{ color: 'rgba(208, 220, 236, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>Top-P</Typography>
                         <Typography sx={{ color: 'rgba(194, 208, 227, 0.84)', fontSize: '0.76rem' }}>{storyTopR.toFixed(2)}</Typography>
                       </Stack>
                       <Slider
@@ -5420,7 +6192,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Typography>
                   </Stack>
 
-                  <Box
+                  {isAdministrator ? (
+                    <Box
                     sx={{
                       mt: 1.05,
                       pt: 0.92,
@@ -5518,13 +6291,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
                       </Alert>
                     ) : null}
-                  </Box>
+                    </Box>
+                  ) : null}
                 </>
               )}
             </Box>
           ) : null}
 
-          {rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {plotCards.length === 0 ? (
                 <>
@@ -5554,7 +6328,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       flex: 1,
                       minHeight: 0,
                       overflowY: 'auto',
-                      pr: 0.25,
+                      pr: 0,
                     }}
                   >
                     <Stack spacing={0.85}>
@@ -5675,7 +6449,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Stack direction="column" spacing={0.7}>
                 {!mainHeroCard ? (
@@ -5806,7 +6580,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     flex: 1,
                     minHeight: 0,
                     overflowY: 'auto',
-                    pr: 0.25,
+                    pr: 0,
                   }}
                 >
                   <Stack spacing={0.85}>
@@ -5815,7 +6589,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       const isCardContextActive = Boolean(contextState?.isActive)
                       return (
                         <Box key={card.id} sx={{ display: 'flex', flexDirection: 'column', gap: 0.45 }}>
-                          <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap', px: 0.25 }}>
+                          <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap', px: 0 }}>
                             <Typography
                               sx={{
                                 color: isCardContextActive ? 'rgba(170, 238, 191, 0.96)' : 'rgba(155, 172, 196, 0.84)',
@@ -6035,40 +6809,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               {errorMessage}
             </Alert>
           ) : null}
-          {paymentNotice ? (
-            <Alert
-              severity={paymentNotice.severity}
-              onClose={() => setPaymentNotice(null)}
-              sx={{ width: '100%', mb: 1.2, borderRadius: '12px' }}
+
+          {shouldShowStoryTitleLoadingSkeleton ? (
+            <StoryTitleLoadingSkeleton />
+          ) : (
+            <Typography
+              component="div"
+              contentEditable={!isGenerating && Boolean(activeGameId)}
+              suppressContentEditableWarning
+              spellCheck={false}
+              onFocus={handleInlineTitleFocus}
+              onBlur={handleInlineTitleBlur}
+              onKeyDown={handleInlineTitleKeyDown}
+              sx={{
+                px: { xs: 0.3, md: 0.8 },
+                mb: 1.1,
+                color: '#e0e7f4',
+                fontWeight: 700,
+                fontSize: { xs: '1.18rem', md: '1.42rem' },
+                lineHeight: 1.25,
+                cursor: isGenerating ? 'default' : 'text',
+                outline: 'none',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
             >
-              {paymentNotice.text}
-            </Alert>
-          ) : null}
-
-
-          <Typography
-            component="div"
-            contentEditable={!isGenerating && Boolean(activeGameId)}
-            suppressContentEditableWarning
-            spellCheck={false}
-            onFocus={handleInlineTitleFocus}
-            onBlur={handleInlineTitleBlur}
-            onKeyDown={handleInlineTitleKeyDown}
-            sx={{
-              px: { xs: 0.3, md: 0.8 },
-              mb: 1.1,
-              color: '#e0e7f4',
-              fontWeight: 700,
-              fontSize: { xs: '1.18rem', md: '1.42rem' },
-              lineHeight: 1.25,
-              cursor: isGenerating ? 'default' : 'text',
-              outline: 'none',
-              whiteSpace: 'pre-wrap',
-              wordBreak: 'break-word',
-            }}
-          >
-            {activeDisplayTitle}
-          </Typography>
+              {activeDisplayTitle}
+            </Typography>
+          )}
 
           <Box
             sx={{
@@ -6076,13 +6844,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               pb: { xs: 1.5, md: 1.8 },
             }}
           >
-            {isLoadingGameMessages ? (
+            {shouldShowStoryMessagesLoadingSkeleton ? (
+              <StoryMessagesLoadingSkeleton />
+            ) : null}
+
+            {!shouldShowStoryMessagesLoadingSkeleton && isLoadingGameMessages ? (
               <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 220 }}>
                 <CircularProgress size={28} />
               </Stack>
             ) : null}
 
-            {!isLoadingGameMessages && messages.length === 0 ? (
+            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages ? (
               quickStartIntroBlocks.length > 0 ? (
                 <Box
                   sx={{
@@ -6173,16 +6945,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     })}
                   </Stack>
                 </Box>
-              ) : (
+              ) : messages.length === 0 ? (
                 <Stack spacing={1.2} sx={{ color: 'rgba(210, 219, 234, 0.72)', mt: 0.6, maxWidth: 820 }}>
                   <Typography sx={{ fontSize: { xs: '1.05rem', md: '1.2rem' }, color: 'rgba(226, 232, 243, 0.9)' }}>
                     {INITIAL_STORY_PLACEHOLDER}
                   </Typography>
                 </Stack>
-              )
+              ) : null
             ) : null}
 
-            {!isLoadingGameMessages
+            {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages
               ? messages.map((message) => {
                   if (editingMessageId === message.id) {
                     return (
@@ -8020,6 +8792,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <ProfileDialog
         open={profileDialogOpen}
         user={user}
+        authToken={authToken}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}
@@ -8047,6 +8820,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+      />
+
+      <PaymentSuccessDialog
+        open={paymentSuccessCoins !== null}
+        coins={paymentSuccessCoins ?? 0}
+        transitionComponent={DialogTransition}
+        onClose={() => setPaymentSuccessCoins(null)}
       />
 
       <ConfirmLogoutDialog

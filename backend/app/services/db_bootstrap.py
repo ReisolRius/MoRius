@@ -9,7 +9,9 @@ from app.database import Base, engine
 from app.models import (
     CoinPurchase,
     StoryCharacter,
+    StoryCommunityWorldFavorite,
     StoryCommunityWorldLaunch,
+    StoryCommunityWorldReport,
     StoryCommunityWorldRating,
     StoryCommunityWorldView,
     StoryGame,
@@ -21,12 +23,14 @@ from app.models import (
     StoryWorldCard,
     StoryWorldCardChangeEvent,
     User,
+    UserFollow,
 )
 
 
 @dataclass(frozen=True)
 class StoryBootstrapDefaults:
     context_limit_tokens: int
+    response_max_tokens: int
     private_visibility: str
     world_kind: str
     npc_kind: str
@@ -36,7 +40,35 @@ class StoryBootstrapDefaults:
     memory_turns_always: int
 
 
-def _ensure_user_coins_column_exists() -> None:
+DEFAULT_USER_ROLE = "user"
+PRIVILEGED_ROLE_BY_EMAIL = {
+    "alexunderstood8@gmail.com": "administrator",
+    "borisow.n2011@gmail.com": "moderator",
+}
+
+
+def _is_duplicate_schema_error(exc: Exception) -> bool:
+    error_text = str(getattr(exc, "orig", exc) or "").casefold()
+    duplicate_markers = (
+        "already exists",
+        "duplicate column",
+        "duplicate key",
+        "duplicate table",
+        "duplicate object",
+    )
+    return any(marker in error_text for marker in duplicate_markers)
+
+
+def _execute_schema_statement(connection, statement: str) -> None:
+    try:
+        connection.execute(text(statement))
+    except Exception as exc:  # pragma: no cover - depends on database driver wording
+        if _is_duplicate_schema_error(exc):
+            return
+        raise
+
+
+def _ensure_user_account_columns_exist() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(User.__tablename__):
         return
@@ -45,15 +77,67 @@ def _ensure_user_coins_column_exists() -> None:
     alter_statements: list[str] = []
     if "coins" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
+    if "profile_description" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN profile_description TEXT NOT NULL DEFAULT ''")
     if "avatar_scale" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0")
+    if "show_subscriptions" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_subscriptions INTEGER NOT NULL DEFAULT 0")
+    if "show_public_worlds" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_worlds INTEGER NOT NULL DEFAULT 0")
+    if "show_private_worlds" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_private_worlds INTEGER NOT NULL DEFAULT 0")
+    if "role" not in user_columns:
+        alter_statements.append(f"ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT '{DEFAULT_USER_ROLE}'")
+    if "level" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN level INTEGER NOT NULL DEFAULT 1")
+    if "is_banned" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
+    if "ban_expires_at" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN ban_expires_at TIMESTAMP WITH TIME ZONE")
 
     if not alter_statements:
         return
 
     with engine.begin() as connection:
         for statement in alter_statements:
-            connection.execute(text(statement))
+            _execute_schema_statement(connection, statement)
+
+
+def _enforce_privileged_roles() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(User.__tablename__):
+        return
+
+    with engine.begin() as connection:
+        for email, role in PRIVILEGED_ROLE_BY_EMAIL.items():
+            connection.execute(
+                text(
+                    f"UPDATE {User.__tablename__} "
+                    "SET role = :role "
+                    "WHERE lower(email) = :email"
+                ),
+                {
+                    "role": role,
+                    "email": email,
+                },
+            )
+
+        email_params = {f"email_{index}": email for index, email in enumerate(PRIVILEGED_ROLE_BY_EMAIL.keys())}
+        placeholders = ", ".join(f":{name}" for name in email_params)
+        if placeholders:
+            connection.execute(
+                text(
+                    f"UPDATE {User.__tablename__} "
+                    "SET role = :user_role "
+                    f"WHERE lower(email) NOT IN ({placeholders}) "
+                    "AND role != :user_role"
+                ),
+                {
+                    "user_role": DEFAULT_USER_ROLE,
+                    **email_params,
+                },
+            )
 
 
 def _ensure_story_game_context_limit_column_exists(default_context_limit_tokens: int) -> None:
@@ -66,15 +150,14 @@ def _ensure_story_game_context_limit_column_exists(default_context_limit_tokens:
         return
 
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                f"ALTER TABLE {StoryGame.__tablename__} "
-                f"ADD COLUMN context_limit_chars INTEGER NOT NULL DEFAULT {default_context_limit_tokens}"
-            )
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            f"ADD COLUMN context_limit_chars INTEGER NOT NULL DEFAULT {default_context_limit_tokens}",
         )
 
 
-def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
+def _ensure_story_game_community_columns_exist(private_visibility: str, default_response_max_tokens: int) -> None:
     inspector = inspect(engine)
     if not inspector.has_table(StoryGame.__tablename__):
         return
@@ -132,6 +215,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'z-ai/glm-5'"
         )
+    if "response_max_tokens" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            f"ADD COLUMN response_max_tokens INTEGER NOT NULL DEFAULT {int(default_response_max_tokens)}"
+        )
+    if "response_max_tokens_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN response_max_tokens_enabled INTEGER NOT NULL DEFAULT 0"
+        )
     if "memory_optimization_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -150,7 +243,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
     if "ambient_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN ambient_enabled INTEGER NOT NULL DEFAULT 1"
+            "ADD COLUMN ambient_enabled INTEGER NOT NULL DEFAULT 0"
         )
     if "ambient_profile" not in existing_columns:
         alter_statements.append(
@@ -188,7 +281,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str) -> None:
 
     with engine.begin() as connection:
         for statement in alter_statements:
-            connection.execute(text(statement))
+            _execute_schema_statement(connection, statement)
 
 
 def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefaults) -> None:
@@ -242,7 +335,7 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
 
     with engine.begin() as connection:
         for statement in alter_statements:
-            connection.execute(text(statement))
+            _execute_schema_statement(connection, statement)
         if memory_turns_column_added:
             connection.execute(
                 text(
@@ -270,11 +363,10 @@ def _ensure_story_character_avatar_scale_column_exists() -> None:
         return
 
     with engine.begin() as connection:
-        connection.execute(
-            text(
-                f"ALTER TABLE {StoryCharacter.__tablename__} "
-                "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0"
-            )
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0",
         )
 
 
@@ -319,12 +411,26 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCommunityWorldView.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_launches_world_user_id "
         f"ON {StoryCommunityWorldLaunch.__tablename__} (world_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_favorites_world_user_id "
+        f"ON {StoryCommunityWorldFavorite.__tablename__} (world_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_favorites_user_world_id "
+        f"ON {StoryCommunityWorldFavorite.__tablename__} (user_id, world_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_world_status_id "
+        f"ON {StoryCommunityWorldReport.__tablename__} (world_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_reporter_world_id "
+        f"ON {StoryCommunityWorldReport.__tablename__} (reporter_user_id, world_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_status_created_id "
+        f"ON {StoryCommunityWorldReport.__tablename__} (status, created_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
+        "CREATE INDEX IF NOT EXISTS ix_user_follows_follower_following_id "
+        f"ON {UserFollow.__tablename__} (follower_user_id, following_user_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_follows_following_follower_id "
+        f"ON {UserFollow.__tablename__} (following_user_id, follower_user_id, id)",
     )
     with engine.begin() as connection:
         for statement in index_statements:
-            connection.execute(text(statement))
+            _execute_schema_statement(connection, statement)
 
 
 def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -> None:
@@ -335,9 +441,13 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
             db_path.parent.mkdir(parents=True, exist_ok=True)
 
     Base.metadata.create_all(bind=engine)
-    _ensure_user_coins_column_exists()
+    _ensure_user_account_columns_exist()
+    _enforce_privileged_roles()
     _ensure_story_game_context_limit_column_exists(defaults.context_limit_tokens)
-    _ensure_story_game_community_columns_exist(defaults.private_visibility)
+    _ensure_story_game_community_columns_exist(
+        defaults.private_visibility,
+        defaults.response_max_tokens,
+    )
     _ensure_story_world_card_extended_columns_exist(defaults)
     _ensure_story_character_avatar_scale_column_exists()
     _ensure_performance_indexes_exist()

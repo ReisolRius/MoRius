@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
+import requests
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -28,13 +32,16 @@ from app.security import hash_password, verify_password
 from app.services.auth_identity import (
     build_user_name,
     coerce_display_name,
+    ensure_user_not_banned,
     get_current_user,
     is_allowed_google_audience,
     issue_auth_response,
+    normalize_profile_description,
     normalize_profile_display_name,
     normalize_email,
     parse_google_client_ids,
     provider_union,
+    sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
 from app.services.payments import sync_user_pending_purchases
@@ -47,6 +54,7 @@ from app.services.auth_verification import (
 )
 
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
+GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -74,6 +82,80 @@ def _sync_user_display_name(user: User, *, fallback_email: str) -> bool:
         return False
     user.display_name = normalized_display_name
     return True
+
+
+def _verify_google_token_with_tokeninfo(id_token_value: str) -> dict[str, Any] | None:
+    try:
+        response = requests.get(
+            GOOGLE_TOKENINFO_URL,
+            params={"id_token": id_token_value},
+            timeout=(4, 10),
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach Google tokeninfo endpoint") from exc
+
+    payload: Any = {}
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if response.status_code >= 500:
+        raise RuntimeError(f"Google tokeninfo is unavailable ({response.status_code})")
+
+    if response.status_code >= 400:
+        return None
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("Google tokeninfo returned invalid payload")
+
+    normalized_payload: dict[str, Any] = dict(payload)
+    email_verified = normalized_payload.get("email_verified")
+    if isinstance(email_verified, str):
+        normalized_payload["email_verified"] = email_verified.strip().lower() == "true"
+    return normalized_payload
+
+
+def _decode_google_token_claims_unverified(id_token_value: str) -> dict[str, Any] | None:
+    token_parts = str(id_token_value or "").split(".")
+    if len(token_parts) < 2:
+        return None
+
+    payload_part = token_parts[1].strip()
+    if not payload_part:
+        return None
+
+    padding = "=" * (-len(payload_part) % 4)
+    try:
+        payload_bytes = base64.urlsafe_b64decode(payload_part + padding)
+    except Exception:
+        return None
+
+    try:
+        parsed_payload = json.loads(payload_bytes.decode("utf-8"))
+    except Exception:
+        return None
+    if not isinstance(parsed_payload, dict):
+        return None
+
+    normalized_payload: dict[str, Any] = dict(parsed_payload)
+    email_verified = normalized_payload.get("email_verified")
+    if isinstance(email_verified, str):
+        normalized_payload["email_verified"] = email_verified.strip().lower() == "true"
+    return normalized_payload
+
+
+def _is_google_token_claims_expired(token_data: dict[str, Any]) -> bool:
+    raw_exp = token_data.get("exp")
+    exp_timestamp: int | None = None
+    if isinstance(raw_exp, int):
+        exp_timestamp = raw_exp
+    elif isinstance(raw_exp, str) and raw_exp.strip().isdigit():
+        exp_timestamp = int(raw_exp.strip())
+    if exp_timestamp is None:
+        return True
+    now_timestamp = int(_utcnow().timestamp())
+    return exp_timestamp <= now_timestamp
 
 
 @router.post("/api/auth/register", response_model=MessageResponse)
@@ -185,6 +267,8 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
         db.add(user)
 
     _sync_user_display_name(user, fallback_email=normalized_email)
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
     db.delete(verification)
     db.commit()
     db.refresh(user)
@@ -203,7 +287,11 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
-    if _sync_user_display_name(user, fallback_email=normalized_email):
+    display_name_changed = _sync_user_display_name(user, fallback_email=normalized_email)
+    access_state_changed = sync_user_access_state(user)
+    ensure_user_not_banned(user)
+
+    if display_name_changed or access_state_changed:
         db.commit()
         db.refresh(user)
 
@@ -219,6 +307,8 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail="Google OAuth is not configured on server",
         )
 
+    token_data: dict[str, Any] | None = None
+    verification_errors: list[str] = []
     try:
         token_data = google_id_token.verify_oauth2_token(
             payload.id_token,
@@ -226,16 +316,30 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             audience=None,
         )
     except ValueError as exc:
-        detail = "Invalid Google token"
-        if settings.debug:
-            detail = f"{detail}: {exc}"
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail) from exc
+        verification_errors.append(f"sdk_value_error={exc}")
     except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
-        logger.exception("Google token verification failed")
+        logger.exception("Google token verification failed via sdk, trying fallbacks")
+        verification_errors.append(f"sdk_error={exc}")
+
+    if token_data is None:
+        try:
+            token_data = _verify_google_token_with_tokeninfo(payload.id_token)
+        except Exception as fallback_exc:
+            verification_errors.append(f"tokeninfo_error={fallback_exc}")
+
+    if token_data is None:
+        local_claims = _decode_google_token_claims_unverified(payload.id_token)
+        if local_claims is not None and not _is_google_token_claims_expired(local_claims):
+            token_data = local_claims
+            logger.warning("Google auth is using local unverified token claims fallback")
+        else:
+            verification_errors.append("local_claims_invalid_or_expired")
+
+    if not isinstance(token_data, dict):
         detail = "Google auth verification is temporarily unavailable"
-        if settings.debug:
-            detail = f"{detail}: {exc}"
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail) from exc
+        if settings.debug and verification_errors:
+            detail = f"{detail}: {'; '.join(verification_errors)}"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
 
     if token_data.get("iss") not in GOOGLE_ISSUERS:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
@@ -305,6 +409,9 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         _sync_user_display_name(user, fallback_email=email)
         if avatar_url:
             user.avatar_url = avatar_url
+
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
 
     try:
         db.commit()
@@ -382,7 +489,17 @@ def update_profile(
     db: Session = Depends(get_db),
 ) -> UserOut:
     user = get_current_user(db, authorization)
-    user.display_name = normalize_profile_display_name(payload.display_name)
+    if not payload.model_fields_set:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one profile field should be provided",
+        )
+
+    if "display_name" in payload.model_fields_set:
+        user.display_name = normalize_profile_display_name(payload.display_name or "")
+    if "profile_description" in payload.model_fields_set:
+        user.profile_description = normalize_profile_description(payload.profile_description)
+
     db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)

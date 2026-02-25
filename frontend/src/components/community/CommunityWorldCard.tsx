@@ -1,14 +1,19 @@
-import { Box, Button, Stack, Typography } from '@mui/material'
+import { Box, IconButton, Stack, SvgIcon, Typography } from '@mui/material'
 import type { SxProps } from '@mui/system'
 import type { Theme } from '@mui/material/styles'
+import type { KeyboardEvent, MouseEvent } from 'react'
 import { icons } from '../../assets'
 import type { StoryCommunityWorldSummary } from '../../types/story'
 
 type CommunityWorldCardProps = {
   world: StoryCommunityWorldSummary
   onClick: () => void
+  onAuthorClick?: (authorId: number) => void
   disabled?: boolean
   sx?: SxProps<Theme>
+  showFavoriteButton?: boolean
+  isFavoriteSaving?: boolean
+  onToggleFavorite?: (world: StoryCommunityWorldSummary) => void
 }
 
 const CARD_BACKGROUND = 'var(--morius-card-bg)'
@@ -46,15 +51,78 @@ function resolveAuthorInitials(authorName: string): string {
   return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
 }
 
-function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityWorldCardProps) {
+function FavoriteHeartIcon({ active }: { active: boolean }) {
+  return (
+    <SvgIcon sx={{ width: 18, height: 18, color: active ? 'rgba(245, 138, 161, 0.96)' : 'rgba(220, 231, 245, 0.9)' }}>
+      <path d="M12.001 21.35l-1.45-1.32C5.401 15.36 2.001 12.28 2.001 8.5c0-3.03 2.42-5.5 5.5-5.5 1.74 0 3.41.81 4.5 2.09 1.09-1.28 2.76-2.09 4.5-2.09 3.08 0 5.5 2.47 5.5 5.5 0 3.78-3.4 6.86-8.55 11.53l-1.45 1.32z" />
+    </SvgIcon>
+  )
+}
+
+function CommunityWorldCard({
+  world,
+  onClick,
+  onAuthorClick,
+  disabled = false,
+  sx,
+  showFavoriteButton = false,
+  isFavoriteSaving = false,
+  onToggleFavorite,
+}: CommunityWorldCardProps) {
   const authorName = world.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world.author_avatar_url
   const authorInitials = resolveAuthorInitials(authorName)
 
+  const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled) {
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onClick()
+    }
+  }
+
+  const handleFavoriteToggle = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (disabled || isFavoriteSaving || !onToggleFavorite) {
+      return
+    }
+    onToggleFavorite(world)
+  }
+
+  const handleAuthorClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (disabled || !onAuthorClick) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    onAuthorClick(world.author_id)
+  }
+
+  const handleAuthorKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled || !onAuthorClick) {
+      return
+    }
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      event.stopPropagation()
+      onAuthorClick(world.author_id)
+    }
+  }
+
   return (
-    <Button
-      onClick={onClick}
-      disabled={disabled}
+    <Box
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled}
+      onClick={() => {
+        if (!disabled) {
+          onClick()
+        }
+      }}
+      onKeyDown={handleCardKeyDown}
       sx={[
         {
           p: 0,
@@ -63,7 +131,6 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          textTransform: 'none',
           textAlign: 'left',
           alignItems: 'stretch',
           justifyContent: 'flex-start',
@@ -71,10 +138,18 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
           color: TEXT_PRIMARY,
           height: '100%',
           width: '100%',
+          cursor: disabled ? 'default' : 'pointer',
+          opacity: disabled ? 0.82 : 1,
           transition: 'transform 180ms ease, border-color 180ms ease',
-          '&:hover': {
-            borderColor: 'rgba(203, 216, 234, 0.36)',
-            transform: 'translateY(-2px)',
+          '&:hover': disabled
+            ? undefined
+            : {
+                borderColor: 'rgba(203, 216, 234, 0.36)',
+                transform: 'translateY(-2px)',
+              },
+          '&:focus-visible': {
+            outline: '2px solid rgba(205, 223, 246, 0.62)',
+            outlineOffset: '2px',
           },
         },
         ...(Array.isArray(sx) ? sx : sx ? [sx] : []),
@@ -84,7 +159,7 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
         sx={{
           position: 'relative',
           width: '100%',
-          aspectRatio: '4 / 3',
+          aspectRatio: '3 / 2',
           flexShrink: 0,
           overflow: 'hidden',
         }}
@@ -94,7 +169,7 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
             position: 'absolute',
             inset: 0,
             backgroundImage: world.cover_image_url ? `url(${world.cover_image_url})` : buildFallbackArtwork(world.id),
-            backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}% auto` : 'cover',
+            backgroundSize: 'cover',
             backgroundPosition: world.cover_image_url
               ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
               : 'center',
@@ -126,12 +201,25 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
           direction="row"
           alignItems="center"
           spacing="20px"
+          role={onAuthorClick && !disabled ? 'button' : undefined}
+          tabIndex={onAuthorClick && !disabled ? 0 : undefined}
+          onClick={handleAuthorClick}
+          onKeyDown={handleAuthorKeyDown}
           sx={{
             position: 'absolute',
             top: { xs: '12px', md: '14px' },
             left: { xs: '12px', md: '14px' },
             right: { xs: '12px', md: '14px' },
             minWidth: 0,
+            pr: showFavoriteButton ? '44px' : 0,
+            cursor: onAuthorClick && !disabled ? 'pointer' : 'default',
+            '&:focus-visible': onAuthorClick && !disabled
+              ? {
+                  outline: '2px solid rgba(205, 223, 246, 0.62)',
+                  outlineOffset: '2px',
+                  borderRadius: '8px',
+                }
+              : undefined,
           }}
         >
           <Box
@@ -172,6 +260,33 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
             {authorName}
           </Typography>
         </Stack>
+
+        {showFavoriteButton ? (
+          <IconButton
+            aria-label={world.is_favorited_by_user ? 'Убрать из любимых миров' : 'Добавить в любимые миры'}
+            onClick={handleFavoriteToggle}
+            disabled={disabled || isFavoriteSaving || !onToggleFavorite}
+            sx={{
+              position: 'absolute',
+              top: 10,
+              right: 10,
+              zIndex: 3,
+              width: 32,
+              height: 32,
+              borderRadius: '999px',
+              border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.35)',
+              backgroundColor: 'rgba(5, 8, 13, 0.64)',
+              '&:hover': {
+                backgroundColor: 'rgba(17, 27, 40, 0.78)',
+              },
+              '&:disabled': {
+                opacity: 0.62,
+              },
+            }}
+          >
+            <FavoriteHeartIcon active={world.is_favorited_by_user} />
+          </IconButton>
+        ) : null}
       </Box>
 
       <Box
@@ -278,10 +393,8 @@ function CommunityWorldCard({ world, onClick, disabled = false, sx }: CommunityW
           </Stack>
         </Stack>
       </Box>
-    </Button>
+    </Box>
   )
 }
 
 export default CommunityWorldCard
-
-

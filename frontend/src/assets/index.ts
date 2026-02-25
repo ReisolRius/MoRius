@@ -29,12 +29,12 @@ import worldIcon from './icons/world.svg'
 import menuSettingsIcon from './icons/menu-settings.svg'
 import menuShopIcon from './icons/menu-shop.svg'
 import tavernBackground from './images/tavern-bg.png'
-import cloudsImage from './images/clouds.png'
+import heroCloudsImage from './images/hero-clouds.svg'
 
 export const brandLogo = logo
 
 export const heroBackground = tavernBackground
-export const heroClouds = cloudsImage
+export const heroClouds = heroCloudsImage
 
 export const icons = {
   ai: aiIcon,

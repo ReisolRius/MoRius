@@ -13,10 +13,35 @@ from app.security import create_access_token, safe_decode_access_token
 
 DISPLAY_NAME_MAX_LENGTH = 25
 DISPLAY_NAME_FALLBACK = "Player"
+PROFILE_DESCRIPTION_MAX_LENGTH = 2_000
+ROLE_USER = "user"
+ROLE_ADMINISTRATOR = "administrator"
+ROLE_MODERATOR = "moderator"
+ADMIN_PANEL_ALLOWED_ROLES = {ROLE_ADMINISTRATOR, ROLE_MODERATOR}
+PRIVILEGED_ROLE_BY_EMAIL = {
+    "alexunderstood8@gmail.com": ROLE_ADMINISTRATOR,
+    "borisow.n2011@gmail.com": ROLE_MODERATOR,
+}
 
 
 def normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def resolve_forced_role_for_email(email: str) -> str:
+    return PRIVILEGED_ROLE_BY_EMAIL.get(normalize_email(email), ROLE_USER)
+
+
+def is_privileged_email(email: str) -> bool:
+    return normalize_email(email) in PRIVILEGED_ROLE_BY_EMAIL
+
+
+def sync_user_role_with_email(user: User) -> bool:
+    expected_role = resolve_forced_role_for_email(user.email)
+    if user.role == expected_role:
+        return False
+    user.role = expected_role
+    return True
 
 
 def _compact_display_name(value: str | None) -> str:
@@ -58,6 +83,15 @@ def normalize_profile_display_name(value: str) -> str:
     return _truncate_display_name(compact_value)
 
 
+def normalize_profile_description(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    if len(normalized) > PROFILE_DESCRIPTION_MAX_LENGTH:
+        return normalized[:PROFILE_DESCRIPTION_MAX_LENGTH].rstrip()
+    return normalized
+
+
 def parse_google_client_ids(raw_value: str) -> set[str]:
     return {item.strip() for item in raw_value.split(",") if item.strip()}
 
@@ -94,6 +128,48 @@ def _to_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _is_ban_expired(user: User, *, now: datetime) -> bool:
+    if not user.is_banned:
+        return False
+    if user.ban_expires_at is None:
+        return False
+    return _to_utc(user.ban_expires_at) <= now
+
+
+def clear_expired_user_ban(user: User, *, now: datetime | None = None) -> bool:
+    current_time = now or datetime.now(timezone.utc)
+    if not _is_ban_expired(user, now=current_time):
+        return False
+    user.is_banned = False
+    user.ban_expires_at = None
+    return True
+
+
+def sync_user_access_state(user: User, *, now: datetime | None = None) -> bool:
+    current_time = now or datetime.now(timezone.utc)
+    role_changed = sync_user_role_with_email(user)
+    ban_cleared = clear_expired_user_ban(user, now=current_time)
+    return role_changed or ban_cleared
+
+
+def ensure_user_not_banned(user: User) -> None:
+    if not user.is_banned:
+        return
+    if user.ban_expires_at is None:
+        detail = "Account is banned"
+    else:
+        detail = f"Account is banned until {_to_utc(user.ban_expires_at).isoformat()}"
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+def user_has_admin_panel_access(user: User) -> bool:
+    normalized_email = normalize_email(user.email)
+    expected_role = PRIVILEGED_ROLE_BY_EMAIL.get(normalized_email)
+    if not expected_role:
+        return False
+    return user.role == expected_role and user.role in ADMIN_PANEL_ALLOWED_ROLES
 
 
 def _parse_token_issued_at(raw_value: Any) -> datetime:
@@ -152,5 +228,10 @@ def get_current_user(
     user_created_at = _to_utc(user.created_at)
     if token_issued_at < user_created_at - timedelta(minutes=2):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token is no longer valid")
+
+    if sync_user_access_state(user):
+        db.commit()
+        db.refresh(user)
+    ensure_user_not_banned(user)
 
     return user

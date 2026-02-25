@@ -57,7 +57,10 @@ STORY_GAME_GENRE_VALUES = {
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
-STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
+STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
+STORY_RESPONSE_MAX_TOKENS_MIN = 200
+STORY_RESPONSE_MAX_TOKENS_MAX = 800
+STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX = 1_500
 STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX = 3_000
 STORY_TURN_COST_LOW = 1
@@ -224,6 +227,21 @@ def normalize_story_context_limit_chars(value: int | None) -> int:
     return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
 
 
+def normalize_story_response_max_tokens(value: int | None) -> int:
+    if value is None:
+        return STORY_DEFAULT_RESPONSE_MAX_TOKENS
+    normalized = int(value)
+    if STORY_RESPONSE_MAX_TOKENS_MIN <= normalized <= STORY_RESPONSE_MAX_TOKENS_MAX:
+        return normalized
+    return STORY_DEFAULT_RESPONSE_MAX_TOKENS
+
+
+def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
 def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
     if normalized_usage <= STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX:
@@ -274,7 +292,7 @@ def normalize_story_top_r(value: float | None) -> float:
 
 def normalize_story_ambient_enabled(value: bool | None) -> bool:
     if value is None:
-        return True
+        return False
     return bool(value)
 
 
@@ -351,6 +369,10 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
         context_limit_chars=game.context_limit_chars,
+        response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
+        response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
+            getattr(game, "response_max_tokens_enabled", None)
+        ),
         story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
@@ -380,15 +402,19 @@ def story_author_avatar_url(user: User | None) -> str | None:
 def story_community_world_summary_to_out(
     world: StoryGame,
     *,
+    author_id: int,
     author_name: str,
     author_avatar_url: str | None,
     user_rating: int | None,
+    is_reported_by_user: bool = False,
+    is_favorited_by_user: bool = False,
 ) -> StoryCommunityWorldSummaryOut:
     summary = story_game_summary_to_out(world)
     return StoryCommunityWorldSummaryOut(
         id=summary.id,
         title=summary.title,
         description=summary.description,
+        author_id=author_id,
         author_name=author_name,
         author_avatar_url=author_avatar_url,
         age_rating=summary.age_rating,
@@ -402,6 +428,8 @@ def story_community_world_summary_to_out(
         community_rating_avg=summary.community_rating_avg,
         community_rating_count=summary.community_rating_count,
         user_rating=user_rating,
+        is_reported_by_user=bool(is_reported_by_user),
+        is_favorited_by_user=bool(is_favorited_by_user),
         created_at=summary.created_at,
         updated_at=summary.updated_at,
     )
@@ -442,29 +470,39 @@ def clone_story_world_cards_to_game(
     *,
     source_world_id: int,
     target_game_id: int,
+    copy_instructions: bool = True,
+    copy_plot: bool = True,
+    copy_world: bool = True,
+    copy_main_hero: bool = True,
 ) -> None:
-    source_instruction_cards = list_story_instruction_cards(db, source_world_id)
-    for card in source_instruction_cards:
-        cloned_instruction = StoryInstructionCard(
-            game_id=target_game_id,
-            title=card.title,
-            content=card.content,
-        )
-        db.add(cloned_instruction)
+    if copy_instructions:
+        source_instruction_cards = list_story_instruction_cards(db, source_world_id)
+        for card in source_instruction_cards:
+            cloned_instruction = StoryInstructionCard(
+                game_id=target_game_id,
+                title=card.title,
+                content=card.content,
+            )
+            db.add(cloned_instruction)
 
-    source_plot_cards = list_story_plot_cards(db, source_world_id)
-    for card in source_plot_cards:
-        cloned_plot = StoryPlotCard(
-            game_id=target_game_id,
-            title=card.title,
-            content=card.content,
-            source=card.source,
-        )
-        db.add(cloned_plot)
+    if copy_plot:
+        source_plot_cards = list_story_plot_cards(db, source_world_id)
+        for card in source_plot_cards:
+            cloned_plot = StoryPlotCard(
+                game_id=target_game_id,
+                title=card.title,
+                content=card.content,
+                source=card.source,
+            )
+            db.add(cloned_plot)
 
     source_world_cards = list_story_world_cards(db, source_world_id)
     for card in source_world_cards:
         card_kind = _normalize_story_world_card_kind(card.kind)
+        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_main_hero:
+            continue
+        if card_kind != STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_world:
+            continue
         cloned_world_card = StoryWorldCard(
             game_id=target_game_id,
             title=card.title,

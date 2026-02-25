@@ -11,6 +11,44 @@
   box-sizing: border-box;
 }
 
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover,
+*:focus-within,
+.morius-scroll-active {
+  scrollbar-color: color-mix(in srgb, var(--morius-accent) 78%, transparent) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 220ms ease;
+}
+
+*:hover::-webkit-scrollbar-thumb,
+*:focus-within::-webkit-scrollbar-thumb,
+.morius-scroll-active::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--morius-accent) 78%, transparent);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--morius-accent);
+}
+
 html,
 body,
 #root {
@@ -105,9 +143,15 @@ body {
 
 .morius-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: var(--morius-accent) var(--morius-elevated-bg);
-  scrollbar-gutter: stable;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: var(--morius-scrollbar-gutter, stable);
   padding-right: var(--morius-scrollbar-offset);
+}
+
+.morius-scrollbar:hover,
+.morius-scrollbar:focus-within,
+.morius-scrollbar.morius-scroll-active {
+  scrollbar-color: color-mix(in srgb, var(--morius-accent) 78%, transparent) transparent;
 }
 
 .morius-scrollbar::-webkit-scrollbar {
@@ -116,14 +160,21 @@ body {
 }
 
 .morius-scrollbar::-webkit-scrollbar-track {
-  background: var(--morius-elevated-bg);
-  border-radius: 999px;
+  background: transparent;
 }
 
 .morius-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--morius-accent);
+  background: transparent;
   border-radius: 999px;
-  border: var(--morius-border-width) solid var(--morius-card-border);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background 220ms ease;
+}
+
+.morius-scrollbar:hover::-webkit-scrollbar-thumb,
+.morius-scrollbar:focus-within::-webkit-scrollbar-thumb,
+.morius-scrollbar.morius-scroll-active::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--morius-accent) 78%, transparent);
 }
 
 .morius-scrollbar::-webkit-scrollbar-thumb:hover {

@@ -19,6 +19,8 @@ from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryW
 from app.schemas import StoryGenerateRequest, UserOut
 from app.services.story_games import (
     coerce_story_llm_model,
+    normalize_story_response_max_tokens,
+    normalize_story_response_max_tokens_enabled,
     normalize_story_top_k,
     normalize_story_top_r,
 )
@@ -43,6 +45,7 @@ class StoryRuntimeDeps:
     list_story_plot_cards: Callable[[Session, int], list[Any]]
     list_story_world_cards: Callable[[Session, int], list[Any]]
     select_story_world_cards_for_prompt: Callable[[list[StoryMessage], list[Any]], list[dict[str, Any]]]
+    select_story_world_cards_triggered_by_text: Callable[[str, list[Any]], list[dict[str, Any]]]
     normalize_context_limit_chars: Callable[[int | None], int]
     get_story_turn_cost_tokens: Callable[[int | None], int]
     spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
@@ -151,6 +154,32 @@ def _estimate_story_context_usage_tokens(
     return max(instruction_tokens_used + story_memory_tokens_used + world_tokens_used, 0)
 
 
+def _merge_story_active_world_cards(
+    primary_cards: list[dict[str, Any]],
+    fallback_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for card in [*primary_cards, *fallback_cards]:
+        if not isinstance(card, dict):
+            continue
+        card_id = card.get("id")
+        if isinstance(card_id, int):
+            dedupe_key = f"id:{card_id}"
+        else:
+            try:
+                dedupe_key = f"json:{json.dumps(card, sort_keys=True, ensure_ascii=False)}"
+            except (TypeError, ValueError):
+                dedupe_key = f"obj:{id(card)}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        merged.append(card)
+
+    return merged
+
+
 def _run_story_postprocessing_job(
     *,
     deps: StoryRuntimeDeps,
@@ -195,7 +224,11 @@ def _run_story_postprocessing_job(
 
         if memory_optimization_enabled:
             try:
-                plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(db=db_bg, game=game)
+                plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(
+                    db=db_bg,
+                    game=game,
+                    assistant_message=assistant_message,
+                )
                 plot_card_events_out = [
                     deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
                 ]
@@ -230,8 +263,10 @@ def _stream_story_response(
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    all_world_cards: list[Any],
     context_limit_chars: int,
     story_model_name: str | None,
+    story_response_max_tokens: int | None,
     story_top_k: int,
     story_top_r: float,
     memory_optimization_enabled: bool,
@@ -276,6 +311,7 @@ def _stream_story_response(
             world_cards=world_cards,
             context_limit_chars=context_limit_chars,
             story_model_name=story_model_name,
+            story_response_max_tokens=story_response_max_tokens,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
         ):
@@ -343,6 +379,20 @@ def _stream_story_response(
                 turn_cost_tokens,
             )
             db.rollback()
+
+    assistant_triggered_world_cards: list[dict[str, Any]] = []
+    if not aborted and response_has_content:
+        try:
+            assistant_triggered_world_cards = deps.select_story_world_cards_triggered_by_text(
+                assistant_message.content,
+                all_world_cards,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to run assistant trigger check: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
 
     if not aborted and stream_error is None:
         postprocess_result: dict[str, Any] = {
@@ -416,6 +466,11 @@ def _stream_story_response(
             ),
             "plot_card_created": bool(postprocess_result.get("plot_card_created", False)) if not postprocess_pending else False,
             "postprocess_pending": postprocess_pending,
+            "assistant_triggered_world_card_ids": [
+                int(card.get("id"))
+                for card in assistant_triggered_world_cards
+                if isinstance(card, dict) and isinstance(card.get("id"), int)
+            ],
         }
         try:
             yield _sse_event("done", done_payload)
@@ -447,6 +502,15 @@ def generate_story_response(
     story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
     if payload.story_top_r is not None:
         story_top_r = normalize_story_top_r(payload.story_top_r)
+    story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
+        getattr(game, "response_max_tokens_enabled", None)
+    )
+    story_response_max_tokens = normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None))
+    if payload.response_max_tokens is not None:
+        story_response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
+        story_response_max_tokens_enabled = True
+    if not story_response_max_tokens_enabled:
+        story_response_max_tokens = None
     context_limit_chars = deps.normalize_context_limit_chars(game.context_limit_chars)
     turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
@@ -571,6 +635,16 @@ def generate_story_response(
     world_cards = deps.list_story_world_cards(db, game.id)
     context_messages = deps.list_story_messages(db, game.id)
     active_world_cards = deps.select_story_world_cards_for_prompt(context_messages, world_cards)
+    early_triggered_world_cards: list[dict[str, Any]] = []
+    if source_user_message is not None and source_user_message.content.strip():
+        early_triggered_world_cards = deps.select_story_world_cards_triggered_by_text(
+            source_user_message.content,
+            world_cards,
+        )
+    active_world_cards = _merge_story_active_world_cards(
+        early_triggered_world_cards,
+        active_world_cards,
+    )
     active_plot_cards = [
         {
             "title": card.title.replace("\r\n", " ").strip(),
@@ -595,8 +669,10 @@ def generate_story_response(
         instruction_cards=instruction_cards,
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
+        all_world_cards=world_cards,
         context_limit_chars=context_limit_chars,
         story_model_name=story_model_name,
+        story_response_max_tokens=story_response_max_tokens,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,

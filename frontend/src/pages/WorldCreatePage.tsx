@@ -14,8 +14,8 @@ import AvatarCropDialog from '../components/AvatarCropDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
+import UserAvatar from '../components/profile/UserAvatar'
 import ImageCropper from '../components/ImageCropper'
-import { icons } from '../assets'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createStoryGame,
@@ -37,7 +37,7 @@ import { loadStoryTitleMap, persistStoryTitleMap, setStoryTitle } from '../servi
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type { StoryCharacter, StoryGameVisibility, StoryWorldCard } from '../types/story'
-import { compressImageFileToDataUrl } from '../utils/avatar'
+import { compressImageDataUrl, compressImageFileToDataUrl } from '../utils/avatar'
 
 type WorldCreatePageProps = {
   user: AuthUser
@@ -73,7 +73,8 @@ const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
-const COVER_MAX_BYTES = 500 * 1024
+const COVER_MAX_BYTES = 360 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 260 * 1024
 const CARD_WIDTH = 286
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
@@ -441,12 +442,21 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     setCoverCropSource(null)
   }, [])
 
-  const handleSaveCoverCrop = useCallback((croppedDataUrl: string) => {
-    setCoverImageUrl(croppedDataUrl)
-    setCoverScale(1)
-    setCoverPositionX(50)
-    setCoverPositionY(50)
-    setCoverCropSource(null)
+  const handleSaveCoverCrop = useCallback(async (croppedDataUrl: string) => {
+    try {
+      const preparedCover = await compressImageDataUrl(croppedDataUrl, {
+        maxBytes: COVER_MAX_BYTES,
+        maxDimension: 1800,
+      })
+      setCoverImageUrl(preparedCover)
+      setCoverScale(1)
+      setCoverPositionX(50)
+      setCoverPositionY(50)
+      setCoverCropSource(null)
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось подготовить обложку')
+    }
   }, [])
 
   const openCardDialog = useCallback((kind: 'instruction' | 'plot', card?: EditableCard) => {
@@ -501,7 +511,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       return
     }
     try {
-      const dataUrl = await compressImageFileToDataUrl(file, { maxBytes: COVER_MAX_BYTES, maxDimension: 1200 })
+      const dataUrl = await compressImageFileToDataUrl(file, { maxBytes: CHARACTER_AVATAR_MAX_BYTES, maxDimension: 1200 })
       setCharacterAvatarCropSource(dataUrl)
       setErrorMessage('')
     } catch (error) {
@@ -520,10 +530,19 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     setCharacterAvatarCropSource(null)
   }, [])
 
-  const handleSaveCharacterAvatarCrop = useCallback((croppedDataUrl: string) => {
-    setCharacterAvatarDraft(croppedDataUrl)
-    setCharacterAvatarScaleDraft(1)
-    setCharacterAvatarCropSource(null)
+  const handleSaveCharacterAvatarCrop = useCallback(async (croppedDataUrl: string) => {
+    try {
+      const preparedAvatar = await compressImageDataUrl(croppedDataUrl, {
+        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxDimension: 1200,
+      })
+      setCharacterAvatarDraft(preparedAvatar)
+      setCharacterAvatarScaleDraft(1)
+      setCharacterAvatarCropSource(null)
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось подготовить аватар')
+    }
   }, [])
 
   const saveCharacterDialog = useCallback(() => {
@@ -580,6 +599,21 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       const normalizedTitle = title.trim()
       const normalizedDescription = description.trim()
       const normalizedOpeningScene = openingScene.replace(/\r\n/g, '\n').trim()
+      const preparedCoverImageUrl = coverImageUrl?.startsWith('data:image/')
+        ? await compressImageDataUrl(coverImageUrl, {
+            maxBytes: COVER_MAX_BYTES,
+            maxDimension: 1800,
+          })
+        : coverImageUrl
+      const prepareAvatarForRequest = async (avatarUrl: string | null): Promise<string | null> => {
+        if (!avatarUrl || !avatarUrl.startsWith('data:image/')) {
+          return avatarUrl
+        }
+        return compressImageDataUrl(avatarUrl, {
+          maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+          maxDimension: 1200,
+        })
+      }
       if (gameId === null) {
         const created = await createStoryGame({
           token: authToken,
@@ -589,7 +623,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           visibility,
           age_rating: ageRating,
           genres,
-          cover_image_url: coverImageUrl,
+          cover_image_url: preparedCoverImageUrl,
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
           cover_position_y: coverPositionY,
@@ -604,7 +638,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           visibility,
           age_rating: ageRating,
           genres,
-          cover_image_url: coverImageUrl,
+          cover_image_url: preparedCoverImageUrl,
           cover_scale: coverScale,
           cover_position_x: coverPositionX,
           cover_position_y: coverPositionY,
@@ -625,22 +659,24 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
       const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
       if (mainHero) {
+        const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(mainHero.avatar_url)
         if (existingMainHero) {
           await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
-          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
+          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
         } else {
-          await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: mainHero.avatar_url, avatar_scale: mainHero.avatar_scale })
+          await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
         }
       } else if (existingMainHero) {
         await deleteStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id })
       }
       const existingNpcs = latest.world_cards.filter((card) => card.kind === 'npc')
       for (const npc of npcs) {
+        const preparedNpcAvatarUrl = await prepareAvatarForRequest(npc.avatar_url)
         if (npc.id && existingNpcs.some((item) => item.id === npc.id)) {
           await updateStoryWorldCard({ token: authToken, gameId, cardId: npc.id, title: npc.name, content: npc.description, triggers: parseTriggers(npc.triggers, npc.name) })
-          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: npc.id, avatar_url: npc.avatar_url, avatar_scale: npc.avatar_scale })
+          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: npc.id, avatar_url: preparedNpcAvatarUrl, avatar_scale: npc.avatar_scale })
         } else {
-          await createStoryWorldCard({ token: authToken, gameId, kind: 'npc', title: npc.name, content: npc.description, triggers: parseTriggers(npc.triggers, npc.name), avatar_url: npc.avatar_url, avatar_scale: npc.avatar_scale })
+          await createStoryWorldCard({ token: authToken, gameId, kind: 'npc', title: npc.name, content: npc.description, triggers: parseTriggers(npc.triggers, npc.name), avatar_url: preparedNpcAvatarUrl, avatar_scale: npc.avatar_scale })
         }
       }
       for (const npc of existingNpcs) if (!npcs.some((item) => item.id === npc.id)) await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
@@ -682,7 +718,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         isRightPanelOpen={isHeaderActionsOpen}
         onToggleRightPanel={() => setIsHeaderActionsOpen((p) => !p)}
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
-        rightActions={<Button onClick={() => onNavigate('/games')} sx={{ minWidth: 48, minHeight: 48, p: 0, borderRadius: '50%' }}><Box component="img" src={user.avatar_url ?? icons.home} alt="" sx={{ width: moriusThemeTokens.layout.headerButtonSize, height: moriusThemeTokens.layout.headerButtonSize, borderRadius: '50%' }} /></Button>}
+        rightActions={
+          <Button onClick={() => onNavigate('/profile')} sx={{ minWidth: 48, minHeight: 48, p: 0, borderRadius: '50%' }}>
+            <UserAvatar user={user} size={moriusThemeTokens.layout.headerButtonSize} />
+          </Button>
+        }
       />
       <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: 4 }}>
         <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
@@ -788,7 +828,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverCropEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
               <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 500 KB. Изображение автоматически сжимается перед сохранением.</Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 360 KB. Изображение автоматически сжимается перед сохранением.</Typography>
             </Stack>
             <Divider />
             <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки инструкций</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 36 }}>Добавить</Button><Button onClick={() => setInstructionTemplateDialogOpen(true)} sx={{ minHeight: 36 }}>Из шаблона</Button></Stack></Stack>{instructionCards.length === 0 ? helpEmpty('Добавьте первую инструкцию. Например: стиль повествования, ограничения или тон диалогов.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{instructionCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>

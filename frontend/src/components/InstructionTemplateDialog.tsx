@@ -30,6 +30,8 @@ type InstructionTemplateDialogProps = {
   mode: InstructionTemplateDialogMode
   onClose: () => void
   onSelectTemplate?: (template: StoryInstructionTemplate) => Promise<void> | void
+  initialMode?: 'list' | 'create'
+  initialTemplateId?: number | null
 }
 
 function InstructionTemplateDialog({
@@ -38,6 +40,8 @@ function InstructionTemplateDialog({
   mode,
   onClose,
   onSelectTemplate,
+  initialMode = 'list',
+  initialTemplateId = null,
 }: InstructionTemplateDialogProps) {
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
@@ -49,6 +53,7 @@ function InstructionTemplateDialog({
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
   const [applyingTemplateId, setApplyingTemplateId] = useState<number | null>(null)
+  const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
 
   const isBusy = isSavingTemplate || deletingTemplateId !== null || applyingTemplateId !== null
 
@@ -84,8 +89,10 @@ function InstructionTemplateDialog({
       setIsSavingTemplate(false)
       setDeletingTemplateId(null)
       setApplyingTemplateId(null)
+      setHasAppliedInitialAction(false)
       return
     }
+    setHasAppliedInitialAction(false)
     void loadTemplates()
   }, [loadTemplates, open])
 
@@ -230,6 +237,45 @@ function InstructionTemplateDialog({
     },
     [isBusy, onClose, onSelectTemplate],
   )
+
+  useEffect(() => {
+    if (!open || isLoadingTemplates || hasAppliedInitialAction || isBusy) {
+      return
+    }
+
+    if (initialTemplateId !== null) {
+      const targetTemplate = sortedTemplates.find((template) => template.id === initialTemplateId) ?? null
+      if (targetTemplate) {
+        setErrorMessage('')
+        setEditingTemplateId(targetTemplate.id)
+        setTemplateTitleDraft(targetTemplate.title)
+        setTemplateContentDraft(targetTemplate.content)
+        setIsEditorOpen(true)
+      }
+      setHasAppliedInitialAction(true)
+      return
+    }
+
+    if (initialMode === 'create') {
+      setErrorMessage('')
+      setEditingTemplateId(null)
+      setTemplateTitleDraft('')
+      setTemplateContentDraft('')
+      setIsEditorOpen(true)
+      setHasAppliedInitialAction(true)
+      return
+    }
+
+    setHasAppliedInitialAction(true)
+  }, [
+    hasAppliedInitialAction,
+    initialMode,
+    initialTemplateId,
+    isBusy,
+    isLoadingTemplates,
+    open,
+    sortedTemplates,
+  ])
 
   return (
     <>

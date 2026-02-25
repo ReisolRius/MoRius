@@ -82,6 +82,13 @@ export async function parseApiError(response: Response, fallbackDetail = 'Reques
   } catch {
     // Keep fallback detail.
   }
+  if (detail === fallbackDetail) {
+    if (response.status === 413) {
+      detail = 'Request is too large (HTTP 413)'
+    } else {
+      detail = `${fallbackDetail} (HTTP ${response.status})`
+    }
+  }
   return new Error(detail)
 }
 

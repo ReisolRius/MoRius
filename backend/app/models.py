@@ -15,17 +15,37 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    profile_description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
+    show_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    show_public_worlds: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    show_private_worlds: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="user", server_default="user")
+    level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    ban_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class UserFollow(Base):
+    __tablename__ = "user_follows"
+    __table_args__ = (
+        UniqueConstraint("follower_user_id", "following_user_id", name="uq_user_follows_follower_following"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    follower_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    following_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class EmailVerification(Base):
@@ -68,7 +88,14 @@ class StoryGame(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="Новая игра")
-    context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=2000, server_default="2000")
+    context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=1500, server_default="1500")
+    response_max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=400, server_default="400")
+    response_max_tokens_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     story_llm_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
@@ -96,8 +123,8 @@ class StoryGame(Base):
     ambient_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
-        server_default="1",
+        default=False,
+        server_default="0",
     )
     ambient_profile: Mapped[str] = mapped_column(
         Text,
@@ -168,6 +195,40 @@ class StoryCommunityWorldLaunch(Base):
     world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StoryCommunityWorldFavorite(Base):
+    __tablename__ = "story_community_world_favorites"
+    __table_args__ = (
+        UniqueConstraint("world_id", "user_id", name="uq_story_community_world_favorites_world_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StoryCommunityWorldReport(Base):
+    __tablename__ = "story_community_world_reports"
+    __table_args__ = (
+        UniqueConstraint("world_id", "reporter_user_id", name="uq_story_community_world_reports_world_reporter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class StoryMessage(Base):

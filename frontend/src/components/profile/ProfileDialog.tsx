@@ -17,6 +17,7 @@ import {
 } from '@mui/material'
 import { icons } from '../../assets'
 import type { AuthUser } from '../../types/auth'
+import AdminPanelDialog, { ADMIN_PANEL_EMAIL_ALLOWLIST } from './AdminPanelDialog'
 import UserAvatar from './UserAvatar'
 
 const PROFILE_NAME_MAX_LENGTH = 25
@@ -24,6 +25,7 @@ const PROFILE_NAME_MAX_LENGTH = 25
 type ProfileDialogProps = {
   open: boolean
   user: AuthUser
+  authToken: string
   profileName: string
   avatarInputRef: RefObject<HTMLInputElement | null>
   avatarError: string
@@ -42,6 +44,7 @@ type ProfileDialogProps = {
 function ProfileDialog({
   open,
   user,
+  authToken,
   profileName,
   avatarInputRef,
   avatarError,
@@ -60,12 +63,17 @@ function ProfileDialog({
   const [profileNameDraft, setProfileNameDraft] = useState(profileName)
   const [isProfileNameSaving, setIsProfileNameSaving] = useState(false)
   const [profileNameError, setProfileNameError] = useState('')
+  const [adminDialogOpen, setAdminDialogOpen] = useState(false)
+  const canOpenAdminPanel =
+    ADMIN_PANEL_EMAIL_ALLOWLIST.has(user.email.trim().toLowerCase()) &&
+    (user.role === 'administrator' || user.role === 'moderator')
 
   useEffect(() => {
     if (!open) {
       setIsProfileNameEditing(false)
       setProfileNameError('')
       setProfileNameDraft(profileName)
+      setAdminDialogOpen(false)
       return
     }
     if (!isProfileNameEditing) {
@@ -119,7 +127,8 @@ function ProfileDialog({
   }
 
   return (
-    <Dialog
+    <>
+      <Dialog
       open={open}
       onClose={onClose}
       maxWidth="xs"
@@ -140,7 +149,7 @@ function ProfileDialog({
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         },
       }}
-    >
+      >
       <DialogTitle sx={{ pb: 1.4 }}>
         <Typography sx={{ fontWeight: 700, fontSize: '1.6rem' }}>Профиль</Typography>
       </DialogTitle>
@@ -421,6 +430,24 @@ function ProfileDialog({
             {'\u041c\u043e\u0438 \u0448\u0430\u0431\u043b\u043e\u043d\u044b \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0439'}
           </Button>
 
+          {canOpenAdminPanel ? (
+            <Button
+              variant="outlined"
+              onClick={() => setAdminDialogOpen(true)}
+              sx={{
+                minHeight: 42,
+                borderColor: 'rgba(186, 202, 214, 0.38)',
+                color: 'var(--morius-text-primary)',
+                '&:hover': {
+                  borderColor: 'rgba(206, 220, 237, 0.54)',
+                  backgroundColor: 'rgba(34, 45, 62, 0.32)',
+                },
+              }}
+            >
+              Админка
+            </Button>
+          ) : null}
+
           <Button
             variant="outlined"
             onClick={onRequestLogout}
@@ -449,7 +476,14 @@ function ProfileDialog({
           Закрыть
         </Button>
       </DialogActions>
-    </Dialog>
+      </Dialog>
+      <AdminPanelDialog
+        open={adminDialogOpen}
+        authToken={authToken}
+        currentUserEmail={user.email}
+        onClose={() => setAdminDialogOpen(false)}
+      />
+    </>
   )
 }
 

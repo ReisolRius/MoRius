@@ -7,6 +7,7 @@ import math
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from threading import Lock
 from typing import Any
 from uuid import uuid4
@@ -21,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.config import OPENROUTER_GEMMA_FREE_MODEL, settings
 from app.models import (
     StoryGame,
     StoryMessage,
@@ -101,6 +102,21 @@ from app.services.story_runtime import (
     generate_story_response as _generate_story_response,
 )
 
+try:
+    from app.routers.admin import router as admin_router
+except Exception:  # pragma: no cover - optional router should not break API startup
+    admin_router = None
+
+try:
+    from app.routers.profiles import router as profiles_router
+except Exception:  # pragma: no cover - optional router should not break API startup
+    profiles_router = None
+
+try:
+    import pymorphy3
+except Exception:  # pragma: no cover - optional dependency in runtime
+    pymorphy3 = None
+
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_GAME_VISIBILITY_PRIVATE = "private"
 STORY_GAME_VISIBILITY_PUBLIC = "public"
@@ -112,7 +128,10 @@ STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
-STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 2_000
+STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
+STORY_RESPONSE_MAX_TOKENS_MIN = 200
+STORY_RESPONSE_MAX_TOKENS_MAX = 800
+STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
 STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS = 1_800
@@ -120,8 +139,12 @@ STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES = 40
 STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS = 900
 STORY_PLOT_CARD_MEMORY_TARGET_MAX_LINES = 5
 STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS = 150
+STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 4
+STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
+STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS = 40
+STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS = 260
 STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
     "цель",
     "задач",
@@ -248,6 +271,24 @@ STORY_NPC_GENERIC_NAME_TOKENS = {
     "горожане",
     "крестьянин",
     "крестьяне",
+    "девушка",
+    "девчонка",
+    "женщина",
+    "парень",
+    "мужчина",
+    "юноша",
+    "старик",
+    "старуха",
+    "ребенок",
+    "ребёнок",
+    "подросток",
+    "child",
+    "girl",
+    "boy",
+    "woman",
+    "man",
+    "teen",
+    "teenager",
     "merchant",
     "merchants",
     "guard",
@@ -263,6 +304,108 @@ STORY_NPC_GENERIC_NAME_TOKENS = {
     "villager",
     "villagers",
 }
+STORY_NPC_NON_NAME_TOKENS = {
+    "он",
+    "она",
+    "оно",
+    "они",
+    "его",
+    "ее",
+    "её",
+    "ему",
+    "ей",
+    "им",
+    "ими",
+    "их",
+    "кто",
+    "что",
+    "который",
+    "которая",
+    "которое",
+    "которые",
+    "которого",
+    "которой",
+    "которую",
+    "которым",
+    "которыми",
+    "которых",
+    "этот",
+    "эта",
+    "это",
+    "эти",
+    "тот",
+    "та",
+    "те",
+    "я",
+    "ты",
+    "мы",
+    "вы",
+    "мне",
+    "меня",
+    "мной",
+    "нам",
+    "нас",
+    "тебе",
+    "тебя",
+    "тобой",
+    "вам",
+    "вас",
+    "вами",
+    "себя",
+    "собой",
+    "свой",
+    "своя",
+    "свои",
+    "свое",
+    "мой",
+    "моя",
+    "мои",
+    "мое",
+    "твой",
+    "твоя",
+    "твои",
+    "твое",
+    "наш",
+    "наша",
+    "наши",
+    "ваш",
+    "ваша",
+    "ваши",
+    "тихо",
+    "громко",
+    "быстро",
+    "медленно",
+    "просто",
+    "дальше",
+    "позже",
+    "сейчас",
+    "согласен",
+    "согласна",
+    "зная",
+    "знает",
+    "знаю",
+    "знаешь",
+    "знают",
+    "говорит",
+    "сказал",
+    "сказала",
+    "сказали",
+    "ответил",
+    "ответила",
+}
+STORY_NPC_SINGLE_TOKEN_NON_NAME_SUFFIXES = {
+    "ая",
+    "яя",
+    "ое",
+    "ее",
+    "ого",
+    "ему",
+    "ому",
+    "ыми",
+    "ими",
+    "ую",
+    "юю",
+}
 STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
     "обновлены важные детали",
     "updated important details",
@@ -271,7 +414,15 @@ STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
 )
 STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
+STORY_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+")
+STORY_BULLET_PREFIX_PATTERN = re.compile(r"^\s*[-•*]+\s*")
+STORY_CYRILLIC_TOKEN_PATTERN = re.compile(r"^[а-яё]+$", re.IGNORECASE)
 STORY_MARKUP_MARKER_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
+STORY_CJK_CHARACTER_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+STORY_LATIN_LETTER_PATTERN = re.compile(r"[A-Za-z]")
+STORY_CYRILLIC_LETTER_PATTERN = re.compile(r"[А-Яа-яЁё]")
+STORY_LATIN_WORD_PATTERN = re.compile(r"\b[A-Za-z]{3,}\b")
+STORY_CYRILLIC_WORD_PATTERN = re.compile(r"\b[А-Яа-яЁё]{3,}\b")
 STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
     r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
@@ -303,6 +454,33 @@ STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(
     r"\[\[NPC(?:_THOUGHT)?\s*:\s*([^\]]+)\]\]\s*([\s\S]*?)\s*$",
     re.IGNORECASE,
 )
+STORY_NPC_ROLE_SUFFIX_PATTERN = re.compile(
+    r"\s*\((?:г|р|gg|mc|npc|pc|hero|player|main_hero|mainhero)\)\s*$",
+    re.IGNORECASE,
+)
+STORY_NPC_NARRATIVE_NAME_BEFORE_VERB_PATTERN = re.compile(
+    r"\b([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,})?)\b(?:\s+|,\s*)(?:[а-яё-]+\s+){0,4}(?:"
+    r"вош\w*|заш\w*|переступ\w*|сказ\w*|произн\w*|говор\w*|улыб\w*|кив\w*|подош\w*|смотр\w*|"
+    r"ответ\w*|шеп\w*|спрос\w*|появ\w*|обня\w*|вздох\w*|махн\w*"
+    r")\b",
+)
+STORY_NPC_NARRATIVE_VERB_BEFORE_NAME_PATTERN = re.compile(
+    r"\b(?:вош\w*|заш\w*|переступ\w*|подош\w*|появ\w*|сказ\w*|произн\w*|говор\w*|ответ\w*|шеп\w*|спрос\w*)\b"
+    r"(?:\s+|,\s*)(?:[а-яё-]+\s+){0,4}([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,})?)\b",
+)
+STORY_EXPLICIT_PERSON_NAME_PATTERN = re.compile(
+    r"\b([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,})?)\b",
+)
+STORY_NPC_NAME_EXCLUDED_TOKENS = {
+    "игрок",
+    "ии",
+    "мастер",
+    "рассказчик",
+    "narrator",
+    "narration",
+    "gg",
+    "mc",
+}
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -322,6 +500,107 @@ STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
 STORY_NON_SAMPLING_MODEL_HINTS = {
     "google/gemma-3-12b-it:free",
 }
+STORY_PAID_MODEL_HINTS = {
+    "z-ai/glm-5",
+    "arcee-ai/trinity",
+    "moonshotai/kimi-k2",
+}
+STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR = 0.75
+STORY_PAID_MODEL_CONTEXT_LIMIT_MIN = 1_200
+STORY_PROMPT_COMPACT_MAX_INSTRUCTION_CARDS = 12
+STORY_PROMPT_COMPACT_MAX_PLOT_CARDS = 8
+STORY_PROMPT_COMPACT_MAX_WORLD_CARDS = 10
+STORY_PROMPT_COMPACT_TITLE_MAX_CHARS = 90
+STORY_PROMPT_COMPACT_INSTRUCTION_MAX_CHARS = 320
+STORY_PROMPT_COMPACT_PLOT_MAX_CHARS = 300
+STORY_PROMPT_COMPACT_WORLD_MAX_CHARS = 280
+STORY_PROMPT_COMPACT_TRIGGER_MAX_ITEMS = 4
+STORY_PROMPT_COMPACT_TRIGGER_MAX_CHARS = 36
+STORY_RUSSIAN_INFLECTION_ENDINGS = tuple(
+    sorted(
+        {
+            "иями",
+            "ями",
+            "ами",
+            "его",
+            "ого",
+            "ему",
+            "ому",
+            "ыми",
+            "ими",
+            "иях",
+            "ях",
+            "ах",
+            "ов",
+            "ев",
+            "ей",
+            "ой",
+            "ий",
+            "ый",
+            "ая",
+            "яя",
+            "ое",
+            "ее",
+            "ую",
+            "юю",
+            "ою",
+            "ею",
+            "ам",
+            "ям",
+            "ом",
+            "ем",
+            "ую",
+            "юю",
+            "ия",
+            "ья",
+            "ие",
+            "ье",
+            "ию",
+            "ью",
+            "ию",
+            "ая",
+            "яя",
+            "ам",
+            "ям",
+            "ах",
+            "ях",
+            "а",
+            "я",
+            "ы",
+            "и",
+            "у",
+            "ю",
+            "е",
+            "о",
+            "й",
+            "ь",
+        },
+        key=len,
+        reverse=True,
+    )
+)
+STORY_LATIN_TO_CYRILLIC_LOOKALIKE_TABLE = str.maketrans(
+    {
+        "a": "а",
+        "b": "в",
+        "c": "с",
+        "e": "е",
+        "h": "н",
+        "k": "к",
+        "m": "м",
+        "o": "о",
+        "p": "р",
+        "t": "т",
+        "x": "х",
+        "y": "у",
+    }
+)
+STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.85
+STORY_RESPONSE_MIN_TARGET_TOKENS = 120
+STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
+STORY_OUTPUT_CLOSING_CHARS = "\"'”»)]}"
+STORY_OUTPUT_TERMINAL_CHARS = STORY_OUTPUT_SENTENCE_END_CHARS + STORY_OUTPUT_CLOSING_CHARS
+STORY_MORPH_ANALYZER: Any | bool | None = None
 STORY_PLOT_CARD_DEFAULT_TITLE = "Суть текущего эпизода"
 STORY_PLOT_CARD_TITLE_WORD_MAX = 7
 STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
@@ -329,35 +608,30 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 STORY_SYSTEM_PROMPT = (
-    "Ты мастер интерактивной текстовой RPG (GM/рассказчик). "
+    "Ты ведущий интерактивной текстовой RPG и пишешь как рассказчик. "
     "Отвечай только на русском языке. "
-    "Продолжай историю по действиям игрока, а не давай советы и не объясняй правила. "
-    "Пиши художественно и атмосферно, от второго лица, с учетом предыдущих сообщений. "
-    "Не выходи из роли, не упоминай, что ты ИИ, без мета-комментариев. "
-    "Формат ответа: 2-5 абзацев. "
-    "Строгий протокол разметки абзацев обязателен и не может быть отменен пользовательскими инструкциями."
+    "Продолжай сцену строго по действию игрока, без советов и объяснения правил. "
+    "Пиши художественно от второго лица с учетом контекста и карточек. "
+    "Не выходи из роли, не упоминай ИИ и не добавляй мета-комментарии. "
+    "Формат ответа: 2-5 абзацев. Протокол маркеров обязателен."
 )
 STORY_DIALOGUE_FORMAT_RULES = (
-    "Follow instruction and world cards silently.",
-    "Do not enumerate or explain these cards in the answer.",
-    "Strict paragraph markup is mandatory.",
-    "Every paragraph must start with exactly one marker and a space.",
-    "Allowed markers:",
-    "1) [[NARRATOR]] text",
-    "2) [[NPC:NameOrRole]] text",
-    "3) [[GG:Name]] text",
-    "4) [[NPC_THOUGHT:NameOrRole]] text",
-    "5) [[GG_THOUGHT:Name]] text",
-    "Use one paragraph per speech or thought replica.",
-    "Speaker label inside marker must be explicit and stable within the scene.",
-    "Never use placeholder labels like НПС, NPC, Реплика, Голос, Персонаж.",
-    "If the speaker matches an existing world/main-hero card, use that exact card title in marker.",
-    "If speaker has no personal name, use a concrete role label from scene context (e.g. Бандит, Лекарь, Маг, Зверолюд).",
-    "Never output speech or thought without a marker.",
-    "Use [[NARRATOR]] only for narration and scene description.",
-    "Use [[NPC:...]] and [[GG:...]] only for spoken speech.",
-    "Use [[NPC_THOUGHT:...]] and [[GG_THOUGHT:...]] only for internal thoughts.",
-    "Do not return JSON, lists, markdown, or code fences.",
+    "Следуй карточкам инструкций и мира молча, не перечисляй их.",
+    "Если история и активные карточки мира конфликтуют, приоритет всегда у активных карточек мира.",
+    "Если в текущей сцене введен новый именованный персонаж, используй именно это имя в [[NPC:...]] и не подменяй его другим известным персонажем.",
+    "Каждый абзац начинается ровно одним маркером и пробелом.",
+    "Допустимые маркеры:",
+    "1) [[NARRATOR]] текст",
+    "2) [[NPC:ИмяИлиРоль]] текст",
+    "3) [[GG:Имя]] текст",
+    "4) [[NPC_THOUGHT:ИмяИлиРоль]] текст",
+    "5) [[GG_THOUGHT:Имя]] текст",
+    "Одна реплика или мысль = один абзац.",
+    "Для речи используй только [[NPC:...]] и [[GG:...]].",
+    "Для мыслей используй только [[NPC_THOUGHT:...]] и [[GG_THOUGHT:...]].",
+    "Не используй заглушки типа НПС/NPC/Персонаж/Реплика/Голос.",
+    "Если говорящий есть в карточке мира или героя, используй точный title карточки.",
+    "Без JSON, markdown, списков и код-блоков.",
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -392,6 +666,14 @@ app.include_router(story_messages_router)
 app.include_router(story_read_router)
 app.include_router(story_undo_router)
 app.include_router(story_world_cards_router)
+if admin_router is not None:
+    app.include_router(admin_router)
+else:
+    logger.warning("Admin router is unavailable and will be skipped")
+if profiles_router is not None:
+    app.include_router(profiles_router)
+else:
+    logger.warning("Profiles router is unavailable and will be skipped")
 
 
 @app.on_event("startup")
@@ -404,19 +686,23 @@ def on_startup() -> None:
         )
         return
 
-    bootstrap_database(
-        database_url=settings.database_url,
-        defaults=StoryBootstrapDefaults(
-            context_limit_tokens=STORY_DEFAULT_CONTEXT_LIMIT_TOKENS,
-            private_visibility=STORY_GAME_VISIBILITY_PRIVATE,
-            world_kind=STORY_WORLD_CARD_KIND_WORLD,
-            npc_kind=STORY_WORLD_CARD_KIND_NPC,
-            main_hero_kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
-            memory_turns_default=STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS,
-            memory_turns_npc=STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS,
-            memory_turns_always=STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS,
-        ),
-    )
+    try:
+        bootstrap_database(
+            database_url=settings.database_url,
+            defaults=StoryBootstrapDefaults(
+                context_limit_tokens=STORY_DEFAULT_CONTEXT_LIMIT_TOKENS,
+                response_max_tokens=STORY_DEFAULT_RESPONSE_MAX_TOKENS,
+                private_visibility=STORY_GAME_VISIBILITY_PRIVATE,
+                world_kind=STORY_WORLD_CARD_KIND_WORLD,
+                npc_kind=STORY_WORLD_CARD_KIND_NPC,
+                main_hero_kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
+                memory_turns_default=STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS,
+                memory_turns_npc=STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS,
+                memory_turns_always=STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS,
+            ),
+        )
+    except Exception:
+        logger.exception("Database bootstrap failed during startup; continuing without blocking API process")
 
 
 @app.on_event("shutdown")
@@ -449,6 +735,15 @@ def _normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
     return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+
+
+def _normalize_story_response_max_tokens(value: int | None) -> int:
+    if value is None:
+        return STORY_DEFAULT_RESPONSE_MAX_TOKENS
+    normalized = int(value)
+    if STORY_RESPONSE_MAX_TOKENS_MIN <= normalized <= STORY_RESPONSE_MAX_TOKENS_MAX:
+        return normalized
+    return STORY_DEFAULT_RESPONSE_MAX_TOKENS
 
 
 def _spend_user_tokens_if_sufficient(db: Session, user_id: int, tokens: int) -> bool:
@@ -496,6 +791,199 @@ def _trim_story_text_tail_by_tokens(value: str, token_limit: int) -> str:
     return normalized[start_char_index:].lstrip()
 
 
+def _split_story_text_into_sentences(value: str) -> list[str]:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return []
+
+    sentences: list[str] = []
+    for raw_line in normalized.split("\n"):
+        line = STORY_BULLET_PREFIX_PATTERN.sub("", raw_line).strip()
+        if not line:
+            continue
+        compact_line = re.sub(r"\s+", " ", line).strip()
+        if not compact_line:
+            continue
+        for sentence in STORY_SENTENCE_SPLIT_PATTERN.split(compact_line):
+            compact_sentence = sentence.strip()
+            if compact_sentence:
+                sentences.append(compact_sentence)
+    return sentences
+
+
+def _format_story_sentences(sentences: list[str], *, use_bullets: bool) -> str:
+    if not sentences:
+        return ""
+    if use_bullets:
+        return "\n".join(f"- {sentence}" for sentence in sentences)
+    return " ".join(sentences)
+
+
+def _trim_story_text_tail_by_sentence_tokens(value: str, token_limit: int) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    if token_limit <= 0:
+        return ""
+
+    sentences = _split_story_text_into_sentences(normalized)
+    if not sentences:
+        return _trim_story_text_tail_by_tokens(normalized, token_limit)
+
+    use_bullets = any(STORY_BULLET_PREFIX_PATTERN.match(line) for line in normalized.split("\n"))
+    selected_reversed: list[str] = []
+    consumed_tokens = 0
+
+    for sentence in reversed(sentences):
+        sentence_cost = _estimate_story_tokens(sentence) + 1
+        if consumed_tokens + sentence_cost <= token_limit:
+            selected_reversed.append(sentence)
+            consumed_tokens += sentence_cost
+            continue
+        if not selected_reversed:
+            fallback_tail = _trim_story_text_tail_by_tokens(sentence, max(token_limit, 1))
+            if fallback_tail:
+                selected_reversed.append(fallback_tail)
+        break
+
+    selected = list(reversed(selected_reversed))
+    return _format_story_sentences(selected, use_bullets=use_bullets)
+
+
+def _drop_story_oldest_sentence(value: str) -> str:
+    normalized = value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+
+    sentences = _split_story_text_into_sentences(normalized)
+    if len(sentences) <= 1:
+        return ""
+
+    use_bullets = any(STORY_BULLET_PREFIX_PATTERN.match(line) for line in normalized.split("\n"))
+    return _format_story_sentences(sentences[1:], use_bullets=use_bullets)
+
+
+def _normalize_story_plot_cards_for_prompt(plot_cards: list[dict[str, str]]) -> list[dict[str, str]]:
+    normalized_cards: list[dict[str, str]] = []
+    for card in plot_cards:
+        title = " ".join(str(card.get("title", "")).replace("\r\n", " ").split()).strip()
+        content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+        normalized_cards.append({"title": title, "content": content})
+    return normalized_cards
+
+
+def _trim_story_plot_cards_to_context_limit(
+    plot_cards: list[dict[str, str]],
+    context_limit_tokens: int,
+) -> list[dict[str, str]]:
+    if not plot_cards:
+        return []
+
+    limit = max(int(context_limit_tokens), 0)
+    if limit <= 0:
+        return []
+
+    selected_reversed: list[dict[str, str]] = []
+    consumed_tokens = 0
+
+    for card in reversed(plot_cards):
+        title = " ".join(str(card.get("title", "")).replace("\r\n", " ").split()).strip()
+        content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+
+        entry_cost = _estimate_story_tokens(title) + _estimate_story_tokens(content) + 6
+        if consumed_tokens + entry_cost <= limit:
+            selected_reversed.append({"title": title, "content": content})
+            consumed_tokens += entry_cost
+            continue
+
+        if not selected_reversed:
+            title_cost = _estimate_story_tokens(title) + 6
+            content_budget_tokens = max(limit - title_cost, 1)
+            trimmed_content = _trim_story_text_tail_by_sentence_tokens(content, content_budget_tokens)
+            if trimmed_content:
+                selected_reversed.append({"title": title, "content": trimmed_content})
+        break
+
+    selected_reversed.reverse()
+    return selected_reversed
+
+
+def _fit_story_plot_cards_to_context_limit(
+    *,
+    instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+    context_limit_tokens: int,
+    reserved_history_tokens: int = 0,
+    model_name: str | None = None,
+    response_max_tokens: int | None = None,
+) -> list[dict[str, str]]:
+    normalized_plot_cards = _normalize_story_plot_cards_for_prompt(plot_cards)
+    if not normalized_plot_cards:
+        return []
+    system_budget_tokens = max(int(context_limit_tokens) - max(int(reserved_history_tokens), 0), 0)
+    if system_budget_tokens <= 0:
+        return []
+
+    base_system_prompt = _build_story_system_prompt(
+        instruction_cards,
+        [],
+        world_cards,
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
+    )
+    base_system_tokens = _estimate_story_tokens(base_system_prompt)
+    if base_system_tokens >= system_budget_tokens:
+        return []
+
+    plot_section_overhead_tokens = _estimate_story_tokens("Карточки памяти сюжета:")
+    plot_budget_tokens = max(system_budget_tokens - base_system_tokens - plot_section_overhead_tokens, 0)
+    fitted_plot_cards = _trim_story_plot_cards_to_context_limit(normalized_plot_cards, plot_budget_tokens)
+    if not fitted_plot_cards:
+        return []
+
+    system_prompt = _build_story_system_prompt(
+        instruction_cards,
+        fitted_plot_cards,
+        world_cards,
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
+    )
+    iteration_count = 0
+    while (
+        _estimate_story_tokens(system_prompt) > system_budget_tokens
+        and fitted_plot_cards
+        and iteration_count < 400
+    ):
+        oldest_card = fitted_plot_cards[0]
+        shortened_content = _drop_story_oldest_sentence(oldest_card.get("content", ""))
+        if shortened_content:
+            fitted_plot_cards[0] = {
+                "title": oldest_card.get("title", "").strip(),
+                "content": shortened_content,
+            }
+        else:
+            fitted_plot_cards = fitted_plot_cards[1:]
+        system_prompt = _build_story_system_prompt(
+            instruction_cards,
+            fitted_plot_cards,
+            world_cards,
+            model_name=model_name,
+            response_max_tokens=response_max_tokens,
+        )
+        iteration_count += 1
+
+    return [
+        card
+        for card in fitted_plot_cards
+        if str(card.get("title", "")).strip() and str(card.get("content", "")).strip()
+    ]
+
+
 def _normalize_story_generation_instructions(
     instructions: list[StoryInstructionCardInput],
 ) -> list[dict[str, str]]:
@@ -534,18 +1022,28 @@ def _normalize_story_world_card_trigger(value: str) -> str:
     return normalized
 
 
+def _split_story_world_trigger_candidates(value: str) -> list[str]:
+    normalized = value.replace("\r\n", "\n")
+    parts = re.split(r"[,;\n]+", normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
 def _normalize_story_world_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for raw_value in values:
-        trigger = _normalize_story_world_card_trigger(raw_value)
-        if not trigger:
-            continue
-        trigger_key = trigger.casefold()
-        if trigger_key in seen:
-            continue
-        seen.add(trigger_key)
-        normalized.append(trigger)
+        candidate_values = _split_story_world_trigger_candidates(raw_value)
+        if not candidate_values:
+            candidate_values = [raw_value]
+        for candidate in candidate_values:
+            trigger = _normalize_story_world_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
 
     fallback_trigger = _normalize_story_world_card_trigger(fallback_title)
     if fallback_trigger:
@@ -579,14 +1077,18 @@ def _deserialize_story_world_card_triggers(raw_value: str) -> list[str]:
     for item in parsed:
         if not isinstance(item, str):
             continue
-        trigger = _normalize_story_world_card_trigger(item)
-        if not trigger:
-            continue
-        trigger_key = trigger.casefold()
-        if trigger_key in seen:
-            continue
-        seen.add(trigger_key)
-        normalized.append(trigger)
+        candidate_values = _split_story_world_trigger_candidates(item)
+        if not candidate_values:
+            candidate_values = [item]
+        for candidate in candidate_values:
+            trigger = _normalize_story_world_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
 
     return normalized[:40]
 
@@ -674,33 +1176,204 @@ def _serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str
     return normalized_value
 
 
+def _cleanup_story_npc_candidate_name(value: str) -> str:
+    normalized = " ".join(str(value or "").split()).strip(" .,:;!?-\"'[]")
+    if not normalized:
+        return ""
+    without_role_suffix = STORY_NPC_ROLE_SUFFIX_PATTERN.sub("", normalized).strip(" .,:;!?-\"'()[]")
+    if len(without_role_suffix) > STORY_CHARACTER_MAX_NAME_LENGTH:
+        without_role_suffix = without_role_suffix[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    return without_role_suffix
+
+
+def _is_story_npc_single_token_person_name_like(token: str) -> bool:
+    normalized_token = token.strip().casefold()
+    if not normalized_token:
+        return False
+    if normalized_token in STORY_NPC_GENERIC_NAME_TOKENS or normalized_token in STORY_NPC_NON_NAME_TOKENS:
+        return False
+    if normalized_token.isdigit():
+        return False
+
+    analyzer = _get_story_morph_analyzer()
+    if analyzer is not None:
+        try:
+            parsed_variants = analyzer.parse(normalized_token)
+        except Exception:
+            parsed_variants = []
+        has_non_name_grammar = False
+        for parsed_variant in parsed_variants[:6]:
+            tag_value = str(getattr(parsed_variant, "tag", ""))
+            if any(marker in tag_value for marker in ("Name", "Surn", "Patr")):
+                return True
+            if any(marker in tag_value for marker in ("ADJF", "ADJS", "NUMR", "NPRO")):
+                has_non_name_grammar = True
+        if has_non_name_grammar:
+            return False
+
+    if len(normalized_token) >= 7 and any(
+        normalized_token.endswith(suffix) for suffix in STORY_NPC_SINGLE_TOKEN_NON_NAME_SUFFIXES
+    ):
+        return False
+    return True
+
+
 def _is_story_generic_npc_name(value: str) -> bool:
-    tokens = _normalize_story_match_tokens(value)
+    compact_value = _cleanup_story_npc_candidate_name(value)
+    if not compact_value:
+        return True
+    has_uppercase_letter = any(char.isalpha() and char.isupper() for char in compact_value)
+    if not has_uppercase_letter:
+        return True
+
+    tokens = _normalize_story_match_tokens(compact_value)
     if not tokens:
         return True
+    if len(tokens) > 4:
+        return True
+    if any(len(token) < 2 for token in tokens):
+        return True
+    if any(token in STORY_NPC_NON_NAME_TOKENS for token in tokens):
+        return True
     if len(tokens) == 1:
-        return tokens[0] in STORY_NPC_GENERIC_NAME_TOKENS
+        token = tokens[0]
+        if token in STORY_NPC_GENERIC_NAME_TOKENS:
+            return True
+        return not _is_story_npc_single_token_person_name_like(token)
     if len(tokens) <= 3:
-        return all(token in STORY_NPC_GENERIC_NAME_TOKENS for token in tokens)
+        if all(token in STORY_NPC_GENERIC_NAME_TOKENS for token in tokens):
+            return True
+        return not _is_story_npc_single_token_person_name_like(tokens[0])
+    return False
+
+
+def _infer_story_npc_gender_from_context(name: str, prompt: str, assistant_text: str) -> str:
+    name_key = name.casefold()
+    prompt_text = prompt.replace("\r\n", "\n").strip()
+    assistant_text_value = assistant_text.replace("\r\n", "\n").strip()
+    combined_context = f"{prompt_text}\n{assistant_text_value}"
+    plain_context = _normalize_story_markup_to_plain_text(combined_context).casefold()
+    if not plain_context or not name_key:
+        return ""
+
+    female_cues = ("она", "её", "ее", "ей", "сестра", "девушка", "женщина", "дочь", "сказала", "улыбнулась")
+    male_cues = ("он", "его", "ему", "брат", "парень", "мужчина", "сын", "сказал", "улыбнулся")
+
+    female_score = 0
+    male_score = 0
+    for cue in female_cues:
+        if re.search(rf"(?:{re.escape(name_key)}[^\n]{{0,100}}\b{cue}\b|\b{cue}\b[^\n]{{0,100}}{re.escape(name_key)})", plain_context):
+            female_score += 1
+    for cue in male_cues:
+        if re.search(rf"(?:{re.escape(name_key)}[^\n]{{0,100}}\b{cue}\b|\b{cue}\b[^\n]{{0,100}}{re.escape(name_key)})", plain_context):
+            male_score += 1
+
+    if female_score > male_score and female_score > 0:
+        return "женский"
+    if male_score > female_score and male_score > 0:
+        return "мужской"
+    return ""
+
+
+def _extract_story_npc_profile_field(lines: list[str], prefixes: tuple[str, ...]) -> str:
+    for line in lines:
+        lowered = line.casefold()
+        for prefix in prefixes:
+            normalized_prefix = prefix.casefold()
+            if not lowered.startswith(normalized_prefix):
+                continue
+            value = line.split(":", 1)[1].strip() if ":" in line else line[len(prefix) :].strip(" -:\t")
+            value = " ".join(value.split()).strip()
+            if value:
+                return value
+    return ""
+
+
+def _clean_story_npc_profile_fragment(value: str, *, name: str) -> str:
+    plain = _normalize_story_markup_to_plain_text(value)
+    compact = " ".join(plain.replace("\r", " ").replace("\n", " ").split()).strip(" -")
+    if not compact:
+        return ""
+    compact = re.sub(
+        rf"^{re.escape(name)}\s*:\s*",
+        "",
+        compact,
+        flags=re.IGNORECASE,
+    ).strip(" -")
+    compact = re.sub(r"^[—-]+\s*", "", compact).strip()
+    compact = re.sub(r"\s*[—-]{2,}\s*", ". ", compact).strip()
+    if not compact:
+        return ""
+    return compact
+
+
+def _is_story_dialogue_like_fragment(value: str) -> bool:
+    compact = " ".join(value.split()).strip()
+    if not compact:
+        return False
+    if re.match(r"^[^:]{1,40}:\s*[—\-\"«*]", compact):
+        return True
+    if re.match(r"^[^:]{1,40}\([^)]{1,30}\)\s*:\s*[*\"«—\-]", compact):
+        return True
+    if compact.count("—") >= 2:
+        return True
+    if "*" in compact and ":" in compact:
+        return True
+    if "сказал" in compact.casefold() or "сказала" in compact.casefold():
+        return True
+    if "(в голове)" in compact.casefold():
+        return True
     return False
 
 
 def _normalize_story_npc_profile_content(name: str, content: str) -> str:
-    normalized_content = _normalize_story_world_card_content(content)
+    plain_content = _normalize_story_markup_to_plain_text(str(content or ""))
+    normalized_content = _normalize_story_world_card_content(plain_content or content)
     if not normalized_content:
         return normalized_content
 
-    lowered_content = normalized_content.casefold()
-    has_appearance = any(fragment in lowered_content for fragment in ("внешност", "appearance", "облик", "выгляд"))
-    has_character = any(fragment in lowered_content for fragment in ("характер", "personality", "манер", "повед"))
-    has_important = any(fragment in lowered_content for fragment in ("важн", "important", "мотив", "цель", "роль"))
-    if has_important and (has_appearance or has_character):
-        return normalized_content
+    raw_lines = [line.strip() for line in normalized_content.split("\n") if line.strip()]
+    cleaned_lines = [_clean_story_npc_profile_fragment(line, name=name) for line in raw_lines]
+    cleaned_lines = [line for line in cleaned_lines if line]
 
-    compact_content = " ".join(normalized_content.split())
+    gender_value = _extract_story_npc_profile_field(cleaned_lines, ("пол", "gender"))
+    age_value = _extract_story_npc_profile_field(cleaned_lines, ("возраст", "age"))
+    appearance_value = _extract_story_npc_profile_field(cleaned_lines, ("внешность", "appearance", "облик"))
+    traits_value = _extract_story_npc_profile_field(
+        cleaned_lines,
+        ("черты и роль", "характер", "personality", "манеры", "поведение"),
+    )
+    important_value = _extract_story_npc_profile_field(
+        cleaned_lines,
+        ("связи и важное", "важное", "important", "роль", "связи"),
+    )
+
+    narrative_lines = [line for line in cleaned_lines if not _is_story_dialogue_like_fragment(line)]
+    if not appearance_value and narrative_lines:
+        appearance_value = narrative_lines[0]
+    if not traits_value and len(narrative_lines) > 1:
+        traits_value = narrative_lines[1]
+    if not important_value:
+        important_candidates = [
+            line for line in narrative_lines if any(token in line.casefold() for token in ("цель", "роль", "связ", "важ"))
+        ]
+        if important_candidates:
+            important_value = important_candidates[0]
+
+    gender_value = gender_value or "не указано"
+    age_value = age_value or "не указан"
+    appearance_value = appearance_value or "внешность в текущем фрагменте явно не описана."
+    traits_value = traits_value or "характер и роль уточняются по мере развития сцены."
+    important_value = important_value or f"{name} участвует в текущем эпизоде и влияет на ход сцены."
+
     return _normalize_story_world_card_content(
-        f"Внешность и характер: {compact_content}\n"
-        f"Важное: роль {name} в истории, цели и риски для игрока."
+        (
+            f"Пол: {gender_value}\n"
+            f"Возраст: {age_value}\n"
+            f"Внешность: {appearance_value}\n"
+            f"Черты и роль: {traits_value}\n"
+            f"Связи и важное: {important_value}"
+        )
     )
 
 
@@ -826,6 +1499,38 @@ def _normalize_story_identity_key(value: str) -> str:
     return " ".join(value.split()).strip().casefold()
 
 
+def _filter_story_identity_triggers(title: str, triggers: list[str]) -> list[str]:
+    title_key = _normalize_story_identity_key(title)
+    title_tokens = _normalize_story_match_tokens(title)
+    primary_title_token = title_tokens[0] if title_tokens else ""
+    filtered: list[str] = []
+
+    for trigger in triggers:
+        trigger_value = str(trigger or "").strip()
+        if not trigger_value:
+            continue
+        trigger_key = _normalize_story_identity_key(trigger_value)
+        if not trigger_key:
+            continue
+
+        if title_key and _are_story_identity_keys_related(trigger_key, title_key):
+            filtered.append(trigger_value)
+            continue
+
+        trigger_tokens = _normalize_story_match_tokens(trigger_value)
+        if not trigger_tokens or not primary_title_token:
+            continue
+        primary_trigger_token = trigger_tokens[0]
+        if (
+            primary_trigger_token == primary_title_token
+            or primary_trigger_token.startswith(primary_title_token)
+            or primary_title_token.startswith(primary_trigger_token)
+        ):
+            filtered.append(trigger_value)
+
+    return filtered
+
+
 def _build_story_identity_keys(title: str, triggers: list[str]) -> set[str]:
     keys: set[str] = set()
 
@@ -892,8 +1597,9 @@ def _build_story_known_npc_identity_keys(cards: list[StoryWorldCard]) -> set[str
         card_kind = _normalize_story_world_card_kind(card.kind)
         if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
             continue
-        triggers = _deserialize_story_world_card_triggers(card.triggers)
-        known_keys.update(_build_story_identity_keys(card.title, triggers))
+        raw_triggers = _deserialize_story_world_card_triggers(card.triggers)
+        identity_triggers = _filter_story_identity_triggers(card.title, raw_triggers)
+        known_keys.update(_build_story_identity_keys(card.title, identity_triggers))
     return known_keys
 
 
@@ -907,11 +1613,7 @@ def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, 
         marker_match = STORY_NPC_DIALOGUE_MARKER_PATTERN.match(paragraph_value)
         if marker_match is None:
             continue
-        raw_name = " ".join(marker_match.group(1).split()).strip(" .,:;!?-\"'()[]")
-        if not raw_name:
-            continue
-        if len(raw_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
-            raw_name = raw_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+        raw_name = _cleanup_story_npc_candidate_name(marker_match.group(1))
         if not raw_name:
             continue
         if _is_story_generic_npc_name(raw_name):
@@ -931,53 +1633,307 @@ def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, 
     return list(mentions_by_key.values())
 
 
-def _build_story_npc_fallback_content(name: str, assistant_text: str, dialogues: list[str]) -> str:
-    normalized_text = assistant_text.replace("\r\n", "\n")
-    name_key = name.casefold()
-    selected_paragraphs: list[str] = []
-    for paragraph in re.split(r"\n{2,}", normalized_text):
-        paragraph_value = paragraph.strip()
-        if not paragraph_value:
+def _extract_story_npc_narrative_mentions(assistant_text: str) -> list[dict[str, Any]]:
+    mentions_by_key: dict[str, dict[str, Any]] = {}
+    plain_text = _normalize_story_markup_to_plain_text(assistant_text)
+    for sentence in _split_story_text_into_sentences(plain_text):
+        compact_sentence = re.sub(r"\s+", " ", sentence).strip()
+        if not compact_sentence:
             continue
-        cleaned_paragraph = STORY_NPC_DIALOGUE_MARKER_PATTERN.sub(
-            lambda match: match.group(2).strip(),
-            paragraph_value,
-        ).strip()
-        if not cleaned_paragraph:
+        candidate_matches = [
+            *STORY_NPC_NARRATIVE_NAME_BEFORE_VERB_PATTERN.finditer(compact_sentence),
+            *STORY_NPC_NARRATIVE_VERB_BEFORE_NAME_PATTERN.finditer(compact_sentence),
+        ]
+        for match in candidate_matches:
+            raw_name = _cleanup_story_npc_candidate_name(match.group(1))
+            if not raw_name:
+                continue
+            raw_name_key = raw_name.casefold()
+            if raw_name_key in STORY_NPC_NAME_EXCLUDED_TOKENS:
+                continue
+            if _is_story_generic_npc_name(raw_name):
+                continue
+
+            mention = mentions_by_key.get(raw_name_key)
+            if mention is None:
+                mention = {"name": raw_name, "dialogues": [], "snippets": []}
+                mentions_by_key[raw_name_key] = mention
+            snippets_value = mention["snippets"]
+            if compact_sentence not in snippets_value:
+                snippets_value.append(compact_sentence)
+
+    return list(mentions_by_key.values())
+
+
+def _merge_story_npc_mentions(*sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    mentions_by_key: dict[str, dict[str, Any]] = {}
+    for source in sources:
+        for mention in source:
+            if not isinstance(mention, dict):
+                continue
+            raw_name = " ".join(str(mention.get("name", "")).split()).strip()
+            if not raw_name:
+                continue
+            mention_key = raw_name.casefold()
+            target = mentions_by_key.get(mention_key)
+            if target is None:
+                target = {"name": raw_name, "dialogues": [], "snippets": []}
+                mentions_by_key[mention_key] = target
+
+            dialogues = mention.get("dialogues")
+            if isinstance(dialogues, list):
+                for value in dialogues:
+                    if not isinstance(value, str):
+                        continue
+                    compact = " ".join(value.replace("\r", " ").replace("\n", " ").split()).strip()
+                    if compact and compact not in target["dialogues"]:
+                        target["dialogues"].append(compact)
+
+            snippets = mention.get("snippets")
+            if isinstance(snippets, list):
+                for value in snippets:
+                    if not isinstance(value, str):
+                        continue
+                    compact = " ".join(value.replace("\r", " ").replace("\n", " ").split()).strip()
+                    if compact and compact not in target["snippets"]:
+                        target["snippets"].append(compact)
+    return list(mentions_by_key.values())
+
+
+def _is_story_npc_title_matching_requested_name(requested_name: str, candidate_title: str) -> bool:
+    requested_tokens = _normalize_story_match_tokens(requested_name)
+    candidate_tokens = _normalize_story_match_tokens(candidate_title)
+    if not requested_tokens or not candidate_tokens:
+        return False
+    primary_requested = requested_tokens[0]
+    return primary_requested in candidate_tokens
+
+
+def _build_story_npc_profile_context_cards_preview(
+    *,
+    existing_cards: list[StoryWorldCard],
+    requested_name: str,
+) -> str:
+    requested_tokens = _normalize_story_match_tokens(requested_name)
+    requested_key = requested_tokens[0] if requested_tokens else ""
+    preview_payload: list[dict[str, Any]] = []
+
+    for card in existing_cards:
+        title = " ".join(card.title.split()).strip()
+        content = card.content.replace("\r\n", "\n").strip()
+        if not title or not content:
             continue
-        if name_key not in cleaned_paragraph.casefold():
+        kind = _normalize_story_world_card_kind(card.kind)
+        triggers = _deserialize_story_world_card_triggers(card.triggers)
+        card_search_space = " ".join([title, *triggers, content]).casefold()
+        is_related = (
+            requested_key in card_search_space
+            if requested_key
+            else False
+        )
+        is_character_card = kind in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}
+        if not is_related and not is_character_card:
             continue
-        selected_paragraphs.append(cleaned_paragraph)
-        if len(selected_paragraphs) >= 2:
+
+        content_preview = _normalize_story_prompt_text(
+            content,
+            max_chars=STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS,
+        )
+        trigger_preview = [
+            _normalize_story_prompt_text(trigger, max_chars=70)
+            for trigger in triggers[:8]
+            if isinstance(trigger, str) and trigger.strip()
+        ]
+        trigger_preview = [value for value in trigger_preview if value]
+        preview_payload.append(
+            {
+                "title": title,
+                "kind": kind,
+                "triggers": trigger_preview,
+                "content": content_preview,
+            }
+        )
+        if len(preview_payload) >= STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS:
             break
 
-    if not selected_paragraphs and dialogues:
-        selected_paragraphs = [f"{name}: {dialogues[0]}"]
-        if len(dialogues) > 1:
-            selected_paragraphs.append(f"{name}: {dialogues[1]}")
+    if not preview_payload:
+        return "[]"
+    return json.dumps(preview_payload, ensure_ascii=False)
 
-    if not selected_paragraphs:
-        selected_paragraphs = [f"{name} появляется в текущей сцене и влияет на развитие конфликта."]
 
-    appearance_and_character = selected_paragraphs[0]
-    important_details = selected_paragraphs[1] if len(selected_paragraphs) > 1 else selected_paragraphs[0]
-    profile_text = (
-        f"Внешность и характер: {appearance_and_character}\n"
-        f"Важное: {important_details}"
+def _generate_story_npc_profile_with_openrouter(
+    *,
+    name: str,
+    prompt: str,
+    assistant_text: str,
+    dialogues: list[str],
+    snippets: list[str],
+    existing_cards: list[StoryWorldCard],
+) -> tuple[str, list[str], str] | None:
+    if not settings.openrouter_api_key:
+        return None
+
+    model_name = OPENROUTER_GEMMA_FREE_MODEL
+    if not model_name:
+        return None
+
+    normalized_name = " ".join(name.split()).strip()
+    if not normalized_name or _is_story_generic_npc_name(normalized_name):
+        return None
+
+    snippets_preview = "\n".join(
+        f"- {item}"
+        for item in [*snippets[:4], *dialogues[:2]]
+        if isinstance(item, str) and item.strip()
     )
-    return _normalize_story_npc_profile_content(name, profile_text)
+    if not snippets_preview:
+        snippets_preview = "- Контекст о персонаже минимален."
+
+    text_preview = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(assistant_text),
+        max_chars=2200,
+    )
+    prompt_preview = _normalize_story_prompt_text(
+        prompt.replace("\r\n", "\n").strip(),
+        max_chars=900,
+    )
+    existing_cards_preview = _build_story_npc_profile_context_cards_preview(
+        existing_cards=existing_cards,
+        requested_name=normalized_name,
+    )
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Ты создаешь профиль ИМЕНОВАННОГО NPC для RPG. "
+                "Верни строго один JSON-объект без markdown и без комментариев. "
+                "Формат строго такой: "
+                "{\"title\":string,\"triggers\":string[],\"profile\":"
+                "{\"gender\":string,\"age\":string,\"appearance\":string,\"traits_role\":string,\"relations_important\":string}}. "
+                "title: имя персонажа; нельзя подменять на другое имя. "
+                "triggers: 4-10 полезных триггеров. "
+                "profile.gender: выводи по контексту (например, при 'она/сестра/девушка' -> женский). "
+                "profile.age: если не уверен, укажи диапазон/оценку, а не пустое поле. "
+                "profile.appearance/traits_role/relations_important: только описание, без прямой речи и без цитат. "
+                "Запрещено вставлять реплики персонажа, маркеры [[...]], префиксы вида 'Имя:' или '(в голове):'. "
+                "Если в контексте есть связь с существующим персонажем (например, сестра Алисии), явно укажи это в relations_important."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Имя нового персонажа: {normalized_name}\n\n"
+                f"Последний ход игрока:\n{prompt_preview or 'нет'}\n\n"
+                f"Фрагменты из сцены:\n{snippets_preview}\n\n"
+                f"Контекст ответа мастера:\n{text_preview}\n\n"
+                f"Уже существующие карточки мира (JSON):\n{existing_cards_preview}\n\n"
+                "Верни только JSON-объект строго по схеме."
+            ),
+        },
+    ]
+
+    try:
+        raw_response = _request_openrouter_story_text(
+            messages_payload,
+            model_name=model_name,
+            allow_free_fallback=False,
+            temperature=0.0,
+            request_timeout=(
+                12,
+                45,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("NPC profile generation failed: %s", exc)
+        return None
+
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    if not isinstance(parsed_payload, dict):
+        logger.warning("NPC profile generation returned non-JSON payload for name=%s", normalized_name)
+        return None
+
+    raw_title = str(parsed_payload.get("title", "")).strip()
+    raw_triggers = parsed_payload.get("triggers")
+    trigger_values = [value for value in raw_triggers if isinstance(value, str)] if isinstance(raw_triggers, list) else []
+
+    normalized_candidate_title = _normalize_story_world_card_title(raw_title or normalized_name)
+    if not _is_story_npc_title_matching_requested_name(normalized_name, normalized_candidate_title):
+        normalized_candidate_title = normalized_name
+    title = _normalize_story_world_card_title(normalized_candidate_title)
+    if _is_story_generic_npc_name(title):
+        return None
+
+    profile_payload = parsed_payload.get("profile")
+    if not isinstance(profile_payload, dict):
+        logger.warning("NPC profile generation returned payload without profile object for name=%s", title)
+        return None
+    gender_value = " ".join(str(profile_payload.get("gender", "")).split()).strip()
+    age_value = " ".join(str(profile_payload.get("age", "")).split()).strip()
+    appearance_value = " ".join(str(profile_payload.get("appearance", "")).split()).strip()
+    traits_value = " ".join(str(profile_payload.get("traits_role", "")).split()).strip()
+    important_value = " ".join(str(profile_payload.get("relations_important", "")).split()).strip()
+    if not appearance_value or not traits_value or not important_value:
+        logger.warning("NPC profile generation returned incomplete profile fields for name=%s", title)
+        return None
+    if any(
+        _is_story_dialogue_like_fragment(value)
+        for value in (appearance_value, traits_value, important_value)
+    ):
+        logger.warning("NPC profile generation returned dialogue-like profile fields for name=%s", title)
+        return None
+    inferred_gender = _infer_story_npc_gender_from_context(title, prompt, assistant_text)
+    if not gender_value or gender_value.casefold() in {"не указано", "не указан", "unknown", "неизвестно"}:
+        gender_value = inferred_gender or gender_value
+    content = _normalize_story_npc_profile_content(
+        title,
+        (
+            f"Пол: {gender_value or 'не указано'}\n"
+            f"Возраст: {age_value or 'не указан'}\n"
+            f"Внешность: {appearance_value}\n"
+            f"Черты и роль: {traits_value}\n"
+            f"Связи и важное: {important_value}"
+        ),
+    )
+    primary_name = title.split(" ")[0].strip()
+    trigger_candidates = [*trigger_values, normalized_name, title]
+    if primary_name:
+        trigger_candidates.append(primary_name)
+    triggers = _normalize_story_world_card_triggers(trigger_candidates, fallback_title=title)
+    return (title, triggers, content)
+
+
+def _build_story_npc_card_payload(
+    *,
+    name: str,
+    prompt: str,
+    assistant_text: str,
+    dialogues: list[str],
+    snippets: list[str],
+    existing_cards: list[StoryWorldCard],
+) -> tuple[str, list[str], str] | None:
+    generated_payload = _generate_story_npc_profile_with_openrouter(
+        name=name,
+        prompt=prompt,
+        assistant_text=assistant_text,
+        dialogues=dialogues,
+        snippets=snippets,
+        existing_cards=existing_cards,
+    )
+    return generated_payload
 
 
 def _append_missing_story_npc_card_operations(
     *,
     operations: list[dict[str, Any]],
+    prompt: str,
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, Any]]:
     if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
         return operations
 
-    npc_mentions = _extract_story_npc_dialogue_mentions(assistant_text)
+    npc_mentions = _merge_story_npc_mentions(_extract_story_npc_dialogue_mentions(assistant_text))
     if not npc_mentions:
         return operations
 
@@ -999,7 +1955,8 @@ def _append_missing_story_npc_card_operations(
             if isinstance(raw_operation_triggers, list)
             else []
         )
-        pending_identity_keys.update(_build_story_identity_keys(operation_title, operation_triggers))
+        identity_operation_triggers = _filter_story_identity_triggers(operation_title, operation_triggers)
+        pending_identity_keys.update(_build_story_identity_keys(operation_title, identity_operation_triggers))
 
     for mention in npc_mentions:
         if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
@@ -1010,34 +1967,48 @@ def _append_missing_story_npc_card_operations(
             continue
         if _is_story_generic_npc_name(name):
             continue
-        mention_triggers = _normalize_story_world_card_triggers([name], fallback_title=name)
+        mention_dialogues = mention.get("dialogues")
+        dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
+        mention_snippets = mention.get("snippets")
+        snippet_values = [item for item in mention_snippets if isinstance(item, str)] if isinstance(mention_snippets, list) else []
+        payload = _build_story_npc_card_payload(
+            name=name,
+            prompt=prompt,
+            assistant_text=assistant_text,
+            dialogues=dialogue_values,
+            snippets=snippet_values,
+            existing_cards=existing_cards,
+        )
+        if payload is None:
+            continue
+        title_value, mention_triggers, content = payload
+        identity_triggers = _filter_story_identity_triggers(title_value, mention_triggers)
+        if not identity_triggers:
+            identity_triggers = [title_value]
         if _is_story_npc_identity_duplicate(
-            candidate_name=name,
-            candidate_triggers=mention_triggers,
+            candidate_name=title_value,
+            candidate_triggers=identity_triggers,
             known_identity_keys=known_identity_keys,
         ):
             continue
         if _is_story_npc_identity_duplicate(
-            candidate_name=name,
-            candidate_triggers=mention_triggers,
+            candidate_name=title_value,
+            candidate_triggers=identity_triggers,
             known_identity_keys=pending_identity_keys,
         ):
             continue
 
-        dialogues = mention.get("dialogues")
-        dialogue_values = [item for item in dialogues if isinstance(item, str)] if isinstance(dialogues, list) else []
-        content = _build_story_npc_fallback_content(name, assistant_text, dialogue_values)
         operations.append(
             {
                 "action": STORY_WORLD_CARD_EVENT_ADDED,
-                "title": name,
+                "title": title_value,
                 "content": content,
                 "triggers": mention_triggers,
                 "kind": STORY_WORLD_CARD_KIND_NPC,
                 "changed_text": content,
             }
         )
-        pending_identity_keys.update(_build_story_identity_keys(name, mention_triggers))
+        pending_identity_keys.update(_build_story_identity_keys(title_value, identity_triggers))
 
     return operations
 
@@ -1047,9 +2018,10 @@ def _ensure_story_npc_cards_from_dialogue(
     db: Session,
     game: StoryGame,
     assistant_message: StoryMessage,
+    prompt: str,
     assistant_text: str,
 ) -> list[StoryWorldCardChangeEvent]:
-    npc_mentions = _extract_story_npc_dialogue_mentions(assistant_text)
+    npc_mentions = _merge_story_npc_mentions(_extract_story_npc_dialogue_mentions(assistant_text))
     if not npc_mentions:
         return []
 
@@ -1063,18 +2035,30 @@ def _ensure_story_npc_cards_from_dialogue(
             continue
         if _is_story_generic_npc_name(raw_name):
             continue
-        title_value = _normalize_story_world_card_title(raw_name)
-        triggers_value = _normalize_story_world_card_triggers([title_value], fallback_title=title_value)
+        mention_dialogues = mention.get("dialogues")
+        dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
+        mention_snippets = mention.get("snippets")
+        snippet_values = [item for item in mention_snippets if isinstance(item, str)] if isinstance(mention_snippets, list) else []
+        payload = _build_story_npc_card_payload(
+            name=raw_name,
+            prompt=prompt,
+            assistant_text=assistant_text,
+            dialogues=dialogue_values,
+            snippets=snippet_values,
+            existing_cards=existing_cards,
+        )
+        if payload is None:
+            continue
+        title_value, triggers_value, content_value = payload
+        identity_triggers = _filter_story_identity_triggers(title_value, triggers_value)
+        if not identity_triggers:
+            identity_triggers = [title_value]
         if _is_story_npc_identity_duplicate(
             candidate_name=title_value,
-            candidate_triggers=triggers_value,
+            candidate_triggers=identity_triggers,
             known_identity_keys=existing_identity_keys,
         ):
             continue
-
-        dialogues = mention.get("dialogues")
-        dialogue_values = [item for item in dialogues if isinstance(item, str)] if isinstance(dialogues, list) else []
-        content_value = _build_story_npc_fallback_content(title_value, assistant_text, dialogue_values)
 
         card = StoryWorldCard(
             game_id=game.id,
@@ -1111,7 +2095,7 @@ def _ensure_story_npc_cards_from_dialogue(
         )
         db.add(event)
         events.append(event)
-        existing_identity_keys.update(_build_story_identity_keys(title_value, triggers_value))
+        existing_identity_keys.update(_build_story_identity_keys(title_value, identity_triggers))
 
     if not events:
         return []
@@ -1164,32 +2148,149 @@ def _serialize_story_plot_card_snapshot(value: dict[str, Any] | None) -> str | N
 
 def _normalize_story_match_tokens(value: str) -> list[str]:
     normalized_source = value.lower().replace("ё", "е")
-    return [match.group(0) for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)]
+    return [
+        _normalize_story_match_token_script(match.group(0))
+        for match in STORY_MATCH_TOKEN_PATTERN.finditer(normalized_source)
+    ]
+
+
+def _normalize_story_match_token_script(token: str) -> str:
+    normalized = token.strip().lower().replace("ё", "е")
+    if not normalized:
+        return ""
+    has_cyrillic = any("а" <= char <= "я" for char in normalized)
+    has_latin = any("a" <= char <= "z" for char in normalized)
+    if has_cyrillic and has_latin:
+        return normalized.translate(STORY_LATIN_TO_CYRILLIC_LOOKALIKE_TABLE)
+    return normalized
+
+
+def _get_story_morph_analyzer() -> Any | None:
+    global STORY_MORPH_ANALYZER
+    if pymorphy3 is None:
+        return None
+    if STORY_MORPH_ANALYZER is False:
+        return None
+    if STORY_MORPH_ANALYZER is None:
+        try:
+            STORY_MORPH_ANALYZER = pymorphy3.MorphAnalyzer(lang="ru")
+        except Exception:
+            STORY_MORPH_ANALYZER = False
+            return None
+    if STORY_MORPH_ANALYZER is False:
+        return None
+    return STORY_MORPH_ANALYZER
+
+
+def _derive_story_russian_stems(token: str) -> set[str]:
+    if len(token) < 4:
+        return {token}
+    if STORY_CYRILLIC_TOKEN_PATTERN.fullmatch(token) is None:
+        return {token}
+
+    stems: set[str] = {token}
+    candidate = token
+    for _ in range(2):
+        stripped = False
+        for ending in STORY_RUSSIAN_INFLECTION_ENDINGS:
+            if len(candidate) - len(ending) < 3:
+                continue
+            if not candidate.endswith(ending):
+                continue
+            candidate = candidate[: len(candidate) - len(ending)]
+            if candidate:
+                stems.add(candidate)
+                compact_candidate = candidate.rstrip("ьй")
+                if len(compact_candidate) >= 3:
+                    stems.add(compact_candidate)
+            stripped = True
+            break
+        if not stripped:
+            break
+
+    return stems
+
+
+@lru_cache(maxsize=20000)
+def _build_story_token_match_forms(token: str) -> tuple[str, ...]:
+    normalized = _normalize_story_match_token_script(token)
+    if not normalized:
+        return tuple()
+
+    forms: set[str] = {normalized}
+    if STORY_CYRILLIC_TOKEN_PATTERN.fullmatch(normalized):
+        forms.update(_derive_story_russian_stems(normalized))
+        analyzer = _get_story_morph_analyzer()
+        if analyzer is not None:
+            try:
+                parsed_variants = analyzer.parse(normalized)
+            except Exception:
+                parsed_variants = []
+            for parsed in parsed_variants[:4]:
+                lemma = str(getattr(parsed, "normal_form", "")).strip().lower().replace("ё", "е")
+                if lemma:
+                    forms.add(_normalize_story_match_token_script(lemma))
+                    forms.update(_derive_story_russian_stems(lemma))
+                lexeme_values = getattr(parsed, "lexeme", None)
+                if isinstance(lexeme_values, list):
+                    for lexeme_item in lexeme_values[:96]:
+                        word = str(getattr(lexeme_item, "word", "")).strip().lower().replace("ё", "е")
+                        if not word:
+                            continue
+                        normalized_word = _normalize_story_match_token_script(word)
+                        if not normalized_word:
+                            continue
+                        forms.add(normalized_word)
+                        forms.update(_derive_story_russian_stems(normalized_word))
+
+    return tuple(sorted(form for form in forms if form))
+
+
+def _is_story_token_match(trigger_token: str, prompt_token: str) -> bool:
+    trigger_forms = _build_story_token_match_forms(trigger_token)
+    prompt_forms = _build_story_token_match_forms(prompt_token)
+    if not trigger_forms or not prompt_forms:
+        return False
+
+    if any(trigger_form == prompt_form for trigger_form in trigger_forms for prompt_form in prompt_forms):
+        return True
+
+    for trigger_form in trigger_forms:
+        if len(trigger_form) < 4:
+            continue
+        for prompt_form in prompt_forms:
+            if len(prompt_form) < 4:
+                continue
+            if prompt_form.startswith(trigger_form):
+                return True
+            if trigger_form.startswith(prompt_form):
+                return True
+            shorter, longer = (
+                (trigger_form, prompt_form)
+                if len(trigger_form) <= len(prompt_form)
+                else (prompt_form, trigger_form)
+            )
+            if len(shorter) >= 5 and longer.startswith(shorter):
+                return True
+
+    return False
 
 
 def _is_story_trigger_match(trigger: str, prompt_tokens: list[str]) -> bool:
-    trigger_tokens = _normalize_story_match_tokens(trigger)
+    trigger_candidates = _split_story_world_trigger_candidates(trigger)
+    if len(trigger_candidates) > 1:
+        return any(_is_story_trigger_match(candidate, prompt_tokens) for candidate in trigger_candidates)
+
+    trigger_tokens = [token for token in _normalize_story_match_tokens(trigger) if len(token) >= 2]
     if not trigger_tokens:
         return False
 
     if len(trigger_tokens) == 1:
         trigger_token = trigger_tokens[0]
-        if len(trigger_token) < 2:
-            return False
-        for token in prompt_tokens:
-            if token == trigger_token or token.startswith(trigger_token):
-                return True
-            if len(token) >= 4 and trigger_token.startswith(token):
-                return True
-        return False
+        return any(_is_story_token_match(trigger_token, token) for token in prompt_tokens)
 
     for trigger_token in trigger_tokens:
-        is_token_matched = any(
-            token == trigger_token
-            or token.startswith(trigger_token)
-            or (len(token) >= 4 and trigger_token.startswith(token))
-            for token in prompt_tokens
-        )
+        is_token_matched = any(_is_story_token_match(trigger_token, token) for token in prompt_tokens)
         if not is_token_matched:
             return False
     return True
@@ -1349,38 +2450,183 @@ def _select_story_world_cards_for_prompt(
     return [payload for _, payload in ranked_cards[:STORY_WORLD_CARD_PROMPT_MAX_CARDS]]
 
 
+def _select_story_world_cards_triggered_by_text(
+    text_value: str,
+    world_cards: list[StoryWorldCard],
+) -> list[dict[str, Any]]:
+    prompt_tokens = _normalize_story_match_tokens(text_value)
+    if not prompt_tokens:
+        return []
+
+    ranked_cards: list[tuple[tuple[int, int], dict[str, Any]]] = []
+    kind_rank = {
+        STORY_WORLD_CARD_KIND_MAIN_HERO: 0,
+        STORY_WORLD_CARD_KIND_NPC: 1,
+        STORY_WORLD_CARD_KIND_WORLD: 2,
+    }
+
+    for card in world_cards:
+        card_kind = _normalize_story_world_card_kind(card.kind)
+        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+            continue
+
+        title = " ".join(card.title.split()).strip()
+        content = card.content.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+
+        triggers = _deserialize_story_world_card_triggers(card.triggers)
+        if not triggers:
+            triggers = _normalize_story_world_card_triggers([], fallback_title=title)
+        if not triggers:
+            continue
+
+        if not any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers):
+            continue
+
+        memory_turns = _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind)
+        ranked_cards.append(
+            (
+                (kind_rank.get(card_kind, 3), card.id),
+                {
+                    "id": card.id,
+                    "title": title,
+                    "content": content,
+                    "triggers": triggers,
+                    "kind": card_kind,
+                    "avatar_url": _normalize_avatar_value(card.avatar_url),
+                    "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
+                    "character_id": card.character_id,
+                    "memory_turns": memory_turns,
+                    "is_locked": bool(card.is_locked),
+                    "source": _normalize_story_world_card_source(card.source),
+                },
+            )
+        )
+
+    ranked_cards.sort(key=lambda item: item[0])
+    return [payload for _, payload in ranked_cards]
+
+
 def _build_story_system_prompt(
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
+    *,
+    model_name: str | None = None,
+    response_max_tokens: int | None = None,
 ) -> str:
+    compact_mode = _is_story_paid_model(model_name)
+    instruction_cards_for_prompt = (
+        instruction_cards[:STORY_PROMPT_COMPACT_MAX_INSTRUCTION_CARDS]
+        if compact_mode
+        else instruction_cards
+    )
+    plot_cards_for_prompt = (
+        plot_cards[:STORY_PROMPT_COMPACT_MAX_PLOT_CARDS]
+        if compact_mode
+        else plot_cards
+    )
+    world_cards_for_prompt = (
+        world_cards[:STORY_PROMPT_COMPACT_MAX_WORLD_CARDS]
+        if compact_mode
+        else world_cards
+    )
     lines = [STORY_SYSTEM_PROMPT]
 
-    if instruction_cards:
-        lines.extend(["", "User instruction cards for this game:"])
-        for index, card in enumerate(instruction_cards, start=1):
-            lines.append(f"{index}. {card['title']}: {card['content']}")
+    if instruction_cards_for_prompt:
+        lines.extend(["", "Карточки инструкций игрока:"])
+        for index, card in enumerate(instruction_cards_for_prompt, start=1):
+            raw_title = str(card.get("title", "")).replace("\r\n", " ").strip()
+            raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            if compact_mode:
+                title = _normalize_story_prompt_text(raw_title, max_chars=STORY_PROMPT_COMPACT_TITLE_MAX_CHARS)
+                content = _normalize_story_prompt_text(
+                    raw_content,
+                    max_chars=STORY_PROMPT_COMPACT_INSTRUCTION_MAX_CHARS,
+                )
+            else:
+                title = " ".join(raw_title.split()).strip()
+                content = raw_content
+            if not title or not content:
+                continue
+            lines.append(f"{index}. {title}: {content}")
 
-    if plot_cards:
-        lines.extend(["", "Plot and memory cards:"])
-        for index, card in enumerate(plot_cards, start=1):
-            lines.append(f"{index}. {card['title']}: {card['content']}")
+    if plot_cards_for_prompt:
+        lines.extend(["", "Карточки памяти сюжета:"])
+        for index, card in enumerate(plot_cards_for_prompt, start=1):
+            raw_title = str(card.get("title", "")).replace("\r\n", " ").strip()
+            raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            if compact_mode:
+                title = _normalize_story_prompt_text(raw_title, max_chars=STORY_PROMPT_COMPACT_TITLE_MAX_CHARS)
+                content = _normalize_story_prompt_text(
+                    raw_content,
+                    max_chars=STORY_PROMPT_COMPACT_PLOT_MAX_CHARS,
+                )
+            else:
+                title = " ".join(raw_title.split()).strip()
+                content = raw_content
+            if not title or not content:
+                continue
+            lines.append(f"{index}. {title}: {content}")
 
-    if world_cards:
-        lines.extend(["", "World cards active for this turn (triggered now or recently):"])
-        for index, card in enumerate(world_cards, start=1):
-            lines.append(f"{index}. {card['title']}: {card['content']}")
-            trigger_line = ", ".join(card["triggers"]) if card["triggers"] else "none"
-            lines.append(f"Triggers: {trigger_line}")
+    if world_cards_for_prompt:
+        lines.extend(["", "Активные карточки мира в этом ходе:"])
+        for index, card in enumerate(world_cards_for_prompt, start=1):
+            raw_title = str(card.get("title", "")).replace("\r\n", " ").strip()
+            raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            if compact_mode:
+                title = _normalize_story_prompt_text(raw_title, max_chars=STORY_PROMPT_COMPACT_TITLE_MAX_CHARS)
+                content = _normalize_story_prompt_text(
+                    raw_content,
+                    max_chars=STORY_PROMPT_COMPACT_WORLD_MAX_CHARS,
+                )
+            else:
+                title = " ".join(raw_title.split()).strip()
+                content = raw_content
+            if not title or not content:
+                continue
             card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
             if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
-                lines.append("Type: main_hero")
+                kind_label = "главный_герой"
             elif card_kind == STORY_WORLD_CARD_KIND_NPC:
-                lines.append("Type: npc")
+                kind_label = "npc"
             else:
-                lines.append("Type: world")
+                kind_label = "мир"
+            raw_triggers = card.get("triggers")
+            trigger_values = raw_triggers if isinstance(raw_triggers, list) else []
+            if compact_mode:
+                trigger_line = _normalize_story_prompt_list(
+                    trigger_values,
+                    max_items=STORY_PROMPT_COMPACT_TRIGGER_MAX_ITEMS,
+                    max_chars=STORY_PROMPT_COMPACT_TRIGGER_MAX_CHARS,
+                )
+                lines.append(f"{index}. {title} [{kind_label}] tr: {trigger_line}; {content}")
+            else:
+                trigger_line = ", ".join(
+                    value.strip() for value in trigger_values if isinstance(value, str) and value.strip()
+                )
+                lines.append(f"{index}. {title}: {content}")
+                lines.append(f"Триггеры: {trigger_line or 'нет'}")
+                lines.append(f"Тип: {kind_label}")
 
     lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES])
+    if response_max_tokens is not None:
+        normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
+        target_tokens = max(
+            min(normalized_limit, int(normalized_limit * STORY_RESPONSE_BUDGET_TARGET_FACTOR)),
+            STORY_RESPONSE_MIN_TARGET_TOKENS,
+        )
+        lines.extend(
+            [
+                "",
+                (
+                    f"Бюджет ответа: ориентируйся до {target_tokens} токенов "
+                    f"(жесткий максимум {normalized_limit}). "
+                    "Планируй объем заранее и завершай финальную фразу полностью, без обрыва."
+                ),
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -1549,6 +2795,90 @@ def _strip_story_markup_for_memory_text(text_value: str) -> str:
     return "\n\n".join(normalized_paragraphs)
 
 
+def _normalize_story_markup_to_plain_text(text_value: str) -> str:
+    normalized_text = _strip_story_markup_for_memory_text(text_value).replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    legacy_tag_pattern = re.compile(
+        r"<\s*([a-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)</\s*([a-z_ -]+)\s*>",
+        re.IGNORECASE,
+    )
+
+    normalized_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+
+        tag_match = legacy_tag_pattern.fullmatch(paragraph_value)
+        if tag_match is None:
+            normalized_paragraphs.append(paragraph_value)
+            continue
+
+        opening_key = _normalize_story_markup_key(tag_match.group(1))
+        closing_key = _normalize_story_markup_key(tag_match.group(4))
+        if opening_key != closing_key:
+            normalized_paragraphs.append(paragraph_value)
+            continue
+
+        compact_key = opening_key.replace("_", "")
+        text_body = tag_match.group(3).strip()
+        if not text_body:
+            continue
+        raw_speaker = " ".join(str(tag_match.group(2) or "").split()).strip(" .,:;!?-\"'()[]")
+
+        if compact_key in {"narrator", "narration", "narrative"}:
+            normalized_paragraphs.append(text_body)
+            continue
+        if compact_key in {"npcthought", "npcthink", "ggthought", "ggthink"} and raw_speaker:
+            normalized_paragraphs.append(f"{raw_speaker} (в голове): {text_body}")
+            continue
+        if compact_key in {
+            "npc",
+            "npcreplick",
+            "npcreplica",
+            "npcspeech",
+            "npcdialogue",
+            "gg",
+            "ggreplick",
+            "ggreplica",
+            "ggspeech",
+            "ggdialogue",
+        } and raw_speaker:
+            normalized_paragraphs.append(f"{raw_speaker}: {text_body}")
+            continue
+
+        normalized_paragraphs.append(paragraph_value)
+
+    return "\n\n".join(normalized_paragraphs)
+
+
+def _extract_story_explicit_person_names_from_text(text_value: str) -> list[str]:
+    plain_text = _normalize_story_markup_to_plain_text(text_value)
+    if not plain_text:
+        return []
+
+    names: list[str] = []
+    seen_keys: set[str] = set()
+    for match in STORY_EXPLICIT_PERSON_NAME_PATTERN.finditer(plain_text):
+        candidate_name = _cleanup_story_npc_candidate_name(match.group(1))
+        if not candidate_name:
+            continue
+        candidate_key = candidate_name.casefold()
+        if candidate_key in seen_keys:
+            continue
+        if candidate_key in STORY_NPC_NAME_EXCLUDED_TOKENS:
+            continue
+        if _is_story_generic_npc_name(candidate_name):
+            continue
+        seen_keys.add(candidate_key)
+        names.append(candidate_name)
+        if len(names) >= 20:
+            break
+    return names
+
+
 def _build_story_markup_repair_messages(
     text_value: str,
     world_cards: list[dict[str, Any]],
@@ -1571,6 +2901,8 @@ def _build_story_markup_repair_messages(
         known_speakers.append(card_title)
 
     known_speakers_preview = ", ".join(known_speakers[:40]) if known_speakers else "нет"
+    scene_names = _extract_story_explicit_person_names_from_text(text_value)
+    scene_names_preview = ", ".join(scene_names[:20]) if scene_names else "нет"
     return [
         {
             "role": "system",
@@ -1587,10 +2919,13 @@ def _build_story_markup_repair_messages(
             "role": "user",
             "content": (
                 f"Известные имена персонажей (используй точно, если подходят): {known_speakers_preview}\n\n"
+                f"Имена, явно встречающиеся в текущем тексте: {scene_names_preview}\n\n"
                 f"Текст для нормализации:\n{text_value}\n\n"
                 "Прямая речь -> [[NPC:...]] или [[GG:...]]. "
                 "Мысли персонажа -> [[NPC_THOUGHT:...]] или [[GG_THOUGHT:...]]. "
-                "Если говорящий неочевиден, используй роль из контекста сцены."
+                "Если говорящий неочевиден, используй роль из контекста сцены. "
+                "Не заменяй новое имя персонажа на другое известное имя. "
+                "Если в тексте явно указано имя (например, 'Мия сказала'), используй именно это имя."
             ),
         },
     ]
@@ -1619,10 +2954,24 @@ def _normalize_generated_story_output(
     world_cards: list[dict[str, Any]],
 ) -> str:
     normalized_text = text_value.replace("\r\n", "\n").strip()
+    if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
+        sentence_end_index = -1
+        for char in STORY_OUTPUT_SENTENCE_END_CHARS:
+            sentence_end_index = max(sentence_end_index, normalized_text.rfind(char))
+        if sentence_end_index >= 0:
+            tail_index = sentence_end_index + 1
+            while tail_index < len(normalized_text) and normalized_text[tail_index] in STORY_OUTPUT_CLOSING_CHARS:
+                tail_index += 1
+            normalized_text = normalized_text[:tail_index].rstrip()
+        else:
+            line_break_index = normalized_text.rfind("\n")
+            if line_break_index > 0:
+                normalized_text = normalized_text[:line_break_index].rstrip()
+
     if not normalized_text:
         return normalized_text
     if _is_story_strict_markup_output(normalized_text):
-        return normalized_text
+        return _enforce_story_output_language(normalized_text)
 
     repaired_text = ""
     if settings.openrouter_api_key:
@@ -1632,10 +2981,24 @@ def _normalize_generated_story_output(
             logger.warning("Story markup normalization failed: %s", exc)
 
     repaired_normalized = repaired_text.replace("\r\n", "\n").strip()
-    if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
-        return repaired_normalized
+    if repaired_normalized and repaired_normalized[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
+        sentence_end_index = -1
+        for char in STORY_OUTPUT_SENTENCE_END_CHARS:
+            sentence_end_index = max(sentence_end_index, repaired_normalized.rfind(char))
+        if sentence_end_index >= 0:
+            tail_index = sentence_end_index + 1
+            while tail_index < len(repaired_normalized) and repaired_normalized[tail_index] in STORY_OUTPUT_CLOSING_CHARS:
+                tail_index += 1
+            repaired_normalized = repaired_normalized[:tail_index].rstrip()
+        else:
+            line_break_index = repaired_normalized.rfind("\n")
+            if line_break_index > 0:
+                repaired_normalized = repaired_normalized[:line_break_index].rstrip()
 
-    return _prefix_story_narrator_markup(normalized_text)
+    if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
+        return _enforce_story_output_language(repaired_normalized)
+
+    return _enforce_story_output_language(_prefix_story_narrator_markup(normalized_text))
 
 
 def _effective_story_llm_provider() -> str:
@@ -1760,6 +3123,66 @@ def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
     if not normalized_model:
         return False
     return all(model_hint not in normalized_model for model_hint in STORY_NON_SAMPLING_MODEL_HINTS)
+
+
+def _is_story_paid_model(model_name: str | None) -> bool:
+    normalized_model = (model_name or "").strip().lower()
+    if not normalized_model:
+        return False
+    return any(model_hint in normalized_model for model_hint in STORY_PAID_MODEL_HINTS)
+
+
+def _normalize_story_prompt_text(value: str, *, max_chars: int) -> str:
+    normalized = re.sub(r"\s+", " ", value.replace("\r\n", "\n")).strip()
+    if not normalized:
+        return ""
+    if len(normalized) <= max_chars:
+        return normalized
+    if max_chars <= 3:
+        return normalized[:max_chars]
+    return f"{normalized[:max_chars - 3].rstrip(' ,;:-')}..."
+
+
+def _normalize_story_prompt_list(values: list[Any], *, max_items: int, max_chars: int) -> str:
+    normalized_values = [
+        _normalize_story_prompt_text(value, max_chars=max_chars)
+        for value in values
+        if isinstance(value, str) and value.strip()
+    ]
+    normalized_values = [value for value in normalized_values if value]
+    if not normalized_values:
+        return "нет"
+    return ", ".join(normalized_values[:max_items])
+
+
+def _effective_story_context_limit_tokens(context_limit_tokens: int, *, model_name: str | None) -> int:
+    normalized_limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    if not _is_story_paid_model(model_name):
+        return normalized_limit
+    if normalized_limit <= STORY_PAID_MODEL_CONTEXT_LIMIT_MIN:
+        return normalized_limit
+    optimized_limit = int(normalized_limit * STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR)
+    return max(min(normalized_limit, optimized_limit), STORY_PAID_MODEL_CONTEXT_LIMIT_MIN)
+
+
+def _effective_story_response_max_tokens(response_max_tokens: int | None, *, model_name: str | None) -> int | None:
+    if response_max_tokens is None:
+        return None
+    normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
+    return normalized_limit
+
+
+def _select_story_sampling_values(
+    *,
+    model_name: str | None,
+    story_top_k: int,
+    story_top_r: float,
+) -> tuple[int | None, float | None]:
+    if not _can_apply_story_sampling_to_model(model_name):
+        return (None, None)
+    top_k_value = story_top_k if story_top_k > 0 else None
+    top_p_value = story_top_r if story_top_r < 0.999 else None
+    return (top_k_value, top_p_value)
 
 
 def _extract_story_markup_tokens(text_value: str) -> list[str]:
@@ -1941,6 +3364,56 @@ def _force_translate_story_model_output_to_user(text_value: str) -> str:
     return translated[0] if translated else text_value
 
 
+def _strip_story_markup_for_language_detection(text_value: str) -> str:
+    normalized = text_value.replace("\r\n", "\n")
+    return STORY_MARKUP_MARKER_PATTERN.sub(" ", normalized)
+
+
+def _should_force_story_output_to_russian(text_value: str) -> bool:
+    if settings.story_user_language != "ru":
+        return False
+    if not _can_force_story_output_translation():
+        return False
+
+    stripped = _strip_story_markup_for_language_detection(text_value).strip()
+    if not stripped:
+        return False
+    if STORY_CJK_CHARACTER_PATTERN.search(stripped):
+        return True
+
+    cyrillic_letters = len(STORY_CYRILLIC_LETTER_PATTERN.findall(stripped))
+    latin_letters = len(STORY_LATIN_LETTER_PATTERN.findall(stripped))
+    latin_words = len(STORY_LATIN_WORD_PATTERN.findall(stripped))
+    cyrillic_words = len(STORY_CYRILLIC_WORD_PATTERN.findall(stripped))
+
+    if cyrillic_letters == 0 and latin_letters >= 6:
+        return True
+    if latin_letters >= 12 and latin_letters > cyrillic_letters * 0.35:
+        return True
+    if latin_words >= 4 and latin_words > max(cyrillic_words, 1):
+        return True
+    return False
+
+
+def _enforce_story_output_language(text_value: str) -> str:
+    normalized = text_value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return normalized
+    if not _should_force_story_output_to_russian(normalized):
+        return normalized
+
+    try:
+        translated = _force_translate_story_model_output_to_user(normalized)
+    except Exception as exc:
+        logger.warning("Forced story output translation failed: %s", exc)
+        return normalized
+
+    translated_normalized = translated.replace("\r\n", "\n").strip()
+    if not translated_normalized:
+        return normalized
+    return translated_normalized
+
+
 def _trim_story_history_to_context_limit(
     history: list[dict[str, str]],
     context_limit_tokens: int,
@@ -1948,7 +3421,7 @@ def _trim_story_history_to_context_limit(
     if not history:
         return []
 
-    limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    limit = max(int(context_limit_tokens), 0)
     if limit <= 0:
         return []
 
@@ -1979,6 +3452,58 @@ def _trim_story_history_to_context_limit(
     return selected_reversed
 
 
+def _estimate_story_history_tokens(history: list[dict[str, str]]) -> int:
+    total = 0
+    for item in history:
+        content = str(item.get("content", "")).strip()
+        if not content:
+            continue
+        total += _estimate_story_tokens(content) + 4
+    return total
+
+
+def _select_story_history_source(
+    history: list[dict[str, str]],
+    *,
+    use_plot_memory: bool,
+) -> list[dict[str, str]]:
+    if not use_plot_memory:
+        return history
+
+    # Plot memory replaces long chat history, but we keep a short recent tail
+    # so the model preserves immediate scene coherence.
+    selected_reversed: list[dict[str, str]] = []
+    consumed_tokens = 0
+
+    for item in reversed(history):
+        role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+        content = str(item.get("content", "")).strip()
+        if role not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} or not content:
+            continue
+        entry_cost = _estimate_story_tokens(content) + 4
+        if (
+            selected_reversed
+            and consumed_tokens + entry_cost > STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS
+        ):
+            break
+        selected_reversed.append({"role": role, "content": content})
+        consumed_tokens += entry_cost
+        if len(selected_reversed) >= STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES:
+            break
+
+    if not selected_reversed:
+        return []
+
+    selected = list(reversed(selected_reversed))
+    if selected[-1].get("role") != STORY_USER_ROLE:
+        for item in reversed(history):
+            content = str(item.get("content", "")).strip()
+            if str(item.get("role", "")).strip() == STORY_USER_ROLE and content:
+                selected.append({"role": STORY_USER_ROLE, "content": content})
+                break
+    return selected
+
+
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
@@ -1986,17 +3511,44 @@ def _build_story_provider_messages(
     world_cards: list[dict[str, Any]],
     *,
     context_limit_tokens: int,
+    response_max_tokens: int | None = None,
     translate_for_model: bool = False,
+    model_name: str | None = None,
 ) -> list[dict[str, str]]:
-    history = [
+    full_history = [
         {"role": message.role, "content": message.content.strip()}
         for message in context_messages
         if message.role in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} and message.content.strip()
     ]
+    effective_context_limit_tokens = _effective_story_context_limit_tokens(
+        context_limit_tokens,
+        model_name=model_name,
+    )
+    recent_history_for_plot_memory = _select_story_history_source(
+        full_history,
+        use_plot_memory=True,
+    )
+    reserved_history_tokens = _estimate_story_history_tokens(recent_history_for_plot_memory)
+    plot_cards_for_prompt = _fit_story_plot_cards_to_context_limit(
+        instruction_cards=instruction_cards,
+        plot_cards=plot_cards,
+        world_cards=world_cards,
+        context_limit_tokens=effective_context_limit_tokens,
+        reserved_history_tokens=reserved_history_tokens,
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
+    )
+    history = recent_history_for_plot_memory if plot_cards_for_prompt else full_history
 
-    system_prompt = _build_story_system_prompt(instruction_cards, plot_cards, world_cards)
+    system_prompt = _build_story_system_prompt(
+        instruction_cards,
+        plot_cards_for_prompt,
+        world_cards,
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
+    )
     system_prompt_tokens = _estimate_story_tokens(system_prompt)
-    history_budget_tokens = max(_normalize_story_context_limit_chars(context_limit_tokens) - system_prompt_tokens, 0)
+    history_budget_tokens = max(effective_context_limit_tokens - system_prompt_tokens, 0)
     history = _trim_story_history_to_context_limit(history, history_budget_tokens)
 
     messages_payload = [{"role": "system", "content": system_prompt}, *history]
@@ -2114,21 +3666,33 @@ def _build_story_world_card_extraction_messages(
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
+    model_name = (settings.openrouter_world_card_model or settings.openrouter_model).strip()
+    compact_mode = _is_story_paid_model(model_name)
     existing_titles = [card.title.strip() for card in existing_cards if card.title.strip()]
-    existing_titles_preview = ", ".join(existing_titles[:40]) if existing_titles else "нет"
+    existing_title_items = [
+        _normalize_story_prompt_text(title, max_chars=48 if compact_mode else 90)
+        for title in existing_titles[: (24 if compact_mode else 40)]
+    ]
+    existing_title_items = [title for title in existing_title_items if title]
+    existing_titles_preview = ", ".join(existing_title_items) if existing_title_items else "нет"
     prompt_preview = prompt.strip()
     assistant_preview = assistant_text.strip()
-    if len(prompt_preview) > 1200:
-        prompt_preview = f"{prompt_preview[:1197].rstrip()}..."
-    if len(assistant_preview) > 5000:
-        assistant_preview = f"{assistant_preview[:4997].rstrip()}..."
+    prompt_preview = _normalize_story_prompt_text(
+        prompt_preview,
+        max_chars=700 if compact_mode else 1_200,
+    )
+    assistant_preview = _normalize_story_prompt_text(
+        assistant_preview,
+        max_chars=2_600 if compact_mode else 5_000,
+    )
 
     return [
         {
             "role": "system",
             "content": (
-                "Ты извлекаешь важные сущности мира из художественного фрагмента. "
-                "Верни строго JSON-массив без markdown. "
+                "Выдели долгосрочные сущности мира из фрагмента RPG. "
+                "Верни строго JSON-массив без markdown: "
+                "[{\"title\": string, \"content\": string, \"triggers\": string[]}]. "
                 "Формат элемента: {\"title\": string, \"content\": string, \"triggers\": string[]}. "
                 "Добавляй только новые и действительно важные сущности (персонажи, предметы, места, организации). "
                 "Максимум 3 элемента. Если добавлять нечего, верни []"
@@ -2206,27 +3770,45 @@ def _build_story_world_card_change_messages(
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
+    model_name = (settings.openrouter_world_card_model or settings.openrouter_model).strip()
+    compact_mode = _is_story_paid_model(model_name)
     prompt_preview = prompt.strip()
     assistant_preview = assistant_text.strip()
-    if len(prompt_preview) > 1200:
-        prompt_preview = f"{prompt_preview[:1197].rstrip()}..."
-    if len(assistant_preview) > 5200:
-        assistant_preview = f"{assistant_preview[:5197].rstrip()}..."
+    prompt_preview = _normalize_story_prompt_text(
+        prompt_preview,
+        max_chars=700 if compact_mode else 1_200,
+    )
+    assistant_preview = _normalize_story_prompt_text(
+        assistant_preview,
+        max_chars=2_800 if compact_mode else 5_200,
+    )
 
     existing_cards_preview: list[dict[str, Any]] = []
-    for card in existing_cards[:120]:
+    for card in existing_cards[: (70 if compact_mode else 120)]:
         title = " ".join(card.title.split()).strip()
         content = card.content.replace("\r\n", "\n").strip()
         if not title or not content:
             continue
-        if len(content) > 320:
-            content = f"{content[:317].rstrip()}..."
+        content = _normalize_story_prompt_text(
+            content,
+            max_chars=220 if compact_mode else 320,
+        )
+        if not content:
+            continue
+        trigger_limit = 5 if compact_mode else 10
+        trigger_text_limit = 36 if compact_mode else 70
+        triggers_preview = [
+            _normalize_story_prompt_text(trigger, max_chars=trigger_text_limit)
+            for trigger in _deserialize_story_world_card_triggers(card.triggers)[:trigger_limit]
+            if isinstance(trigger, str) and trigger.strip()
+        ]
+        triggers_preview = [trigger for trigger in triggers_preview if trigger]
         existing_cards_preview.append(
             {
                 "id": card.id,
                 "title": title,
                 "content": content,
-                "triggers": _deserialize_story_world_card_triggers(card.triggers)[:10],
+                "triggers": triggers_preview,
                 "kind": _normalize_story_world_card_kind(card.kind),
                 "is_locked": bool(card.is_locked),
                 "ai_edit_enabled": bool(card.ai_edit_enabled),
@@ -2244,6 +3826,21 @@ def _build_story_world_card_change_messages(
         {
             "role": "system",
             "content": (
+                "Обнови долгосрочные карточки мира RPG. "
+                "Верни строго JSON-массив без markdown. "
+                "Формат элемента: "
+                "{\"action\":\"add|update|delete\",\"card_id\":number?,\"title\":string?,\"content\":string?,"
+                "\"triggers\":string[]?,\"changed_text\":string?,\"importance\":\"critical|high|medium|low\","
+                "\"kind\":\"character|npc|item|artifact|action|event|place|location|faction|organization|quest\"}. "
+                "Правила: "
+                "1) Только важные долгосрочные факты; бытовые и одноразовые детали игнорируй. "
+                "2) Одноразовые события держи в plot memory, а не в world cards. "
+                "3) Предпочитай update существующей карточки вместо add дубля. "
+                "4) Не update/delete карточки с is_locked=true или ai_edit_enabled=false. "
+                "5) Для add/update давай полный актуальный content и полезные triggers. "
+                "6) NPC должен быть конкретным именованным персонажем, без generic названий. "
+                f"7) Максимум {STORY_WORLD_CARD_MAX_AI_CHANGES} операций; если изменений нет, верни []."
+            ) if compact_mode else (
                 "You update long-term world memory for an interactive RPG session. "
                 "Return strict JSON array without markdown.\n"
                 "Each item format:\n"
@@ -2276,6 +3873,11 @@ def _build_story_world_card_change_messages(
         {
             "role": "user",
             "content": (
+                f"Ход игрока:\n{prompt_preview}\n\n"
+                f"Ответ мастера:\n{assistant_preview}\n\n"
+                f"Текущие world cards JSON:\n{existing_cards_json}\n\n"
+                "Верни только JSON-массив."
+            ) if compact_mode else (
                 f"Player action:\n{prompt_preview}\n\n"
                 f"Game master response:\n{assistant_preview}\n\n"
                 f"Existing world cards JSON:\n{existing_cards_json}\n\n"
@@ -2381,6 +3983,10 @@ def _normalize_story_world_card_change_operations(
             if not isinstance(raw_title, str) or not isinstance(raw_content, str):
                 continue
             title = " ".join(raw_title.split()).strip()
+            if ai_card_kind == STORY_WORLD_CARD_KIND_NPC:
+                cleaned_npc_title = _cleanup_story_npc_candidate_name(title)
+                if cleaned_npc_title:
+                    title = cleaned_npc_title
             content = raw_content.replace("\r\n", "\n").strip()
             if len(title) > 120:
                 title = title[:120].rstrip()
@@ -2690,6 +4296,7 @@ def _generate_story_world_card_change_operations(
     normalized_operations = _normalize_story_world_card_change_operations(raw_operations, existing_cards)
     return _append_missing_story_npc_card_operations(
         operations=normalized_operations,
+        prompt=prompt,
         assistant_text=assistant_text,
         existing_cards=existing_cards,
     )
@@ -2725,6 +4332,10 @@ def _apply_story_world_card_change_operations(
             if not title_value or not content_value or not isinstance(triggers_value, list):
                 continue
             card_kind = _normalize_story_world_card_kind(str(operation.get("kind", STORY_WORLD_CARD_KIND_WORLD)))
+            if card_kind == STORY_WORLD_CARD_KIND_NPC:
+                cleaned_npc_title = _cleanup_story_npc_candidate_name(title_value)
+                if cleaned_npc_title:
+                    title_value = cleaned_npc_title
             normalized_title = _normalize_story_world_card_title(title_value)
             normalized_content = _normalize_story_world_card_content(content_value)
             if card_kind == STORY_WORLD_CARD_KIND_NPC:
@@ -2743,11 +4354,15 @@ def _apply_story_world_card_change_operations(
                     existing_kind = _normalize_story_world_card_kind(existing_card.kind)
                     if existing_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
                         continue
-                    existing_triggers = _deserialize_story_world_card_triggers(existing_card.triggers)
-                    existing_identity_keys = _build_story_identity_keys(existing_card.title, existing_triggers)
+                    raw_existing_triggers = _deserialize_story_world_card_triggers(existing_card.triggers)
+                    existing_identity_triggers = _filter_story_identity_triggers(existing_card.title, raw_existing_triggers)
+                    existing_identity_keys = _build_story_identity_keys(existing_card.title, existing_identity_triggers)
+                    candidate_identity_triggers = _filter_story_identity_triggers(candidate_name, normalized_triggers)
+                    if not candidate_identity_triggers:
+                        candidate_identity_triggers = [candidate_name]
                     if _is_story_npc_identity_duplicate(
                         candidate_name=candidate_name,
-                        candidate_triggers=normalized_triggers,
+                        candidate_triggers=candidate_identity_triggers,
                         known_identity_keys=existing_identity_keys,
                     ):
                         duplicate_npc_exists = True
@@ -2824,6 +4439,11 @@ def _apply_story_world_card_change_operations(
             if not title_value or not content_value or not isinstance(triggers_value, list):
                 continue
 
+            next_kind = _normalize_story_world_card_kind(str(operation.get("kind", card.kind)))
+            if next_kind == STORY_WORLD_CARD_KIND_NPC:
+                cleaned_npc_title = _cleanup_story_npc_candidate_name(title_value)
+                if cleaned_npc_title:
+                    title_value = cleaned_npc_title
             next_title = _normalize_story_world_card_title(title_value)
             next_content = _normalize_story_world_card_content(content_value)
             next_triggers = _normalize_story_world_card_triggers(
@@ -2831,7 +4451,6 @@ def _apply_story_world_card_change_operations(
                 fallback_title=title_value,
             )
             previous_kind = _normalize_story_world_card_kind(card.kind)
-            next_kind = _normalize_story_world_card_kind(str(operation.get("kind", card.kind)))
             if next_kind == STORY_WORLD_CARD_KIND_NPC:
                 if _is_story_generic_npc_name(next_title):
                     continue
@@ -2964,6 +4583,7 @@ def _persist_generated_story_world_cards(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
+                prompt=prompt,
                 assistant_text=assistant_text,
             )
         )
@@ -2976,59 +4596,42 @@ def _persist_generated_story_world_cards(
 def _build_story_plot_card_memory_messages(
     *,
     existing_card: StoryPlotCard | None,
-    assistant_messages: list[StoryMessage],
-    context_limit_tokens: int,
+    latest_assistant_text: str,
+    latest_user_prompt: str,
+    model_name: str | None = None,
 ) -> list[dict[str, str]]:
-    current_memory = ""
-    if existing_card is not None:
-        current_memory = existing_card.content.replace("\r\n", "\n").strip()
-
-    history_limit = min(
-        _normalize_story_context_limit_chars(context_limit_tokens),
-        STORY_PLOT_CARD_MEMORY_MAX_INPUT_TOKENS,
-    )
-    history_items = _trim_story_history_to_context_limit(
-        [
-            {
-                "role": STORY_ASSISTANT_ROLE,
-                "content": _strip_story_markup_for_memory_text(message.content),
-            }
-            for message in assistant_messages
-        ],
-        history_limit,
-    )
-    history_json_payload = [
-        {"id": index, "content": item.get("content", "")}
-        for index, item in enumerate(history_items, start=1)
-    ]
-
-    history_json = json.dumps(history_json_payload, ensure_ascii=False)
+    compact_mode = _is_story_paid_model(model_name)
     current_title = existing_card.title.strip() if existing_card is not None else ""
+    current_memory = existing_card.content.replace("\r\n", "\n").strip() if existing_card is not None else ""
+    current_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
+    current_assistant_text = latest_assistant_text.replace("\r\n", "\n").strip()
+    prompt_max_chars = 900 if compact_mode else 2_000
+    memory_max_chars = 1_400 if compact_mode else 3_000
+    assistant_max_chars = 2_800 if compact_mode else 8_000
+    current_prompt = _normalize_story_prompt_text(current_prompt, max_chars=prompt_max_chars)
+    current_memory = _normalize_story_prompt_text(current_memory, max_chars=memory_max_chars)
+    current_assistant_text = _normalize_story_prompt_text(current_assistant_text, max_chars=assistant_max_chars)
 
     return [
         {
             "role": "system",
             "content": (
-                "Ты редактор краткой долговременной памяти для RPG. "
-                "Задача: максимально сократить текст без потери контекста и важных деталей. "
-                "Сохраняй только управленчески важное: текущий контекст сцены, цель, конфликт/угрозу, ключевые факты, незакрытые линии. "
-                "Удаляй атмосферные описания, повторы, украшения, второстепенные детали и длинные пересказы. "
-                "Заголовок должен передавать суть текущего этапа истории, 3-7 слов, без шаблонов и без копирования первой строки. "
-                "Верни строго JSON без markdown: "
-                "{\"title\": string, \"memory_points\": string[], \"content\": string}. "
-                "memory_points: 4-6 коротких пунктов по делу, каждый <=150 символов. "
-                "Каждый пункт начинай с одной из меток: "
-                "'Контекст:', 'Цель:', 'Конфликт:', 'Факты:', 'Риск:', 'Незакрытое:'. "
-                "content: компактная версия тех же пунктов."
+                "Обнови карточку памяти RPG по новому ответу мастера. "
+                "Верни строго JSON без markdown: {\"title\": string, \"memory_points\": string[], \"content\": string}. "
+                "title: 3-7 слов, по сути эпизода, на русском, без шаблонов вроде 'Суть эпизода'. "
+                "memory_points: 3-6 коротких пунктов <=150 символов, каждый с меткой "
+                "'Контекст:', 'Цель:', 'Конфликт:', 'Факты:', 'Риск:' или 'Незакрытое:'. "
+                "content: только новая сжатая дельта текущего хода, без переписывания старой памяти."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Текущая карточка памяти (может быть пусто):\nЗаголовок: {current_title or 'нет'}\n"
-                f"Текст:\n{current_memory or 'нет'}\n\n"
-                f"История ответов мастера JSON:\n{history_json}\n\n"
-                "Обнови карточку памяти. Сожми без потери критичных деталей для следующего хода. Верни только JSON."
+                f"Текущая карточка:\nЗаголовок: {current_title or 'нет'}\n"
+                f"Память:\n{current_memory or 'нет'}\n\n"
+                f"Последний ход игрока:\n{current_prompt or 'нет'}\n\n"
+                f"Новый ответ мастера:\n{current_assistant_text or 'нет'}\n\n"
+                "Верни только JSON."
             ),
         },
     ]
@@ -3177,6 +4780,7 @@ def _normalize_story_plot_card_ai_payload(
     raw_payload: Any,
     *,
     fallback_title: str = "",
+    allow_title_from_content: bool = True,
 ) -> tuple[str, str] | None:
     if not isinstance(raw_payload, dict):
         return None
@@ -3201,96 +4805,263 @@ def _normalize_story_plot_card_ai_payload(
             raw_content = "\n".join(raw_points)
         nested_card = raw_payload.get("card")
         if isinstance(nested_card, dict):
-            return _normalize_story_plot_card_ai_payload(nested_card, fallback_title=fallback_title)
-        if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+            return _normalize_story_plot_card_ai_payload(
+                nested_card,
+                fallback_title=fallback_title,
+                allow_title_from_content=allow_title_from_content,
+            )
+        if not isinstance(raw_content, str):
             return None
 
-    title = " ".join(raw_title.split()).strip()
+    title = " ".join(raw_title.split()).strip() if isinstance(raw_title, str) else ""
     content = _compress_story_plot_memory_content(raw_content, preferred_lines=raw_points)
 
     if len(title) < 3:
         title = ""
     if not title or _is_story_plot_card_default_title(title):
         title = fallback_title.strip()
-    if not title or _is_story_plot_card_default_title(title):
+    if (not title or _is_story_plot_card_default_title(title)) and allow_title_from_content:
         title = _derive_story_plot_card_title_from_content(content, preferred_lines=raw_points)
-    if not title:
-        title = STORY_PLOT_CARD_DEFAULT_TITLE
+    if _is_story_plot_card_default_title(title):
+        title = ""
     if not content:
         return None
 
-    if len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+    if title and len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
         title = title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
     if len(content) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
         content = content[:STORY_PLOT_CARD_MAX_CONTENT_LENGTH].rstrip()
-    if not title or not content:
+    if not content:
         return None
 
     return (title, content)
 
 
-def _build_story_plot_card_fallback_payload(
+def _normalize_story_plot_memory_line(value: str) -> str:
+    compact = re.sub(r"\s+", " ", value).strip(" -•\t")
+    if not compact:
+        return ""
+    if len(compact) > STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS:
+        compact = f"{compact[:STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS - 3].rstrip(' ,;:-')}..."
+    return compact
+
+
+def _merge_story_plot_memory_content(existing_content: str, new_content: str) -> str:
+    existing_lines = [
+        _normalize_story_plot_memory_line(line)
+        for line in existing_content.replace("\r\n", "\n").split("\n")
+        if line.strip()
+    ]
+    existing_lines = [line for line in existing_lines if line]
+    new_lines = [
+        _normalize_story_plot_memory_line(line)
+        for line in new_content.replace("\r\n", "\n").split("\n")
+        if line.strip()
+    ]
+    new_lines = [line for line in new_lines if line]
+    if not new_lines:
+        return existing_content.replace("\r\n", "\n").strip()
+
+    seen_lines = {line.casefold() for line in existing_lines}
+    appended_lines: list[str] = []
+    for line in new_lines:
+        key = line.casefold()
+        if key in seen_lines:
+            continue
+        seen_lines.add(key)
+        appended_lines.append(line)
+
+    if not appended_lines:
+        return existing_content.replace("\r\n", "\n").strip()
+    merged_lines = existing_lines + appended_lines
+    return "\n".join(f"- {line}" for line in merged_lines)
+
+
+def _append_story_plot_memory_content_raw(existing_content: str, new_content: str) -> str:
+    existing_normalized = existing_content.replace("\r\n", "\n").strip()
+    new_normalized = new_content.replace("\r\n", "\n").strip()
+    if not existing_normalized:
+        return new_normalized
+    if not new_normalized:
+        return existing_normalized
+    return f"{existing_normalized}\n{new_normalized}"
+
+
+def _trim_story_plot_card_content_for_context(
+    content: str,
+    *,
+    context_limit_tokens: int,
+) -> str:
+    normalized = content.replace("\r\n", "\n").strip()
+    if not normalized:
+        return normalized
+    limit = max(int(context_limit_tokens), 1)
+    normalized_tokens = _estimate_story_tokens(normalized)
+    if normalized_tokens <= limit:
+        return normalized
+    return _trim_story_text_tail_by_sentence_tokens(normalized, limit)
+
+
+def _generate_story_plot_card_title_with_openrouter(
+    *,
+    model_name: str,
+    latest_assistant_text: str,
+    latest_user_prompt: str,
+    current_title: str,
+) -> str:
+    compact_mode = _is_story_paid_model(model_name)
+    normalized_assistant = latest_assistant_text.replace("\r\n", "\n").strip()
+    if not normalized_assistant:
+        return ""
+    normalized_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
+    summary_basis = _compress_story_plot_memory_content(normalized_assistant)
+    if not summary_basis:
+        summary_basis = normalized_assistant
+
+    prompt_max_chars = 500 if compact_mode else 1_000
+    summary_max_chars = 1_100 if compact_mode else 2_000
+    title_max_chars = 90 if compact_mode else 120
+    normalized_prompt = _normalize_story_prompt_text(normalized_prompt, max_chars=prompt_max_chars)
+    summary_basis = _normalize_story_prompt_text(summary_basis, max_chars=summary_max_chars)
+    normalized_title = _normalize_story_prompt_text(current_title, max_chars=title_max_chars)
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Сформируй заголовок карточки памяти RPG. "
+                "Верни строго JSON без markdown: {\"title\": string}. "
+                "Требования: 3-7 слов, только русский, по сути эпизода, "
+                "без шаблонов ('Суть эпизода') и без копирования первой фразы."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Текущий заголовок: {normalized_title or 'нет'}\n\n"
+                f"Последний ход игрока:\n{normalized_prompt or 'нет'}\n\n"
+                f"Сжатая суть нового ответа мастера:\n{summary_basis or 'нет'}\n\n"
+                "Сформируй один заголовок. Верни только JSON."
+            ),
+        },
+    ]
+    raw_response = _request_openrouter_story_text(
+        messages_payload,
+        model_name=model_name,
+        allow_free_fallback=False,
+        temperature=0.0,
+        request_timeout=(
+            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+        ),
+    )
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    raw_title: Any = ""
+    if isinstance(parsed_payload, dict):
+        raw_title = (
+            parsed_payload.get("title")
+            or parsed_payload.get("name")
+            or parsed_payload.get("heading")
+            or parsed_payload.get("заголовок")
+        )
+    if not isinstance(raw_title, str):
+        return ""
+    title = " ".join(raw_title.split()).strip()
+    if len(title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+        title = title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+    if len(title) < 3 or _is_story_plot_card_default_title(title):
+        return ""
+    return title
+
+
+def _build_story_plot_card_delta_fallback(
     *,
     existing_card: StoryPlotCard | None,
-    assistant_messages: list[StoryMessage],
-    context_limit_tokens: int,
+    latest_assistant_text: str,
 ) -> tuple[str, str] | None:
-    history_limit = _normalize_story_context_limit_chars(context_limit_tokens)
-    trimmed_history = _trim_story_history_to_context_limit(
-        [
-            {
-                "role": STORY_ASSISTANT_ROLE,
-                "content": _strip_story_markup_for_memory_text(message.content),
-            }
-            for message in assistant_messages
-        ],
-        history_limit,
-    )
-    history_parts = [item.get("content", "").replace("\r\n", "\n").strip() for item in trimmed_history if item.get("content")]
-
-    if not history_parts:
+    combined_content = _compress_story_plot_memory_content(latest_assistant_text)
+    if not combined_content:
         return None
 
     fallback_title = existing_card.title.strip() if existing_card is not None else ""
+    if _is_story_plot_card_default_title(fallback_title):
+        fallback_title = ""
+    return (fallback_title, combined_content)
 
-    combined_content = _compress_story_plot_memory_content("\n".join(history_parts[-10:]))
-    if not combined_content:
-        return None
-    if not fallback_title or _is_story_plot_card_default_title(fallback_title):
-        fallback_title = _derive_story_plot_card_title_from_content(combined_content)
-    if not fallback_title:
-        fallback_title = STORY_PLOT_CARD_DEFAULT_TITLE
 
-    return (
-        _normalize_story_plot_card_title(fallback_title),
-        _normalize_story_plot_card_content(combined_content),
-    )
+def _resolve_story_plot_card_title(
+    *,
+    model_name: str,
+    existing_title: str,
+    suggested_title: str,
+    fallback_content: str,
+    latest_assistant_text: str,
+    latest_user_prompt: str,
+    prefer_fresh_title: bool = False,
+) -> str:
+    normalized_existing = " ".join(existing_title.split()).strip()
+    normalized_suggested = " ".join(suggested_title.split()).strip()
+    has_existing_title = bool(normalized_existing and not _is_story_plot_card_default_title(normalized_existing))
+    has_suggested_title = bool(normalized_suggested and not _is_story_plot_card_default_title(normalized_suggested))
+
+    if not prefer_fresh_title:
+        if has_existing_title:
+            return normalized_existing
+        if has_suggested_title:
+            return normalized_suggested
+    elif has_suggested_title and normalized_suggested != normalized_existing:
+        return normalized_suggested
+
+    try:
+        generated_title = _generate_story_plot_card_title_with_openrouter(
+            model_name=model_name,
+            latest_assistant_text=latest_assistant_text,
+            latest_user_prompt=latest_user_prompt,
+            current_title=normalized_existing,
+        )
+    except Exception as exc:
+        logger.warning("Plot card title generation failed, fallback will be used: %s", exc)
+        generated_title = ""
+    if generated_title:
+        return generated_title
+    if has_suggested_title:
+        return normalized_suggested
+    if has_existing_title:
+        return normalized_existing
+
+    derived_title = _derive_story_plot_card_title_from_content(fallback_content)
+    if derived_title and not _is_story_plot_card_default_title(derived_title):
+        return derived_title
+    return STORY_PLOT_CARD_DEFAULT_TITLE
 
 
 def _upsert_story_plot_memory_card(
     *,
     db: Session,
     game: StoryGame,
+    assistant_message: StoryMessage,
 ) -> tuple[bool, list[StoryPlotCardChangeEvent]]:
-    if not settings.openrouter_api_key:
+    if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
+        return (False, [])
+    latest_assistant_text = _strip_story_markup_for_memory_text(assistant_message.content).replace("\r\n", "\n").strip()
+    if not latest_assistant_text:
         return (False, [])
 
-    model_name = (settings.openrouter_plot_card_model or "google/gemma-3-12b-it:free").strip()
-    if not model_name:
-        return (False, [])
-
-    assistant_messages = db.scalars(
+    latest_user_message = db.scalar(
         select(StoryMessage)
         .where(
             StoryMessage.game_id == game.id,
-            StoryMessage.role == STORY_ASSISTANT_ROLE,
+            StoryMessage.role == STORY_USER_ROLE,
+            StoryMessage.id < assistant_message.id,
         )
-        .order_by(StoryMessage.id.asc())
-    ).all()
-    if len(assistant_messages) > STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES:
-        assistant_messages = assistant_messages[-STORY_PLOT_CARD_MAX_ASSISTANT_MESSAGES:]
-    if not assistant_messages:
-        return (False, [])
+        .order_by(StoryMessage.id.desc())
+        .limit(1)
+    )
+    latest_user_prompt = (
+        latest_user_message.content.replace("\r\n", "\n").strip()
+        if isinstance(latest_user_message, StoryMessage)
+        else ""
+    )
 
     existing_cards = _list_story_plot_cards(db, game.id)
     ai_card = next(
@@ -3302,10 +5073,54 @@ def _upsert_story_plot_memory_card(
         None,
     )
     target_card = ai_card or (existing_cards[0] if existing_cards else None)
+    if target_card is not None and _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_USER:
+        merged_content_raw = _append_story_plot_memory_content_raw(target_card.content, latest_assistant_text)
+        if not merged_content_raw:
+            return (False, [])
+
+        content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
+        if target_card.content == content:
+            return (False, [])
+
+        before_snapshot = _story_plot_card_snapshot_from_card(target_card)
+        target_card.content = content
+        target_card.source = STORY_PLOT_CARD_SOURCE_USER
+        db.flush()
+        after_snapshot = _story_plot_card_snapshot_from_card(target_card)
+        changed_text_fallback = _derive_story_changed_text_from_snapshots(
+            action=STORY_WORLD_CARD_EVENT_UPDATED,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+        )
+        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
+        event = StoryPlotCardChangeEvent(
+            game_id=game.id,
+            assistant_message_id=assistant_message.id,
+            plot_card_id=target_card.id,
+            action=STORY_WORLD_CARD_EVENT_UPDATED,
+            title=target_card.title,
+            changed_text=changed_text,
+            before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
+            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
+        )
+        db.add(event)
+        _touch_story_game(game)
+        db.commit()
+        db.refresh(event)
+        return (False, [event])
+
+    if not settings.openrouter_api_key:
+        return (False, [])
+
+    model_name = (settings.openrouter_plot_card_model or "google/gemma-3-12b-it:free").strip()
+    if not model_name:
+        return (False, [])
+
     messages_payload = _build_story_plot_card_memory_messages(
         existing_card=target_card,
-        assistant_messages=assistant_messages,
-        context_limit_tokens=game.context_limit_chars,
+        latest_assistant_text=latest_assistant_text,
+        latest_user_prompt=latest_user_prompt,
+        model_name=model_name,
     )
 
     normalized_payload: tuple[str, str] | None = None
@@ -3321,25 +5136,42 @@ def _upsert_story_plot_memory_card(
             ),
         )
         parsed_payload = _extract_json_object_from_text(raw_response)
-        fallback_title = target_card.title.strip() if target_card is not None else ""
         normalized_payload = _normalize_story_plot_card_ai_payload(
             parsed_payload,
-            fallback_title=fallback_title,
+            fallback_title="",
+            allow_title_from_content=False,
         )
     except Exception as exc:
         logger.warning("Plot card memory generation failed, fallback will be used: %s", exc)
 
     if normalized_payload is None:
-        normalized_payload = _build_story_plot_card_fallback_payload(
+        normalized_payload = _build_story_plot_card_delta_fallback(
             existing_card=target_card,
-            assistant_messages=assistant_messages,
-            context_limit_tokens=game.context_limit_chars,
+            latest_assistant_text=latest_assistant_text,
         )
     if normalized_payload is None:
         return (False, [])
-    title, content = normalized_payload
+    suggested_title, delta_content = normalized_payload
+    if not delta_content:
+        return (False, [])
 
     if target_card is None:
+        resolved_title = _resolve_story_plot_card_title(
+            model_name=model_name,
+            existing_title="",
+            suggested_title=suggested_title,
+            fallback_content=delta_content,
+            latest_assistant_text=latest_assistant_text,
+            latest_user_prompt=latest_user_prompt,
+            prefer_fresh_title=True,
+        )
+        title = _normalize_story_plot_card_title(resolved_title)
+        content = _normalize_story_plot_card_content(delta_content, preserve_tail=True)
+        content = _trim_story_plot_card_content_for_context(
+            content,
+            context_limit_tokens=game.context_limit_chars,
+        )
+        content = _normalize_story_plot_card_content(content, preserve_tail=True)
         new_card = StoryPlotCard(
             game_id=game.id,
             title=title,
@@ -3357,7 +5189,7 @@ def _upsert_story_plot_memory_card(
         changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
         event = StoryPlotCardChangeEvent(
             game_id=game.id,
-            assistant_message_id=assistant_messages[-1].id,
+            assistant_message_id=assistant_message.id,
             plot_card_id=new_card.id,
             action=STORY_WORLD_CARD_EVENT_ADDED,
             title=new_card.title,
@@ -3371,6 +5203,27 @@ def _upsert_story_plot_memory_card(
         db.refresh(event)
         return (True, [event])
 
+    merged_content_raw = _merge_story_plot_memory_content(target_card.content, delta_content)
+    if not merged_content_raw:
+        return (False, [])
+    content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
+    content = _trim_story_plot_card_content_for_context(
+        content,
+        context_limit_tokens=game.context_limit_chars,
+    )
+    content = _normalize_story_plot_card_content(content, preserve_tail=True)
+    prefer_fresh_title = _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_AI
+    title = _normalize_story_plot_card_title(
+        _resolve_story_plot_card_title(
+            model_name=model_name,
+            existing_title=target_card.title,
+            suggested_title=suggested_title,
+            fallback_content=delta_content,
+            latest_assistant_text=latest_assistant_text,
+            latest_user_prompt=latest_user_prompt,
+            prefer_fresh_title=prefer_fresh_title,
+        )
+    )
     if target_card.title == title and target_card.content == content:
         return (False, [])
 
@@ -3388,7 +5241,7 @@ def _upsert_story_plot_memory_card(
     changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
     event = StoryPlotCardChangeEvent(
         game_id=game.id,
-        assistant_message_id=assistant_messages[-1].id,
+        assistant_message_id=assistant_message.id,
         plot_card_id=target_card.id,
         action=STORY_WORLD_CARD_EVENT_UPDATED,
         title=target_card.title,
@@ -3482,6 +5335,7 @@ def _iter_gigachat_story_stream_chunks(
     world_cards: list[dict[str, Any]],
     *,
     context_limit_chars: int,
+    response_max_tokens: int | None = None,
 ):
     access_token = _get_gigachat_access_token()
     messages_payload = _build_story_provider_messages(
@@ -3490,6 +5344,7 @@ def _iter_gigachat_story_stream_chunks(
         plot_cards,
         world_cards,
         context_limit_tokens=context_limit_chars,
+        response_max_tokens=response_max_tokens,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
@@ -3504,6 +5359,8 @@ def _iter_gigachat_story_stream_chunks(
         "messages": messages_payload,
         "stream": True,
     }
+    if response_max_tokens is not None:
+        payload["max_tokens"] = int(response_max_tokens)
 
     try:
         response = HTTP_SESSION.post(
@@ -3588,6 +5445,7 @@ def _iter_openrouter_story_stream_chunks(
     model_name: str | None = None,
     top_k: int | None = None,
     top_p: float | None = None,
+    max_tokens: int | None = None,
 ):
     messages_payload = _build_story_provider_messages(
         context_messages,
@@ -3595,6 +5453,8 @@ def _iter_openrouter_story_stream_chunks(
         plot_cards,
         world_cards,
         context_limit_tokens=context_limit_chars,
+        response_max_tokens=max_tokens,
+        model_name=model_name,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
@@ -3629,6 +5489,8 @@ def _iter_openrouter_story_stream_chunks(
             payload["top_k"] = top_k
         if top_p is not None:
             payload["top_p"] = top_p
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
 
         for attempt_index in range(2):
             try:
@@ -3745,6 +5607,7 @@ def _iter_openrouter_story_stream_chunks(
                     allow_free_fallback=False,
                     top_k=top_k,
                     top_p=top_p,
+                    max_tokens=max_tokens,
                 )
                 if fallback_text:
                     for chunk in _iter_story_stream_chunks(fallback_text):
@@ -3762,7 +5625,11 @@ def _iter_openrouter_story_stream_chunks(
     raise RuntimeError("OpenRouter chat request failed")
 
 
-def _request_gigachat_story_text(messages_payload: list[dict[str, str]]) -> str:
+def _request_gigachat_story_text(
+    messages_payload: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+) -> str:
     access_token = _get_gigachat_access_token()
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -3774,6 +5641,8 @@ def _request_gigachat_story_text(messages_payload: list[dict[str, str]]) -> str:
         "messages": messages_payload,
         "stream": False,
     }
+    if max_tokens is not None:
+        payload["max_tokens"] = int(max_tokens)
 
     try:
         response = HTTP_SESSION.post(
@@ -3826,6 +5695,7 @@ def _request_openrouter_story_text(
     temperature: float | None = None,
     top_k: int | None = None,
     top_p: float | None = None,
+    max_tokens: int | None = None,
     request_timeout: tuple[int, int] | None = None,
 ) -> str:
     headers = {
@@ -3860,6 +5730,8 @@ def _request_openrouter_story_text(
             payload["top_k"] = top_k
         if top_p is not None:
             payload["top_p"] = top_p
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
         try:
             response = HTTP_SESSION.post(
                 settings.openrouter_chat_url,
@@ -3933,10 +5805,15 @@ def _iter_story_provider_stream_chunks(
     story_model_name: str | None = None,
     story_top_k: int = 0,
     story_top_r: float = 1.0,
+    story_response_max_tokens: int | None = None,
 ):
     provider = _effective_story_llm_provider()
 
     if provider == "gigachat":
+        effective_response_max_tokens = _effective_story_response_max_tokens(
+            story_response_max_tokens,
+            model_name=settings.gigachat_model,
+        )
         if _is_story_translation_enabled():
             payload = _build_story_provider_messages(
                 context_messages,
@@ -3944,9 +5821,13 @@ def _iter_story_provider_stream_chunks(
                 plot_cards,
                 world_cards,
                 context_limit_tokens=context_limit_chars,
+                response_max_tokens=effective_response_max_tokens,
                 translate_for_model=True,
             )
-            generated_text = _request_gigachat_story_text(payload)
+            generated_text = _request_gigachat_story_text(
+                payload,
+                max_tokens=effective_response_max_tokens,
+            )
             try:
                 translated_text = _translate_story_model_output_to_user(generated_text)
             except Exception as exc:
@@ -3962,14 +5843,21 @@ def _iter_story_provider_stream_chunks(
             plot_cards,
             world_cards,
             context_limit_chars=context_limit_chars,
+            response_max_tokens=effective_response_max_tokens,
         )
         return
 
     if provider == "openrouter":
         selected_model_name = (story_model_name or settings.openrouter_model).strip() or settings.openrouter_model
-        apply_sampling = _can_apply_story_sampling_to_model(selected_model_name)
-        top_k_value = story_top_k if apply_sampling else None
-        top_p_value = story_top_r if apply_sampling else None
+        effective_response_max_tokens = _effective_story_response_max_tokens(
+            story_response_max_tokens,
+            model_name=selected_model_name,
+        )
+        top_k_value, top_p_value = _select_story_sampling_values(
+            model_name=selected_model_name,
+            story_top_k=story_top_k,
+            story_top_r=story_top_r,
+        )
         translation_enabled = _is_story_translation_enabled()
         force_output_translation = _should_force_openrouter_story_output_translation(selected_model_name)
         if translation_enabled or force_output_translation:
@@ -3979,13 +5867,16 @@ def _iter_story_provider_stream_chunks(
                 plot_cards,
                 world_cards,
                 context_limit_tokens=context_limit_chars,
+                response_max_tokens=effective_response_max_tokens,
                 translate_for_model=translation_enabled,
+                model_name=selected_model_name,
             )
             generated_text = _request_openrouter_story_text(
                 payload,
                 model_name=selected_model_name,
                 top_k=top_k_value,
                 top_p=top_p_value,
+                max_tokens=effective_response_max_tokens,
             )
             try:
                 if force_output_translation and not translation_enabled:
@@ -4008,6 +5899,7 @@ def _iter_story_provider_stream_chunks(
             model_name=selected_model_name,
             top_k=top_k_value,
             top_p=top_p_value,
+            max_tokens=effective_response_max_tokens,
         )
         return
 
@@ -4028,6 +5920,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         list_story_plot_cards=_list_story_plot_cards,
         list_story_world_cards=_list_story_world_cards,
         select_story_world_cards_for_prompt=_select_story_world_cards_for_prompt,
+        select_story_world_cards_triggered_by_text=_select_story_world_cards_triggered_by_text,
         normalize_context_limit_chars=_normalize_story_context_limit_chars,
         get_story_turn_cost_tokens=_get_story_turn_cost_tokens,
         spend_user_tokens_if_sufficient=_spend_user_tokens_if_sufficient,

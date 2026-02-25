@@ -29,6 +29,8 @@ type CharacterManagerDialogProps = {
   open: boolean
   authToken: string
   onClose: () => void
+  initialMode?: 'list' | 'create'
+  initialCharacterId?: number | null
 }
 
 type CharacterDraftMode = 'create' | 'edit'
@@ -146,7 +148,13 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
   )
 }
 
-function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDialogProps) {
+function CharacterManagerDialog({
+  open,
+  authToken,
+  onClose,
+  initialMode = 'list',
+  initialCharacterId = null,
+}: CharacterManagerDialogProps) {
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [isLoadingCharacters, setIsLoadingCharacters] = useState(false)
   const [isSavingCharacter, setIsSavingCharacter] = useState(false)
@@ -166,6 +174,7 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const [characterDeleteTarget, setCharacterDeleteTarget] = useState<StoryCharacter | null>(null)
+  const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
 
   const sortedCharacters = useMemo(
     () =>
@@ -225,12 +234,14 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
       setCharacterMenuCharacterId(null)
       setCharacterDeleteTarget(null)
       setAvatarCropSource(null)
+      setHasAppliedInitialAction(false)
       return
     }
     setIsEditorOpen(false)
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
     setCharacterDeleteTarget(null)
+    setHasAppliedInitialAction(false)
     resetDraft()
     void loadCharacters()
   }, [loadCharacters, open, resetDraft])
@@ -457,6 +468,38 @@ function CharacterManagerDialog({ open, authToken, onClose }: CharacterManagerDi
     setCharacterDeleteTarget(null)
     await handleDeleteCharacter(targetId)
   }, [characterDeleteTarget, handleDeleteCharacter])
+
+  useEffect(() => {
+    if (!open || isLoadingCharacters || hasAppliedInitialAction) {
+      return
+    }
+
+    if (initialCharacterId !== null) {
+      const targetCharacter = sortedCharacters.find((character) => character.id === initialCharacterId) ?? null
+      if (targetCharacter) {
+        handleStartEdit(targetCharacter)
+      }
+      setHasAppliedInitialAction(true)
+      return
+    }
+
+    if (initialMode === 'create') {
+      handleStartCreate()
+      setHasAppliedInitialAction(true)
+      return
+    }
+
+    setHasAppliedInitialAction(true)
+  }, [
+    handleStartCreate,
+    handleStartEdit,
+    hasAppliedInitialAction,
+    initialCharacterId,
+    initialMode,
+    isLoadingCharacters,
+    open,
+    sortedCharacters,
+  ])
 
   return (
     <BaseDialog

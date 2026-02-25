@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryCommunityWorldRating, StoryCommunityWorldView, User
+from app.models import StoryCommunityWorldFavorite, StoryCommunityWorldRating, StoryCommunityWorldReport, StoryCommunityWorldView, User
 from app.schemas import (
     StoryCommunityWorldOut,
     StoryGameOut,
@@ -75,6 +75,18 @@ def get_story_community_world(
             StoryCommunityWorldRating.user_id == user.id,
         )
     )
+    user_report = db.scalar(
+        select(StoryCommunityWorldReport.id).where(
+            StoryCommunityWorldReport.world_id == world.id,
+            StoryCommunityWorldReport.reporter_user_id == user.id,
+        )
+    )
+    user_favorite = db.scalar(
+        select(StoryCommunityWorldFavorite.id).where(
+            StoryCommunityWorldFavorite.world_id == world.id,
+            StoryCommunityWorldFavorite.user_id == user.id,
+        )
+    )
     instruction_cards = list_story_instruction_cards(db, world.id)
     plot_cards = list_story_plot_cards(db, world.id)
     world_cards = list_story_world_cards(db, world.id)
@@ -82,9 +94,12 @@ def get_story_community_world(
     return StoryCommunityWorldOut(
         world=story_community_world_summary_to_out(
             world,
+            author_id=world.user_id,
             author_name=story_author_name(author),
             author_avatar_url=story_author_avatar_url(author),
             user_rating=int(user_rating) if user_rating is not None else None,
+            is_reported_by_user=user_report is not None,
+            is_favorited_by_user=user_favorite is not None,
         ),
         context_limit_chars=world.context_limit_chars,
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],

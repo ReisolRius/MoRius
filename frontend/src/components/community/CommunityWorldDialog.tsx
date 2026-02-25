@@ -1,6 +1,22 @@
-import { Alert, Box, Button, CircularProgress, Snackbar, Stack, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  MenuItem,
+  Select,
+  Snackbar,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material'
 import { useMemo, useState } from 'react'
 import { icons } from '../../assets'
+import type { StoryCommunityWorldReportReason } from '../../services/storyApi'
 import type { StoryCommunityWorldPayload } from '../../types/story'
 import BaseDialog from '../dialogs/BaseDialog'
 
@@ -16,6 +32,19 @@ const BASE_GAP = '20px'
 
 type CommunityPreviewBadgeTone = 'green' | 'blue'
 type DialogTab = 'description' | 'cards' | 'comments'
+type CommunityWorldReportPayload = {
+  reason: StoryCommunityWorldReportReason
+  description: string
+}
+
+type CommunityWorldModerationControls = {
+  reportCount: number
+  reasonLabel: string
+  description: string
+  isApplying: boolean
+  onRemoveWorld: () => void
+  onDismissReport: () => void
+}
 
 type CommunityWorldDialogProps = {
   open: boolean
@@ -30,7 +59,20 @@ type CommunityWorldDialogProps = {
   onPlay: () => void
   onRate: (value: number) => void
   onToggleMyGames: () => void
+  onAuthorClick?: (authorId: number) => void
+  onSubmitReport?: (payload: CommunityWorldReportPayload) => Promise<void> | void
+  isReportSubmitting?: boolean
+  showGameplayActions?: boolean
+  moderationControls?: CommunityWorldModerationControls | null
 }
+
+const REPORT_REASON_OPTIONS: Array<{ value: StoryCommunityWorldReportReason; label: string }> = [
+  { value: 'cp', label: 'ЦП' },
+  { value: 'politics', label: 'Политика' },
+  { value: 'racism', label: 'Расизм' },
+  { value: 'nationalism', label: 'Национализм' },
+  { value: 'other', label: 'Другое' },
+]
 
 type CommunityPreviewCardProps = {
   title: string
@@ -252,9 +294,19 @@ function CommunityWorldDialog({
   onPlay,
   onRate,
   onToggleMyGames,
+  onAuthorClick,
+  onSubmitReport,
+  isReportSubmitting = false,
+  showGameplayActions = true,
+  moderationControls = null,
 }: CommunityWorldDialogProps) {
   const [tab, setTab] = useState<DialogTab>('description')
   const [isShareNoticeOpen, setIsShareNoticeOpen] = useState(false)
+  const [isReportNoticeOpen, setIsReportNoticeOpen] = useState(false)
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
+  const [reportReasonDraft, setReportReasonDraft] = useState<string>('')
+  const [reportDescriptionDraft, setReportDescriptionDraft] = useState('')
+  const [reportValidationError, setReportValidationError] = useState('')
 
   const world = worldPayload?.world ?? null
   const cardsCount = useMemo(() => {
@@ -266,7 +318,10 @@ function CommunityWorldDialog({
   const authorName = world?.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world?.author_avatar_url ?? null
   const authorInitials = resolveAuthorInitials(authorName)
-  const isActionLocked = isLaunching || isRatingSaving || isMyGamesToggleSaving
+  const hasWorldBeenReportedByUser = Boolean(world?.is_reported_by_user)
+  const isActionLocked =
+    isLaunching || isRatingSaving || isMyGamesToggleSaving || isReportSubmitting || Boolean(moderationControls?.isApplying)
+  const canReportWorld = Boolean(world) && showGameplayActions && Boolean(onSubmitReport) && !hasWorldBeenReportedByUser
 
   const shareLink = useMemo(() => {
     if (!world || typeof window === 'undefined') {
@@ -287,13 +342,64 @@ function CommunityWorldDialog({
     }
   }
 
+  const handleOpenReportDialog = () => {
+    if (!canReportWorld || isActionLocked) {
+      return
+    }
+    setReportValidationError('')
+    setIsReportDialogOpen(true)
+  }
+
+  const handleCloseReportDialog = () => {
+    if (isReportSubmitting) {
+      return
+    }
+    setIsReportDialogOpen(false)
+    setReportValidationError('')
+    setReportReasonDraft('')
+    setReportDescriptionDraft('')
+  }
+
+  const handleSubmitReport = async () => {
+    if (!canReportWorld || !onSubmitReport) {
+      return
+    }
+    const normalizedReason = reportReasonDraft.trim()
+    const normalizedDescription = reportDescriptionDraft.trim()
+    if (!normalizedReason) {
+      setReportValidationError('Выберите категорию нарушения.')
+      return
+    }
+    if (!normalizedDescription) {
+      setReportValidationError('Опишите причину жалобы.')
+      return
+    }
+    setReportValidationError('')
+    try {
+      await onSubmitReport({
+        reason: normalizedReason as StoryCommunityWorldReportReason,
+        description: normalizedDescription,
+      })
+      setIsReportDialogOpen(false)
+      setReportReasonDraft('')
+      setReportDescriptionDraft('')
+      setIsReportNoticeOpen(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось отправить жалобу'
+      setReportValidationError(detail)
+    }
+  }
+
   return (
     <BaseDialog
       open={open}
       onClose={() => {
-        if (!isLaunching && !isRatingSaving && !isMyGamesToggleSaving) {
+        if (!isActionLocked) {
           setTab('description')
           setIsShareNoticeOpen(false)
+          setIsReportNoticeOpen(false)
+          setIsReportDialogOpen(false)
+          setReportValidationError('')
           onClose()
         }
       }}
@@ -316,23 +422,6 @@ function CommunityWorldDialog({
           overflowY: 'auto',
           overflowX: 'hidden',
           overscrollBehavior: 'contain',
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'rgba(186, 202, 214, 0.72) rgba(21, 26, 35, 0.7)',
-          '&::-webkit-scrollbar': {
-            width: 10,
-          },
-          '&::-webkit-scrollbar-track': {
-            background: 'rgba(21, 26, 35, 0.7)',
-            borderRadius: '999px',
-          },
-          '&::-webkit-scrollbar-thumb': {
-            background: 'rgba(186, 202, 214, 0.72)',
-            borderRadius: '999px',
-            border: '1px solid rgba(49, 48, 46, 0.82)',
-          },
-          '&::-webkit-scrollbar-thumb:hover': {
-            background: 'rgba(204, 216, 232, 0.84)',
-          },
         }}
       >
         {isLoading || !world || !worldPayload ? (
@@ -358,7 +447,7 @@ function CommunityWorldDialog({
                   backgroundImage: world.cover_image_url
                     ? `url(${world.cover_image_url})`
                     : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
-                  backgroundSize: world.cover_image_url ? `${Math.max(1, world.cover_scale || 1) * 100}%` : 'cover',
+                  backgroundSize: 'cover',
                   backgroundPosition: world.cover_image_url
                     ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
                     : 'center',
@@ -390,7 +479,8 @@ function CommunityWorldDialog({
               </Typography>
             </Box>
 
-            <Box sx={{ borderTop: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderBottom: `var(--morius-border-width) solid ${APP_BORDER_COLOR}` }}>
+            {showGameplayActions ? (
+              <Box sx={{ borderTop: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderBottom: `var(--morius-border-width) solid ${APP_BORDER_COLOR}` }}>
               <Stack
                 direction={{ xs: 'column', xl: 'row' }}
                 justifyContent="space-between"
@@ -494,6 +584,25 @@ function CommunityWorldDialog({
                     <Box component="img" src={icons.communityShare} alt="" sx={{ width: 20, height: 20, opacity: 0.95 }} />
                     <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Поделиться</Typography>
                   </Button>
+                  <Button
+                    onClick={handleOpenReportDialog}
+                    disabled={isActionLocked || !canReportWorld}
+                    sx={{
+                      minHeight: 0,
+                      px: BASE_GAP,
+                      py: BASE_GAP,
+                      borderRadius: '12px',
+                      textTransform: 'none',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: hasWorldBeenReportedByUser ? 'rgba(76, 54, 54, 0.5)' : 'rgba(107, 63, 63, 0.58)',
+                      color: APP_TEXT_PRIMARY,
+                      '&:hover': {
+                        backgroundColor: hasWorldBeenReportedByUser ? 'rgba(76, 54, 54, 0.5)' : 'rgba(134, 77, 77, 0.66)',
+                      },
+                    }}
+                  >
+                    {hasWorldBeenReportedByUser ? 'Жалоба отправлена' : 'Пожаловаться'}
+                  </Button>
                 </Stack>
 
                 <Button
@@ -518,7 +627,8 @@ function CommunityWorldDialog({
                   {isLaunching ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
                 </Button>
               </Stack>
-            </Box>
+              </Box>
+            ) : null}
 
             <Box sx={{ px: BASE_GAP, pt: BASE_GAP }}>
               <Stack direction="row" flexWrap="wrap" sx={{ gap: BASE_GAP }}>
@@ -676,7 +786,39 @@ function CommunityWorldDialog({
                   }}
                 >
                   <Stack spacing={BASE_GAP}>
-                    <Stack direction="row" alignItems="center" spacing={1}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                      role={onAuthorClick ? 'button' : undefined}
+                      tabIndex={onAuthorClick ? 0 : undefined}
+                      onClick={() => {
+                        if (!onAuthorClick || !world.author_id) {
+                          return
+                        }
+                        onAuthorClick(world.author_id)
+                      }}
+                      onKeyDown={(event) => {
+                        if (!onAuthorClick || !world.author_id) {
+                          return
+                        }
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          onAuthorClick(world.author_id)
+                        }
+                      }}
+                      sx={{
+                        width: 'fit-content',
+                        cursor: onAuthorClick ? 'pointer' : 'default',
+                        borderRadius: '8px',
+                        '&:focus-visible': onAuthorClick
+                          ? {
+                              outline: '2px solid rgba(205, 223, 246, 0.62)',
+                              outlineOffset: '2px',
+                            }
+                          : undefined,
+                      }}
+                    >
                       <Box
                         sx={{
                           width: 34,
@@ -758,12 +900,74 @@ function CommunityWorldDialog({
                   </Stack>
                 </Box>
               ) : null}
+
+              {moderationControls ? (
+                <Box
+                  sx={{
+                    mt: BASE_GAP,
+                    borderRadius: '12px',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    p: BASE_GAP,
+                  }}
+                >
+                  <Stack spacing={1.1}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
+                      Жалобы
+                    </Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>
+                      Количество: {moderationControls.reportCount}
+                    </Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>
+                      Категория: {moderationControls.reasonLabel}
+                    </Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                      {moderationControls.description || 'Описание жалобы не указано.'}
+                    </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button
+                        onClick={moderationControls.onDismissReport}
+                        disabled={moderationControls.isApplying}
+                        variant="outlined"
+                        sx={{
+                          minHeight: 40,
+                          borderColor: 'rgba(188, 202, 221, 0.36)',
+                          color: APP_TEXT_PRIMARY,
+                        }}
+                      >
+                        Отклонить жалобу
+                      </Button>
+                      <Button
+                        onClick={moderationControls.onRemoveWorld}
+                        disabled={moderationControls.isApplying}
+                        variant="contained"
+                        sx={{
+                          minHeight: 40,
+                          borderRadius: 'var(--morius-radius)',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: 'rgba(192, 91, 91, 0.38)',
+                          color: APP_TEXT_PRIMARY,
+                          '&:hover': {
+                            backgroundColor: 'rgba(199, 102, 102, 0.5)',
+                          },
+                        }}
+                      >
+                        Удалить мир
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Box>
+              ) : null}
             </Box>
 
             <Stack direction="row" justifyContent="flex-end" sx={{ px: BASE_GAP, pb: BASE_GAP }}>
               <Button
                 onClick={() => {
                   setTab('description')
+                  setIsShareNoticeOpen(false)
+                  setIsReportNoticeOpen(false)
+                  setIsReportDialogOpen(false)
+                  setReportValidationError('')
                   onClose()
                 }}
                 sx={{ color: APP_TEXT_SECONDARY }}
@@ -796,6 +1000,105 @@ function CommunityWorldDialog({
           Ссылка скопирована!
         </Alert>
       </Snackbar>
+
+      <Snackbar
+        open={isReportNoticeOpen}
+        autoHideDuration={1300}
+        onClose={() => setIsReportNoticeOpen(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert
+          icon={false}
+          severity="success"
+          sx={{
+            borderRadius: '12px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            backgroundColor: 'rgba(21, 30, 25, 0.96)',
+            color: APP_TEXT_PRIMARY,
+            fontWeight: 700,
+          }}
+        >
+          Жалоба отправлена
+        </Alert>
+      </Snackbar>
+
+      <Dialog
+        open={isReportDialogOpen}
+        onClose={handleCloseReportDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+            boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
+          },
+        }}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.76)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+      >
+        <DialogTitle>Нарушение</DialogTitle>
+        <DialogContent sx={{ pt: 0.8 }}>
+          <Stack spacing={1.2}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Опишите причину жалобы.</Typography>
+            <Select
+              size="small"
+              value={reportReasonDraft}
+              onChange={(event) => setReportReasonDraft(String(event.target.value))}
+              disabled={isReportSubmitting}
+            >
+              <MenuItem value="">Не выбрано</MenuItem>
+              {REPORT_REASON_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </Select>
+            <TextField
+              value={reportDescriptionDraft}
+              onChange={(event) => setReportDescriptionDraft(event.target.value)}
+              disabled={isReportSubmitting}
+              multiline
+              minRows={3}
+              maxRows={8}
+              inputProps={{ maxLength: 2000 }}
+              placeholder="Опишите причину жалобы."
+            />
+            {reportValidationError ? (
+              <Alert severity="error" sx={{ borderRadius: '12px' }}>
+                {reportValidationError}
+              </Alert>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={handleCloseReportDialog} disabled={isReportSubmitting} sx={{ color: APP_TEXT_SECONDARY }}>
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleSubmitReport()}
+            disabled={isReportSubmitting}
+            variant="contained"
+            sx={{
+              minHeight: 40,
+              borderRadius: 'var(--morius-radius)',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              backgroundColor: 'rgba(102, 65, 65, 0.6)',
+              color: APP_TEXT_PRIMARY,
+              '&:hover': {
+                backgroundColor: 'rgba(126, 76, 76, 0.72)',
+              },
+            }}
+          >
+            {isReportSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Отправить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </BaseDialog>
   )
 }

@@ -39,13 +39,7 @@ type CompressOptions = {
   maxDimension?: number
 }
 
-export async function compressImageFileToDataUrl(file: File, options: CompressOptions): Promise<string> {
-  const initialDataUrl = await readFileAsDataUrl(file)
-  if (estimateDataUrlBytes(initialDataUrl) <= options.maxBytes) {
-    return initialDataUrl
-  }
-
-  const image = await loadImage(initialDataUrl)
+async function compressLoadedImageToDataUrl(image: HTMLImageElement, options: CompressOptions): Promise<string> {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
   if (!context) {
@@ -95,4 +89,17 @@ export async function compressImageFileToDataUrl(file: File, options: CompressOp
     throw new Error('Не удалось сжать изображение до нужного размера')
   }
   return candidate
+}
+
+export async function compressImageDataUrl(dataUrl: string, options: CompressOptions): Promise<string> {
+  if (estimateDataUrlBytes(dataUrl) <= options.maxBytes) {
+    return dataUrl
+  }
+  const image = await loadImage(dataUrl)
+  return compressLoadedImageToDataUrl(image, options)
+}
+
+export async function compressImageFileToDataUrl(file: File, options: CompressOptions): Promise<string> {
+  const initialDataUrl = await readFileAsDataUrl(file)
+  return compressImageDataUrl(initialDataUrl, options)
 }

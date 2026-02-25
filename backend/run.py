@@ -86,11 +86,15 @@ if __name__ == "__main__":
     port = _resolve_port(mode)
     reload_enabled = os.getenv("UVICORN_RELOAD", "0").strip().lower() in {"1", "true", "yes", "on"}
     default_workers = DEFAULT_WORKERS.get(mode, 1)
+    raw_workers_override = os.getenv("WEB_CONCURRENCY", "").strip()
+    if not raw_workers_override and app_settings.db_bootstrap_on_startup and mode in {"gateway", "monolith"}:
+        # Prevent concurrent startup migrations by default; override with WEB_CONCURRENCY if needed.
+        default_workers = 1
     if _is_sqlite_database_url(app_settings.database_url):
         # SQLite suffers from frequent write locks under multiple worker processes.
         # Keep a single worker by default unless WEB_CONCURRENCY is explicitly set.
         default_workers = 1
-    raw_workers = os.getenv("WEB_CONCURRENCY", str(default_workers)).strip()
+    raw_workers = raw_workers_override or str(default_workers)
     workers = int(raw_workers) if raw_workers.isdigit() else default_workers
     if workers < 1:
         workers = 1

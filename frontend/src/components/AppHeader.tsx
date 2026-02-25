@@ -74,12 +74,14 @@ const menuFooterButtonSx = {
   width: 36,
   height: 36,
   borderRadius: '11px',
-  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  backgroundColor: 'var(--morius-elevated-bg)',
+  border: 'none',
+  backgroundColor: 'transparent',
   color: 'var(--morius-accent)',
   '&:hover': {
     backgroundColor: 'var(--morius-button-hover)',
-    borderColor: 'var(--morius-card-border)',
+  },
+  '&:active': {
+    backgroundColor: 'var(--morius-button-hover)',
   },
 }
 
@@ -161,9 +163,10 @@ function AppHeader({
           width: { xs: 236, md: 246 },
           borderRadius: '14px',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background:
-            'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 96%, transparent) 0%, color-mix(in srgb, var(--morius-elevated-bg) 94%, transparent) 100%)',
-          p: 1.2,
+          backgroundColor: 'var(--morius-card-bg)',
+          px: '10px',
+          pt: '20px',
+          pb: '20px',
           boxShadow: '0 22px 38px rgba(0, 0, 0, 0.42)',
           transform: isPageMenuOpen ? 'translateY(0) scale(1)' : 'translateY(-14px) scale(0.98)',
           opacity: isPageMenuOpen ? 1 : 0,
@@ -171,7 +174,7 @@ function AppHeader({
           transition: 'transform 220ms ease, opacity 180ms ease',
         }}
       >
-        <Stack spacing={1.1}>
+        <Stack spacing={0}>
           <Box
             component="img"
             src={brandLogo}
@@ -180,17 +183,16 @@ function AppHeader({
               width: 86,
               alignSelf: 'center',
               opacity: 0.95,
-              mt: 0.2,
             }}
           />
-          <Stack sx={{ rowGap: 0.85 }}>
+          <Stack sx={{ mt: '20px', rowGap: '20px' }}>
             {menuItems.map((item) => (
               <Button key={item.key} sx={menuItemSx(Boolean(item.isActive))} onClick={item.onClick}>
                 {item.label}
               </Button>
             ))}
           </Stack>
-          <Stack direction="row" spacing={0.75} justifyContent="center" sx={{ pt: 0.2 }}>
+          <Stack direction="row" justifyContent="center" sx={{ mt: '20px', columnGap: '20px' }}>
             <IconButton aria-label="Настройки темы" onClick={handleOpenThemeDialog} sx={menuFooterButtonSx}>
               <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
             </IconButton>

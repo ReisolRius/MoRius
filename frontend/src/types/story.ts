@@ -25,6 +25,8 @@ export type StoryGameSummary = {
   community_rating_avg: number
   community_rating_count: number
   context_limit_chars: number
+  response_max_tokens: number
+  response_max_tokens_enabled: boolean
   story_llm_model: StoryNarratorModelId
   memory_optimization_enabled: boolean
   story_top_k: number
@@ -177,6 +179,7 @@ export type StoryCommunityWorldSummary = {
   id: number
   title: string
   description: string
+  author_id: number
   author_name: string
   author_avatar_url: string | null
   age_rating: '6+' | '16+' | '18+'
@@ -190,6 +193,8 @@ export type StoryCommunityWorldSummary = {
   community_rating_avg: number
   community_rating_count: number
   user_rating: number | null
+  is_reported_by_user: boolean
+  is_favorited_by_user: boolean
   created_at: string
   updated_at: string
 }

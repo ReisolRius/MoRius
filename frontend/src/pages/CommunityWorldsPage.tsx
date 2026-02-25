@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
-import { Alert, Box, Button, CircularProgress, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, Stack, Typography } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
@@ -10,11 +11,15 @@ import UserAvatar from '../components/profile/UserAvatar'
 import { updateCurrentUserAvatar, updateCurrentUserProfile } from '../services/authApi'
 import {
   deleteStoryGame,
+  favoriteCommunityWorld,
   getCommunityWorld,
   launchCommunityWorld,
   listCommunityWorlds,
   listStoryGames,
   rateCommunityWorld,
+  reportCommunityWorld,
+  unfavoriteCommunityWorld,
+  type StoryCommunityWorldReportReason,
 } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
@@ -35,6 +40,7 @@ const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const HEADER_AVATAR_SIZE = 44
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `community-world-skeleton-${index}`)
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -49,6 +55,19 @@ function readFileAsDataUrl(file: File): Promise<string> {
     }
     reader.readAsDataURL(file)
   })
+}
+
+function parseSharedWorldIdFromLocation(search: string): number | null {
+  const params = new URLSearchParams(search)
+  const rawValue = params.get('worldId') ?? params.get('worldid')
+  if (!rawValue) {
+    return null
+  }
+  const parsedValue = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+    return null
+  }
+  return parsedValue
 }
 
 function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogout }: CommunityWorldsPageProps) {
@@ -70,6 +89,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
   const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
+  const [isCommunityReportSubmitting, setIsCommunityReportSubmitting] = useState(false)
+  const [favoriteWorldActionById, setFavoriteWorldActionById] = useState<Record<number, boolean>>({})
+  const [sharedWorldIdFromLink] = useState<number | null>(() =>
+    typeof window === 'undefined' ? null : parseSharedWorldIdFromLocation(window.location.search),
+  )
+  const [hasAttemptedSharedWorldOpen, setHasAttemptedSharedWorldOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
 
   const loadCommunityWorlds = useCallback(async () => {
@@ -131,13 +156,27 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     [authToken, isCommunityWorldDialogLoading],
   )
 
+  useEffect(() => {
+    if (hasAttemptedSharedWorldOpen || sharedWorldIdFromLink === null || isCommunityWorldDialogLoading) {
+      return
+    }
+    setHasAttemptedSharedWorldOpen(true)
+    void handleOpenCommunityWorld(sharedWorldIdFromLink)
+  }, [handleOpenCommunityWorld, hasAttemptedSharedWorldOpen, isCommunityWorldDialogLoading, sharedWorldIdFromLink])
+
   const handleCloseCommunityWorldDialog = useCallback(() => {
-    if (isCommunityWorldDialogLoading || isLaunchingCommunityWorld || isCommunityRatingSaving || isCommunityWorldMyGamesSaving) {
+    if (
+      isCommunityWorldDialogLoading ||
+      isLaunchingCommunityWorld ||
+      isCommunityRatingSaving ||
+      isCommunityWorldMyGamesSaving ||
+      isCommunityReportSubmitting
+    ) {
       return
     }
     setSelectedCommunityWorld(null)
     setCommunityRatingDraft(0)
-  }, [isCommunityRatingSaving, isCommunityWorldDialogLoading, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld])
+  }, [isCommunityRatingSaving, isCommunityReportSubmitting, isCommunityWorldDialogLoading, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld])
 
   const handleRateCommunityWorld = useCallback(async (ratingValue: number) => {
     if (!selectedCommunityWorld || ratingValue < 1 || ratingValue > 5 || isCommunityRatingSaving) {
@@ -161,6 +200,71 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       setIsCommunityRatingSaving(false)
     }
   }, [authToken, isCommunityRatingSaving, selectedCommunityWorld])
+
+  const handleReportCommunityWorld = useCallback(
+    async (payload: { reason: StoryCommunityWorldReportReason; description: string }) => {
+      if (!selectedCommunityWorld || isCommunityReportSubmitting) {
+        return
+      }
+      setActionError('')
+      setIsCommunityReportSubmitting(true)
+      try {
+        const updatedWorld = await reportCommunityWorld({
+          token: authToken,
+          worldId: selectedCommunityWorld.world.id,
+          reason: payload.reason,
+          description: payload.description,
+        })
+        setSelectedCommunityWorld((previous) => (previous ? { ...previous, world: updatedWorld } : previous))
+        setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось отправить жалобу'
+        setActionError(detail)
+        throw error
+      } finally {
+        setIsCommunityReportSubmitting(false)
+      }
+    },
+    [authToken, isCommunityReportSubmitting, selectedCommunityWorld],
+  )
+
+  const handleToggleFavoriteWorld = useCallback(
+    async (world: StoryCommunityWorldSummary) => {
+      if (favoriteWorldActionById[world.id]) {
+        return
+      }
+
+      setFavoriteWorldActionById((previous) => ({
+        ...previous,
+        [world.id]: true,
+      }))
+      setActionError('')
+      try {
+        const updatedWorld = world.is_favorited_by_user
+          ? await unfavoriteCommunityWorld({
+              token: authToken,
+              worldId: world.id,
+            })
+          : await favoriteCommunityWorld({
+              token: authToken,
+              worldId: world.id,
+            })
+
+        setCommunityWorlds((previous) => previous.map((item) => (item.id === updatedWorld.id ? updatedWorld : item)))
+        setSelectedCommunityWorld((previous) => (previous && previous.world.id === updatedWorld.id ? { ...previous, world: updatedWorld } : previous))
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить любимые миры'
+        setActionError(detail)
+      } finally {
+        setFavoriteWorldActionById((previous) => {
+          const next = { ...previous }
+          delete next[world.id]
+          return next
+        })
+      }
+    },
+    [authToken, favoriteWorldActionById],
+  )
 
   const handleLaunchCommunityWorld = useCallback(async () => {
     if (!selectedCommunityWorld || isLaunchingCommunityWorld) {
@@ -353,7 +457,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           <Stack direction="row" spacing={0}>
             <Button
               variant="text"
-              onClick={() => setProfileDialogOpen(true)}
+              onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
               sx={{
                 minWidth: 0,
@@ -431,9 +535,21 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           ) : null}
 
           {isCommunityWorldsLoading ? (
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 3 }}>
-              <CircularProgress size={28} />
-            </Stack>
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.4,
+                gridTemplateColumns: {
+                  xs: '1fr',
+                  sm: 'repeat(2, minmax(0, 1fr))',
+                  xl: 'repeat(3, minmax(0, 1fr))',
+                },
+              }}
+            >
+              {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
+                <CommunityWorldCardSkeleton key={cardKey} showFavoriteButton />
+              ))}
+            </Box>
           ) : communityWorlds.length === 0 ? (
             <Box
               sx={{
@@ -462,7 +578,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   key={world.id}
                   world={world}
                   onClick={() => void handleOpenCommunityWorld(world.id)}
+                  onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
                   disabled={isCommunityWorldDialogLoading}
+                  showFavoriteButton
+                  isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                  onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
                 />
               ))}
             </Box>
@@ -483,10 +603,17 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         onPlay={() => void handleLaunchCommunityWorld()}
         onRate={(value) => void handleRateCommunityWorld(value)}
         onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
+        onAuthorClick={(authorId) => {
+          setSelectedCommunityWorld(null)
+          onNavigate(`/profile/${authorId}`)
+        }}
+        onSubmitReport={(payload) => handleReportCommunityWorld(payload)}
+        isReportSubmitting={isCommunityReportSubmitting}
       />
       <ProfileDialog
         open={profileDialogOpen}
         user={user}
+        authToken={authToken}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}

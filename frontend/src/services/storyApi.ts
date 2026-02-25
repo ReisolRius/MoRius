@@ -55,6 +55,7 @@ export type StoryGenerationStreamOptions = {
   rerollLastResponse?: boolean
   instructions?: StoryInstructionCardInput[]
   storyLlmModel?: StoryNarratorModelId
+  responseMaxTokens?: number
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
@@ -75,6 +76,8 @@ export type StoryWorldCardInput = {
   content: string
   triggers: string[]
 }
+
+export type StoryCommunityWorldReportReason = 'cp' | 'politics' | 'racism' | 'nationalism' | 'other'
 
 export type StoryCharacterInput = {
   name: string
@@ -172,6 +175,16 @@ export async function listCommunityWorlds(token: string): Promise<StoryCommunity
   })
 }
 
+export async function listFavoriteCommunityWorlds(token: string): Promise<StoryCommunityWorldSummary[]> {
+  return request<StoryCommunityWorldSummary[]>('/api/story/community/favorites', {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
 export async function getCommunityWorld(payload: {
   token: string
   worldId: number
@@ -210,6 +223,48 @@ export async function rateCommunityWorld(payload: {
     body: JSON.stringify({
       rating: payload.rating,
     }),
+  })
+}
+
+export async function reportCommunityWorld(payload: {
+  token: string
+  worldId: number
+  reason: StoryCommunityWorldReportReason
+  description: string
+}): Promise<StoryCommunityWorldSummary> {
+  return request<StoryCommunityWorldSummary>(`/api/story/community/worlds/${payload.worldId}/report`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      reason: payload.reason,
+      description: payload.description,
+    }),
+  })
+}
+
+export async function favoriteCommunityWorld(payload: {
+  token: string
+  worldId: number
+}): Promise<StoryCommunityWorldSummary> {
+  return request<StoryCommunityWorldSummary>(`/api/story/community/worlds/${payload.worldId}/favorite`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function unfavoriteCommunityWorld(payload: {
+  token: string
+  worldId: number
+}): Promise<StoryCommunityWorldSummary> {
+  return request<StoryCommunityWorldSummary>(`/api/story/community/worlds/${payload.worldId}/favorite`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
   })
 }
 
@@ -352,6 +407,30 @@ export async function createStoryGame(payload: {
   })
 }
 
+export async function cloneStoryGame(payload: {
+  token: string
+  gameId: number
+  copy_instructions?: boolean
+  copy_plot?: boolean
+  copy_world?: boolean
+  copy_main_hero?: boolean
+  copy_history?: boolean
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/clone`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      copy_instructions: payload.copy_instructions ?? true,
+      copy_plot: payload.copy_plot ?? true,
+      copy_world: payload.copy_world ?? true,
+      copy_main_hero: payload.copy_main_hero ?? true,
+      copy_history: payload.copy_history ?? true,
+    }),
+  })
+}
+
 export async function getStoryGame(payload: {
   token: string
   gameId: number
@@ -368,6 +447,8 @@ export async function updateStoryGameSettings(payload: {
   token: string
   gameId: number
   contextLimitTokens?: number
+  responseMaxTokens?: number
+  responseMaxTokensEnabled?: boolean
   storyLlmModel?: StoryNarratorModelId
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
@@ -377,6 +458,12 @@ export async function updateStoryGameSettings(payload: {
   const requestPayload: Record<string, unknown> = {}
   if (typeof payload.contextLimitTokens === 'number') {
     requestPayload.context_limit_chars = payload.contextLimitTokens
+  }
+  if (typeof payload.responseMaxTokens === 'number') {
+    requestPayload.response_max_tokens = payload.responseMaxTokens
+  }
+  if (typeof payload.responseMaxTokensEnabled === 'boolean') {
+    requestPayload.response_max_tokens_enabled = payload.responseMaxTokensEnabled
   }
   if (typeof payload.storyLlmModel === 'string') {
     requestPayload.story_llm_model = payload.storyLlmModel
@@ -472,6 +559,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.storyLlmModel === 'string') {
     requestPayload.story_llm_model = options.storyLlmModel
+  }
+  if (typeof options.responseMaxTokens === 'number') {
+    requestPayload.response_max_tokens = options.responseMaxTokens
   }
   if (typeof options.memoryOptimizationEnabled === 'boolean') {
     requestPayload.memory_optimization_enabled = options.memoryOptimizationEnabled

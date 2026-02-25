@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -57,18 +58,28 @@ def normalize_story_world_card_trigger(value: str) -> str:
     return normalized
 
 
+def _split_story_world_trigger_candidates(value: str) -> list[str]:
+    normalized = value.replace("\r\n", "\n")
+    parts = re.split(r"[,;\n]+", normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
 def normalize_story_world_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values:
-        trigger = normalize_story_world_card_trigger(value)
-        if not trigger:
-            continue
-        trigger_key = trigger.casefold()
-        if trigger_key in seen:
-            continue
-        seen.add(trigger_key)
-        normalized.append(trigger)
+        candidate_values = _split_story_world_trigger_candidates(value)
+        if not candidate_values:
+            candidate_values = [value]
+        for candidate in candidate_values:
+            trigger = normalize_story_world_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
 
     fallback_trigger = normalize_story_world_card_trigger(fallback_title)
     if fallback_trigger:
@@ -102,14 +113,18 @@ def deserialize_story_world_card_triggers(raw_value: str) -> list[str]:
     for item in parsed:
         if not isinstance(item, str):
             continue
-        trigger = normalize_story_world_card_trigger(item)
-        if not trigger:
-            continue
-        trigger_key = trigger.casefold()
-        if trigger_key in seen:
-            continue
-        seen.add(trigger_key)
-        normalized.append(trigger)
+        candidate_values = _split_story_world_trigger_candidates(item)
+        if not candidate_values:
+            candidate_values = [item]
+        for candidate in candidate_values:
+            trigger = normalize_story_world_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
 
     return normalized[:40]
 

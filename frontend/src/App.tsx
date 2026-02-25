@@ -1,18 +1,28 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
-import { Box, CircularProgress, Stack, Typography } from '@mui/material'
 import { getCurrentUser } from './services/authApi'
-import { brandLogo, heroBackground } from './assets'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { AuthResponse, AuthUser } from './types/auth'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
-const MIN_BOOT_SPLASH_MS = 650
 const YANDEX_METRIKA_ID = 106989437
+const SCROLLBAR_ACTIVE_CLASS = 'morius-scroll-active'
+const SCROLLBAR_HIDE_DELAY_MS = 2000
 
 type AuthSession = {
   token: string | null
   user: AuthUser | null
+}
+
+function resolveScrollTargetElement(target: EventTarget | null): HTMLElement | null {
+  if (target instanceof HTMLElement) {
+    return target
+  }
+  if (target instanceof Document) {
+    const scrollingElement = target.scrollingElement ?? target.documentElement
+    return scrollingElement instanceof HTMLElement ? scrollingElement : null
+  }
+  return null
 }
 
 function normalizePath(pathname: string): string {
@@ -27,6 +37,8 @@ function isAuthenticatedPath(pathname: string): boolean {
     pathname === '/dashboard' ||
     pathname === '/games' ||
     pathname.startsWith('/games/') ||
+    pathname === '/profile' ||
+    /^\/profile\/\d+$/.test(pathname) ||
     pathname === '/worlds/new' ||
     /^\/worlds\/\d+\/edit$/.test(pathname)
   )
@@ -62,14 +74,53 @@ function extractWorldEditGameId(pathname: string): number | null {
   return parsed
 }
 
+function extractProfileUserId(pathname: string): number | null {
+  const match = /^\/profile\/(\d+)$/.exec(pathname)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number.parseInt(match[1], 10)
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
+}
+
 function loadAuthSession(): AuthSession {
   try {
     const token = localStorage.getItem(TOKEN_STORAGE_KEY)
     const rawUser = localStorage.getItem(USER_STORAGE_KEY)
-    const user = rawUser ? (JSON.parse(rawUser) as AuthUser) : null
+    const user = rawUser ? normalizeStoredAuthUser(JSON.parse(rawUser)) : null
     return { token, user }
   } catch {
     return { token: null, user: null }
+  }
+}
+
+function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
+  if (!rawValue || typeof rawValue !== 'object') {
+    return null
+  }
+  const value = rawValue as Partial<AuthUser>
+  if (typeof value.id !== 'number' || typeof value.email !== 'string') {
+    return null
+  }
+
+  return {
+    id: value.id,
+    email: value.email,
+    display_name: typeof value.display_name === 'string' ? value.display_name : null,
+    profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
+    avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
+    avatar_scale: typeof value.avatar_scale === 'number' ? value.avatar_scale : 1,
+    auth_provider: typeof value.auth_provider === 'string' ? value.auth_provider : 'email',
+    role: typeof value.role === 'string' ? value.role : 'user',
+    level: typeof value.level === 'number' && Number.isFinite(value.level) ? Math.max(1, Math.trunc(value.level)) : 1,
+    coins: typeof value.coins === 'number' && Number.isFinite(value.coins) ? Math.max(0, Math.trunc(value.coins)) : 0,
+    is_banned: Boolean(value.is_banned),
+    ban_expires_at: typeof value.ban_expires_at === 'string' ? value.ban_expires_at : null,
+    created_at: typeof value.created_at === 'string' ? value.created_at : new Date().toISOString(),
   }
 }
 
@@ -90,76 +141,15 @@ const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
 const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
 const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
 const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
+const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'))
-
-function BootSplash({ message }: { message: string }) {
-  return (
-    <Box
-      sx={{
-        minHeight: '100svh',
-        backgroundColor: '#040507',
-        display: 'grid',
-        placeItems: 'center',
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          backgroundImage: `linear-gradient(180deg, rgba(3, 5, 8, 0.84) 0%, rgba(3, 5, 8, 0.96) 100%), url(${heroBackground})`,
-          backgroundPosition: 'center',
-          backgroundSize: 'cover',
-          opacity: 0.52,
-          filter: 'saturate(0.72)',
-        }}
-      />
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          background:
-            'radial-gradient(circle at 50% 30%, rgba(195, 121, 44, 0.2) 0%, rgba(195, 121, 44, 0.06) 36%, transparent 72%)',
-        }}
-      />
-      <Stack
-        alignItems="center"
-        spacing={2}
-        sx={{
-          position: 'relative',
-          zIndex: 1,
-          animation: 'morius-fade-up 460ms ease both',
-        }}
-      >
-        <Box component="img" src={brandLogo} alt="Morius" sx={{ width: { xs: 200, md: 250 }, mb: 0.3 }} />
-        <CircularProgress
-          size={34}
-          thickness={4.2}
-          sx={{
-            color: '#d9e4f2',
-          }}
-        />
-        <Typography sx={{ color: 'text.secondary' }}>{message}</Typography>
-      </Stack>
-    </Box>
-  )
-}
 
 function App() {
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
   const [authToken, setAuthToken] = useState<string | null>(initialSession.token)
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
-  const [isBootSplashActive, setIsBootSplashActive] = useState(true)
   const hasTrackedInitialRouteRef = useRef(false)
-
-  useEffect(() => {
-    const timerId = window.setTimeout(() => setIsBootSplashActive(false), MIN_BOOT_SPLASH_MS)
-    return () => window.clearTimeout(timerId)
-  }, [])
 
   useEffect(() => {
     const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
@@ -180,6 +170,47 @@ function App() {
       window.history.scrollRestoration = 'manual'
     }
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
+  useEffect(() => {
+    const hideTimers = new Map<HTMLElement, number>()
+
+    const markElementAsScrolling = (element: HTMLElement) => {
+      const hasScrollableAxis = element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth
+      if (!hasScrollableAxis) {
+        return
+      }
+
+      element.classList.add(SCROLLBAR_ACTIVE_CLASS)
+      const existingTimer = hideTimers.get(element)
+      if (existingTimer !== undefined) {
+        window.clearTimeout(existingTimer)
+      }
+
+      const timerId = window.setTimeout(() => {
+        element.classList.remove(SCROLLBAR_ACTIVE_CLASS)
+        hideTimers.delete(element)
+      }, SCROLLBAR_HIDE_DELAY_MS)
+      hideTimers.set(element, timerId)
+    }
+
+    const handleScroll = (event: Event) => {
+      const scrollTarget = resolveScrollTargetElement(event.target)
+      if (!scrollTarget) {
+        return
+      }
+      markElementAsScrolling(scrollTarget)
+    }
+
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true)
+      hideTimers.forEach((timerId, element) => {
+        window.clearTimeout(timerId)
+        element.classList.remove(SCROLLBAR_ACTIVE_CLASS)
+      })
+      hideTimers.clear()
+    }
   }, [])
 
   const navigate = useCallback((targetPath: string, options?: { replace?: boolean }) => {
@@ -287,22 +318,19 @@ function App() {
   const isAuthenticated = Boolean(authToken && authUser)
   const initialGameId = extractStoryGameId(path)
   const worldEditGameId = extractWorldEditGameId(path)
+  const profileUserId = extractProfileUserId(path)
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowMyGamesPage = isAuthenticated && path === '/games'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
+  const shouldShowProfilePage = isAuthenticated && (path === '/profile' || profileUserId !== null)
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
-  const shouldShowBootScreen = isBootSplashActive || isHydratingSession
-
-  if (shouldShowBootScreen) {
-    return <BootSplash message="Checking session..." />
-  }
 
   if (shouldShowPrivacyPolicyPage) {
     return (
-      <Suspense fallback={<BootSplash message="Loading document..." />}>
+      <Suspense fallback={null}>
         <LegalDocumentPage
           title="Политика конфиденциальности"
           content={PRIVACY_POLICY_TEXT}
@@ -314,7 +342,7 @@ function App() {
 
   if (shouldShowTermsPage) {
     return (
-      <Suspense fallback={<BootSplash message="Loading document..." />}>
+      <Suspense fallback={null}>
         <LegalDocumentPage
           title="Пользовательское соглашение"
           content={TERMS_OF_SERVICE_TEXT}
@@ -326,7 +354,7 @@ function App() {
 
   if (shouldShowStoryGamePage && authUser) {
     return (
-      <Suspense fallback={<BootSplash message="Loading interface..." />}>
+      <Suspense fallback={null}>
         <StoryGamePage
           user={authUser}
           authToken={authToken!}
@@ -341,7 +369,7 @@ function App() {
 
   if (shouldShowMyGamesPage && authUser) {
     return (
-      <Suspense fallback={<BootSplash message="Loading interface..." />}>
+      <Suspense fallback={null}>
         <MyGamesPage
           user={authUser}
           authToken={authToken!}
@@ -356,7 +384,7 @@ function App() {
 
   if (shouldShowCommunityWorldsPage && authUser) {
     return (
-      <Suspense fallback={<BootSplash message="Loading interface..." />}>
+      <Suspense fallback={null}>
         <CommunityWorldsPage
           user={authUser}
           authToken={authToken!}
@@ -370,7 +398,7 @@ function App() {
 
   if (shouldShowDashboardPage && authUser) {
     return (
-      <Suspense fallback={<BootSplash message="Loading interface..." />}>
+      <Suspense fallback={null}>
         <AuthenticatedHomePage
           user={authUser}
           authToken={authToken!}
@@ -384,7 +412,7 @@ function App() {
 
   if (shouldShowWorldCreatePage && authUser) {
     return (
-      <Suspense fallback={<BootSplash message="Loading interface..." />}>
+      <Suspense fallback={null}>
         <WorldCreatePage
           user={authUser}
           authToken={authToken!}
@@ -395,8 +423,23 @@ function App() {
     )
   }
 
+  if (shouldShowProfilePage && authUser) {
+    return (
+      <Suspense fallback={null}>
+        <ProfilePage
+          user={authUser}
+          authToken={authToken!}
+          onNavigate={navigate}
+          onUserUpdate={handleUserUpdate}
+          onLogout={handleLogout}
+          viewedUserId={profileUserId}
+        />
+      </Suspense>
+    )
+  }
+
   return (
-    <Suspense fallback={<BootSplash message="Loading interface..." />}>
+    <Suspense fallback={null}>
       <PublicLandingPage
         isAuthenticated={isAuthenticated}
         onNavigate={navigate}
