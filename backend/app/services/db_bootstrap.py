@@ -18,6 +18,7 @@ from app.models import (
     StoryInstructionCard,
     StoryInstructionTemplate,
     StoryMessage,
+    StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryWorldCard,
@@ -215,6 +216,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'z-ai/glm-5'"
         )
+    if "image_model" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN image_model VARCHAR(120) NOT NULL DEFAULT 'black-forest-labs/flux.2-pro'"
+        )
+    if "image_style_prompt" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN image_style_prompt TEXT NOT NULL DEFAULT ''"
+        )
     if "response_max_tokens" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -370,6 +381,101 @@ def _ensure_story_character_avatar_scale_column_exists() -> None:
         )
 
 
+def _ensure_story_turn_image_history_schema() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryTurnImage.__tablename__):
+        return
+
+    unique_constraints = inspector.get_unique_constraints(StoryTurnImage.__tablename__)
+    has_legacy_assistant_unique_constraint = any(
+        (constraint.get("column_names") or []) == ["assistant_message_id"]
+        for constraint in unique_constraints
+    )
+    if not has_legacy_assistant_unique_constraint:
+        return
+
+    table_name = StoryTurnImage.__tablename__
+    dialect_name = str(engine.dialect.name or "").lower()
+
+    with engine.begin() as connection:
+        if dialect_name == "postgresql":
+            _execute_schema_statement(
+                connection,
+                f"ALTER TABLE {table_name} DROP CONSTRAINT IF EXISTS uq_story_turn_images_assistant_message",
+            )
+            return
+
+        if dialect_name == "sqlite":
+            legacy_table_name = f"{table_name}_legacy"
+            _execute_schema_statement(connection, "PRAGMA foreign_keys=OFF")
+            _execute_schema_statement(connection, f"DROP TABLE IF EXISTS {legacy_table_name}")
+            _execute_schema_statement(connection, f"ALTER TABLE {table_name} RENAME TO {legacy_table_name}")
+            _execute_schema_statement(
+                connection,
+                f"""
+                CREATE TABLE {table_name} (
+                    id INTEGER NOT NULL,
+                    game_id INTEGER NOT NULL,
+                    assistant_message_id INTEGER NOT NULL,
+                    model VARCHAR(120) NOT NULL DEFAULT '',
+                    prompt TEXT NOT NULL DEFAULT '',
+                    revised_prompt TEXT,
+                    image_url TEXT,
+                    image_data_url TEXT,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (id),
+                    FOREIGN KEY(game_id) REFERENCES story_games (id),
+                    FOREIGN KEY(assistant_message_id) REFERENCES story_messages (id)
+                )
+                """,
+            )
+            _execute_schema_statement(
+                connection,
+                f"""
+                INSERT INTO {table_name} (
+                    id,
+                    game_id,
+                    assistant_message_id,
+                    model,
+                    prompt,
+                    revised_prompt,
+                    image_url,
+                    image_data_url,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    id,
+                    game_id,
+                    assistant_message_id,
+                    model,
+                    prompt,
+                    revised_prompt,
+                    image_url,
+                    image_data_url,
+                    created_at,
+                    updated_at
+                FROM {legacy_table_name}
+                ORDER BY id ASC
+                """,
+            )
+            _execute_schema_statement(connection, f"DROP TABLE IF EXISTS {legacy_table_name}")
+            _execute_schema_statement(connection, "PRAGMA foreign_keys=ON")
+            return
+
+        for constraint in unique_constraints:
+            if (constraint.get("column_names") or []) != ["assistant_message_id"]:
+                continue
+            constraint_name = str(constraint.get("name") or "").strip()
+            if not constraint_name:
+                continue
+            _execute_schema_statement(
+                connection,
+                f"ALTER TABLE {table_name} DROP CONSTRAINT IF EXISTS {constraint_name}",
+            )
+
+
 def _ensure_performance_indexes_exist() -> None:
     index_statements = (
         "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
@@ -383,6 +489,8 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryGame.__tablename__} (source_world_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_messages_game_id_id "
         f"ON {StoryMessage.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_assistant_id "
+        f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
         f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_user_id_id "
@@ -450,4 +558,5 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     )
     _ensure_story_world_card_extended_columns_exist(defaults)
     _ensure_story_character_avatar_scale_column_exists()
+    _ensure_story_turn_image_history_schema()
     _ensure_performance_indexes_exist()

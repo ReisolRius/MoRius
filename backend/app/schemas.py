@@ -197,6 +197,8 @@ class StoryGameCreateRequest(BaseModel):
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
+    image_model: str | None = Field(default=None, max_length=120)
+    image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
@@ -216,6 +218,8 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
+    image_model: str | None = Field(default=None, max_length=120)
+    image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
@@ -243,6 +247,7 @@ class StoryInstructionCardInput(BaseModel):
 class StoryGenerateRequest(BaseModel):
     prompt: str | None = Field(default=None, min_length=1, max_length=8_000)
     reroll_last_response: bool = False
+    discard_last_assistant_steps: int = Field(default=0, ge=0, le=50)
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
     story_llm_model: str | None = Field(default=None, max_length=120)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
@@ -250,6 +255,21 @@ class StoryGenerateRequest(BaseModel):
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
     ambient_enabled: bool | None = None
+
+
+class StoryTurnImageGenerateRequest(BaseModel):
+    assistant_message_id: int = Field(ge=1)
+
+
+class StoryTurnImageGenerateOut(BaseModel):
+    id: int
+    assistant_message_id: int
+    model: str
+    prompt: str
+    revised_prompt: str | None
+    image_url: str | None
+    image_data_url: str | None
+    user: UserOut | None = None
 
 
 class StoryInstructionCardCreateRequest(BaseModel):
@@ -349,6 +369,20 @@ class StoryMessageOut(BaseModel):
     game_id: int
     role: str
     content: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryTurnImageOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    assistant_message_id: int
+    model: str
+    prompt: str
+    revised_prompt: str | None
+    image_url: str | None
+    image_data_url: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -487,6 +521,8 @@ class StoryGameSummaryOut(BaseModel):
     response_max_tokens: int
     response_max_tokens_enabled: bool
     story_llm_model: str
+    image_model: str
+    image_style_prompt: str
     memory_optimization_enabled: bool
     story_top_k: int
     story_top_r: float
@@ -532,6 +568,7 @@ class StoryCommunityWorldOut(BaseModel):
 class StoryGameOut(BaseModel):
     game: StoryGameSummaryOut
     messages: list[StoryMessageOut]
+    turn_images: list[StoryTurnImageOut]
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]
     plot_card_events: list[StoryPlotCardChangeEventOut]

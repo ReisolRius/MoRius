@@ -10,12 +10,14 @@ import {
   DialogContent,
   DialogTitle,
   FormControlLabel,
+  IconButton,
   Skeleton,
   Stack,
   Switch,
   TextField,
   Typography,
 } from '@mui/material'
+import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
@@ -156,6 +158,17 @@ function clampAvatarScale(value: number | null | undefined): number {
   return Math.max(1, Math.min(3, value))
 }
 
+function normalizeProfileSearchValue(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function matchesProfileSearch(query: string, fields: Array<string | null | undefined>): boolean {
+  if (!query) {
+    return true
+  }
+  return fields.some((field) => normalizeProfileSearchValue(field ?? '').includes(query))
+}
+
 function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
   return {
     id: profileUser.id,
@@ -181,6 +194,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [tab, setTab] = useState<TabId>('characters')
+  const [contentSearchQuery, setContentSearchQuery] = useState('')
+  const [isMobileProfileActionsOpen, setIsMobileProfileActionsOpen] = useState(false)
 
   const [isEditing, setIsEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState(user.display_name || 'Игрок')
@@ -310,6 +325,19 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [templates],
   )
+  const normalizedContentSearchQuery = useMemo(
+    () => normalizeProfileSearchValue(contentSearchQuery),
+    [contentSearchQuery],
+  )
+  const mobileContentTabs = useMemo(
+    () => [
+      { id: 'publications' as TabId, label: 'Миры' },
+      { id: 'instructions' as TabId, label: 'Карточки' },
+      { id: 'characters' as TabId, label: 'Персонажи' },
+      { id: 'plots' as TabId, label: 'Сюжеты' },
+    ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
+    [tabs],
+  )
 
   useEffect(() => {
     if (!isEditing) {
@@ -414,6 +442,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setTab(tabs[0].id)
     }
   }, [tab, tabs])
+
+  useEffect(() => {
+    setIsMobileProfileActionsOpen(false)
+  }, [tab])
 
   const saveProfile = useCallback(async () => {
     if (isSavingProfile) {
@@ -806,6 +838,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderCharacters = () => {
+    const filteredCharacters = sortedCharacters.filter((item) =>
+      matchesProfileSearch(normalizedContentSearchQuery, [item.name, item.description, item.triggers.join(' ')]),
+    )
+
     return (
       <Stack spacing={1}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={0.7}>
@@ -830,7 +866,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Button>
         </Stack>
 
-        {!sortedCharacters.length ? (
+        {!filteredCharacters.length ? (
           <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет персонажей.</Typography>
         ) : (
           <Box
@@ -840,7 +876,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
             }}
           >
-            {sortedCharacters.map((item) => (
+            {filteredCharacters.map((item) => (
               <ButtonBase
                 key={item.id}
                 onClick={() => openCharacterEdit(item.id)}
@@ -920,6 +956,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderInstructions = () => {
+    const filteredTemplates = sortedTemplates.filter((item) =>
+      matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content]),
+    )
+
     return (
       <Stack spacing={1}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={0.7}>
@@ -944,7 +984,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Button>
         </Stack>
 
-        {!sortedTemplates.length ? (
+        {!filteredTemplates.length ? (
           <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет инструкций.</Typography>
         ) : (
           <Box
@@ -954,7 +994,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
             }}
           >
-            {sortedTemplates.map((item) => (
+            {filteredTemplates.map((item) => (
               <ButtonBase
                 key={item.id}
                 onClick={() => openInstructionEdit(item.id)}
@@ -1016,7 +1056,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderFavorites = () => {
-    if (!favoriteWorlds.length) {
+    const filteredFavoriteWorlds = favoriteWorlds.filter((item) =>
+      matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+    )
+
+    if (!filteredFavoriteWorlds.length) {
       return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет любимых миров.</Typography>
     }
 
@@ -1028,7 +1072,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
         }}
       >
-        {favoriteWorlds.map((item) => (
+        {filteredFavoriteWorlds.map((item) => (
           <CommunityWorldCard
             key={item.id}
             world={item}
@@ -1050,7 +1094,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     if (!canViewSubscriptions) {
       return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пользователь скрыл список подписок.</Typography>
     }
-    if (!visibleSubscriptions.length) {
+    const filteredSubscriptions = visibleSubscriptions.filter((item) =>
+      matchesProfileSearch(normalizedContentSearchQuery, [item.display_name]),
+    )
+    if (!filteredSubscriptions.length) {
       return (
         <Typography sx={{ color: 'var(--morius-text-secondary)' }}>
           {isOwnProfile ? 'Вы пока ни на кого не подписаны.' : 'У пользователя пока нет подписок.'}
@@ -1063,10 +1110,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         sx={{
           display: 'grid',
           gap: 0.9,
-          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' },
         }}
       >
-        {visibleSubscriptions.map((subscription) => (
+        {filteredSubscriptions.map((subscription) => (
           <Box
             key={subscription.id}
             role="button"
@@ -1144,7 +1191,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderPublications = () => {
-    if (!publicationWorlds.length) {
+    const filteredPublicationWorlds = publicationWorlds.filter((item) =>
+      matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+    )
+
+    if (!filteredPublicationWorlds.length) {
       return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет опубликованных миров.</Typography>
     }
 
@@ -1156,7 +1207,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
         }}
       >
-        {publicationWorlds.map((item) => (
+        {filteredPublicationWorlds.map((item) => (
           <CommunityWorldCard key={item.id} world={item} onClick={() => onNavigate(`/home/${item.id}`)} />
         ))}
       </Box>
@@ -1174,7 +1225,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>Опубликованные миры</Typography>
           {!canViewPublicWorlds ? (
             <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пользователь скрыл опубликованные миры.</Typography>
-          ) : visiblePublicationWorlds.length === 0 ? (
+          ) : visiblePublicationWorlds.filter((item) =>
+              matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+            ).length === 0 ? (
             <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет опубликованных миров.</Typography>
           ) : (
             <Box
@@ -1184,7 +1237,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
               }}
             >
-              {visiblePublicationWorlds.map((item) => (
+              {visiblePublicationWorlds
+                .filter((item) =>
+                  matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+                )
+                .map((item) => (
                 <CommunityWorldCard
                   key={item.id}
                   world={item}
@@ -1200,7 +1257,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>Неопубликованные миры</Typography>
           {!canViewPrivateWorlds ? (
             <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пользователь скрыл неопубликованные миры.</Typography>
-          ) : visibleUnpublishedWorlds.length === 0 ? (
+          ) : visibleUnpublishedWorlds.filter((item) =>
+              matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+            ).length === 0 ? (
             <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет неопубликованных миров.</Typography>
           ) : (
             <Box
@@ -1210,7 +1269,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
               }}
             >
-              {visibleUnpublishedWorlds.map((item) => (
+              {visibleUnpublishedWorlds
+                .filter((item) =>
+                  matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+                )
+                .map((item) => (
                 <CommunityWorldCard
                   key={item.id}
                   world={item}
@@ -1320,6 +1383,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             onClick={() => onNavigate('/profile')}
             aria-label="Открыть профиль"
             sx={{
+              display: { xs: 'none', md: 'inline-flex' },
               minWidth: 0,
               width: HEADER_AVATAR_SIZE,
               height: HEADER_AVATAR_SIZE,
@@ -1337,7 +1401,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         sx={{
           pt: 'var(--morius-header-menu-top)',
           pb: { xs: 5, md: 6 },
-          px: { xs: 2, md: 3.2 },
+          px: { xs: 1.2, md: 3.2 },
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
@@ -1355,8 +1419,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           <Box
             sx={{
               mb: 1.2,
-              p: { xs: 1.25, md: 1.55 },
-              borderRadius: 'var(--morius-radius)',
+              p: { xs: 1.1, md: 1.55 },
+              borderRadius: { xs: '14px', md: 'var(--morius-radius)' },
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
               background: 'var(--morius-card-bg)',
             }}
@@ -1367,9 +1431,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 <Skeleton variant="rounded" width={136} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
               </Stack>
 
-              <Stack direction="row" spacing={1.1} alignItems="flex-start">
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.1} alignItems={{ xs: 'center', md: 'flex-start' }}>
                 <Skeleton variant="circular" width={PROFILE_AVATAR_SIZE} height={PROFILE_AVATAR_SIZE} sx={{ flexShrink: 0, bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                <Stack spacing={0.72} sx={{ minWidth: 0, flex: 1 }}>
+                <Stack spacing={0.72} sx={{ minWidth: 0, flex: 1, alignItems: { xs: 'center', md: 'flex-start' }, textAlign: { xs: 'center', md: 'left' } }}>
                   <Skeleton variant="text" width="48%" height={38} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
                   <Skeleton variant="text" width="92%" height={26} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
                   <Skeleton variant="text" width="80%" height={26} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
@@ -1377,7 +1441,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 </Stack>
               </Stack>
 
-              <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignItems="center">
+              <Stack
+                direction="row"
+                spacing={0.7}
+                useFlexGap
+                flexWrap="wrap"
+                alignItems="center"
+                sx={{ display: { xs: isMobileProfileActionsOpen ? 'flex' : 'none', md: 'flex' } }}
+              >
                 <Skeleton variant="rounded" width={110} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
                 <Skeleton variant="rounded" width={122} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
                 <Skeleton variant="rounded" width={166} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
@@ -1386,11 +1457,86 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             </Stack>
 
             <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              spacing={0.7}
+              sx={{
+                mb: 1,
+                display: isProfileBootstrapLoading ? 'none' : { xs: 'flex', md: 'none' },
+              }}
+            >
+              <Box sx={{ width: 36, height: 36 }} />
+
+              <Stack direction="row" spacing={0.55} sx={{ minWidth: 0 }}>
+                <Box
+                  sx={{
+                    minHeight: 28,
+                    px: 1.2,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {userLevel} уровень
+                </Box>
+                <Button
+                  onClick={() => {
+                    if (isOwnProfile) {
+                      handleOpenTopUpDialog()
+                    }
+                  }}
+                  sx={{
+                    minHeight: 28,
+                    px: 1.2,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    whiteSpace: 'nowrap',
+                    '&:hover': {
+                      backgroundColor: 'var(--morius-button-hover)',
+                    },
+                  }}
+                >
+                  {coins.toLocaleString('ru-RU')} токенов
+                </Button>
+              </Stack>
+
+              <IconButton
+                onClick={() => setIsMobileProfileActionsOpen((previous) => !previous)}
+                sx={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '10px',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  backgroundColor: 'var(--morius-elevated-bg)',
+                  color: 'var(--morius-text-primary)',
+                  '&:hover': {
+                    backgroundColor: 'var(--morius-button-hover)',
+                  },
+                }}
+              >
+                <Typography component="span" sx={{ fontSize: '1.1rem', lineHeight: 1 }}>
+                  ⋮
+                </Typography>
+              </IconButton>
+            </Stack>
+
+            <Stack
               direction={{ xs: 'column', md: 'row' }}
               justifyContent="space-between"
               alignItems={{ xs: 'flex-start', md: 'center' }}
               spacing={1}
-              sx={{ mb: 1.1, display: isProfileBootstrapLoading ? 'none' : undefined }}
+              sx={{ mb: 1.1, display: isProfileBootstrapLoading ? 'none' : { xs: 'none', md: 'flex' } }}
             >
               <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.48rem' }, fontWeight: 800 }}>Об аккаунте</Typography>
               <Button
@@ -1552,7 +1698,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignItems="center">
                 <Box
                   sx={{
-                    display: isOwnProfile ? 'inline-flex' : 'none',
+                    display: isOwnProfile ? { xs: 'none', md: 'inline-flex' } : 'none',
                     alignItems: 'center',
                     gap: 0.55,
                     px: 0.9,
@@ -1588,7 +1734,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
                 <Box
                   sx={{
-                    display: 'inline-flex',
+                    display: { xs: 'none', md: 'inline-flex' },
                     alignItems: 'center',
                     gap: 0.55,
                     px: 0.9,
@@ -1756,17 +1902,121 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           >
             <Box
               sx={{
-                p: 1,
-                borderRadius: 'var(--morius-radius)',
+                p: { xs: 0.85, md: 1 },
+                borderRadius: { xs: '14px', md: 'var(--morius-radius)' },
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 background: 'var(--morius-card-bg)',
               }}
             >
+              <Box sx={{ display: { xs: 'block', lg: 'none' }, mb: 1 }}>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    gap: 0.5,
+                    overflowX: 'auto',
+                    pb: 0.6,
+                    borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    '&::-webkit-scrollbar': {
+                      display: 'none',
+                    },
+                    scrollbarWidth: 'none',
+                  }}
+                >
+                  {tabs.map((item) => (
+                    <Button
+                      key={`mobile-tab-${item.id}`}
+                      onClick={() => setTab(item.id)}
+                      sx={{
+                        flexShrink: 0,
+                        minHeight: 34,
+                        px: 1.15,
+                        borderRadius: '9px',
+                        textTransform: 'none',
+                        fontSize: '0.8rem',
+                        fontWeight: tab === item.id ? 800 : 700,
+                        color: 'var(--morius-text-primary)',
+                        backgroundColor: tab === item.id ? 'var(--morius-button-active)' : 'transparent',
+                        border: tab === item.id ? 'var(--morius-border-width) solid var(--morius-card-border)' : 'none',
+                      }}
+                    >
+                      {item.label}
+                    </Button>
+                  ))}
+                </Box>
+
+                {mobileContentTabs.length > 1 &&
+                (tab === 'publications' || tab === 'instructions' || tab === 'characters' || tab === 'plots') ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: `repeat(${Math.min(mobileContentTabs.length, 4)}, minmax(0, 1fr))`,
+                      gap: 0.55,
+                      pt: 0.8,
+                    }}
+                  >
+                    {mobileContentTabs.map((item) => (
+                      <Button
+                        key={`mobile-content-tab-${item.id}`}
+                        onClick={() => setTab(item.id)}
+                        sx={{
+                          minHeight: 34,
+                          borderRadius: '10px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: tab === item.id ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                          color: 'var(--morius-text-primary)',
+                          textTransform: 'none',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          '&:hover': {
+                            backgroundColor: 'var(--morius-button-hover)',
+                          },
+                        }}
+                      >
+                        {item.label}
+                      </Button>
+                    ))}
+                  </Box>
+                ) : null}
+
+                <Stack direction="row" spacing={0.6} sx={{ pt: 0.8 }}>
+                  <TextField
+                    size="small"
+                    value={contentSearchQuery}
+                    onChange={(event) => setContentSearchQuery(event.target.value.slice(0, 120))}
+                    placeholder="Поиск"
+                    sx={{
+                      flex: 1,
+                      '& .MuiInputBase-root': {
+                        borderRadius: '12px',
+                        minHeight: 38,
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                      },
+                    }}
+                  />
+                  <IconButton
+                    onClick={() => setContentSearchQuery('')}
+                    sx={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      '&:hover': {
+                        backgroundColor: 'var(--morius-button-hover)',
+                      },
+                    }}
+                  >
+                    <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
+                  </IconButton>
+                </Stack>
+              </Box>
+
               {renderTabContent()}
             </Box>
 
             <Box
               sx={{
+                display: { xs: 'none', lg: 'block' },
                 p: 0.9,
                 borderRadius: 'var(--morius-radius)',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',

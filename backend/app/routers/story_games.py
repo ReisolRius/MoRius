@@ -17,6 +17,7 @@ from app.models import (
     StoryGame,
     StoryInstructionCard,
     StoryMessage,
+    StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryWorldCard,
@@ -45,6 +46,7 @@ from app.services.story_games import (
     STORY_GAME_VISIBILITY_PRIVATE,
     clone_story_world_cards_to_game,
     coerce_story_llm_model,
+    coerce_story_image_model,
     coerce_story_game_age_rating,
     deserialize_story_game_genres,
     normalize_story_ambient_enabled,
@@ -57,6 +59,8 @@ from app.services.story_games import (
     normalize_story_game_age_rating,
     normalize_story_game_description,
     normalize_story_game_genres,
+    normalize_story_image_style_prompt,
+    normalize_story_image_model,
     normalize_story_game_opening_scene,
     normalize_story_game_visibility,
     normalize_story_llm_model,
@@ -338,6 +342,8 @@ def launch_story_community_world(
             getattr(world, "response_max_tokens_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(world, "story_llm_model", None)),
+        image_model=coerce_story_image_model(getattr(world, "image_model", None)),
+        image_style_prompt=normalize_story_image_style_prompt(getattr(world, "image_style_prompt", None)),
         memory_optimization_enabled=bool(getattr(world, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
@@ -568,6 +574,8 @@ def create_story_game(
     response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
     response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(payload.response_max_tokens_enabled)
     story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    image_model = normalize_story_image_model(payload.image_model)
+    image_style_prompt = normalize_story_image_style_prompt(payload.image_style_prompt)
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
     story_top_k = normalize_story_top_k(payload.story_top_k)
     story_top_r = normalize_story_top_r(payload.story_top_r)
@@ -594,6 +602,8 @@ def create_story_game(
         response_max_tokens=response_max_tokens,
         response_max_tokens_enabled=response_max_tokens_enabled,
         story_llm_model=story_llm_model,
+        image_model=image_model,
+        image_style_prompt=image_style_prompt,
         memory_optimization_enabled=memory_optimization_enabled,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
@@ -640,6 +650,8 @@ def clone_story_game(
             getattr(source_game, "response_max_tokens_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(source_game, "story_llm_model", None)),
+        image_model=coerce_story_image_model(getattr(source_game, "image_model", None)),
+        image_style_prompt=normalize_story_image_style_prompt(getattr(source_game, "image_style_prompt", None)),
         memory_optimization_enabled=bool(getattr(source_game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(source_game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(source_game, "story_top_r", None)),
@@ -696,6 +708,10 @@ def update_story_game_settings(
         )
     if payload.story_llm_model is not None:
         game.story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    if payload.image_model is not None:
+        game.image_model = normalize_story_image_model(payload.image_model)
+    if payload.image_style_prompt is not None:
+        game.image_style_prompt = normalize_story_image_style_prompt(payload.image_style_prompt)
     if payload.memory_optimization_enabled is not None:
         game.memory_optimization_enabled = bool(payload.memory_optimization_enabled)
     if payload.story_top_k is not None:
@@ -765,6 +781,11 @@ def delete_story_game(
     db.execute(
         sa_delete(StoryPlotCardChangeEvent).where(
             StoryPlotCardChangeEvent.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryTurnImage).where(
+            StoryTurnImage.game_id == game.id,
         )
     )
     db.execute(

@@ -75,12 +75,24 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE,
     STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905,
 }
+STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
+STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
+STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
+STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
+STORY_SUPPORTED_IMAGE_MODELS = {
+    STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_SEEDREAM,
+    STORY_IMAGE_MODEL_NANO_BANANO,
+    STORY_IMAGE_MODEL_NANO_BANANO_2,
+}
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
 STORY_DEFAULT_TOP_K = 0
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
 STORY_DEFAULT_TOP_R = 1.0
+STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 STORY_COVER_SCALE_MIN = 1.0
 STORY_COVER_SCALE_MAX = 3.0
 STORY_COVER_SCALE_DEFAULT = 1.0
@@ -221,6 +233,15 @@ def normalize_story_game_opening_scene(value: str | None) -> str:
     return normalized[:STORY_OPENING_SCENE_MAX_LENGTH].rstrip()
 
 
+def normalize_story_image_style_prompt(value: str | None) -> str:
+    if value is None:
+        return ""
+    normalized = " ".join(str(value).replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    return normalized[:STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH].rstrip()
+
+
 def normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
@@ -266,6 +287,27 @@ def normalize_story_llm_model(value: str | None) -> str:
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, arcee-ai/trinity-large-preview:free, moonshotai/kimi-k2-0905"
+            ),
+        )
+    return normalized
+
+
+def coerce_story_image_model(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
+    if normalized in STORY_SUPPORTED_IMAGE_MODELS:
+        return normalized
+    return STORY_DEFAULT_IMAGE_MODEL
+
+
+def normalize_story_image_model(value: str | None) -> str:
+    normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
+    if normalized not in STORY_SUPPORTED_IMAGE_MODELS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Unsupported image model. "
+                "Use one of: black-forest-labs/flux.2-pro, bytedance-seed/seedream-4.5, "
+                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
             ),
         )
     return normalized
@@ -374,6 +416,8 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
             getattr(game, "response_max_tokens_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
+        image_model=coerce_story_image_model(getattr(game, "image_model", None)),
+        image_style_prompt=normalize_story_image_style_prompt(getattr(game, "image_style_prompt", None)),
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),

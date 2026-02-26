@@ -1,6 +1,7 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentUser } from './services/authApi'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
+import ProfilePage from './pages/ProfilePage'
 import type { AuthResponse, AuthUser } from './types/auth'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
@@ -141,7 +142,6 @@ const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
 const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
 const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
 const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
 const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'))
 
 function App() {

@@ -12,6 +12,7 @@ from app.models import (
     StoryInstructionCard,
     StoryInstructionTemplate,
     StoryMessage,
+    StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryWorldCard,
@@ -58,6 +59,14 @@ def get_public_story_world_or_404(db: Session, world_id: int) -> StoryGame:
 def list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
     return db.scalars(
         select(StoryMessage).where(StoryMessage.game_id == game_id).order_by(StoryMessage.id.asc())
+    ).all()
+
+
+def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
+    return db.scalars(
+        select(StoryTurnImage)
+        .where(StoryTurnImage.game_id == game_id)
+        .order_by(StoryTurnImage.assistant_message_id.asc(), StoryTurnImage.id.asc())
     ).all()
 
 

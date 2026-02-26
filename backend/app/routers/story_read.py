@@ -12,6 +12,7 @@ from app.schemas import (
     StoryGameOut,
     StoryInstructionCardOut,
     StoryMessageOut,
+    StoryTurnImageOut,
 )
 from app.services.auth_identity import get_current_user
 from app.services.concurrency import increment_story_world_views
@@ -31,6 +32,7 @@ from app.services.story_queries import (
     get_user_story_game_or_404,
     list_story_instruction_cards,
     list_story_messages,
+    list_story_turn_images,
     list_story_plot_card_events,
     list_story_plot_cards,
     list_story_world_card_events,
@@ -117,6 +119,7 @@ def get_story_game(
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
     messages = list_story_messages(db, game.id)
+    turn_images = list_story_turn_images(db, game.id)
     instruction_cards = list_story_instruction_cards(db, game.id)
     plot_cards = list_story_plot_cards(db, game.id)
     plot_card_events = list_story_plot_card_events(db, game.id)
@@ -125,6 +128,7 @@ def get_story_game(
     return StoryGameOut(
         game=story_game_summary_to_out(game),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
+        turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
         plot_card_events=[story_plot_card_change_event_to_out(event) for event in plot_card_events],

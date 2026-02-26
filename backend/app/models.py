@@ -102,6 +102,18 @@ class StoryGame(Base):
         default="z-ai/glm-5",
         server_default="z-ai/glm-5",
     )
+    image_model: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+        default="black-forest-labs/flux.2-pro",
+        server_default="black-forest-labs/flux.2-pro",
+    )
+    image_style_prompt: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
     memory_optimization_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -238,6 +250,25 @@ class StoryMessage(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryTurnImage(Base):
+    __tablename__ = "story_turn_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    assistant_message_id: Mapped[int] = mapped_column(ForeignKey("story_messages.id"), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    revised_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

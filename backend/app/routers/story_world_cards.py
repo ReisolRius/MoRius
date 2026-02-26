@@ -45,6 +45,17 @@ from app.services.story_world_cards import (
 router = APIRouter()
 
 
+def _normalize_character_identity_name(value: str) -> str:
+    return " ".join(str(value or "").split()).strip().casefold()
+
+
+def _is_same_character_identity(card: StoryWorldCard, *, character_id: int, normalized_name: str) -> bool:
+    if card.character_id == character_id:
+        return True
+    card_name = _normalize_character_identity_name(card.title)
+    return bool(card_name and card_name == normalized_name)
+
+
 @router.get("/api/story/games/{game_id}/world-cards", response_model=list[StoryWorldCardOut])
 def list_story_world_cards_route(
     game_id: int,
@@ -66,12 +77,21 @@ def select_story_main_hero(
 ) -> StoryWorldCardOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    existing_npc = db.scalar(
-        select(StoryWorldCard).where(
-            StoryWorldCard.game_id == game.id,
-            StoryWorldCard.kind == STORY_WORLD_CARD_KIND_NPC,
-            StoryWorldCard.character_id == payload.character_id,
-        )
+    character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
+    normalized_character_name = _normalize_character_identity_name(character.name)
+    existing_cards = list_story_world_cards(db, game.id)
+    existing_npc = next(
+        (
+            card
+            for card in existing_cards
+            if normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_NPC
+            and _is_same_character_identity(
+                card,
+                character_id=payload.character_id,
+                normalized_name=normalized_character_name,
+            )
+        ),
+        None,
     )
     if existing_npc is not None:
         raise HTTPException(
@@ -81,14 +101,17 @@ def select_story_main_hero(
 
     existing_main_hero = get_story_main_hero_card(db, game.id)
     if existing_main_hero is not None:
-        if existing_main_hero.character_id == payload.character_id:
+        if _is_same_character_identity(
+            existing_main_hero,
+            character_id=payload.character_id,
+            normalized_name=normalized_character_name,
+        ):
             return story_world_card_to_out(existing_main_hero)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Main hero is already selected and cannot be changed",
         )
 
-    character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
     main_hero_card = build_story_world_card_from_character(
         game_id=game.id,
         character=character,
@@ -111,19 +134,35 @@ def create_story_npc_from_character(
 ) -> StoryWorldCardOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
+    normalized_character_name = _normalize_character_identity_name(character.name)
+    existing_cards = list_story_world_cards(db, game.id)
     existing_main_hero = get_story_main_hero_card(db, game.id)
-    if existing_main_hero is not None and existing_main_hero.character_id == payload.character_id:
+    if (
+        existing_main_hero is not None
+        and _is_same_character_identity(
+            existing_main_hero,
+            character_id=payload.character_id,
+            normalized_name=normalized_character_name,
+        )
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Main hero cannot be added as NPC",
         )
 
-    existing_npc = db.scalar(
-        select(StoryWorldCard).where(
-            StoryWorldCard.game_id == game.id,
-            StoryWorldCard.kind == STORY_WORLD_CARD_KIND_NPC,
-            StoryWorldCard.character_id == payload.character_id,
-        )
+    existing_npc = next(
+        (
+            card
+            for card in existing_cards
+            if normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_NPC
+            and _is_same_character_identity(
+                card,
+                character_id=payload.character_id,
+                normalized_name=normalized_character_name,
+            )
+        ),
+        None,
     )
     if existing_npc is not None:
         raise HTTPException(
@@ -131,7 +170,6 @@ def create_story_npc_from_character(
             detail="This character is already selected as NPC",
         )
 
-    character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
     npc_card = build_story_world_card_from_character(
         game_id=game.id,
         character=character,

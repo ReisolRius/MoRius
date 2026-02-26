@@ -157,13 +157,10 @@ type AssistantUndoStep = {
 }
 type StoryTurnImageStatus = 'loading' | 'ready' | 'error'
 type StoryTurnImageEntry = {
-  id: number
   status: StoryTurnImageStatus
   imageUrl: string | null
   prompt: string | null
   error: string | null
-  createdAt: string | null
-  updatedAt: string | null
 }
 type SpeakerAvatarEntry = {
   names: string[]
@@ -174,8 +171,7 @@ type SpeakerAvatarEntry = {
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STORY_TURN_IMAGE_TOGGLE_STORAGE_KEY = 'morius.story.turn-image.enabled'
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 45_000
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_NANO_BANANO_2_MS = 180_000
+const STORY_TURN_IMAGE_REQUEST_TIMEOUT_MS = 45_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
@@ -253,12 +249,6 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
     description: '25 токенов за генерацию кадра.',
   },
 ]
-function getStoryTurnImageRequestTimeoutMs(modelId: StoryImageModelId): number {
-  if (modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID) {
-    return STORY_TURN_IMAGE_REQUEST_TIMEOUT_NANO_BANANO_2_MS
-  }
-  return STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS
-}
 const RIGHT_PANEL_WIDTH_MIN = 300
 const RIGHT_PANEL_WIDTH_MAX = 460
 const RIGHT_PANEL_WIDTH_DEFAULT = 332
@@ -624,19 +614,7 @@ function parseTaggedAssistantContent(content: string): AssistantMessageBlock[] |
 
   const tagPattern = /<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>/giu
   const blocks: AssistantMessageBlock[] = []
-  let hasTaggedBlocks = false
   let cursor = 0
-
-  const pushNarrativeFragments = (value: string) => {
-    const fragments = splitAssistantParagraphs(value)
-    fragments.forEach((fragment) => {
-      const text = fragment.trim()
-      if (!text) {
-        return
-      }
-      blocks.push({ type: 'narrative', text })
-    })
-  }
 
   for (const match of normalized.matchAll(tagPattern)) {
     const fullMatch = match[0]
@@ -647,7 +625,7 @@ function parseTaggedAssistantContent(content: string): AssistantMessageBlock[] |
 
     const between = normalized.slice(cursor, matchIndex)
     if (between.trim().length > 0) {
-      pushNarrativeFragments(between)
+      return null
     }
 
     const parsedBlock = parseTaggedAssistantParagraph(fullMatch)
@@ -655,16 +633,15 @@ function parseTaggedAssistantContent(content: string): AssistantMessageBlock[] |
       return null
     }
     blocks.push(parsedBlock)
-    hasTaggedBlocks = true
     cursor = matchIndex + fullMatch.length
   }
 
   const tail = normalized.slice(cursor)
   if (tail.trim().length > 0) {
-    pushNarrativeFragments(tail)
+    return null
   }
 
-  if (!hasTaggedBlocks || blocks.length === 0) {
+  if (blocks.length === 0) {
     return null
   }
 
@@ -1750,9 +1727,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isTurnImageGenerationEnabled, setIsTurnImageGenerationEnabled] = useState(false)
-  const [turnImageByAssistantMessageId, setTurnImageByAssistantMessageId] = useState<
-    Record<number, StoryTurnImageEntry[]>
-  >({})
+  const [turnImageByAssistantMessageId, setTurnImageByAssistantMessageId] = useState<Record<number, StoryTurnImageEntry>>({})
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
@@ -2863,47 +2838,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const serverOpeningScene = (payload.game.opening_scene ?? '').trim()
         setQuickStartIntro((previousIntro) => (serverOpeningScene.length > 0 ? serverOpeningScene : previousIntro))
         setMessages(payload.messages)
-        const restoredTurnImages = (payload.turn_images ?? []).reduce<Record<number, StoryTurnImageEntry[]>>(
-          (accumulator, item) => {
-            const assistantMessageId = Number(item.assistant_message_id)
-            if (!Number.isInteger(assistantMessageId) || assistantMessageId <= 0) {
-              return accumulator
-            }
-            const resolvedImageUrl = (item.image_data_url ?? item.image_url ?? '').trim()
-            if (!resolvedImageUrl) {
-              return accumulator
-            }
-            const restoredEntry: StoryTurnImageEntry = {
-              id: item.id,
-              status: 'ready',
-              imageUrl: resolvedImageUrl,
-              prompt: item.prompt ?? null,
-              error: null,
-              createdAt: item.created_at ?? null,
-              updatedAt: item.updated_at ?? null,
-            }
-            const existingEntries = accumulator[assistantMessageId] ?? []
-            accumulator[assistantMessageId] = [...existingEntries, restoredEntry]
+        const restoredTurnImages = (payload.turn_images ?? []).reduce<Record<number, StoryTurnImageEntry>>((accumulator, item) => {
+          const assistantMessageId = Number(item.assistant_message_id)
+          if (!Number.isInteger(assistantMessageId) || assistantMessageId <= 0) {
             return accumulator
-          },
-          {},
-        )
+          }
+          const resolvedImageUrl = (item.image_data_url ?? item.image_url ?? '').trim()
+          if (!resolvedImageUrl) {
+            return accumulator
+          }
+          accumulator[assistantMessageId] = {
+            status: 'ready',
+            imageUrl: resolvedImageUrl,
+            prompt: item.prompt ?? null,
+            error: null,
+          }
+          return accumulator
+        }, {})
         setTurnImageByAssistantMessageId((previousState) => {
-          const nextState: Record<number, StoryTurnImageEntry[]> = { ...restoredTurnImages }
+          const nextState: Record<number, StoryTurnImageEntry> = { ...restoredTurnImages }
           payload.messages.forEach((message) => {
             if (message.role !== 'assistant') {
               return
             }
-            const existingEntries = previousState[message.id]
-            if (!existingEntries?.length) {
+            const existingEntry = previousState[message.id]
+            if (!existingEntry || existingEntry.status !== 'loading' || nextState[message.id]) {
               return
             }
-            const loadingEntries = existingEntries.filter((entry) => entry.status === 'loading')
-            if (!loadingEntries.length) {
-              return
-            }
-            const restoredEntries = nextState[message.id] ?? []
-            nextState[message.id] = [...restoredEntries, ...loadingEntries]
+            nextState[message.id] = existingEntry
           })
           return nextState
         })
@@ -4926,20 +4888,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (!nextValue) {
         turnImageAbortControllersRef.current.forEach((controller) => controller.abort())
         turnImageAbortControllersRef.current.clear()
-        setTurnImageByAssistantMessageId((previousState) => {
-          const nextState: Record<number, StoryTurnImageEntry[]> = {}
-          Object.entries(previousState).forEach(([assistantMessageIdRaw, entries]) => {
-            const assistantMessageId = Number(assistantMessageIdRaw)
-            if (!Number.isInteger(assistantMessageId) || assistantMessageId <= 0) {
-              return
-            }
-            const persistedEntries = entries.filter((entry) => entry.status !== 'loading')
-            if (persistedEntries.length > 0) {
-              nextState[assistantMessageId] = persistedEntries
-            }
-          })
-          return nextState
-        })
       }
       return nextValue
     })
@@ -4955,7 +4903,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     setTurnImageByAssistantMessageId((previousState) => {
-      let nextState: Record<number, StoryTurnImageEntry[]> | null = null
+      let nextState: Record<number, StoryTurnImageEntry> | null = null
       for (const assistantMessageId of uniqueIds) {
         if (!(assistantMessageId in previousState)) {
           continue
@@ -4983,32 +4931,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       turnImageAbortControllersRef.current.get(options.assistantMessageId)?.abort()
       const requestController = new AbortController()
       turnImageAbortControllersRef.current.set(options.assistantMessageId, requestController)
-      const loadingEntryId = -Math.abs(Date.now() + Math.floor(Math.random() * 1000))
-      const loadingStartedAt = new Date().toISOString()
       const timeoutId = window.setTimeout(() => {
         requestController.abort()
-      }, getStoryTurnImageRequestTimeoutMs(storyImageModel))
+      }, STORY_TURN_IMAGE_REQUEST_TIMEOUT_MS)
 
-      setTurnImageByAssistantMessageId((previousState) => {
-        const existingEntries = (previousState[options.assistantMessageId] ?? []).filter(
-          (entry) => entry.status !== 'loading',
-        )
-        return {
-          ...previousState,
-          [options.assistantMessageId]: [
-            ...existingEntries,
-            {
-              id: loadingEntryId,
-              status: 'loading',
-              imageUrl: null,
-              prompt: null,
-              error: null,
-              createdAt: loadingStartedAt,
-              updatedAt: loadingStartedAt,
-            },
-          ],
-        }
-      })
+      setTurnImageByAssistantMessageId((previousState) => ({
+        ...previousState,
+        [options.assistantMessageId]: {
+          status: 'loading',
+          imageUrl: null,
+          prompt: null,
+          error: null,
+        },
+      }))
       try {
         const imagePayload = await generateStoryTurnImage({
           token: authToken,
@@ -5023,94 +4958,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (imagePayload.user) {
           onUserUpdate(imagePayload.user)
         }
-        if (turnImageAbortControllersRef.current.get(options.assistantMessageId) !== requestController) {
-          return
-        }
-
-        const persistedEntryId =
-          Number.isInteger(imagePayload.id) && imagePayload.id > 0 ? imagePayload.id : Math.abs(loadingEntryId)
-        const resolvedAt = new Date().toISOString()
-        setTurnImageByAssistantMessageId((previousState) => {
-          const existingEntries = previousState[options.assistantMessageId]
-          if (!existingEntries?.length) {
-            return previousState
-          }
-          let hasUpdatedEntry = false
-          const nextEntries = existingEntries.map((entry) => {
-            if (entry.id !== loadingEntryId) {
-              return entry
-            }
-            hasUpdatedEntry = true
-            return {
-              ...entry,
-              id: persistedEntryId,
-              status: 'ready' as const,
-              imageUrl: resolvedImageUrl,
-              prompt: imagePayload.prompt ?? null,
-              error: null,
-              updatedAt: resolvedAt,
-            }
-          })
-          if (!hasUpdatedEntry) {
-            nextEntries.push({
-              id: persistedEntryId,
-              status: 'ready',
-              imageUrl: resolvedImageUrl,
-              prompt: imagePayload.prompt ?? null,
-              error: null,
-              createdAt: resolvedAt,
-              updatedAt: resolvedAt,
-            })
-          }
-          return {
-            ...previousState,
-            [options.assistantMessageId]: nextEntries,
-          }
-        })
+        setTurnImageByAssistantMessageId((previousState) => ({
+          ...previousState,
+          [options.assistantMessageId]: {
+            status: 'ready',
+            imageUrl: resolvedImageUrl,
+            prompt: imagePayload.prompt,
+            error: null,
+          },
+        }))
       } catch (error) {
-        if (turnImageAbortControllersRef.current.get(options.assistantMessageId) !== requestController) {
-          return
-        }
         const detail =
           error instanceof DOMException && error.name === 'AbortError'
             ? 'Генерация изображения заняла слишком много времени. Попробуйте еще раз.'
             : error instanceof Error
               ? error.message
               : 'Failed to generate image'
-        const resolvedAt = new Date().toISOString()
-        setTurnImageByAssistantMessageId((previousState) => {
-          const existingEntries = previousState[options.assistantMessageId] ?? []
-          let hasUpdatedEntry = false
-          const nextEntries = existingEntries.map((entry) => {
-            if (entry.id !== loadingEntryId) {
-              return entry
-            }
-            hasUpdatedEntry = true
-            return {
-              ...entry,
-              status: 'error' as const,
-              imageUrl: null,
-              prompt: null,
-              error: detail,
-              updatedAt: resolvedAt,
-            }
-          })
-          if (!hasUpdatedEntry) {
-            nextEntries.push({
-              id: loadingEntryId,
-              status: 'error',
-              imageUrl: null,
-              prompt: null,
-              error: detail,
-              createdAt: resolvedAt,
-              updatedAt: resolvedAt,
-            })
-          }
-          return {
-            ...previousState,
-            [options.assistantMessageId]: nextEntries,
-          }
-        })
+        setTurnImageByAssistantMessageId((previousState) => ({
+          ...previousState,
+          [options.assistantMessageId]: {
+            status: 'error',
+            imageUrl: null,
+            prompt: null,
+            error: detail,
+          },
+        }))
       } finally {
         window.clearTimeout(timeoutId)
         if (turnImageAbortControllersRef.current.get(options.assistantMessageId) === requestController) {
@@ -5118,7 +4990,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [authToken, onUserUpdate, storyImageModel],
+    [authToken, onUserUpdate],
   )
 
   useEffect(() => {
@@ -5141,7 +5013,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       gameId: number
       prompt?: string
       rerollLastResponse?: boolean
-      discardLastAssistantSteps?: number
       instructionCards?: StoryInstructionCard[]
     }) => {
       setErrorMessage('')
@@ -5160,7 +5031,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: options.gameId,
           prompt: options.prompt,
           rerollLastResponse: options.rerollLastResponse,
-          discardLastAssistantSteps: options.discardLastAssistantSteps,
           instructions: (options.instructionCards ?? [])
             .map((card) => ({
               title: card.title.replace(/\s+/g, ' ').trim(),
@@ -5367,6 +5237,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
+    if (hasUndoneAssistantSteps) {
+      setErrorMessage('Сначала верните откатанные ответы кнопкой вперед или обновите игру.')
+      return
+    }
+
     if (hasInsufficientTokensForTurn) {
       setInputValue('')
       setErrorMessage(`Недостаточно токенов для хода: нужно ${currentTurnCostTokens}.`)
@@ -5411,11 +5286,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const discardLastAssistantSteps = undoneAssistantSteps.length > 0 ? undoneAssistantSteps.length : undefined
-    if (discardLastAssistantSteps) {
-      setUndoneAssistantSteps([])
-    }
-
     const now = new Date().toISOString()
     const temporaryUserMessageId = -Date.now()
     setMessages((previousMessages) => [
@@ -5433,10 +5303,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
-      discardLastAssistantSteps,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration, undoneAssistantSteps])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, hasUndoneAssistantSteps, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
 
   const handleUndoAssistantStep = useCallback(() => {
     if (!activeGameId || !canUndoAssistantStep) {
@@ -7735,7 +7604,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
                     const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
-                    const assistantTurnImages = turnImageByAssistantMessageId[message.id] ?? []
+                    const assistantTurnImage = turnImageByAssistantMessageId[message.id]
                     return (
                       <Box
                         key={message.id}
@@ -8196,20 +8065,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               })}
                             </Stack>
                           ) : null}
-                          {assistantTurnImages.length > 0 ? (
-                            <Stack spacing={0.75} sx={{ width: '100%', alignSelf: 'stretch' }}>
-                              {assistantTurnImages.map((assistantTurnImage, imageIndex) => (
-                                <Box
-                                  key={`turn-image-${message.id}-${assistantTurnImage.id}-${imageIndex}`}
-                                  sx={{
-                                    borderRadius: '12px',
-                                    border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.24)',
-                                    backgroundColor: 'rgba(19, 25, 36, 0.72)',
-                                    p: 0.7,
-                                    width: '100%',
-                                    mx: 'auto',
-                                  }}
-                                >
+                          {assistantTurnImage ? (
+                            <Box
+                              sx={{
+                                borderRadius: '12px',
+                                border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.24)',
+                                backgroundColor: 'rgba(19, 25, 36, 0.72)',
+                                p: 0.7,
+                              }}
+                            >
                               <Box
                                 sx={{
                                   width: '100%',
@@ -8222,11 +8086,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         alignItems: 'center',
                                         justifyContent: 'center',
                                       }
-                                    : assistantTurnImage.status === 'loading'
-                                      ? {
-                                          aspectRatio: '16 / 9',
-                                        }
-                                      : {}),
+                                    : {
+                                        aspectRatio: '16 / 9',
+                                      }),
                                   borderRadius: '10px',
                                   overflow: 'hidden',
                                   position: 'relative',
@@ -8258,8 +8120,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     loading="lazy"
                                     sx={{
                                       width: '100%',
-                                      height: 'auto',
-                                      objectFit: 'contain',
+                                      height: '100%',
+                                      objectFit: 'cover',
                                       display: 'block',
                                     }}
                                   />
@@ -8296,10 +8158,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     </Stack>
                                   </Stack>
                                 )}
-                                  </Box>
-                                </Box>
-                              ))}
-                            </Stack>
+                              </Box>
+                            </Box>
                           ) : null}
                         </Stack>
                       </Box>
@@ -8604,15 +8464,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     }}
                   >
                     <Box
-                      component="img"
-                      src={icons.imageGen}
-                      alt=""
+                      component="span"
                       sx={{
                         width: 16,
                         height: 16,
-                        display: 'block',
+                        display: 'inline-block',
+                        backgroundColor: '#ffffff',
                         opacity: isTurnImageGenerationEnabled ? 1 : 0.94,
-                        filter: 'brightness(0) invert(1)',
+                        WebkitMask: `url(${icons.imageGen}) center / contain no-repeat`,
+                        mask: `url(${icons.imageGen}) center / contain no-repeat`,
                       }}
                     />
                     <Box

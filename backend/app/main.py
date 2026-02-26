@@ -26,6 +26,7 @@ from app.config import OPENROUTER_GEMMA_FREE_MODEL, settings
 from app.models import (
     StoryGame,
     StoryMessage,
+    StoryTurnImage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
     StoryWorldCard,
@@ -41,12 +42,16 @@ from app.routers.story_games import router as story_games_router
 from app.routers.story_instruction_templates import router as story_instruction_templates_router
 from app.routers.story_messages import router as story_messages_router
 from app.routers.story_read import router as story_read_router
+from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
 from app.schemas import (
     StoryGenerateRequest,
     StoryInstructionCardInput,
     StoryPlotCardChangeEventOut,
+    StoryTurnImageGenerateOut,
+    StoryTurnImageGenerateRequest,
+    UserOut,
     StoryWorldCardChangeEventOut,
 )
 from app.services.auth_identity import (
@@ -95,6 +100,7 @@ from app.services.story_undo import (
     rollback_story_card_events_for_assistant_message as _rollback_story_card_events_for_assistant_message,
 )
 from app.services.story_games import (
+    coerce_story_image_model as _coerce_story_image_model,
     get_story_turn_cost_tokens as _get_story_turn_cost_tokens,
 )
 from app.services.story_runtime import (
@@ -143,6 +149,29 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 4
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
+STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
+STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
+STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
+STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_TITLE_CHARS = 80
+STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_CONTENT_CHARS = 360
+STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS = 3
+STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS = 260
+STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
+STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
+STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
+STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
+STORY_TURN_IMAGE_COST_BY_MODEL = {
+    STORY_TURN_IMAGE_MODEL_FLUX: 3,
+    STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 25,
+}
+STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
+STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 45
+STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
+}
 STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS = 40
 STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS = 260
 STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
@@ -454,6 +483,10 @@ STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(
     r"\[\[NPC(?:_THOUGHT)?\s*:\s*([^\]]+)\]\]\s*([\s\S]*?)\s*$",
     re.IGNORECASE,
 )
+STORY_NPC_SPEAKER_LINE_PATTERN = re.compile(
+    r"^\s*([A-ZА-ЯЁ][^:\n]{0,80}?)(?:\s*\((?:в голове|мысленно|мысли)\))?\s*:\s*([\s\S]+?)\s*$",
+    re.IGNORECASE,
+)
 STORY_NPC_ROLE_SUFFIX_PATTERN = re.compile(
     r"\s*\((?:г|р|gg|mc|npc|pc|hero|player|main_hero|mainhero)\)\s*$",
     re.IGNORECASE,
@@ -481,6 +514,10 @@ STORY_NPC_NAME_EXCLUDED_TOKENS = {
     "gg",
     "mc",
 }
+STORY_NPC_RELATION_HINT_PATTERN = re.compile(
+    r"\b(брат|сестр|подруг|друг|мать|отец|сын|доч|жена|муж|коллег|родствен|семь[ия]|любим)\w*\b",
+    re.IGNORECASE,
+)
 GIGACHAT_TOKEN_CACHE: dict[str, Any] = {"access_token": None, "expires_at": None}
 GIGACHAT_TOKEN_CACHE_LOCK = Lock()
 logger = logging.getLogger(__name__)
@@ -660,6 +697,7 @@ app.include_router(payments_router)
 app.include_router(story_cards_router)
 app.include_router(story_characters_router)
 app.include_router(story_generate_router)
+app.include_router(story_turn_image_router)
 app.include_router(story_games_router)
 app.include_router(story_instruction_templates_router)
 app.include_router(story_messages_router)
@@ -1289,6 +1327,64 @@ def _extract_story_npc_profile_field(lines: list[str], prefixes: tuple[str, ...]
     return ""
 
 
+def _strip_story_npc_profile_nested_prefixes(value: str) -> str:
+    compact = " ".join(str(value or "").split()).strip(" -")
+    if not compact:
+        return ""
+
+    known_prefixes = (
+        "пол",
+        "gender",
+        "возраст",
+        "age",
+        "внешность",
+        "appearance",
+        "облик",
+        "черты и роль",
+        "traits_role",
+        "traits",
+        "характер",
+        "personality",
+        "связи и важное",
+        "relations_important",
+        "important",
+        "важное",
+        "связи",
+        "роль",
+    )
+    previous = ""
+    current = compact
+    while current and current != previous:
+        previous = current
+        for prefix in known_prefixes:
+            current = re.sub(rf"^{re.escape(prefix)}\s*:\s*", "", current, flags=re.IGNORECASE).strip(" -")
+    return current
+
+
+def _sanitize_story_npc_profile_value(value: str) -> str:
+    plain = _normalize_story_markup_to_plain_text(str(value or ""))
+    compact = " ".join(plain.replace("\r", " ").replace("\n", " ").split()).strip(" -")
+    if not compact:
+        return ""
+    return _strip_story_npc_profile_nested_prefixes(compact)
+
+
+def _is_story_npc_profile_placeholder(value: str) -> bool:
+    compact = " ".join(str(value or "").split()).strip().casefold()
+    if not compact:
+        return True
+    return compact in {
+        "не указан",
+        "не указана",
+        "не указано",
+        "неизвестно",
+        "unknown",
+        "n/a",
+        "нет",
+        "none",
+    }
+
+
 def _clean_story_npc_profile_fragment(value: str, *, name: str) -> str:
     plain = _normalize_story_markup_to_plain_text(value)
     compact = " ".join(plain.replace("\r", " ").replace("\n", " ").split()).strip(" -")
@@ -1321,6 +1417,11 @@ def _is_story_dialogue_like_fragment(value: str) -> bool:
         return True
     if "сказал" in compact.casefold() or "сказала" in compact.casefold():
         return True
+    if re.search(r"[!?]\s*[—-]", compact):
+        return True
+    if re.search(r"\b(привет|привеет|эй|слушай|алло|постой)\b", compact, flags=re.IGNORECASE):
+        if "—" in compact or "!" in compact or "?" in compact:
+            return True
     if "(в голове)" in compact.casefold():
         return True
     return False
@@ -1336,23 +1437,69 @@ def _normalize_story_npc_profile_content(name: str, content: str) -> str:
     cleaned_lines = [_clean_story_npc_profile_fragment(line, name=name) for line in raw_lines]
     cleaned_lines = [line for line in cleaned_lines if line]
 
-    gender_value = _extract_story_npc_profile_field(cleaned_lines, ("пол", "gender"))
-    age_value = _extract_story_npc_profile_field(cleaned_lines, ("возраст", "age"))
-    appearance_value = _extract_story_npc_profile_field(cleaned_lines, ("внешность", "appearance", "облик"))
-    traits_value = _extract_story_npc_profile_field(
-        cleaned_lines,
-        ("черты и роль", "характер", "personality", "манеры", "поведение"),
+    gender_value = _sanitize_story_npc_profile_value(_extract_story_npc_profile_field(cleaned_lines, ("пол", "gender")))
+    age_value = _sanitize_story_npc_profile_value(_extract_story_npc_profile_field(cleaned_lines, ("возраст", "age")))
+    appearance_value = _sanitize_story_npc_profile_value(
+        _extract_story_npc_profile_field(cleaned_lines, ("внешность", "appearance", "облик"))
     )
-    important_value = _extract_story_npc_profile_field(
-        cleaned_lines,
-        ("связи и важное", "важное", "important", "роль", "связи"),
+    traits_value = _sanitize_story_npc_profile_value(
+        _extract_story_npc_profile_field(
+            cleaned_lines,
+            ("черты и роль", "traits_role", "traits", "характер", "personality", "манеры", "поведение"),
+        )
+    )
+    important_value = _sanitize_story_npc_profile_value(
+        _extract_story_npc_profile_field(
+            cleaned_lines,
+            ("связи и важное", "relations_important", "важное", "important", "связи"),
+        )
     )
 
-    narrative_lines = [line for line in cleaned_lines if not _is_story_dialogue_like_fragment(line)]
-    if not appearance_value and narrative_lines:
-        appearance_value = narrative_lines[0]
-    if not traits_value and len(narrative_lines) > 1:
-        traits_value = narrative_lines[1]
+    if _is_story_dialogue_like_fragment(appearance_value):
+        appearance_value = ""
+    if _is_story_dialogue_like_fragment(traits_value):
+        traits_value = ""
+    if _is_story_dialogue_like_fragment(important_value):
+        important_value = ""
+    if _is_story_npc_profile_placeholder(gender_value):
+        gender_value = ""
+    if _is_story_npc_profile_placeholder(age_value):
+        age_value = ""
+    if _is_story_npc_profile_placeholder(traits_value):
+        traits_value = ""
+    if _is_story_npc_profile_placeholder(important_value):
+        important_value = ""
+
+    narrative_lines: list[str] = []
+    for line in cleaned_lines:
+        candidate = _sanitize_story_npc_profile_value(line)
+        if not candidate:
+            continue
+        if _is_story_dialogue_like_fragment(candidate):
+            continue
+        if candidate not in narrative_lines:
+            narrative_lines.append(candidate)
+
+    if not appearance_value:
+        appearance_candidates = [
+            line
+            for line in narrative_lines
+            if re.search(r"\b(внеш|волос|глаз|одежд|рост|лиц|телослож|фигур|походк|голос)\w*\b", line.casefold())
+        ]
+        if appearance_candidates:
+            appearance_value = appearance_candidates[0]
+    if not traits_value:
+        traits_candidates = [
+            line
+            for line in narrative_lines
+            if any(token in line.casefold() for token in ("характер", "манер", "повед", "роль", "привыч", "темпер"))
+        ]
+        if traits_candidates:
+            traits_value = traits_candidates[0]
+    if not traits_value:
+        fallback_traits = [line for line in narrative_lines if line != appearance_value]
+        if fallback_traits:
+            traits_value = fallback_traits[0]
     if not important_value:
         important_candidates = [
             line for line in narrative_lines if any(token in line.casefold() for token in ("цель", "роль", "связ", "важ"))
@@ -1362,7 +1509,7 @@ def _normalize_story_npc_profile_content(name: str, content: str) -> str:
 
     gender_value = gender_value or "не указано"
     age_value = age_value or "не указан"
-    appearance_value = appearance_value or "внешность в текущем фрагменте явно не описана."
+    appearance_value = appearance_value or "опрятная внешность; заметные черты и стиль уточняются в ходе сюжета."
     traits_value = traits_value or "характер и роль уточняются по мере развития сцены."
     important_value = important_value or f"{name} участвует в текущем эпизоде и влияет на ход сцены."
 
@@ -1375,6 +1522,25 @@ def _normalize_story_npc_profile_content(name: str, content: str) -> str:
             f"Связи и важное: {important_value}"
         )
     )
+
+
+def _has_story_valid_npc_appearance(content: str) -> bool:
+    normalized_content = str(content or "").replace("\r\n", "\n").strip()
+    if not normalized_content:
+        return False
+    lines = [line.strip() for line in normalized_content.split("\n") if line.strip()]
+    appearance_value = _extract_story_npc_profile_field(lines, ("внешность", "appearance", "облик"))
+    appearance_value = _sanitize_story_npc_profile_value(appearance_value)
+    if not appearance_value:
+        return False
+    if _is_story_dialogue_like_fragment(appearance_value):
+        return False
+    lowered = appearance_value.casefold()
+    if "заметные черты и стиль уточняются" in lowered:
+        return False
+    if _is_story_npc_profile_placeholder(appearance_value):
+        return False
+    return True
 
 
 def _map_story_world_card_ai_kind(value: str) -> str:
@@ -1619,7 +1785,40 @@ def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, 
         if _is_story_generic_npc_name(raw_name):
             continue
 
-        dialogue_text = " ".join(marker_match.group(2).replace("\r", " ").replace("\n", " ").split()).strip()
+        dialogue_text = " ".join(
+            _normalize_story_markup_to_plain_text(marker_match.group(2)).replace("\r", " ").replace("\n", " ").split()
+        ).strip()
+        mention_key = raw_name.casefold()
+        mention = mentions_by_key.get(mention_key)
+        if mention is None:
+            mention = {"name": raw_name, "dialogues": []}
+            mentions_by_key[mention_key] = mention
+        if dialogue_text:
+            dialogues = mention["dialogues"]
+            if dialogue_text not in dialogues:
+                dialogues.append(dialogue_text)
+
+    return list(mentions_by_key.values())
+
+
+def _extract_story_npc_speaker_line_mentions(assistant_text: str) -> list[dict[str, Any]]:
+    mentions_by_key: dict[str, dict[str, Any]] = {}
+    plain_text = _normalize_story_markup_to_plain_text(assistant_text)
+    for paragraph in re.split(r"\n{2,}", plain_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+
+        speaker_match = STORY_NPC_SPEAKER_LINE_PATTERN.match(paragraph_value)
+        if speaker_match is None:
+            continue
+        raw_name = _cleanup_story_npc_candidate_name(speaker_match.group(1))
+        if not raw_name:
+            continue
+        if _is_story_generic_npc_name(raw_name):
+            continue
+
+        dialogue_text = " ".join(speaker_match.group(2).replace("\r", " ").replace("\n", " ").split()).strip()
         mention_key = raw_name.casefold()
         mention = mentions_by_key.get(mention_key)
         if mention is None:
@@ -1700,6 +1899,21 @@ def _merge_story_npc_mentions(*sources: list[dict[str, Any]]) -> list[dict[str, 
     return list(mentions_by_key.values())
 
 
+def _is_story_secondary_npc_mention(mention: dict[str, Any]) -> bool:
+    dialogues = mention.get("dialogues")
+    dialogue_values = [value for value in dialogues if isinstance(value, str) and value.strip()] if isinstance(dialogues, list) else []
+    if dialogue_values:
+        return True
+
+    snippets = mention.get("snippets")
+    snippet_values = [value for value in snippets if isinstance(value, str) and value.strip()] if isinstance(snippets, list) else []
+    if len(snippet_values) >= 2:
+        return True
+    if any(STORY_NPC_RELATION_HINT_PATTERN.search(value) is not None for value in snippet_values):
+        return True
+    return False
+
+
 def _is_story_npc_title_matching_requested_name(requested_name: str, candidate_title: str) -> bool:
     requested_tokens = _normalize_story_match_tokens(requested_name)
     candidate_tokens = _normalize_story_match_tokens(candidate_title)
@@ -1725,7 +1939,9 @@ def _build_story_npc_profile_context_cards_preview(
             continue
         kind = _normalize_story_world_card_kind(card.kind)
         triggers = _deserialize_story_world_card_triggers(card.triggers)
-        card_search_space = " ".join([title, *triggers, content]).casefold()
+        plain_content = _normalize_story_markup_to_plain_text(content)
+        content_for_context = plain_content or content
+        card_search_space = " ".join([title, *triggers, content_for_context]).casefold()
         is_related = (
             requested_key in card_search_space
             if requested_key
@@ -1736,7 +1952,7 @@ def _build_story_npc_profile_context_cards_preview(
             continue
 
         content_preview = _normalize_story_prompt_text(
-            content,
+            content_for_context,
             max_chars=STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS,
         )
         trigger_preview = [
@@ -1761,6 +1977,76 @@ def _build_story_npc_profile_context_cards_preview(
     return json.dumps(preview_payload, ensure_ascii=False)
 
 
+def _build_story_npc_name_triggers(name: str) -> list[str]:
+    normalized_name = _normalize_story_world_card_title(name)
+    if not normalized_name:
+        return []
+
+    trigger_candidates = [normalized_name]
+    name_parts = [part for part in normalized_name.replace(",", " ").split() if part]
+    if len(name_parts) >= 2:
+        surname = name_parts[-1].strip()
+        if surname and surname.casefold() != normalized_name.casefold():
+            trigger_candidates.append(surname)
+    return _normalize_story_world_card_triggers(trigger_candidates, fallback_title=normalized_name)
+
+
+def _build_story_npc_fallback_profile_content(
+    *,
+    name: str,
+    prompt: str,
+    assistant_text: str,
+    dialogues: list[str],
+    snippets: list[str],
+    existing_cards: list[StoryWorldCard],
+) -> str:
+    inferred_gender = _infer_story_npc_gender_from_context(name, prompt, assistant_text) or "не указано"
+    _ = (dialogues, snippets)  # Intentionally ignored: fallback must not copy raw GLM text into profile fields.
+    requested_tokens = _normalize_story_match_tokens(name)
+    requested_key = requested_tokens[0] if requested_tokens else ""
+    important = ""
+    if requested_key:
+        for card in existing_cards:
+            content = card.content.replace("\r\n", "\n").strip()
+            if not content:
+                continue
+            content_plain = _normalize_story_markup_to_plain_text(content)
+            search_space = f"{card.title} {content_plain or content}".casefold()
+            if requested_key not in search_space:
+                continue
+            for sentence in _split_story_text_into_sentences(content_plain or content):
+                compact_sentence = _normalize_story_prompt_text(sentence, max_chars=220)
+                if not compact_sentence:
+                    continue
+                if STORY_NPC_RELATION_HINT_PATTERN.search(compact_sentence) is None:
+                    continue
+                important = compact_sentence
+                break
+            if important:
+                break
+
+    if inferred_gender == "женский":
+        appearance = "девушка с опрятной внешностью и повседневным стилем одежды."
+    elif inferred_gender == "мужской":
+        appearance = "мужчина с опрятной внешностью и повседневным стилем одежды."
+    else:
+        appearance = "опрятный человек с узнаваемыми чертами внешности и повседневным стилем одежды."
+
+    traits_role = "второстепенный участник сцены; манера общения и роль уточняются по ходу истории."
+    important = important or f"{name} участвует в текущем эпизоде и влияет на развитие сцены."
+
+    return _normalize_story_npc_profile_content(
+        name,
+        (
+            f"Пол: {inferred_gender}\n"
+            "Возраст: не указан\n"
+            f"Внешность: {appearance}\n"
+            f"Черты и роль: {traits_role}\n"
+            f"Связи и важное: {important}"
+        ),
+    )
+
+
 def _generate_story_npc_profile_with_openrouter(
     *,
     name: str,
@@ -1780,12 +2066,25 @@ def _generate_story_npc_profile_with_openrouter(
     normalized_name = " ".join(name.split()).strip()
     if not normalized_name or _is_story_generic_npc_name(normalized_name):
         return None
+    title = _normalize_story_world_card_title(normalized_name)
+    if not title:
+        return None
+    triggers = _build_story_npc_name_triggers(title)
 
-    snippets_preview = "\n".join(
-        f"- {item}"
-        for item in [*snippets[:4], *dialogues[:2]]
-        if isinstance(item, str) and item.strip()
-    )
+    snippets_preview_lines: list[str] = []
+    for raw_item in [*snippets[:6], *dialogues[:4]]:
+        if not isinstance(raw_item, str) or not raw_item.strip():
+            continue
+        cleaned_item = _normalize_story_prompt_text(
+            _normalize_story_markup_to_plain_text(raw_item),
+            max_chars=280,
+        )
+        if not cleaned_item:
+            continue
+        snippets_preview_lines.append(f"- {cleaned_item}")
+        if len(snippets_preview_lines) >= 8:
+            break
+    snippets_preview = "\n".join(snippets_preview_lines)
     if not snippets_preview:
         snippets_preview = "- Контекст о персонаже минимален."
 
@@ -1794,113 +2093,87 @@ def _generate_story_npc_profile_with_openrouter(
         max_chars=2200,
     )
     prompt_preview = _normalize_story_prompt_text(
-        prompt.replace("\r\n", "\n").strip(),
+        _normalize_story_markup_to_plain_text(prompt),
         max_chars=900,
     )
     existing_cards_preview = _build_story_npc_profile_context_cards_preview(
         existing_cards=existing_cards,
-        requested_name=normalized_name,
+        requested_name=title,
     )
 
-    messages_payload = [
-        {
-            "role": "system",
-            "content": (
-                "Ты создаешь профиль ИМЕНОВАННОГО NPC для RPG. "
-                "Верни строго один JSON-объект без markdown и без комментариев. "
-                "Формат строго такой: "
-                "{\"title\":string,\"triggers\":string[],\"profile\":"
-                "{\"gender\":string,\"age\":string,\"appearance\":string,\"traits_role\":string,\"relations_important\":string}}. "
-                "title: имя персонажа; нельзя подменять на другое имя. "
-                "triggers: 4-10 полезных триггеров. "
-                "profile.gender: выводи по контексту (например, при 'она/сестра/девушка' -> женский). "
-                "profile.age: если не уверен, укажи диапазон/оценку, а не пустое поле. "
-                "profile.appearance/traits_role/relations_important: только описание, без прямой речи и без цитат. "
-                "Запрещено вставлять реплики персонажа, маркеры [[...]], префиксы вида 'Имя:' или '(в голове):'. "
-                "Если в контексте есть связь с существующим персонажем (например, сестра Алисии), явно укажи это в relations_important."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Имя нового персонажа: {normalized_name}\n\n"
-                f"Последний ход игрока:\n{prompt_preview or 'нет'}\n\n"
-                f"Фрагменты из сцены:\n{snippets_preview}\n\n"
-                f"Контекст ответа мастера:\n{text_preview}\n\n"
-                f"Уже существующие карточки мира (JSON):\n{existing_cards_preview}\n\n"
-                "Верни только JSON-объект строго по схеме."
-            ),
-        },
-    ]
-
-    try:
-        raw_response = _request_openrouter_story_text(
-            messages_payload,
-            model_name=model_name,
-            allow_free_fallback=False,
-            temperature=0.0,
-            request_timeout=(
-                12,
-                45,
-            ),
-        )
-    except Exception as exc:
-        logger.warning("NPC profile generation failed: %s", exc)
-        return None
-
-    parsed_payload = _extract_json_object_from_text(raw_response)
-    if not isinstance(parsed_payload, dict):
-        logger.warning("NPC profile generation returned non-JSON payload for name=%s", normalized_name)
-        return None
-
-    raw_title = str(parsed_payload.get("title", "")).strip()
-    raw_triggers = parsed_payload.get("triggers")
-    trigger_values = [value for value in raw_triggers if isinstance(value, str)] if isinstance(raw_triggers, list) else []
-
-    normalized_candidate_title = _normalize_story_world_card_title(raw_title or normalized_name)
-    if not _is_story_npc_title_matching_requested_name(normalized_name, normalized_candidate_title):
-        normalized_candidate_title = normalized_name
-    title = _normalize_story_world_card_title(normalized_candidate_title)
-    if _is_story_generic_npc_name(title):
-        return None
-
-    profile_payload = parsed_payload.get("profile")
-    if not isinstance(profile_payload, dict):
-        logger.warning("NPC profile generation returned payload without profile object for name=%s", title)
-        return None
-    gender_value = " ".join(str(profile_payload.get("gender", "")).split()).strip()
-    age_value = " ".join(str(profile_payload.get("age", "")).split()).strip()
-    appearance_value = " ".join(str(profile_payload.get("appearance", "")).split()).strip()
-    traits_value = " ".join(str(profile_payload.get("traits_role", "")).split()).strip()
-    important_value = " ".join(str(profile_payload.get("relations_important", "")).split()).strip()
-    if not appearance_value or not traits_value or not important_value:
-        logger.warning("NPC profile generation returned incomplete profile fields for name=%s", title)
-        return None
-    if any(
-        _is_story_dialogue_like_fragment(value)
-        for value in (appearance_value, traits_value, important_value)
-    ):
-        logger.warning("NPC profile generation returned dialogue-like profile fields for name=%s", title)
-        return None
-    inferred_gender = _infer_story_npc_gender_from_context(title, prompt, assistant_text)
-    if not gender_value or gender_value.casefold() in {"не указано", "не указан", "unknown", "неизвестно"}:
-        gender_value = inferred_gender or gender_value
-    content = _normalize_story_npc_profile_content(
-        title,
-        (
-            f"Пол: {gender_value or 'не указано'}\n"
-            f"Возраст: {age_value or 'не указан'}\n"
-            f"Внешность: {appearance_value}\n"
-            f"Черты и роль: {traits_value}\n"
-            f"Связи и важное: {important_value}"
-        ),
+    base_system_content = (
+        "Ты создаешь профиль ИМЕНОВАННОГО NPC для RPG. "
+        "Верни только текст и только 5 строк в строгом шаблоне:\n"
+        "Пол: ...\n"
+        "Возраст: ...\n"
+        "Внешность: ...\n"
+        "Черты и роль: ...\n"
+        "Связи и важное: ...\n"
+        "Нельзя возвращать JSON, markdown или комментарии. "
+        "Нельзя подменять имя персонажа. "
+        "Запрещены маркеры [[...]], реплики с префиксом 'Имя:' и служебные теги."
     )
-    primary_name = title.split(" ")[0].strip()
-    trigger_candidates = [*trigger_values, normalized_name, title]
-    if primary_name:
-        trigger_candidates.append(primary_name)
-    triggers = _normalize_story_world_card_triggers(trigger_candidates, fallback_title=title)
-    return (title, triggers, content)
+    base_user_content = (
+        f"Имя нового персонажа: {title}\n\n"
+        f"Последний ход игрока:\n{prompt_preview or 'нет'}\n\n"
+        f"Фрагменты из сцены:\n{snippets_preview}\n\n"
+        f"Контекст ответа мастера:\n{text_preview}\n\n"
+        f"Уже существующие карточки мира (JSON):\n{existing_cards_preview}\n\n"
+        "Верни только 5 строк в указанном шаблоне."
+    )
+
+    previous_attempt_response = ""
+    for attempt_index in range(2):
+        system_content = base_system_content
+        user_content = base_user_content
+        if attempt_index > 0:
+            system_content += (
+                " КРИТИЧНО: строка 'Внешность:' обязательна, без реплик и без диалога; "
+                "она должна описывать только внешний вид персонажа."
+            )
+            if previous_attempt_response:
+                previous_preview = _normalize_story_prompt_text(previous_attempt_response, max_chars=1200)
+                user_content += (
+                    "\n\nПредыдущий ответ был невалиден (для исправления):\n"
+                    f"{previous_preview}\n\n"
+                    "Исправь и верни новый ответ строго по шаблону 5 строк."
+                )
+
+        messages_payload = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ]
+        try:
+            raw_response = _request_openrouter_story_text(
+                messages_payload,
+                model_name=model_name,
+                allow_free_fallback=False,
+                temperature=0.0,
+                request_timeout=(
+                    12,
+                    45,
+                ),
+            )
+        except Exception as exc:
+            logger.warning("NPC profile generation failed: %s", exc)
+            if attempt_index == 1:
+                return None
+            continue
+
+        cleaned_response = _normalize_story_markup_to_plain_text(raw_response).replace("\r\n", "\n").strip()
+        if not cleaned_response:
+            logger.warning("NPC profile generation returned empty payload for name=%s", title)
+            if attempt_index == 1:
+                return None
+            continue
+
+        content = _normalize_story_npc_profile_content(title, cleaned_response)
+        if _has_story_valid_npc_appearance(content):
+            return (title, triggers, content)
+        previous_attempt_response = cleaned_response
+        logger.warning("NPC profile generation returned invalid appearance for name=%s", title)
+
+    return None
 
 
 def _build_story_npc_card_payload(
@@ -1920,7 +2193,22 @@ def _build_story_npc_card_payload(
         snippets=snippets,
         existing_cards=existing_cards,
     )
-    return generated_payload
+    if generated_payload is not None:
+        return generated_payload
+
+    normalized_name = _normalize_story_world_card_title(" ".join(name.split()).strip())
+    if not normalized_name or _is_story_generic_npc_name(normalized_name):
+        return None
+    triggers = _build_story_npc_name_triggers(normalized_name)
+    content = _build_story_npc_fallback_profile_content(
+        name=normalized_name,
+        prompt=prompt,
+        assistant_text=assistant_text,
+        dialogues=dialogues,
+        snippets=snippets,
+        existing_cards=existing_cards,
+    )
+    return (normalized_name, triggers, content)
 
 
 def _append_missing_story_npc_card_operations(
@@ -1933,7 +2221,11 @@ def _append_missing_story_npc_card_operations(
     if len(operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
         return operations
 
-    npc_mentions = _merge_story_npc_mentions(_extract_story_npc_dialogue_mentions(assistant_text))
+    npc_mentions = _merge_story_npc_mentions(
+        _extract_story_npc_dialogue_mentions(assistant_text),
+        _extract_story_npc_speaker_line_mentions(assistant_text),
+        _extract_story_npc_narrative_mentions(assistant_text),
+    )
     if not npc_mentions:
         return operations
 
@@ -1966,6 +2258,8 @@ def _append_missing_story_npc_card_operations(
         if not name:
             continue
         if _is_story_generic_npc_name(name):
+            continue
+        if not _is_story_secondary_npc_mention(mention):
             continue
         mention_dialogues = mention.get("dialogues")
         dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
@@ -2021,7 +2315,11 @@ def _ensure_story_npc_cards_from_dialogue(
     prompt: str,
     assistant_text: str,
 ) -> list[StoryWorldCardChangeEvent]:
-    npc_mentions = _merge_story_npc_mentions(_extract_story_npc_dialogue_mentions(assistant_text))
+    npc_mentions = _merge_story_npc_mentions(
+        _extract_story_npc_dialogue_mentions(assistant_text),
+        _extract_story_npc_speaker_line_mentions(assistant_text),
+        _extract_story_npc_narrative_mentions(assistant_text),
+    )
     if not npc_mentions:
         return []
 
@@ -2034,6 +2332,8 @@ def _ensure_story_npc_cards_from_dialogue(
         if not raw_name:
             continue
         if _is_story_generic_npc_name(raw_name):
+            continue
+        if not _is_story_secondary_npc_mention(mention):
             continue
         mention_dialogues = mention.get("dialogues")
         dialogue_values = [item for item in mention_dialogues if isinstance(item, str)] if isinstance(mention_dialogues, list) else []
@@ -2363,7 +2663,7 @@ def _select_story_world_cards_for_prompt(
                         "kind": STORY_WORLD_CARD_KIND_MAIN_HERO,
                         "avatar_url": _normalize_avatar_value(main_hero_card.avatar_url),
                         "avatar_scale": _normalize_story_avatar_scale(main_hero_card.avatar_scale),
-                        "character_id": main_hero_card.character_id,
+                        "character_id": None,
                         "memory_turns": memory_turns,
                         "is_locked": bool(main_hero_card.is_locked),
                         "source": _normalize_story_world_card_source(main_hero_card.source),
@@ -2400,7 +2700,7 @@ def _select_story_world_cards_for_prompt(
                         "kind": card_kind,
                         "avatar_url": _normalize_avatar_value(card.avatar_url),
                         "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
-                        "character_id": card.character_id,
+                        "character_id": None,
                         "memory_turns": None,
                         "is_locked": bool(card.is_locked),
                         "source": _normalize_story_world_card_source(card.source),
@@ -2438,7 +2738,7 @@ def _select_story_world_cards_for_prompt(
                     "kind": card_kind,
                     "avatar_url": _normalize_avatar_value(card.avatar_url),
                     "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
-                    "character_id": card.character_id,
+                    "character_id": None,
                     "memory_turns": memory_turns,
                     "is_locked": bool(card.is_locked),
                     "source": _normalize_story_world_card_source(card.source),
@@ -2496,7 +2796,7 @@ def _select_story_world_cards_triggered_by_text(
                     "kind": card_kind,
                     "avatar_url": _normalize_avatar_value(card.avatar_url),
                     "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
-                    "character_id": card.character_id,
+                    "character_id": None,
                     "memory_turns": memory_turns,
                     "is_locked": bool(card.is_locked),
                     "source": _normalize_story_world_card_source(card.source),
@@ -4429,6 +4729,10 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_UPDATED:
+            try:
+                db.refresh(card)
+            except Exception:
+                continue
             if bool(card.is_locked) or not bool(card.ai_edit_enabled):
                 continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
@@ -4503,6 +4807,10 @@ def _apply_story_world_card_change_operations(
             continue
 
         if action == STORY_WORLD_CARD_EVENT_DELETED:
+            try:
+                db.refresh(card)
+            except Exception:
+                continue
             if bool(card.is_locked) or not bool(card.ai_edit_enabled):
                 continue
             before_snapshot = _story_world_card_snapshot_from_card(card)
@@ -5793,6 +6101,756 @@ def _request_openrouter_story_text(
     return ""
 
 
+def _validate_story_turn_image_provider_config() -> None:
+    if not settings.openrouter_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenRouter provider is not configured: set OPENROUTER_API_KEY",
+        )
+    if not settings.openrouter_chat_url and not settings.openrouter_image_url:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OpenRouter image endpoint is not configured: set OPENROUTER_CHAT_URL or OPENROUTER_IMAGE_URL",
+        )
+
+
+def _normalize_story_turn_image_style_prompt(value: str | None) -> str:
+    compact_value = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not compact_value:
+        return ""
+    return compact_value[:STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS].rstrip()
+
+
+def _get_story_turn_image_cost_tokens(model_name: str | None) -> int:
+    normalized_model = str(model_name or "").strip()
+    if not normalized_model:
+        normalized_model = STORY_TURN_IMAGE_MODEL_FLUX
+    return max(int(STORY_TURN_IMAGE_COST_BY_MODEL.get(normalized_model, STORY_TURN_IMAGE_COST_BY_MODEL[STORY_TURN_IMAGE_MODEL_FLUX])), 0)
+
+
+def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
+    normalized_model = str(model_name or "").strip()
+    if not normalized_model:
+        return STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT
+    return max(
+        int(
+            STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL.get(
+                normalized_model,
+                STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT,
+            )
+        ),
+        STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT,
+    )
+
+
+def _extract_story_turn_image_gender_hint_from_card(
+    *,
+    card: dict[str, Any],
+    user_prompt: str,
+    assistant_text: str,
+) -> str:
+    raw_title = str(card.get("title", "")).strip()
+    plain_content = _normalize_story_markup_to_plain_text(str(card.get("content", ""))).replace("\r\n", "\n").strip()
+    lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
+
+    profile_gender = _sanitize_story_npc_profile_value(
+        _extract_story_npc_profile_field(lines, ("пол", "gender"))
+    ).casefold()
+    if any(token in profile_gender for token in ("жен", "female", "girl", "woman")):
+        return "женский"
+    if any(token in profile_gender for token in ("муж", "male", "boy", "man")):
+        return "мужской"
+
+    plain_content_casefold = plain_content.casefold()
+    if any(token in plain_content_casefold for token in ("девушка", "женщина", "female", "girl", "woman")):
+        return "женский"
+    if any(token in plain_content_casefold for token in ("мужчина", "парень", "male", "boy", "man")):
+        return "мужской"
+
+    inferred_gender = _infer_story_npc_gender_from_context(raw_title, user_prompt, assistant_text)
+    if inferred_gender in {"женский", "мужской"}:
+        return inferred_gender
+    return ""
+
+
+def _story_turn_image_gender_hint_for_prompt(gender_hint: str) -> str:
+    normalized = str(gender_hint or "").strip().casefold()
+    if normalized == "мужской":
+        return "male (мужской)"
+    if normalized == "женский":
+        return "female (женский)"
+    return ""
+
+
+def _extract_story_turn_image_visual_sentences(plain_content: str) -> list[str]:
+    visual_keywords = (
+        "внеш",
+        "волос",
+        "глаз",
+        "одежд",
+        "куртк",
+        "рубаш",
+        "плать",
+        "юбк",
+        "брюк",
+        "футбол",
+        "телослож",
+        "рост",
+        "лиц",
+        "шрам",
+        "причес",
+        "цвет волос",
+        "hair",
+        "eyes",
+        "outfit",
+        "clothes",
+        "shirt",
+        "dress",
+        "skirt",
+        "jacket",
+        "appearance",
+    )
+    visual_sentences: list[str] = []
+    for sentence in _split_story_text_into_sentences(plain_content):
+        normalized_sentence = _normalize_story_prompt_text(
+            sentence,
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS,
+        )
+        if not normalized_sentence or _is_story_dialogue_like_fragment(normalized_sentence):
+            continue
+        lowered_sentence = normalized_sentence.casefold()
+        if not any(keyword in lowered_sentence for keyword in visual_keywords):
+            continue
+        if normalized_sentence not in visual_sentences:
+            visual_sentences.append(normalized_sentence)
+        if len(visual_sentences) >= 3:
+            break
+    return visual_sentences
+
+
+def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) -> str:
+    plain_content = _normalize_story_markup_to_plain_text(str(card.get("content", ""))).replace("\r\n", "\n").strip()
+    if not plain_content:
+        return ""
+    lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
+    profile_appearance = _sanitize_story_npc_profile_value(
+        _extract_story_npc_profile_field(lines, ("внешность", "appearance", "облик"))
+    )
+    appearance_fragments: list[str] = []
+    if profile_appearance and not _is_story_dialogue_like_fragment(profile_appearance):
+        normalized_profile = _normalize_story_prompt_text(
+            profile_appearance,
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS,
+        )
+        if normalized_profile:
+            appearance_fragments.append(normalized_profile)
+
+    for visual_sentence in _extract_story_turn_image_visual_sentences(plain_content):
+        if visual_sentence not in appearance_fragments:
+            appearance_fragments.append(visual_sentence)
+        if len(appearance_fragments) >= 3:
+            break
+
+    if not appearance_fragments:
+        for sentence in _split_story_text_into_sentences(plain_content):
+            normalized_sentence = _normalize_story_prompt_text(
+                sentence,
+                max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS,
+            )
+            if not normalized_sentence or _is_story_dialogue_like_fragment(normalized_sentence):
+                continue
+            appearance_fragments.append(normalized_sentence)
+            break
+
+    if not appearance_fragments:
+        return ""
+
+    merged_appearance = "; ".join(appearance_fragments)
+    return _normalize_story_prompt_text(
+        merged_appearance,
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS,
+    )
+
+
+def _build_story_turn_image_style_instructions(style_prompt: str) -> str:
+    normalized_style = _normalize_story_turn_image_style_prompt(style_prompt)
+    if not normalized_style:
+        return ""
+
+    normalized_casefold = normalized_style.casefold()
+    style_parts = [
+        f"STYLE PRIORITY (HIGHEST): {normalized_style}.",
+        "The final image must strictly follow this style and must not fall back to default style.",
+    ]
+    if any(token in normalized_casefold for token in ("аниме", "anime", "манга", "manga")):
+        style_parts.append(
+            "Strict anime look: 2D illustration, clean lineart, cel-shading, stylized facial features."
+        )
+        style_parts.append(
+            "Avoid photorealism, avoid semi-realistic rendering."
+        )
+    if any(token in normalized_casefold for token in ("реал", "photoreal", "realistic")):
+        style_parts.append(
+            "Keep realistic human proportions, lighting, and materials."
+        )
+
+    return " ".join(style_parts)
+
+
+def _select_story_turn_image_character_cards(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    context_tokens = _normalize_story_match_tokens(f"{user_prompt}\n{assistant_text}")
+    selected_cards: list[dict[str, Any]] = []
+
+    main_hero_card = next(
+        (
+            card
+            for card in world_cards
+            if isinstance(card, dict)
+            and _normalize_story_world_card_kind(str(card.get("kind", ""))) == STORY_WORLD_CARD_KIND_MAIN_HERO
+            and str(card.get("title", "")).strip()
+        ),
+        None,
+    )
+    if main_hero_card is not None:
+        selected_cards.append(main_hero_card)
+
+    matched_npc_cards: list[tuple[int, dict[str, Any]]] = []
+    fallback_npc_cards: list[tuple[int, dict[str, Any]]] = []
+    for card in world_cards:
+        if not isinstance(card, dict):
+            continue
+        if _normalize_story_world_card_kind(str(card.get("kind", ""))) != STORY_WORLD_CARD_KIND_NPC:
+            continue
+
+        title = str(card.get("title", "")).strip()
+        if not title:
+            continue
+        title_tokens = _normalize_story_match_tokens(title)
+        triggers = [
+            str(trigger).strip()
+            for trigger in card.get("triggers", [])
+            if isinstance(trigger, str) and trigger.strip()
+        ]
+        matched_by_name = bool(context_tokens) and any(token in context_tokens for token in title_tokens)
+        matched_by_trigger = bool(context_tokens) and any(
+            _is_story_trigger_match(trigger, context_tokens)
+            for trigger in triggers
+        )
+
+        card_id_raw = card.get("id")
+        if isinstance(card_id_raw, int):
+            card_id_rank = card_id_raw
+        else:
+            card_id_rank = 10**9 + len(matched_npc_cards) + len(fallback_npc_cards)
+
+        if matched_by_name or matched_by_trigger:
+            matched_npc_cards.append((card_id_rank, card))
+        else:
+            fallback_npc_cards.append((card_id_rank, card))
+
+    ranked_candidates = matched_npc_cards if matched_npc_cards else fallback_npc_cards
+    ranked_candidates.sort(key=lambda value: value[0])
+    for _, npc_card in ranked_candidates:
+        if len(selected_cards) >= STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS:
+            break
+        selected_cards.append(npc_card)
+
+    return selected_cards[:STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS]
+
+
+def _build_story_turn_image_character_lines(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+) -> list[str]:
+    character_cards = _select_story_turn_image_character_cards(
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        world_cards=world_cards,
+    )
+    character_lines: list[str] = []
+    for card in character_cards:
+        title = _normalize_story_prompt_text(
+            str(card.get("title", "")),
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_TITLE_CHARS,
+        )
+        if not title:
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        role_label = "main_hero" if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO else "npc"
+        gender_hint = _extract_story_turn_image_gender_hint_from_card(
+            card=card,
+            user_prompt=user_prompt,
+            assistant_text=assistant_text,
+        )
+        appearance_hint = _extract_story_turn_image_appearance_hint_from_card(card)
+
+        line_parts = [f"{role_label}: {title}"]
+        gender_label = _story_turn_image_gender_hint_for_prompt(gender_hint)
+        if gender_label:
+            line_parts.append(f"gender {gender_label}")
+        if appearance_hint:
+            line_parts.append(f"appearance {appearance_hint}")
+        character_lines.append("; ".join(line_parts))
+    return character_lines
+
+
+def _merge_story_turn_image_world_cards(
+    primary_cards: list[dict[str, Any]],
+    fallback_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged_cards: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for card in [*primary_cards, *fallback_cards]:
+        if not isinstance(card, dict):
+            continue
+        card_id = card.get("id")
+        if isinstance(card_id, int):
+            dedupe_key = f"id:{card_id}"
+        else:
+            dedupe_key = (
+                f"{_normalize_story_world_card_kind(str(card.get('kind', '')))}:"
+                f"{str(card.get('title', '')).strip().casefold()}"
+            )
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        merged_cards.append(card)
+
+    return merged_cards
+
+
+def _build_story_turn_image_prompt(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+    image_style_prompt: str | None = None,
+) -> str:
+    normalized_user_prompt = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(user_prompt),
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS,
+    )
+    normalized_assistant_text = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(assistant_text),
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
+    )
+    normalized_image_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
+
+    world_context_items: list[str] = []
+    for card in world_cards:
+        if not isinstance(card, dict):
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
+            continue
+        card_title = _normalize_story_prompt_text(
+            str(card.get("title", "")),
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_TITLE_CHARS,
+        )
+        card_content = _normalize_story_prompt_text(
+            _normalize_story_markup_to_plain_text(str(card.get("content", ""))),
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_CONTENT_CHARS,
+        )
+        if not card_title or not card_content:
+            continue
+        world_context_items.append(f"{card_title}: {card_content}")
+        if len(world_context_items) >= STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS:
+            break
+    world_context = "; ".join(world_context_items)
+
+    character_lines = _build_story_turn_image_character_lines(
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        world_cards=world_cards,
+    )
+    has_main_hero_line = any(line.startswith("main_hero:") for line in character_lines)
+    style_instructions = _build_story_turn_image_style_instructions(normalized_image_style_prompt)
+    assistant_scene_sentences = _split_story_text_into_sentences(normalized_assistant_text)
+    scene_focus_text = _normalize_story_prompt_text(
+        " ".join(assistant_scene_sentences[:4]) if assistant_scene_sentences else normalized_assistant_text,
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
+    )
+
+    prompt_parts = [
+        "Single cinematic frame from one interactive RPG scene.",
+        "Hard constraints: no text, no UI, no watermark, no logo, no collage, no random symbols on clothes or objects.",
+        "Never render any readable text: no letters, no words, no numbers, no captions, no speech bubbles, no signs.",
+        "Keep one coherent location and one coherent moment.",
+    ]
+    if style_instructions:
+        prompt_parts.append(style_instructions)
+    if normalized_user_prompt:
+        prompt_parts.append(f"Hero action right before this frame: {normalized_user_prompt}.")
+    if scene_focus_text:
+        prompt_parts.append(f"Current scene state: {scene_focus_text}.")
+    elif normalized_assistant_text:
+        prompt_parts.append(f"Current scene state: {normalized_assistant_text}.")
+    if world_context:
+        prompt_parts.append(f"Environment context: {world_context}.")
+    if character_lines:
+        prompt_parts.append(
+            "Mandatory visible cast (must match exactly): "
+            + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
+        )
+        prompt_parts.append(
+            f"Exactly {len(character_lines)} visible people in the frame. "
+            "Do not add, remove, replace, or duplicate any character."
+        )
+        prompt_parts.append("Keep each listed character's role, gender, and key appearance.")
+        if has_main_hero_line:
+            prompt_parts.append("Main hero must be visible in-frame. Do not switch to first-person POV.")
+    prompt_parts.append(
+        "Use a medium-wide, side or three-quarter camera angle so all listed characters are clearly visible."
+    )
+    prompt_parts.append(
+        "Show only what is happening in this exact scene right now."
+    )
+    return " ".join(prompt_parts)
+
+
+def _extract_openrouter_error_detail(response: requests.Response) -> str:
+    detail = ""
+    error_payload: Any = None
+    try:
+        error_payload = response.json()
+    except ValueError:
+        error_payload = None
+
+    if isinstance(error_payload, dict):
+        error_value = error_payload.get("error")
+        if isinstance(error_value, dict):
+            detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+            metadata_value = error_value.get("metadata")
+            if isinstance(metadata_value, dict):
+                raw_detail = str(metadata_value.get("raw") or "").strip()
+                if raw_detail:
+                    detail = f"{detail}. {raw_detail}" if detail else raw_detail
+        elif isinstance(error_value, str):
+            detail = error_value.strip()
+        if not detail:
+            detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+
+    if not detail:
+        raw_text = str(response.text or "").strip()
+        if raw_text:
+            detail = raw_text[:500]
+    if not detail:
+        reason = str(getattr(response, "reason", "") or "").strip()
+        if reason:
+            detail = reason
+    return detail
+
+
+def _resolve_story_turn_image_aspect_ratio(image_size: str) -> str | None:
+    normalized_size = str(image_size or "").strip().lower()
+    if not normalized_size:
+        return None
+
+    size_match = re.match(r"^\s*(\d{2,5})\s*[x:]\s*(\d{2,5})\s*$", normalized_size)
+    if size_match is None:
+        return None
+
+    width = max(int(size_match.group(1)), 1)
+    height = max(int(size_match.group(2)), 1)
+    common_divisor = math.gcd(width, height)
+    normalized_ratio = f"{width // common_divisor}:{height // common_divisor}"
+
+    supported_ratios = {"1:1", "4:3", "3:4", "16:9", "9:16", "21:9", "9:21"}
+    if normalized_ratio in supported_ratios:
+        return normalized_ratio
+
+    ratio_value = width / height
+    ratio_candidates = {
+        "1:1": 1.0,
+        "4:3": 4 / 3,
+        "3:4": 3 / 4,
+        "16:9": 16 / 9,
+        "9:16": 9 / 16,
+        "21:9": 21 / 9,
+        "9:21": 9 / 21,
+    }
+    closest_ratio = min(
+        ratio_candidates.items(),
+        key=lambda item: abs(item[1] - ratio_value),
+    )[0]
+    return closest_ratio
+
+
+def _build_story_turn_image_openrouter_payload(
+    *,
+    prompt: str,
+    selected_model: str,
+    use_chat_completions: bool,
+) -> dict[str, Any]:
+    if use_chat_completions:
+        payload: dict[str, Any] = {
+            "model": selected_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "modalities": ["image"],
+        }
+        aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.openrouter_image_size)
+        if aspect_ratio:
+            payload["image_config"] = {"aspect_ratio": aspect_ratio}
+        return payload
+
+    payload = {
+        "model": selected_model,
+        "prompt": prompt,
+        "n": 1,
+    }
+    image_size = str(settings.openrouter_image_size or "").strip()
+    if image_size:
+        payload["size"] = image_size
+    return payload
+
+
+def _parse_openrouter_story_turn_image_payload(
+    payload_value: Any,
+    *,
+    selected_model: str,
+) -> dict[str, str | None]:
+    if not isinstance(payload_value, dict):
+        raise RuntimeError("OpenRouter image endpoint returned empty payload")
+
+    # Legacy OpenAI-style response: {"data":[{"url":...}]}
+    data_items = payload_value.get("data")
+    if isinstance(data_items, list):
+        image_item = next((item for item in data_items if isinstance(item, dict)), None)
+        if image_item is not None:
+            image_url = str(image_item.get("url") or image_item.get("image_url") or "").strip() or None
+            raw_b64_payload = (
+                str(
+                    image_item.get("b64_json")
+                    or image_item.get("image_base64")
+                    or image_item.get("base64")
+                    or ""
+                ).strip()
+            )
+            b64_payload = re.sub(r"\s+", "", raw_b64_payload) if raw_b64_payload else ""
+            raw_mime_type = str(image_item.get("mime_type") or image_item.get("format") or "image/png").strip().lower()
+            mime_type = raw_mime_type if "/" in raw_mime_type else f"image/{raw_mime_type}"
+            image_data_url = f"data:{mime_type};base64,{b64_payload}" if b64_payload else None
+            if image_url is None and image_data_url is None:
+                raise RuntimeError("OpenRouter image endpoint returned no image URL")
+            revised_prompt = (
+                str(image_item.get("revised_prompt") or payload_value.get("revised_prompt") or "").strip() or None
+            )
+            return {
+                "model": str(payload_value.get("model") or selected_model),
+                "image_url": image_url,
+                "image_data_url": image_data_url,
+                "revised_prompt": revised_prompt,
+            }
+
+    # Chat-completions response with image modalities.
+    choices = payload_value.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise RuntimeError("OpenRouter image endpoint returned no images")
+
+    image_candidates: list[str] = []
+    revised_prompt: str | None = None
+
+    def _append_image_candidate(raw_value: Any) -> None:
+        if isinstance(raw_value, dict):
+            raw_value = raw_value.get("url")
+        candidate = str(raw_value or "").strip()
+        if candidate:
+            image_candidates.append(candidate)
+
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message_value = choice.get("message")
+        if not isinstance(message_value, dict):
+            continue
+
+        content_value = message_value.get("content")
+        if isinstance(content_value, str) and content_value.strip():
+            revised_prompt = content_value.strip()
+        elif isinstance(content_value, list):
+            text_parts: list[str] = []
+            for part in content_value:
+                if not isinstance(part, dict):
+                    continue
+                if str(part.get("type") or "").strip().lower() != "text":
+                    continue
+                text_value = str(part.get("text") or "").strip()
+                if text_value:
+                    text_parts.append(text_value)
+            if text_parts:
+                revised_prompt = " ".join(text_parts).strip()
+
+        raw_images = message_value.get("images")
+        if isinstance(raw_images, list):
+            for raw_image in raw_images:
+                if not isinstance(raw_image, dict):
+                    continue
+                _append_image_candidate(raw_image.get("image_url"))
+                _append_image_candidate(raw_image.get("url"))
+                _append_image_candidate(raw_image.get("data_url"))
+
+                raw_b64_payload = (
+                    str(
+                        raw_image.get("b64_json")
+                        or raw_image.get("image_base64")
+                        or raw_image.get("base64")
+                        or ""
+                    ).strip()
+                )
+                if raw_b64_payload:
+                    b64_payload = re.sub(r"\s+", "", raw_b64_payload)
+                    raw_mime_type = str(raw_image.get("mime_type") or raw_image.get("format") or "image/png").strip().lower()
+                    mime_type = raw_mime_type if "/" in raw_mime_type else f"image/{raw_mime_type}"
+                    image_candidates.append(f"data:{mime_type};base64,{b64_payload}")
+
+        _append_image_candidate(message_value.get("image_url"))
+        _append_image_candidate(message_value.get("url"))
+        _append_image_candidate(choice.get("image_url"))
+        _append_image_candidate(choice.get("url"))
+
+    _append_image_candidate(payload_value.get("image_url"))
+    _append_image_candidate(payload_value.get("url"))
+
+    image_data_url = next(
+        (value for value in image_candidates if value.lower().startswith("data:image/")),
+        None,
+    )
+    image_url = next(
+        (value for value in image_candidates if value and not value.lower().startswith("data:image/")),
+        None,
+    )
+
+    if image_url is None and image_data_url is None:
+        raise RuntimeError("OpenRouter image endpoint returned no usable image")
+
+    return {
+        "model": str(payload_value.get("model") or selected_model),
+        "image_url": image_url,
+        "image_data_url": image_data_url,
+        "revised_prompt": revised_prompt,
+    }
+
+
+def _request_openrouter_story_turn_image(
+    *,
+    prompt: str,
+    model_name: str | None = None,
+) -> dict[str, str | None]:
+    headers = {
+        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    if settings.openrouter_site_url:
+        headers["HTTP-Referer"] = settings.openrouter_site_url
+    if settings.openrouter_app_name:
+        headers["X-Title"] = settings.openrouter_app_name
+
+    selected_model = (model_name or settings.openrouter_image_model or STORY_TURN_IMAGE_MODEL_FLUX).strip()
+    if not selected_model:
+        raise RuntimeError("OpenRouter image model is not configured")
+
+    endpoint_candidates: list[tuple[str, str, bool]] = []
+    chat_url = str(settings.openrouter_chat_url or "").strip()
+    if chat_url:
+        endpoint_candidates.append(("chat", chat_url, True))
+    image_url = str(settings.openrouter_image_url or "").strip()
+    if image_url and image_url not in {chat_url}:
+        endpoint_candidates.append(("images", image_url, False))
+
+    if not endpoint_candidates:
+        raise RuntimeError("OpenRouter image endpoint is not configured")
+
+    last_error: RuntimeError | None = None
+    for index, (endpoint_kind, endpoint_url, use_chat_completions) in enumerate(endpoint_candidates):
+        read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
+        request_payload = _build_story_turn_image_openrouter_payload(
+            prompt=prompt,
+            selected_model=selected_model,
+            use_chat_completions=use_chat_completions,
+        )
+        try:
+            response = HTTP_SESSION.post(
+                endpoint_url,
+                headers=headers,
+                json=request_payload,
+                timeout=(
+                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    read_timeout_seconds,
+                ),
+            )
+        except requests.RequestException as exc:
+            last_error = RuntimeError("Failed to reach OpenRouter image endpoint")
+            if index < len(endpoint_candidates) - 1:
+                logger.warning(
+                    "OpenRouter image request transport failed, trying fallback endpoint: model=%s endpoint=%s",
+                    selected_model,
+                    endpoint_kind,
+                )
+                continue
+            raise last_error from exc
+
+        if response.status_code >= 400:
+            detail = _extract_openrouter_error_detail(response)
+            error_text = f"OpenRouter image error ({response.status_code})"
+            if detail:
+                error_text = f"{error_text}: {detail}"
+            last_error = RuntimeError(error_text)
+
+            can_fallback = index < len(endpoint_candidates) - 1 and response.status_code in {404, 405, 415, 422}
+            if can_fallback:
+                logger.warning(
+                    "OpenRouter image request returned %s via %s, trying fallback endpoint for model=%s",
+                    response.status_code,
+                    endpoint_kind,
+                    selected_model,
+                )
+                continue
+            raise last_error
+
+        try:
+            payload_value = response.json()
+        except ValueError as exc:
+            last_error = RuntimeError("OpenRouter image endpoint returned invalid payload")
+            if index < len(endpoint_candidates) - 1:
+                logger.warning(
+                    "OpenRouter image payload parsing failed via %s, trying fallback endpoint for model=%s",
+                    endpoint_kind,
+                    selected_model,
+                )
+                continue
+            raise last_error from exc
+
+        try:
+            return _parse_openrouter_story_turn_image_payload(
+                payload_value,
+                selected_model=selected_model,
+            )
+        except RuntimeError as exc:
+            last_error = exc
+            if index < len(endpoint_candidates) - 1:
+                logger.warning(
+                    "OpenRouter image payload shape mismatch via %s, trying fallback endpoint for model=%s: %s",
+                    endpoint_kind,
+                    selected_model,
+                    exc,
+                )
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("OpenRouter image endpoint is unavailable")
+
+
 def _iter_story_provider_stream_chunks(
     *,
     prompt: str,
@@ -5951,4 +7009,179 @@ def generate_story_response_impl(
         payload=payload,
         authorization=authorization,
         db=db,
+    )
+
+
+def generate_story_turn_image_impl(
+    game_id: int,
+    payload: StoryTurnImageGenerateRequest,
+    authorization: str | None,
+    db: Session,
+) -> StoryTurnImageGenerateOut:
+    _validate_story_turn_image_provider_config()
+    user = _get_current_user(db, authorization)
+    game = _get_user_story_game_or_404(db, user.id, game_id)
+
+    assistant_message = db.scalar(
+        select(StoryMessage).where(
+            StoryMessage.id == payload.assistant_message_id,
+            StoryMessage.game_id == game.id,
+        )
+    )
+    if assistant_message is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant message not found")
+    if assistant_message.role != STORY_ASSISTANT_ROLE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only assistant messages can be used for image generation",
+        )
+
+    source_user_message = db.scalar(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.role == STORY_USER_ROLE,
+            StoryMessage.id < assistant_message.id,
+        )
+        .order_by(StoryMessage.id.desc())
+    )
+    if source_user_message is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User prompt for this assistant message was not found",
+        )
+
+    all_world_cards = _list_story_world_cards(db, game.id)
+    active_world_cards = _select_story_world_cards_for_prompt(
+        _list_story_messages(db, game.id),
+        all_world_cards,
+    )
+    combined_context = "\n".join(
+        value.strip()
+        for value in [source_user_message.content, assistant_message.content]
+        if isinstance(value, str) and value.strip()
+    )
+    triggered_world_cards = (
+        _select_story_world_cards_triggered_by_text(combined_context, all_world_cards)
+        if combined_context
+        else []
+    )
+    relevant_world_cards = _merge_story_turn_image_world_cards(
+        triggered_world_cards,
+        active_world_cards,
+    )
+    if not relevant_world_cards:
+        relevant_world_cards = active_world_cards
+
+    visual_prompt = _build_story_turn_image_prompt(
+        user_prompt=source_user_message.content,
+        assistant_text=assistant_message.content,
+        world_cards=relevant_world_cards,
+        image_style_prompt=getattr(game, "image_style_prompt", ""),
+    )
+    if not visual_prompt.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Turn context is empty and cannot be rendered",
+        )
+
+    selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
+    image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
+    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Not enough tokens to generate image",
+        )
+    db.commit()
+    db.refresh(user)
+
+    logger.info(
+        "Story turn image generation started: game_id=%s assistant_message_id=%s model=%s cost=%s",
+        game.id,
+        assistant_message.id,
+        selected_image_model,
+        image_generation_cost,
+    )
+    try:
+        generation_payload = _request_openrouter_story_turn_image(
+            prompt=visual_prompt,
+            model_name=selected_image_model,
+        )
+    except Exception as exc:
+        try:
+            _add_user_tokens(db, int(user.id), image_generation_cost)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Story turn image token refund failed after generation error: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+        logger.exception(
+            "Story turn image generation failed: game_id=%s assistant_message_id=%s",
+            game.id,
+            assistant_message.id,
+        )
+        detail = str(exc).strip() or "Image generation failed"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
+    logger.info(
+        "Story turn image generation finished: game_id=%s assistant_message_id=%s",
+        game.id,
+        assistant_message.id,
+    )
+
+    resolved_model = str(generation_payload.get("model") or selected_image_model).strip() or selected_image_model
+    resolved_revised_prompt = str(generation_payload.get("revised_prompt") or "").strip() or None
+    resolved_image_url = str(generation_payload.get("image_url") or "").strip() or None
+    resolved_image_data_url = str(generation_payload.get("image_data_url") or "").strip() or None
+
+    try:
+        persisted_turn_image = StoryTurnImage(
+            game_id=game.id,
+            assistant_message_id=assistant_message.id,
+            model=resolved_model,
+            prompt=visual_prompt,
+            revised_prompt=resolved_revised_prompt,
+            image_url=resolved_image_url,
+            image_data_url=resolved_image_data_url,
+        )
+        db.add(persisted_turn_image)
+        db.commit()
+        db.refresh(persisted_turn_image)
+        db.refresh(user)
+    except Exception as exc:
+        db.rollback()
+        try:
+            _add_user_tokens(db, int(user.id), image_generation_cost)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Story turn image token refund failed after persistence error: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+        logger.exception(
+            "Story turn image generated but persistence failed: game_id=%s assistant_message_id=%s",
+            game.id,
+            assistant_message.id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Image generated but failed to persist: {str(exc).strip()[:500] or 'database write failed'}",
+        ) from exc
+
+    return StoryTurnImageGenerateOut(
+        id=persisted_turn_image.id,
+        assistant_message_id=assistant_message.id,
+        model=persisted_turn_image.model,
+        prompt=persisted_turn_image.prompt,
+        revised_prompt=persisted_turn_image.revised_prompt,
+        image_url=persisted_turn_image.image_url,
+        image_data_url=persisted_turn_image.image_data_url,
+        user=UserOut.model_validate(user),
     )

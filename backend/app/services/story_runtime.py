@@ -15,7 +15,7 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
-from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryWorldCardChangeEvent
+from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryTurnImage, StoryWorldCardChangeEvent
 from app.schemas import StoryGenerateRequest, UserOut
 from app.services.story_games import (
     coerce_story_llm_model,
@@ -514,6 +514,7 @@ def generate_story_response(
     context_limit_chars = deps.normalize_context_limit_chars(game.context_limit_chars)
     turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
+    discard_last_assistant_steps = max(int(payload.discard_last_assistant_steps or 0), 0)
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
     source_user_message: StoryMessage | None = None
 
@@ -545,59 +546,99 @@ def generate_story_response(
         )
         return max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
 
+    def _drop_last_assistant_steps(
+        *,
+        steps: int,
+        delete_source_user: bool,
+        action_label: str,
+    ) -> list[StoryMessage]:
+        if steps <= 0:
+            return deps.list_story_messages(db, game.id)
+
+        for _ in range(steps):
+            current_messages = deps.list_story_messages(db, game.id)
+            if not current_messages:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to rollback")
+
+            last_message = current_messages[-1]
+            if last_message.role != deps.story_assistant_role:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Last message is not AI-generated")
+
+            source_user_message_for_step = next(
+                (message for message in reversed(current_messages[:-1]) if message.role == deps.story_user_role),
+                None,
+            )
+            if source_user_message_for_step is None:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for rollback")
+
+            try:
+                deps.rollback_story_card_events_for_assistant_message(
+                    db=db,
+                    game=game,
+                    assistant_message_id=last_message.id,
+                )
+                # Extra safety for legacy rows: ensure no event still references removed assistant message.
+                db.execute(
+                    sa_delete(StoryWorldCardChangeEvent).where(
+                        StoryWorldCardChangeEvent.game_id == game.id,
+                        StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
+                    )
+                )
+                db.execute(
+                    sa_delete(StoryPlotCardChangeEvent).where(
+                        StoryPlotCardChangeEvent.game_id == game.id,
+                        StoryPlotCardChangeEvent.assistant_message_id == last_message.id,
+                    )
+                )
+                db.execute(
+                    sa_delete(StoryTurnImage).where(
+                        StoryTurnImage.game_id == game.id,
+                        StoryTurnImage.assistant_message_id == last_message.id,
+                    )
+                )
+                db.delete(last_message)
+                if delete_source_user:
+                    db.delete(source_user_message_for_step)
+                deps.touch_story_game(game)
+                db.commit()
+            except HTTPException:
+                db.rollback()
+                raise
+            except Exception as exc:
+                db.rollback()
+                logger.exception(
+                    "Failed to prepare %s for game_id=%s assistant_message_id=%s",
+                    action_label,
+                    game.id,
+                    last_message.id,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to prepare {action_label}: {_public_story_error_detail(exc)}",
+                ) from exc
+
+        return deps.list_story_messages(db, game.id)
+
     if payload.reroll_last_response:
-        if not messages:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to reroll")
+        if discard_last_assistant_steps > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="discard_last_assistant_steps cannot be used with reroll_last_response",
+            )
 
-        last_message = messages[-1]
-        if last_message.role != deps.story_assistant_role:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Last message is not AI-generated")
-
+        messages = _drop_last_assistant_steps(
+            steps=1,
+            delete_source_user=False,
+            action_label="reroll",
+        )
         source_user_message = next(
-            (message for message in reversed(messages[:-1]) if message.role == deps.story_user_role),
+            (message for message in reversed(messages) if message.role == deps.story_user_role),
             None,
         )
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
-        try:
-            deps.rollback_story_card_events_for_assistant_message(
-                db=db,
-                game=game,
-                assistant_message_id=last_message.id,
-            )
-            # Extra safety for legacy rows: ensure no event still references removed assistant message.
-            db.execute(
-                sa_delete(StoryWorldCardChangeEvent).where(
-                    StoryWorldCardChangeEvent.game_id == game.id,
-                    StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
-                )
-            )
-            db.execute(
-                sa_delete(StoryPlotCardChangeEvent).where(
-                    StoryPlotCardChangeEvent.game_id == game.id,
-                    StoryPlotCardChangeEvent.assistant_message_id == last_message.id,
-                )
-            )
-            db.delete(last_message)
-            deps.touch_story_game(game)
-            db.commit()
-        except HTTPException:
-            db.rollback()
-            raise
-        except Exception as exc:
-            db.rollback()
-            logger.exception(
-                "Failed to prepare reroll for game_id=%s assistant_message_id=%s",
-                game.id,
-                last_message.id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to prepare reroll: {_public_story_error_detail(exc)}",
-            ) from exc
         prompt_text = source_user_message.content
-        messages = deps.list_story_messages(db, game.id)
         turn_cost_tokens = _calculate_turn_cost_tokens(messages)
         if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
             db.rollback()
@@ -608,6 +649,12 @@ def generate_story_response(
         db.commit()
         db.refresh(user)
     else:
+        if discard_last_assistant_steps > 0:
+            messages = _drop_last_assistant_steps(
+                steps=discard_last_assistant_steps,
+                delete_source_user=True,
+                action_label="rollback",
+            )
         if payload.prompt is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
         prompt_text = deps.normalize_text(payload.prompt)

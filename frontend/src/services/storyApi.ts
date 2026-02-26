@@ -5,6 +5,7 @@
   StoryGamePayload,
   StoryGameSummary,
   StoryGameVisibility,
+  StoryImageModelId,
   StoryNarratorModelId,
   StoryInstructionCard,
   StoryInstructionTemplate,
@@ -13,6 +14,7 @@
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
   StoryStreamStartPayload,
+  StoryTurnImageGenerationPayload,
   StoryWorldCard,
 } from '../types/story'
 import { buildApiUrl, parseApiError, requestNoContent } from './httpClient'
@@ -53,6 +55,7 @@ export type StoryGenerationStreamOptions = {
   gameId: number
   prompt?: string
   rerollLastResponse?: boolean
+  discardLastAssistantSteps?: number
   instructions?: StoryInstructionCardInput[]
   storyLlmModel?: StoryNarratorModelId
   responseMaxTokens?: number
@@ -450,6 +453,8 @@ export async function updateStoryGameSettings(payload: {
   responseMaxTokens?: number
   responseMaxTokensEnabled?: boolean
   storyLlmModel?: StoryNarratorModelId
+  imageModel?: StoryImageModelId
+  imageStylePrompt?: string
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
@@ -467,6 +472,12 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.storyLlmModel === 'string') {
     requestPayload.story_llm_model = payload.storyLlmModel
+  }
+  if (typeof payload.imageModel === 'string') {
+    requestPayload.image_model = payload.imageModel
+  }
+  if (typeof payload.imageStylePrompt === 'string') {
+    requestPayload.image_style_prompt = payload.imageStylePrompt
   }
   if (typeof payload.memoryOptimizationEnabled === 'boolean') {
     requestPayload.memory_optimization_enabled = payload.memoryOptimizationEnabled
@@ -557,6 +568,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     reroll_last_response: Boolean(options.rerollLastResponse),
     instructions: options.instructions ?? [],
   }
+  if (typeof options.discardLastAssistantSteps === 'number' && Number.isFinite(options.discardLastAssistantSteps)) {
+    requestPayload.discard_last_assistant_steps = Math.max(0, Math.trunc(options.discardLastAssistantSteps))
+  }
   if (typeof options.storyLlmModel === 'string') {
     requestPayload.story_llm_model = options.storyLlmModel
   }
@@ -602,6 +616,10 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   const decoder = new TextDecoder()
   let buffer = ''
   let streamError: Error | null = null
+  let streamTerminalEventReceived = false
+
+  const toStreamError = (error: unknown, fallbackMessage: string): Error =>
+    error instanceof Error ? error : new Error(fallbackMessage)
 
   const processBlock = (rawBlock: string) => {
     const parsed = parseSseBlock(rawBlock)
@@ -609,28 +627,51 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       return
     }
 
-    try {
-      if (parsed.event === 'start') {
+    if (parsed.event === 'start') {
+      try {
         const payload = JSON.parse(parsed.data) as StoryStreamStartPayload
         options.onStart?.(payload)
-        return
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation start event')
+        streamTerminalEventReceived = true
       }
-      if (parsed.event === 'chunk') {
+      return
+    }
+
+    if (parsed.event === 'chunk') {
+      try {
         const payload = JSON.parse(parsed.data) as StoryStreamChunkPayload
         options.onChunk?.(payload)
-        return
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation chunk event')
+        streamTerminalEventReceived = true
       }
-      if (parsed.event === 'done') {
+      return
+    }
+
+    if (parsed.event === 'done') {
+      try {
         const payload = JSON.parse(parsed.data) as StoryStreamDonePayload
         options.onDone?.(payload)
-        return
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation done event')
       }
-      if (parsed.event === 'error') {
+      streamTerminalEventReceived = true
+      return
+    }
+
+    if (parsed.event === 'error') {
+      let detail = 'Text generation failed'
+      try {
         const payload = JSON.parse(parsed.data) as { detail?: string }
-        streamError = new Error(payload.detail || 'Text generation failed')
+        if (typeof payload.detail === 'string' && payload.detail.trim()) {
+          detail = payload.detail.trim()
+        }
+      } catch {
+        // Use fallback detail for malformed error payloads.
       }
-    } catch {
-      // Ignore malformed stream payloads.
+      streamError = new Error(detail)
+      streamTerminalEventReceived = true
     }
   }
 
@@ -647,19 +688,50 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       const rawBlock = buffer.slice(0, separatorIndex)
       buffer = buffer.slice(separatorIndex + 2)
       processBlock(rawBlock)
+      if (streamTerminalEventReceived) {
+        break
+      }
       separatorIndex = buffer.indexOf('\n\n')
+    }
+    if (streamTerminalEventReceived) {
+      try {
+        await reader.cancel()
+      } catch {
+        // Ignore cancel failures; stream is already terminal.
+      }
+      break
     }
   }
 
-  buffer += decoder.decode()
-  buffer = buffer.replace(/\r\n/g, '\n')
-  if (buffer.trim()) {
-    processBlock(buffer)
+  if (!streamTerminalEventReceived) {
+    buffer += decoder.decode()
+    buffer = buffer.replace(/\r\n/g, '\n')
+    if (buffer.trim()) {
+      processBlock(buffer)
+    }
   }
 
   if (streamError) {
     throw streamError
   }
+}
+
+export async function generateStoryTurnImage(payload: {
+  token: string
+  gameId: number
+  assistantMessageId: number
+  signal?: AbortSignal
+}): Promise<StoryTurnImageGenerationPayload> {
+  return request<StoryTurnImageGenerationPayload>(`/api/story/games/${payload.gameId}/turn-image`, {
+    method: 'POST',
+    signal: payload.signal,
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      assistant_message_id: payload.assistantMessageId,
+    }),
+  })
 }
 
 export async function listStoryInstructionCards(payload: {

@@ -162,6 +162,9 @@ class Settings:
     openrouter_world_card_model: str
     openrouter_translation_model: str
     openrouter_plot_card_model: str
+    openrouter_image_url: str
+    openrouter_image_model: str
+    openrouter_image_size: str
     openrouter_site_url: str
     openrouter_app_name: str
     story_translation_enabled: bool
@@ -259,6 +262,18 @@ settings = Settings(
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",
         OPENROUTER_GEMMA_FREE_MODEL,
+    ).strip(),
+    openrouter_image_url=os.getenv(
+        "OPENROUTER_IMAGE_URL",
+        "https://openrouter.ai/api/v1/chat/completions",
+    ).strip(),
+    openrouter_image_model=os.getenv(
+        "OPENROUTER_IMAGE_MODEL",
+        "black-forest-labs/flux.2-pro",
+    ).strip(),
+    openrouter_image_size=os.getenv(
+        "OPENROUTER_IMAGE_SIZE",
+        "1024x1024",
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),

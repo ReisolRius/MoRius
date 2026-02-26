@@ -22,6 +22,7 @@ import reloadAltIcon from './icons/reload.svg'
 import rerollIcon from './icons/reroll.svg'
 import sendIcon from './icons/send.svg'
 import settingsIcon from './icons/settings.svg'
+import imageGenIcon from './icons/image-gen.svg'
 import tabcoinIcon from './icons/tabcoin.svg'
 import themeIcon from './icons/theme.svg'
 import undoIcon from './icons/undo.svg'
@@ -58,6 +59,7 @@ export const icons = {
   like: likeIcon,
   reload: reloadAltIcon,
   reroll: rerollIcon,
+  imageGen: imageGenIcon,
   send: sendIcon,
   settings: settingsIcon,
   menuSettings: menuSettingsIcon,

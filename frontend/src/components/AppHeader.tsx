@@ -346,10 +346,11 @@ function AppHeader({
                           fontWeight: 700,
                           color: isActiveTheme ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
                           border: `var(--morius-border-width) solid ${isActiveTheme ? 'var(--morius-accent)' : 'var(--morius-card-border)'}`,
+                          display: isActiveTheme ? 'block' : 'none',
                           lineHeight: 1.3,
                         }}
                       >
-                        {isActiveTheme ? 'Выбрана' : themeOption.subtitle}
+                        {isActiveTheme ? 'Выбрана' : null}
                       </Box>
                     </Stack>
 

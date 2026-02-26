@@ -6,6 +6,11 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-5'
   | 'arcee-ai/trinity-large-preview:free'
   | 'moonshotai/kimi-k2-0905'
+export type StoryImageModelId =
+  | 'black-forest-labs/flux.2-pro'
+  | 'bytedance-seed/seedream-4.5'
+  | 'google/gemini-2.5-flash-image'
+  | 'google/gemini-3.1-flash-image-preview'
 
 export type StoryGameSummary = {
   id: number
@@ -28,6 +33,8 @@ export type StoryGameSummary = {
   response_max_tokens: number
   response_max_tokens_enabled: boolean
   story_llm_model: StoryNarratorModelId
+  image_model: StoryImageModelId
+  image_style_prompt: string
   memory_optimization_enabled: boolean
   story_top_k: number
   story_top_r: number
@@ -168,6 +175,7 @@ export type StoryCharacter = {
 export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
+  turn_images: StoryTurnImage[]
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
   plot_card_events: StoryPlotCardEvent[]
@@ -237,4 +245,27 @@ export type StoryStreamDonePayload = {
   plot_card_created?: boolean
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean
+}
+
+export type StoryTurnImageGenerationPayload = {
+  id: number
+  assistant_message_id: number
+  model: string
+  prompt: string
+  revised_prompt: string | null
+  image_url: string | null
+  image_data_url: string | null
+  user?: AuthUser
+}
+
+export type StoryTurnImage = {
+  id: number
+  assistant_message_id: number
+  model: string
+  prompt: string
+  revised_prompt: string | null
+  image_url: string | null
+  image_data_url: string | null
+  created_at: string
+  updated_at: string
 }
