@@ -312,6 +312,13 @@ export type StoryStreamDonePayload = {
   postprocess_pending?: boolean
 }
 
+export type StoryStreamPlotMemoryPayload = {
+  assistant_message_id: number
+  plot_card_events?: StoryPlotCardEvent[]
+  plot_cards?: StoryPlotCard[]
+  plot_card_created?: boolean
+}
+
 export type StoryTurnImageGenerationPayload = {
   id: number
   assistant_message_id: number

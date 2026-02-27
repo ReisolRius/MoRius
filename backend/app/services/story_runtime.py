@@ -371,6 +371,16 @@ def _stream_story_response(
                 plot_card_events_out = [
                     deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
                 ]
+                if plot_card_events_out:
+                    plot_memory_payload = {
+                        "assistant_message_id": assistant_message.id,
+                        "plot_card_events": _safe_dump_stream_events(plot_card_events_out),
+                        "plot_cards": _safe_dump_stream_items(
+                            [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
+                        ),
+                        "plot_card_created": plot_card_created,
+                    }
+                    yield _sse_event("plot_memory", plot_memory_payload)
             except Exception as exc:
                 logger.exception("Failed to update story plot memory card")
                 db.rollback()
@@ -384,6 +394,7 @@ def _stream_story_response(
                 assistant_message=assistant_message,
                 prompt=prompt,
                 assistant_text=assistant_text_for_postprocess,
+                memory_optimization_enabled=memory_optimization_enabled,
             )
             world_card_events_out.extend(
                 deps.world_card_event_to_out(event) for event in generated_events if event.undone_at is None

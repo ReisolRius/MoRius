@@ -25,6 +25,7 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -244,7 +245,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [ratingDraft, setRatingDraft] = useState(0)
   const [isRatingSaving, setIsRatingSaving] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)

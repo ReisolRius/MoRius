@@ -12,6 +12,7 @@ import {
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
+import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
 import UserAvatar from '../components/profile/UserAvatar'
@@ -248,7 +249,7 @@ function CompactCard({ title, content, badge, avatar, actions }: { title: string
 
 function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: WorldCreatePageProps) {
   const isEditMode = editingGameId !== null
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [isLoading, setIsLoading] = useState(Boolean(isEditMode))
   const [isSubmitting, setIsSubmitting] = useState(false)

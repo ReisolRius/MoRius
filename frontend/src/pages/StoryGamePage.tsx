@@ -39,6 +39,7 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
@@ -1800,7 +1801,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     Record<number, StoryTurnImageEntry[]>
   >({})
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
@@ -4239,6 +4240,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: targetGameId,
           contextLimitTokens: normalizedValue,
+          memoryOptimizationEnabled: memoryOptimizationEnabled,
         })
         setGames((previousGames) =>
           sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
@@ -4255,6 +4257,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       authToken,
       isSavingAmbientEnabled,
       isSavingContextLimit,
+      memoryOptimizationEnabled,
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
@@ -4290,6 +4293,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gameId: targetGameId,
           responseMaxTokens: normalizedValue,
           responseMaxTokensEnabled: true,
+          memoryOptimizationEnabled: memoryOptimizationEnabled,
         })
         setGames((previousGames) =>
           sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
@@ -4306,6 +4310,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       authToken,
       isSavingAmbientEnabled,
       isSavingContextLimit,
+      memoryOptimizationEnabled,
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
@@ -4365,6 +4370,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           contextLimitTokens: contextLimitChars,
           responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+          memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
           storyTopK: previousStoryTopK,
           storyTopR: previousStoryTopR,
           ambientEnabled: previousAmbientEnabled,
@@ -4449,6 +4455,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: targetGameId,
           imageModel: normalizedModel,
+          memoryOptimizationEnabled: memoryOptimizationEnabled,
         })
         const persistedModel = normalizeStoryImageModelId(updatedGame.image_model)
         if (activeGameIdRef.current === updatedGame.id) {
@@ -4477,6 +4484,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingStoryImageModel,
       isSavingStoryLlmModel,
       isSavingStorySampling,
+      memoryOptimizationEnabled,
       storyImageModel,
     ],
   )
@@ -4514,6 +4522,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: targetGameId,
           imageStylePrompt: normalizedValue,
+          memoryOptimizationEnabled: memoryOptimizationEnabled,
         })
         const persistedStylePrompt = normalizeStoryImageStylePrompt(updatedGame.image_style_prompt)
         imageStylePromptByGameRef.current[updatedGame.id] = persistedStylePrompt
@@ -4543,6 +4552,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingResponseMaxTokensEnabled,
       isSavingStoryLlmModel,
       isSavingStorySampling,
+      memoryOptimizationEnabled,
     ],
   )
 
@@ -4692,6 +4702,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         contextLimitTokens: contextLimitChars,
         responseMaxTokens: previousResponseMaxTokens,
         responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
         storyTopK: previousStoryTopK,
         storyTopR: previousStoryTopR,
       })
@@ -4783,6 +4794,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         responseMaxTokensEnabled: nextValue,
         responseMaxTokens: normalizedResponseMaxTokens,
+        memoryOptimizationEnabled: previousMemoryOptimization,
       })
       setResponseMaxTokensEnabled(nextValue)
       setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
@@ -4922,6 +4934,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           storyTopR: normalizedTopR,
           responseMaxTokens: normalizedResponseMaxTokens,
           responseMaxTokensEnabled: normalizedResponseMaxTokensEnabled,
+          memoryOptimizationEnabled: normalizedMemoryOptimization,
           ambientEnabled: normalizedAmbientEnabled,
         })
         setGames((previousGames) =>
@@ -5311,6 +5324,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }
               return nextMessages
             })
+          },
+          onPlotMemory: (payload) => {
+            const nextPlotEvents = payload.plot_card_events ?? []
+            const nextPlotCards = payload.plot_cards ?? null
+            if (nextPlotCards !== null) {
+              setPlotCards(nextPlotCards)
+            } else if (nextPlotEvents.length > 0) {
+              setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, nextPlotEvents, options.gameId))
+            }
+            applyPlotCardEvents(nextPlotEvents)
           },
           onDone: (payload) => {
             completedAssistantMessageId = payload.message.id

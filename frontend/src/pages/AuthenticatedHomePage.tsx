@@ -28,6 +28,7 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
@@ -144,7 +145,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
 }
 
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+  const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [characterManagerOpen, setCharacterManagerOpen] = useState(false)

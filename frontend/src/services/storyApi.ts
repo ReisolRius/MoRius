@@ -16,6 +16,7 @@
   StoryPlotCard,
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
+  StoryStreamPlotMemoryPayload,
   StoryStreamStartPayload,
   StoryTurnImageGenerationPayload,
   StoryWorldCard,
@@ -69,6 +70,7 @@ export type StoryGenerationStreamOptions = {
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
+  onPlotMemory?: (payload: StoryStreamPlotMemoryPayload) => void
   onDone?: (payload: StoryStreamDonePayload) => void
 }
 
@@ -890,6 +892,17 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
         streamError = toStreamError(error, 'Failed to process generation done event')
       }
       streamTerminalEventReceived = true
+      return
+    }
+
+    if (parsed.event === 'plot_memory') {
+      try {
+        const payload = JSON.parse(parsed.data) as StoryStreamPlotMemoryPayload
+        options.onPlotMemory?.(payload)
+      } catch (error) {
+        streamError = toStreamError(error, 'Failed to process generation plot memory event')
+        streamTerminalEventReceived = true
+      }
       return
     }
 

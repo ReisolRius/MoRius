@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Box, Button, IconButton, Stack, SvgIcon, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, Stack, SvgIcon, Tooltip, Typography, useMediaQuery } from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import BaseDialog from './dialogs/BaseDialog'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
@@ -31,8 +31,9 @@ type AppHeaderProps = {
 }
 
 const HEADER_BUTTON_SIZE = moriusThemeTokens.layout.headerButtonSize
-const MENU_COLLAPSED_WIDTH = 104
+const MENU_COLLAPSED_WIDTH = 64
 const MENU_EXPANDED_WIDTH = 244
+const MENU_PANEL_TOP_OFFSET = HEADER_BUTTON_SIZE + 12
 
 const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
@@ -52,31 +53,31 @@ const shellButtonSx = {
 } as const
 
 const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = false) => ({
-  width: '100%',
-  minHeight: 44,
-  px: isExpanded ? 1 : 0.5,
-  justifyContent: isExpanded ? 'flex-start' : 'center',
-  borderRadius: '14px',
-  border: isActive ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 42%, transparent)' : 'var(--morius-border-width) solid transparent',
-  background: isActive
-    ? 'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-active) 88%, transparent) 0%, color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%) 100%)'
-    : 'transparent',
+  width: isExpanded ? '100%' : 'fit-content',
+  minWidth: isExpanded ? '100%' : 0,
+  minHeight: isExpanded ? 44 : 0,
+  px: isExpanded ? 1 : 0,
+  py: isExpanded ? 0.5 : 0,
+  justifyContent: 'flex-start',
+  borderRadius: isExpanded ? '14px' : '12px',
+  border: isActive && isExpanded ? 'var(--morius-border-width) solid transparent' : 'var(--morius-border-width) solid transparent',
+  backgroundColor: isActive && isExpanded ? 'var(--morius-button-hover)' : 'transparent',
   color: isActive ? 'var(--morius-title-text)' : isUtility ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
   textTransform: 'none',
   fontWeight: isActive ? 800 : 700,
   fontSize: '0.94rem',
   letterSpacing: '0.01em',
-  boxShadow: isActive ? '0 10px 22px rgba(0, 0, 0, 0.22)' : 'none',
-  transition:
-    'background 220ms ease, border-color 220ms ease, color 180ms ease, box-shadow 220ms ease, padding 220ms ease',
+  transition: 'background-color 220ms ease, color 180ms ease, min-width 220ms ease, padding 220ms ease',
   '&:hover': {
-    background: isActive
-      ? 'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-active) 92%, transparent) 0%, color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%) 100%)'
-      : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)',
+    backgroundColor: isExpanded
+      ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
+      : 'transparent',
     color: 'var(--morius-title-text)',
   },
   '&:active': {
-    background: 'color-mix(in srgb, var(--morius-button-active) 84%, transparent)',
+    backgroundColor: isExpanded
+      ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
+      : 'transparent',
   },
 })
 
@@ -88,8 +89,8 @@ const sidebarIconWrapSx = (isActive: boolean, isExpanded: boolean) => ({
   placeItems: 'center',
   flexShrink: 0,
   color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-  backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-accent) 16%, transparent)' : 'transparent',
-  transition: 'width 220ms ease, height 220ms ease, background-color 220ms ease, color 180ms ease',
+  backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-button-hover) 92%, var(--morius-app-surface))' : 'transparent',
+  transition: 'background-color 220ms ease, color 180ms ease',
 })
 
 const sidebarLabelSx = (isExpanded: boolean) => ({
@@ -98,8 +99,7 @@ const sidebarLabelSx = (isExpanded: boolean) => ({
   opacity: isExpanded ? 1 : 0,
   overflow: 'hidden',
   whiteSpace: 'nowrap',
-  transform: isExpanded ? 'translateX(0)' : 'translateX(-6px)',
-  transition: 'max-width 220ms ease, opacity 160ms ease, transform 220ms ease, margin-left 220ms ease',
+  transition: 'max-width 220ms ease, opacity 180ms ease, margin-left 220ms ease',
 })
 
 function SidebarHomeIcon() {
@@ -148,6 +148,7 @@ function AppHeader({
   const [isThemeDialogOpen, setIsThemeDialogOpen] = useState(false)
   const [isSupportDialogOpen, setIsSupportDialogOpen] = useState(false)
   const { themeId, themes, placeholders, setTheme } = useMoriusThemeController()
+  const isCompactSidebar = useMediaQuery('(max-width:1439.95px)')
 
   const handleOpenThemeDialog = () => setIsThemeDialogOpen(true)
   const handleCloseThemeDialog = () => setIsThemeDialogOpen(false)
@@ -162,6 +163,13 @@ function AppHeader({
   }
 
   const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon]
+  const showLogo = isPageMenuOpen || !isCompactSidebar
+  const showPrimaryItems = isPageMenuOpen || !isCompactSidebar
+  const showUtilityItems = isPageMenuOpen
+  const shouldRenderSidebarPanel = !isCompactSidebar || isPageMenuOpen
+  const sidebarWidth = isCompactSidebar
+    ? (isPageMenuOpen ? MENU_EXPANDED_WIDTH : HEADER_BUTTON_SIZE)
+    : (isPageMenuOpen ? MENU_EXPANDED_WIDTH : MENU_COLLAPSED_WIDTH)
   const utilityMenuItems = [
     {
       key: 'theme-settings',
@@ -213,94 +221,137 @@ function AppHeader({
           position: 'fixed',
           top: 'var(--morius-header-top-offset)',
           left: 'var(--morius-header-side-offset)',
-          zIndex: 36,
-          width: isPageMenuOpen ? { xs: MENU_EXPANDED_WIDTH - 12, md: MENU_EXPANDED_WIDTH } : MENU_COLLAPSED_WIDTH,
+          zIndex: 37,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.8,
           pointerEvents: 'auto',
-          transition: 'width 260ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
       >
+        <IconButton
+          aria-label={isPageMenuOpen ? pageMenuLabels.expanded : pageMenuLabels.collapsed}
+          onClick={onTogglePageMenu}
+          sx={shellButtonSx}
+        >
+          <Box component="img" src={icons.menu} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+        </IconButton>
         <Box
           sx={{
-            borderRadius: '26px',
-            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-            background:
-              'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 90%, transparent) 0%, color-mix(in srgb, var(--morius-app-base) 82%, #000 18%) 100%)',
-            boxShadow: '0 24px 52px rgba(0, 0, 0, 0.34)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
+            flexShrink: 0,
+            width: showLogo ? 86 : 0,
+            opacity: showLogo ? 1 : 0,
             overflow: 'hidden',
-            px: 1,
-            py: 1.05,
+            transition: 'width 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
           }}
         >
-          <Stack spacing={1.2}>
-            <Stack direction="row" alignItems="center" spacing={0.8} sx={{ minHeight: HEADER_BUTTON_SIZE }}>
-              <IconButton
-                aria-label={isPageMenuOpen ? pageMenuLabels.expanded : pageMenuLabels.collapsed}
-                onClick={onTogglePageMenu}
-                sx={shellButtonSx}
+          <Box
+            component="img"
+            src={brandLogo}
+            alt="Morius"
+            sx={{
+              width: 86,
+              height: 'auto',
+              display: 'block',
+              opacity: 0.96,
+            }}
+          />
+        </Box>
+      </Box>
+
+      {shouldRenderSidebarPanel ? (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: `calc(var(--morius-header-top-offset) + ${MENU_PANEL_TOP_OFFSET}px)`,
+            left: 'var(--morius-header-side-offset)',
+            zIndex: 36,
+            width: sidebarWidth,
+            pointerEvents: 'auto',
+            transition: 'width 240ms cubic-bezier(0.22, 1, 0.36, 1)',
+          }}
+        >
+          <Box
+            sx={{
+              overflow: 'hidden',
+              px: isPageMenuOpen ? 1.1 : 0.65,
+              py: 0.8,
+              borderRadius: '28px',
+              background: 'color-mix(in srgb, var(--morius-app-surface) 90%, transparent)',
+              backdropFilter: 'blur(18px)',
+              WebkitBackdropFilter: 'blur(18px)',
+              transition:
+                'padding 240ms cubic-bezier(0.22, 1, 0.36, 1), background-color 220ms ease, border-radius 220ms ease',
+            }}
+          >
+            <Stack spacing={1.2} alignItems="flex-start">
+              <Stack
+                spacing={0.55}
+                sx={{
+                  width: isPageMenuOpen ? '100%' : 'fit-content',
+                  minWidth: 0,
+                  maxHeight: showPrimaryItems ? 320 : 0,
+                  opacity: showPrimaryItems ? 1 : 0,
+                  overflow: 'hidden',
+                  pointerEvents: showPrimaryItems ? 'auto' : 'none',
+                  transition: 'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
+                }}
               >
-                <Box component="img" src={icons.menu} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-              </IconButton>
-              <Box sx={{ flexShrink: 0 }}>
+                {menuItems.map((item, index) => {
+                  const MenuIcon = primaryMenuIcons[index % primaryMenuIcons.length]
+                  const isActive = Boolean(item.isActive)
+
+                  return (
+                    <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
+                      <Button sx={sidebarButtonSx(isActive, isPageMenuOpen)} onClick={item.onClick}>
+                        <Box sx={sidebarIconWrapSx(isActive, isPageMenuOpen)}>
+                          <MenuIcon />
+                        </Box>
+                        <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
+                          {item.label}
+                        </Box>
+                      </Button>
+                    </Tooltip>
+                  )
+                })}
+              </Stack>
+
+              {showUtilityItems ? (
                 <Box
-                  component="img"
-                  src={brandLogo}
-                  alt="Morius"
                   sx={{
-                    width: isPageMenuOpen ? 72 : 38,
-                    height: 'auto',
-                    display: 'block',
-                    opacity: 0.96,
-                    transform: isPageMenuOpen ? 'translateX(0)' : 'translateX(-2px)',
-                    transition: 'width 220ms ease, transform 220ms ease',
+                    width: '100%',
+                    borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+                    opacity: showUtilityItems ? 1 : 0,
+                    transition: 'opacity 180ms ease',
                   }}
                 />
-              </Box>
-            </Stack>
+              ) : null}
 
-            <Stack spacing={0.55}>
-              {menuItems.map((item, index) => {
-                const MenuIcon = primaryMenuIcons[index % primaryMenuIcons.length]
-                const isActive = Boolean(item.isActive)
-
-                return (
+              <Stack
+                spacing={0.55}
+                sx={{
+                  width: '100%',
+                  maxHeight: showUtilityItems ? 240 : 0,
+                  opacity: showUtilityItems ? 1 : 0,
+                  overflow: 'hidden',
+                  pointerEvents: showUtilityItems ? 'auto' : 'none',
+                  transition: 'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
+                }}
+              >
+                {utilityMenuItems.map((item) => (
                   <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
-                    <Button sx={sidebarButtonSx(isActive, isPageMenuOpen)} onClick={item.onClick}>
-                      <Box sx={sidebarIconWrapSx(isActive, isPageMenuOpen)}>
-                        <MenuIcon />
-                      </Box>
+                    <Button sx={sidebarButtonSx(false, isPageMenuOpen, true)} onClick={item.onClick}>
+                      <Box sx={sidebarIconWrapSx(false, isPageMenuOpen)}>{item.icon}</Box>
                       <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
                         {item.label}
                       </Box>
                     </Button>
                   </Tooltip>
-                )
-              })}
+                ))}
+              </Stack>
             </Stack>
-
-            <Box
-              sx={{
-                mx: isPageMenuOpen ? 0.4 : 0.9,
-                borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
-              }}
-            />
-
-            <Stack spacing={0.55}>
-              {utilityMenuItems.map((item) => (
-                <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
-                  <Button sx={sidebarButtonSx(false, isPageMenuOpen, true)} onClick={item.onClick}>
-                    <Box sx={sidebarIconWrapSx(false, isPageMenuOpen)}>{item.icon}</Box>
-                    <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
-                      {item.label}
-                    </Box>
-                  </Button>
-                </Tooltip>
-              ))}
-            </Stack>
-          </Stack>
+          </Box>
         </Box>
-      </Box>
+      ) : null}
       <Box
         sx={{
           position: 'fixed',

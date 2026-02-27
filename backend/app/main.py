@@ -4835,6 +4835,8 @@ def _generate_story_world_card_change_operations(
     prompt: str,
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
+    *,
+    enable_secondary_npc_profile_generation: bool = True,
 ) -> list[dict[str, Any]]:
     if not assistant_text.strip() or len(assistant_text.strip()) < 80:
         return []
@@ -4853,6 +4855,8 @@ def _generate_story_world_card_change_operations(
         return []
 
     normalized_operations = _normalize_story_world_card_change_operations(raw_operations, existing_cards)
+    if not enable_secondary_npc_profile_generation:
+        return normalized_operations
     return _append_missing_story_npc_card_operations(
         operations=normalized_operations,
         prompt=prompt,
@@ -5118,6 +5122,8 @@ def _persist_generated_story_world_cards(
     assistant_message: StoryMessage,
     prompt: str,
     assistant_text: str,
+    *,
+    memory_optimization_enabled: bool = True,
 ) -> list[StoryWorldCardChangeEvent]:
     existing_cards = _list_story_world_cards(db, game.id)
     assistant_text_for_memory = _strip_story_markup_for_memory_text(assistant_text)
@@ -5126,6 +5132,7 @@ def _persist_generated_story_world_cards(
             prompt=prompt,
             assistant_text=assistant_text_for_memory,
             existing_cards=existing_cards,
+            enable_secondary_npc_profile_generation=memory_optimization_enabled,
         )
     except Exception as exc:
         logger.warning("World card extraction failed: %s", exc)
@@ -5144,18 +5151,19 @@ def _persist_generated_story_world_cards(
     except Exception as exc:
         logger.warning("World card persistence failed: %s", exc)
 
-    try:
-        persisted_events.extend(
-            _ensure_story_npc_cards_from_dialogue(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                prompt=prompt,
-                assistant_text=assistant_text,
+    if memory_optimization_enabled:
+        try:
+            persisted_events.extend(
+                _ensure_story_npc_cards_from_dialogue(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    prompt=prompt,
+                    assistant_text=assistant_text,
+                )
             )
-        )
-    except Exception as exc:
-        logger.warning("NPC dialogue world card fallback failed: %s", exc)
+        except Exception as exc:
+            logger.warning("NPC dialogue world card fallback failed: %s", exc)
 
     return persisted_events
 

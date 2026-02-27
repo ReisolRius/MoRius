@@ -23,6 +23,7 @@ import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -192,10 +193,10 @@ function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
 }
 
 function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, viewedUserId = null }: ProfilePageProps) {
-  const normalizedViewedUserId =
-    typeof viewedUserId === 'number' && Number.isFinite(viewedUserId) && viewedUserId > 0 ? viewedUserId : null
-  const isOwnProfile = normalizedViewedUserId === null || normalizedViewedUserId === user.id
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false)
+    const normalizedViewedUserId =
+      typeof viewedUserId === 'number' && Number.isFinite(viewedUserId) && viewedUserId > 0 ? viewedUserId : null
+    const isOwnProfile = normalizedViewedUserId === null || normalizedViewedUserId === user.id
+  const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [tab, setTab] = useState<TabId>('characters')
   const [contentSearchQuery, setContentSearchQuery] = useState('')
