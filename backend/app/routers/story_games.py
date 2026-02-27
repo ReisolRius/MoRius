@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
+    StoryCommunityWorldComment,
     StoryCommunityWorldFavorite,
     StoryCommunityWorldLaunch,
     StoryCommunityWorldReport,
@@ -26,6 +27,9 @@ from app.models import (
 )
 from app.schemas import (
     MessageResponse,
+    StoryCommunityWorldCommentCreateRequest,
+    StoryCommunityWorldCommentOut,
+    StoryCommunityWorldCommentUpdateRequest,
     StoryCommunityWorldReportCreateRequest,
     StoryCommunityWorldRatingRequest,
     StoryCommunityWorldSummaryOut,
@@ -79,12 +83,18 @@ from app.services.story_queries import (
     list_story_messages,
     touch_story_game,
 )
+from app.services.story_world_comments import (
+    list_story_community_world_comments_out,
+    normalize_story_community_world_comment_content,
+    story_community_world_comment_to_out,
+)
 
 router = APIRouter()
 
 STORY_WORLD_REPORT_STATUS_OPEN = "open"
 STORY_GAME_TITLE_MAX_LENGTH = 160
 STORY_CLONE_TITLE_SUFFIX = " (копия)"
+PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
 
 
 def _utcnow() -> datetime:
@@ -491,6 +501,103 @@ def report_story_community_world(
     )
 
 
+@router.get("/api/story/community/worlds/{world_id}/comments", response_model=list[StoryCommunityWorldCommentOut])
+def list_story_community_world_comments(
+    world_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryCommunityWorldCommentOut]:
+    get_current_user(db, authorization)
+    world = get_public_story_world_or_404(db, world_id)
+    return list_story_community_world_comments_out(db, world_id=world.id)
+
+
+@router.post("/api/story/community/worlds/{world_id}/comments", response_model=StoryCommunityWorldCommentOut)
+def create_story_community_world_comment(
+    world_id: int,
+    payload: StoryCommunityWorldCommentCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCommunityWorldCommentOut:
+    user = get_current_user(db, authorization)
+    world = get_public_story_world_or_404(db, world_id)
+    content = normalize_story_community_world_comment_content(payload.content)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Comment should not be empty",
+        )
+
+    comment = StoryCommunityWorldComment(
+        world_id=world.id,
+        user_id=user.id,
+        content=content,
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    return story_community_world_comment_to_out(comment, author=user)
+
+
+@router.patch("/api/story/community/worlds/{world_id}/comments/{comment_id}", response_model=StoryCommunityWorldCommentOut)
+def update_story_community_world_comment(
+    world_id: int,
+    comment_id: int,
+    payload: StoryCommunityWorldCommentUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCommunityWorldCommentOut:
+    user = get_current_user(db, authorization)
+    world = get_public_story_world_or_404(db, world_id)
+    comment = db.scalar(
+        select(StoryCommunityWorldComment).where(
+            StoryCommunityWorldComment.id == comment_id,
+            StoryCommunityWorldComment.world_id == world.id,
+        )
+    )
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    if comment.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot edit this comment")
+
+    content = normalize_story_community_world_comment_content(payload.content)
+    if not content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Comment should not be empty",
+        )
+
+    comment.content = content
+    db.commit()
+    db.refresh(comment)
+    return story_community_world_comment_to_out(comment, author=user)
+
+
+@router.delete("/api/story/community/worlds/{world_id}/comments/{comment_id}", response_model=MessageResponse)
+def delete_story_community_world_comment(
+    world_id: int,
+    comment_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    world = get_public_story_world_or_404(db, world_id)
+    comment = db.scalar(
+        select(StoryCommunityWorldComment).where(
+            StoryCommunityWorldComment.id == comment_id,
+            StoryCommunityWorldComment.world_id == world.id,
+        )
+    )
+    if comment is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
+    if comment.user_id != user.id and user.role not in PRIVILEGED_WORLD_COMMENT_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot delete this comment")
+
+    db.delete(comment)
+    db.commit()
+    return MessageResponse(message="Comment deleted")
+
+
 @router.post("/api/story/community/worlds/{world_id}/favorite", response_model=StoryCommunityWorldSummaryOut)
 def favorite_story_community_world(
     world_id: int,
@@ -806,6 +913,11 @@ def delete_story_game(
     db.execute(
         sa_delete(StoryWorldCard).where(
             StoryWorldCard.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldComment).where(
+            StoryCommunityWorldComment.world_id == game.id,
         )
     )
     db.execute(

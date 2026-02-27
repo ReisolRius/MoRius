@@ -62,12 +62,14 @@ function InstructionTemplateDialog({
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null)
   const [templateTitleDraft, setTemplateTitleDraft] = useState('')
   const [templateContentDraft, setTemplateContentDraft] = useState('')
+  const [templateVisibilityDraft, setTemplateVisibilityDraft] = useState<'private' | 'public'>('private')
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
   const [applyingTemplateId, setApplyingTemplateId] = useState<number | null>(null)
   const [templateMenuAnchorEl, setTemplateMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [templateMenuTemplateId, setTemplateMenuTemplateId] = useState<number | null>(null)
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
+  const [hasLoadedTemplates, setHasLoadedTemplates] = useState(false)
 
   const isBusy = isSavingTemplate || deletingTemplateId !== null || applyingTemplateId !== null
 
@@ -90,6 +92,7 @@ function InstructionTemplateDialog({
       setTemplates([])
     } finally {
       setIsLoadingTemplates(false)
+      setHasLoadedTemplates(true)
     }
   }, [authToken])
 
@@ -99,6 +102,7 @@ function InstructionTemplateDialog({
       setEditingTemplateId(null)
       setTemplateTitleDraft('')
       setTemplateContentDraft('')
+      setTemplateVisibilityDraft('private')
       setErrorMessage('')
       setIsSavingTemplate(false)
       setDeletingTemplateId(null)
@@ -106,9 +110,11 @@ function InstructionTemplateDialog({
       setTemplateMenuAnchorEl(null)
       setTemplateMenuTemplateId(null)
       setHasAppliedInitialAction(false)
+      setHasLoadedTemplates(false)
       return
     }
     setHasAppliedInitialAction(false)
+    setHasLoadedTemplates(false)
     void loadTemplates()
   }, [loadTemplates, open])
 
@@ -146,6 +152,7 @@ function InstructionTemplateDialog({
     setEditingTemplateId(null)
     setTemplateTitleDraft('')
     setTemplateContentDraft('')
+    setTemplateVisibilityDraft('private')
     setIsEditorOpen(true)
   }
 
@@ -157,6 +164,7 @@ function InstructionTemplateDialog({
     setEditingTemplateId(template.id)
     setTemplateTitleDraft(template.title)
     setTemplateContentDraft(template.content)
+    setTemplateVisibilityDraft(template.visibility === 'public' ? 'public' : 'private')
     setIsEditorOpen(true)
   }, [isBusy])
 
@@ -168,6 +176,7 @@ function InstructionTemplateDialog({
     setEditingTemplateId(null)
     setTemplateTitleDraft('')
     setTemplateContentDraft('')
+    setTemplateVisibilityDraft('private')
   }
 
   const handleOpenTemplateMenu = useCallback((event: ReactMouseEvent<HTMLElement>, templateId: number) => {
@@ -205,6 +214,7 @@ function InstructionTemplateDialog({
           token: authToken,
           title: normalizedTitle,
           content: normalizedContent,
+          visibility: templateVisibilityDraft,
         })
       } else {
         await updateStoryInstructionTemplate({
@@ -212,6 +222,7 @@ function InstructionTemplateDialog({
           templateId: editingTemplateId,
           title: normalizedTitle,
           content: normalizedContent,
+          visibility: templateVisibilityDraft,
         })
       }
       await loadTemplates()
@@ -219,13 +230,14 @@ function InstructionTemplateDialog({
       setEditingTemplateId(null)
       setTemplateTitleDraft('')
       setTemplateContentDraft('')
+      setTemplateVisibilityDraft('private')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить шаблон'
       setErrorMessage(detail)
     } finally {
       setIsSavingTemplate(false)
     }
-  }, [authToken, editingTemplateId, isBusy, loadTemplates, templateContentDraft, templateTitleDraft])
+  }, [authToken, editingTemplateId, isBusy, loadTemplates, templateContentDraft, templateTitleDraft, templateVisibilityDraft])
 
   const handleDeleteTemplate = useCallback(
     async (templateId: number) => {
@@ -338,17 +350,21 @@ function InstructionTemplateDialog({
   )
 
   useEffect(() => {
-    if (!open || isLoadingTemplates || hasAppliedInitialAction || isBusy) {
+    if (!open || hasAppliedInitialAction || isBusy) {
       return
     }
 
     if (initialTemplateId !== null) {
+      if (!hasLoadedTemplates || isLoadingTemplates) {
+        return
+      }
       const targetTemplate = sortedTemplates.find((template) => template.id === initialTemplateId) ?? null
       if (targetTemplate) {
         setErrorMessage('')
         setEditingTemplateId(targetTemplate.id)
         setTemplateTitleDraft(targetTemplate.title)
         setTemplateContentDraft(targetTemplate.content)
+        setTemplateVisibilityDraft(targetTemplate.visibility === 'public' ? 'public' : 'private')
         setIsEditorOpen(true)
       }
       setHasAppliedInitialAction(true)
@@ -360,6 +376,7 @@ function InstructionTemplateDialog({
       setEditingTemplateId(null)
       setTemplateTitleDraft('')
       setTemplateContentDraft('')
+      setTemplateVisibilityDraft('private')
       setIsEditorOpen(true)
       setHasAppliedInitialAction(true)
       return
@@ -368,6 +385,7 @@ function InstructionTemplateDialog({
     setHasAppliedInitialAction(true)
   }, [
     hasAppliedInitialAction,
+    hasLoadedTemplates,
     initialMode,
     initialTemplateId,
     isBusy,
@@ -493,6 +511,9 @@ function InstructionTemplateDialog({
                           }}
                         >
                           {template.content}
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: 'rgba(181, 199, 220, 0.82)' }}>
+                          {template.visibility === 'public' ? 'Публичный' : 'Приватный'}
                         </Typography>
                         {mode === 'picker' ? (
                           <Typography
@@ -678,6 +699,47 @@ function InstructionTemplateDialog({
                 fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
               }}
             />
+            <Stack spacing={0.6}>
+              <Typography sx={{ color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.82rem', fontWeight: 700 }}>
+                Видимость инструкции
+              </Typography>
+              <Stack direction="row" spacing={0.8}>
+                <Button
+                  onClick={() => setTemplateVisibilityDraft('private')}
+                  disabled={isSavingTemplate}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: templateVisibilityDraft === 'private' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    '&:hover': {
+                      backgroundColor: 'var(--morius-button-hover)',
+                    },
+                  }}
+                >
+                  Приватная
+                </Button>
+                <Button
+                  onClick={() => setTemplateVisibilityDraft('public')}
+                  disabled={isSavingTemplate}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: templateVisibilityDraft === 'public' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    '&:hover': {
+                      backgroundColor: 'var(--morius-button-hover)',
+                    },
+                  }}
+                >
+                  Публичная
+                </Button>
+              </Stack>
+            </Stack>
             <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
               {templateContentDraft.length}/{TEMPLATE_CONTENT_MAX_LENGTH}
             </Typography>

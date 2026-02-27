@@ -14,10 +14,11 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { icons } from '../../assets'
 import type { StoryCommunityWorldReportReason } from '../../services/storyApi'
-import type { StoryCommunityWorldPayload } from '../../types/story'
+import type { StoryCommunityWorldComment, StoryCommunityWorldPayload } from '../../types/story'
+import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
 import BaseDialog from '../dialogs/BaseDialog'
 
 const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
@@ -50,6 +51,7 @@ type CommunityWorldDialogProps = {
   open: boolean
   isLoading: boolean
   worldPayload: StoryCommunityWorldPayload | null
+  currentUserId?: number | null
   ratingDraft: number
   isRatingSaving: boolean
   isLaunching: boolean
@@ -61,6 +63,9 @@ type CommunityWorldDialogProps = {
   onToggleMyGames: () => void
   onAuthorClick?: (authorId: number) => void
   onSubmitReport?: (payload: CommunityWorldReportPayload) => Promise<void> | void
+  onCreateComment?: (content: string) => Promise<void> | void
+  onUpdateComment?: (commentId: number, content: string) => Promise<void> | void
+  onDeleteComment?: (commentId: number) => Promise<void> | void
   isReportSubmitting?: boolean
   showGameplayActions?: boolean
   moderationControls?: CommunityWorldModerationControls | null
@@ -107,6 +112,29 @@ function formatDateLabel(value: string): string {
     return '—'
   }
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
+}
+
+function formatCommentDateLabel(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'вЂ”'
+  }
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function isCommentEdited(comment: StoryCommunityWorldComment): boolean {
+  const createdAt = Date.parse(comment.created_at)
+  const updatedAt = Date.parse(comment.updated_at)
+  if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
+    return false
+  }
+  return updatedAt - createdAt >= 1000
 }
 
 function resolveAuthorInitials(authorName: string): string {
@@ -285,6 +313,7 @@ function CommunityWorldDialog({
   open,
   isLoading,
   worldPayload,
+  currentUserId = null,
   ratingDraft,
   isRatingSaving,
   isLaunching,
@@ -296,6 +325,9 @@ function CommunityWorldDialog({
   onToggleMyGames,
   onAuthorClick,
   onSubmitReport,
+  onCreateComment,
+  onUpdateComment,
+  onDeleteComment,
   isReportSubmitting = false,
   showGameplayActions = true,
   moderationControls = null,
@@ -307,6 +339,12 @@ function CommunityWorldDialog({
   const [reportReasonDraft, setReportReasonDraft] = useState<string>('')
   const [reportDescriptionDraft, setReportDescriptionDraft] = useState('')
   const [reportValidationError, setReportValidationError] = useState('')
+  const [commentDraft, setCommentDraft] = useState('')
+  const [commentValidationError, setCommentValidationError] = useState('')
+  const [isCommentSubmitting, setIsCommentSubmitting] = useState(false)
+  const [commentActionId, setCommentActionId] = useState<number | null>(null)
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null)
+  const [editingCommentDraft, setEditingCommentDraft] = useState('')
 
   const world = worldPayload?.world ?? null
   const cardsCount = useMemo(() => {
@@ -322,6 +360,8 @@ function CommunityWorldDialog({
   const isActionLocked =
     isLaunching || isRatingSaving || isMyGamesToggleSaving || isReportSubmitting || Boolean(moderationControls?.isApplying)
   const canReportWorld = Boolean(world) && showGameplayActions && Boolean(onSubmitReport) && !hasWorldBeenReportedByUser
+  const comments = worldPayload?.comments ?? []
+  const isCommentActionLocked = isActionLocked || isCommentSubmitting || commentActionId !== null
 
   const shareLink = useMemo(() => {
     if (!world || typeof window === 'undefined') {
@@ -360,6 +400,24 @@ function CommunityWorldDialog({
     setReportDescriptionDraft('')
   }
 
+  useEffect(() => {
+    if (!open) {
+      setCommentDraft('')
+      setCommentValidationError('')
+      setIsCommentSubmitting(false)
+      setCommentActionId(null)
+      setEditingCommentId(null)
+      setEditingCommentDraft('')
+    }
+  }, [open])
+
+  useEffect(() => {
+    setCommentValidationError('')
+    setCommentActionId(null)
+    setEditingCommentId(null)
+    setEditingCommentDraft('')
+  }, [world?.id])
+
   const handleSubmitReport = async () => {
     if (!canReportWorld || !onSubmitReport) {
       return
@@ -387,6 +445,92 @@ function CommunityWorldDialog({
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось отправить жалобу'
       setReportValidationError(detail)
+    }
+  }
+
+  const handleCreateComment = async () => {
+    if (!onCreateComment || isCommentActionLocked) {
+      return
+    }
+    const normalizedContent = commentDraft.trim()
+    if (!normalizedContent) {
+      setCommentValidationError('РљРѕРјРјРµРЅС‚Р°СЂРёР№ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.')
+      return
+    }
+    setCommentValidationError('')
+    setIsCommentSubmitting(true)
+    try {
+      await onCreateComment(normalizedContent)
+      setCommentDraft('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РґРѕР±Р°РІРёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      setCommentValidationError(detail)
+    } finally {
+      setIsCommentSubmitting(false)
+    }
+  }
+
+  const handleStartEditComment = (comment: StoryCommunityWorldComment) => {
+    if (isCommentActionLocked) {
+      return
+    }
+    setEditingCommentId(comment.id)
+    setEditingCommentDraft(comment.content)
+    setCommentValidationError('')
+  }
+
+  const handleCancelEditComment = () => {
+    if (isCommentActionLocked) {
+      return
+    }
+    setEditingCommentId(null)
+    setEditingCommentDraft('')
+    setCommentValidationError('')
+  }
+
+  const handleSaveCommentEdit = async (commentId: number) => {
+    if (!onUpdateComment || isCommentActionLocked) {
+      return
+    }
+    const normalizedContent = editingCommentDraft.trim()
+    if (!normalizedContent) {
+      setCommentValidationError('РљРѕРјРјРµРЅС‚Р°СЂРёР№ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.')
+      return
+    }
+    setCommentValidationError('')
+    setCommentActionId(commentId)
+    try {
+      await onUpdateComment(commentId, normalizedContent)
+      setEditingCommentId(null)
+      setEditingCommentDraft('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      setCommentValidationError(detail)
+    } finally {
+      setCommentActionId(null)
+    }
+  }
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!onDeleteComment || isCommentActionLocked) {
+      return
+    }
+    if (typeof window !== 'undefined' && !window.confirm('РЈРґР°Р»РёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№?')) {
+      return
+    }
+    setCommentValidationError('')
+    setCommentActionId(commentId)
+    try {
+      await onDeleteComment(commentId)
+      if (editingCommentId === commentId) {
+        setEditingCommentId(null)
+        setEditingCommentDraft('')
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      setCommentValidationError(detail)
+    } finally {
+      setCommentActionId(null)
     }
   }
 
@@ -444,13 +588,14 @@ function CommunityWorldDialog({
                 sx={{
                   position: 'absolute',
                   inset: 0,
-                  backgroundImage: world.cover_image_url
-                    ? `url(${world.cover_image_url})`
-                    : `linear-gradient(150deg, hsla(${210 + (world.id % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (world.id % 16)}, 36%, 11%, 0.99) 100%)`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: world.cover_image_url
-                    ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
-                    : 'center',
+                  ...(world.cover_image_url
+                    ? {
+                        backgroundImage: `url(${world.cover_image_url})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
+                        backgroundRepeat: 'no-repeat',
+                      }
+                    : buildWorldFallbackArtwork(world.id)),
                 }}
               />
               <Box
@@ -699,28 +844,210 @@ function CommunityWorldDialog({
                     p: BASE_GAP,
                   }}
                 >
-                  <Stack spacing={BASE_GAP} alignItems="flex-start">
-                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
-                      Раздел комментариев в разработке
-                    </Typography>
-                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>
-                      Пока можно оценить мир, добавить его в Мои игры, поделиться ссылкой и запустить игру.
-                    </Typography>
-                    <Button
-                      disabled
-                      sx={{
-                        minHeight: 0,
-                        px: BASE_GAP,
-                        py: BASE_GAP,
-                        borderRadius: '12px',
-                        textTransform: 'none',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: APP_CARD_BACKGROUND,
-                        color: APP_TEXT_SECONDARY,
-                      }}
-                    >
-                      Комментарии скоро
-                    </Button>
+                  <Stack spacing={BASE_GAP}>
+                    {onCreateComment ? (
+                      <Stack spacing={1}>
+                        <TextField
+                          value={commentDraft}
+                          onChange={(event) => setCommentDraft(event.target.value.slice(0, 2000))}
+                          disabled={isCommentActionLocked}
+                          placeholder="Напишите комментарий к миру"
+                          multiline
+                          minRows={2}
+                          maxRows={6}
+                        />
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>
+                            {commentDraft.trim().length}/2000
+                          </Typography>
+                          <Button
+                            onClick={() => void handleCreateComment()}
+                            disabled={isCommentActionLocked || commentDraft.trim().length === 0}
+                            sx={{
+                              minHeight: 0,
+                              px: BASE_GAP,
+                              py: 0.85,
+                              borderRadius: '12px',
+                              textTransform: 'none',
+                              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                              backgroundColor: APP_BUTTON_ACTIVE,
+                              color: APP_TEXT_PRIMARY,
+                              '&:hover': {
+                                backgroundColor: APP_BUTTON_HOVER,
+                              },
+                            }}
+                          >
+                            {isCommentSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Опубликовать'}
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    ) : null}
+
+                    {commentValidationError ? (
+                      <Alert severity="error" sx={{ borderRadius: '12px' }}>
+                        {commentValidationError}
+                      </Alert>
+                    ) : null}
+
+                    {comments.length === 0 ? (
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>
+                        Комментариев пока нет. Будьте первым.
+                      </Typography>
+                    ) : (
+                      <Stack spacing={1.1}>
+                        {comments.map((comment) => {
+                          const isOwnComment = currentUserId !== null && comment.user_id === currentUserId
+                          const isEditingComment = editingCommentId === comment.id
+                          const isRowPending = commentActionId === comment.id
+                          const commentAuthorName = comment.user_display_name.trim() || 'Unknown author'
+                          const commentAuthorInitials = resolveAuthorInitials(commentAuthorName)
+                          const authorScale = Math.max(1, Math.min(3, comment.user_avatar_scale || 1))
+                          return (
+                            <Box
+                              key={comment.id}
+                              sx={{
+                                borderRadius: '12px',
+                                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                backgroundColor: APP_CARD_BACKGROUND,
+                                p: 1.2,
+                              }}
+                            >
+                              <Stack spacing={0.9}>
+                                <Stack direction="row" spacing={0.8} alignItems="center">
+                                  <Box
+                                    sx={{
+                                      width: 34,
+                                      height: 34,
+                                      borderRadius: '50%',
+                                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                      overflow: 'hidden',
+                                      display: 'grid',
+                                      placeItems: 'center',
+                                      color: APP_TEXT_PRIMARY,
+                                      fontWeight: 800,
+                                      fontSize: '0.78rem',
+                                      background: APP_CARD_BACKGROUND,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {comment.user_avatar_url ? (
+                                      <Box
+                                        component="img"
+                                        src={comment.user_avatar_url}
+                                        alt={commentAuthorName}
+                                        sx={{
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover',
+                                          transform: `scale(${authorScale})`,
+                                          transformOrigin: 'center center',
+                                        }}
+                                      />
+                                    ) : (
+                                      commentAuthorInitials
+                                    )}
+                                  </Box>
+                                  <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.15}>
+                                    <Typography
+                                      sx={{
+                                        color: APP_TEXT_PRIMARY,
+                                        fontWeight: 700,
+                                        fontSize: '0.94rem',
+                                        lineHeight: 1.2,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      {commentAuthorName}
+                                    </Typography>
+                                    <Stack direction="row" spacing={0.65} alignItems="center">
+                                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.76rem', lineHeight: 1.2 }}>
+                                        {formatCommentDateLabel(comment.created_at)}
+                                      </Typography>
+                                      {isCommentEdited(comment) ? (
+                                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.74rem', lineHeight: 1.2 }}>
+                                          (edited)
+                                        </Typography>
+                                      ) : null}
+                                    </Stack>
+                                  </Stack>
+                                </Stack>
+
+                                {isEditingComment ? (
+                                  <Stack spacing={0.75}>
+                                    <TextField
+                                      value={editingCommentDraft}
+                                      onChange={(event) => setEditingCommentDraft(event.target.value.slice(0, 2000))}
+                                      disabled={isCommentActionLocked}
+                                      multiline
+                                      minRows={2}
+                                      maxRows={6}
+                                    />
+                                    <Stack direction="row" spacing={0.7} justifyContent="flex-end">
+                                      <Button onClick={handleCancelEditComment} disabled={isCommentActionLocked} sx={{ color: APP_TEXT_SECONDARY }}>
+                                        Отмена
+                                      </Button>
+                                      <Button
+                                        onClick={() => void handleSaveCommentEdit(comment.id)}
+                                        disabled={isCommentActionLocked || editingCommentDraft.trim().length === 0}
+                                        sx={{
+                                          minHeight: 0,
+                                          px: 1.1,
+                                          py: 0.7,
+                                          borderRadius: '10px',
+                                          textTransform: 'none',
+                                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                          backgroundColor: APP_BUTTON_ACTIVE,
+                                          color: APP_TEXT_PRIMARY,
+                                          '&:hover': {
+                                            backgroundColor: APP_BUTTON_HOVER,
+                                          },
+                                        }}
+                                      >
+                                        {isRowPending ? <CircularProgress size={14} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Сохранить'}
+                                      </Button>
+                                    </Stack>
+                                  </Stack>
+                                ) : (
+                                  <Typography
+                                    sx={{
+                                      color: APP_TEXT_SECONDARY,
+                                      fontSize: '0.98rem',
+                                      lineHeight: 1.48,
+                                      whiteSpace: 'pre-wrap',
+                                      overflowWrap: 'anywhere',
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {comment.content}
+                                  </Typography>
+                                )}
+
+                                {isOwnComment && !isEditingComment ? (
+                                  <Stack direction="row" spacing={0.7} justifyContent="flex-end">
+                                    <Button
+                                      onClick={() => handleStartEditComment(comment)}
+                                      disabled={isCommentActionLocked}
+                                      sx={{ minHeight: 0, textTransform: 'none', color: APP_TEXT_SECONDARY }}
+                                    >
+                                      Edit
+                                    </Button>
+                                    <Button
+                                      onClick={() => void handleDeleteComment(comment.id)}
+                                      disabled={isCommentActionLocked}
+                                      sx={{ minHeight: 0, textTransform: 'none', color: 'rgba(246, 177, 177, 0.95)' }}
+                                    >
+                                      {isRowPending ? <CircularProgress size={14} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Delete'}
+                                    </Button>
+                                  </Stack>
+                                ) : null}
+                              </Stack>
+                            </Box>
+                          )
+                        })}
+                      </Stack>
+                    )}
                   </Stack>
                 </Box>
               ) : null}

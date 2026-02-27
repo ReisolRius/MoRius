@@ -138,19 +138,20 @@ class AdminUserBanRequest(BaseModel):
     duration_hours: int | None = Field(default=None, ge=1, le=24 * 365 * 5)
 
 
-class AdminWorldReportOut(BaseModel):
-    world_id: int
-    world_title: str
-    world_cover_image_url: str | None
-    world_author_name: str
+class AdminReportOut(BaseModel):
+    target_type: Literal["world", "character", "instruction_template"]
+    target_id: int
+    target_title: str
+    target_preview_image_url: str | None
+    target_author_name: str
     open_reports_count: int
     latest_reason: str
     latest_description: str
     latest_created_at: datetime
 
 
-class AdminWorldReportListResponse(BaseModel):
-    reports: list[AdminWorldReportOut]
+class AdminReportListResponse(BaseModel):
+    reports: list[AdminReportOut]
 
 
 class CoinPlanOut(BaseModel):
@@ -285,11 +286,13 @@ class StoryInstructionCardUpdateRequest(BaseModel):
 class StoryInstructionTemplateCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)
+    visibility: str | None = Field(default=None, max_length=16)
 
 
 class StoryInstructionTemplateUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)
+    visibility: str | None = Field(default=None, max_length=16)
 
 
 class StoryWorldCardCreateRequest(BaseModel):
@@ -325,6 +328,7 @@ class StoryCharacterCreateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    visibility: str | None = Field(default=None, max_length=16)
 
 
 class StoryCharacterUpdateRequest(BaseModel):
@@ -333,6 +337,7 @@ class StoryCharacterUpdateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    visibility: str | None = Field(default=None, max_length=16)
 
 
 class StoryCharacterAssignRequest(BaseModel):
@@ -360,6 +365,14 @@ class StoryCommunityWorldRatingRequest(BaseModel):
 class StoryCommunityWorldReportCreateRequest(BaseModel):
     reason: Literal["cp", "politics", "racism", "nationalism", "other"]
     description: str = Field(min_length=1, max_length=2_000)
+
+
+class StoryCommunityWorldCommentCreateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2_000)
+
+
+class StoryCommunityWorldCommentUpdateRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=2_000)
 
 
 class StoryMessageOut(BaseModel):
@@ -405,6 +418,11 @@ class StoryInstructionTemplateOut(BaseModel):
     user_id: int
     title: str
     content: str
+    visibility: str
+    source_template_id: int | None
+    community_rating_avg: float
+    community_rating_count: int
+    community_additions_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -436,6 +454,11 @@ class StoryCharacterOut(BaseModel):
     avatar_url: str | None
     avatar_scale: float
     source: str
+    visibility: str
+    source_character_id: int | None
+    community_rating_avg: float
+    community_rating_count: int
+    community_additions_count: int
     created_at: datetime
     updated_at: datetime
 
@@ -557,12 +580,64 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     updated_at: datetime
 
 
+class StoryCommunityWorldCommentOut(BaseModel):
+    id: int
+    world_id: int
+    user_id: int
+    user_display_name: str
+    user_avatar_url: str | None
+    user_avatar_scale: float
+    content: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class StoryCommunityWorldOut(BaseModel):
     world: StoryCommunityWorldSummaryOut
     context_limit_chars: int
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]
     world_cards: list[StoryWorldCardOut]
+    comments: list[StoryCommunityWorldCommentOut]
+
+
+class StoryCommunityCharacterSummaryOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    triggers: list[str]
+    avatar_url: str | None
+    avatar_scale: float
+    visibility: str
+    author_id: int
+    author_name: str
+    author_avatar_url: str | None
+    community_rating_avg: float
+    community_rating_count: int
+    community_additions_count: int
+    user_rating: int | None
+    is_added_by_user: bool
+    is_reported_by_user: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryCommunityInstructionTemplateSummaryOut(BaseModel):
+    id: int
+    title: str
+    content: str
+    visibility: str
+    author_id: int
+    author_name: str
+    author_avatar_url: str | None
+    community_rating_avg: float
+    community_rating_count: int
+    community_additions_count: int
+    user_rating: int | None
+    is_added_by_user: bool
+    is_reported_by_user: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class StoryGameOut(BaseModel):

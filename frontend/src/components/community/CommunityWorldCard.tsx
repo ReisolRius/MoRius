@@ -4,6 +4,7 @@ import type { Theme } from '@mui/material/styles'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { icons } from '../../assets'
 import type { StoryCommunityWorldSummary } from '../../types/story'
+import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
 
 type CommunityWorldCardProps = {
   world: StoryCommunityWorldSummary
@@ -22,10 +23,6 @@ const TEXT_PRIMARY = 'var(--morius-text-primary)'
 const TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const DESCRIPTION_LINE_HEIGHT = 1.5
 const DESCRIPTION_LINE_COUNT = 3
-
-function buildFallbackArtwork(worldId: number): string {
-  return `linear-gradient(150deg, hsla(${210 + (worldId % 20)}, 32%, 17%, 0.98) 0%, hsla(${220 + (worldId % 16)}, 36%, 11%, 0.99) 100%)`
-}
 
 function formatWorldCreatedAtLabel(isoDate: string): string {
   const parsedDate = new Date(isoDate)
@@ -164,18 +161,20 @@ function CommunityWorldCard({
           overflow: 'hidden',
         }}
       >
-        <Box
-          sx={{
-            position: 'absolute',
-            inset: 0,
-            backgroundImage: world.cover_image_url ? `url(${world.cover_image_url})` : buildFallbackArtwork(world.id),
-            backgroundSize: 'cover',
-            backgroundPosition: world.cover_image_url
-              ? `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`
-              : 'center',
-            backgroundRepeat: 'no-repeat',
-          }}
-        />
+      <Box
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          ...(world.cover_image_url
+            ? {
+                backgroundImage: `url(${world.cover_image_url})`,
+                backgroundSize: 'cover',
+                backgroundPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
+                backgroundRepeat: 'no-repeat',
+              }
+            : buildWorldFallbackArtwork(world.id)),
+        }}
+      />
         <Box
           aria-hidden
           sx={{

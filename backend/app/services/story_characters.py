@@ -17,6 +17,12 @@ STORY_CHARACTER_MAX_NAME_LENGTH = 120
 STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 6_000
 STORY_CHARACTER_MAX_TRIGGERS = 40
 STORY_CHARACTER_TRIGGER_MAX_LENGTH = 80
+STORY_CHARACTER_VISIBILITY_PRIVATE = "private"
+STORY_CHARACTER_VISIBILITY_PUBLIC = "public"
+STORY_CHARACTER_VISIBILITY_VALUES = {
+    STORY_CHARACTER_VISIBILITY_PRIVATE,
+    STORY_CHARACTER_VISIBILITY_PUBLIC,
+}
 STORY_AVATAR_SCALE_MIN = 1.0
 STORY_AVATAR_SCALE_MAX = 3.0
 STORY_AVATAR_SCALE_DEFAULT = 1.0
@@ -71,6 +77,23 @@ def normalize_story_character_source(value: str | None) -> str:
     if normalized == STORY_CHARACTER_SOURCE_AI:
         return STORY_CHARACTER_SOURCE_AI
     return STORY_CHARACTER_SOURCE_USER
+
+
+def coerce_story_character_visibility(value: str | None) -> str:
+    normalized = (value or STORY_CHARACTER_VISIBILITY_PRIVATE).strip().lower()
+    if normalized not in STORY_CHARACTER_VISIBILITY_VALUES:
+        return STORY_CHARACTER_VISIBILITY_PRIVATE
+    return normalized
+
+
+def normalize_story_character_visibility(value: str | None) -> str:
+    normalized = (value or STORY_CHARACTER_VISIBILITY_PRIVATE).strip().lower()
+    if normalized not in STORY_CHARACTER_VISIBILITY_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Visibility should be either private or public",
+        )
+    return normalized
 
 
 def normalize_story_character_name(value: str) -> str:
@@ -131,6 +154,14 @@ def normalize_story_character_triggers(values: list[str], *, fallback_name: str)
     return normalized[:STORY_CHARACTER_MAX_TRIGGERS]
 
 
+def story_character_rating_average(character: StoryCharacter) -> float:
+    rating_count = max(int(getattr(character, "community_rating_count", 0) or 0), 0)
+    if rating_count <= 0:
+        return 0.0
+    rating_sum = max(int(getattr(character, "community_rating_sum", 0) or 0), 0)
+    return round(rating_sum / rating_count, 2)
+
+
 def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
     return StoryCharacterOut(
         id=character.id,
@@ -141,6 +172,11 @@ def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
         avatar_url=character.avatar_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         source=normalize_story_character_source(character.source),
+        visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
+        source_character_id=getattr(character, "source_character_id", None),
+        community_rating_avg=story_character_rating_average(character),
+        community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),
+        community_additions_count=max(int(getattr(character, "community_additions_count", 0) or 0), 0),
         created_at=character.created_at,
         updated_at=character.updated_at,
     )
@@ -152,4 +188,3 @@ def unlink_story_character_from_world_cards(db: Session, *, character_id: int) -
     ).all()
     for linked_card in linked_cards:
         linked_card.character_id = None
-

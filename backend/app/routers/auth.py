@@ -307,11 +307,15 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail="Google OAuth is not configured on server",
         )
 
+    normalized_id_token = payload.id_token.strip()
+    local_claims = _decode_google_token_claims_unverified(normalized_id_token)
+    local_claims_expired = isinstance(local_claims, dict) and _is_google_token_claims_expired(local_claims)
+
     token_data: dict[str, Any] | None = None
     verification_errors: list[str] = []
     try:
         token_data = google_id_token.verify_oauth2_token(
-            payload.id_token,
+            normalized_id_token,
             google_requests.Request(),
             audience=None,
         )
@@ -323,23 +327,30 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
 
     if token_data is None:
         try:
-            token_data = _verify_google_token_with_tokeninfo(payload.id_token)
+            token_data = _verify_google_token_with_tokeninfo(normalized_id_token)
         except Exception as fallback_exc:
             verification_errors.append(f"tokeninfo_error={fallback_exc}")
 
     if token_data is None:
-        local_claims = _decode_google_token_claims_unverified(payload.id_token)
-        if local_claims is not None and not _is_google_token_claims_expired(local_claims):
+        if isinstance(local_claims, dict) and not local_claims_expired:
             token_data = local_claims
             logger.warning("Google auth is using local unverified token claims fallback")
         else:
-            verification_errors.append("local_claims_invalid_or_expired")
+            verification_errors.append(
+                "local_claims_expired" if local_claims_expired else "local_claims_invalid"
+            )
 
     if not isinstance(token_data, dict):
-        detail = "Google auth verification is temporarily unavailable"
+        if local_claims_expired:
+            detail = "Google token expired"
+            if settings.debug and verification_errors:
+                detail = f"{detail}: {'; '.join(verification_errors)}"
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+        detail = "Invalid Google token"
         if settings.debug and verification_errors:
             detail = f"{detail}: {'; '.join(verification_errors)}"
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
     if token_data.get("iss") not in GOOGLE_ISSUERS:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
@@ -407,7 +418,8 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         if not (user.display_name or "").strip():
             user.display_name = display_name
         _sync_user_display_name(user, fallback_email=email)
-        if avatar_url:
+        # Keep user-selected avatar between sessions; only fill avatar from Google when profile has no avatar yet.
+        if avatar_url and not (user.avatar_url or "").strip():
             user.avatar_url = avatar_url
 
     sync_user_access_state(user)

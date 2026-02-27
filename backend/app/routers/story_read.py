@@ -39,6 +39,7 @@ from app.services.story_queries import (
     list_story_world_card_events,
     list_story_world_cards,
 )
+from app.services.story_world_comments import list_story_community_world_comments_out
 from app.services.story_world_cards import story_world_card_to_out
 
 router = APIRouter()
@@ -93,6 +94,7 @@ def get_story_community_world(
     instruction_cards = list_story_instruction_cards(db, world.id)
     plot_cards = list_story_plot_cards(db, world.id)
     world_cards = list_story_world_cards(db, world.id)
+    comments = list_story_community_world_comments_out(db, world_id=world.id)
 
     return StoryCommunityWorldOut(
         world=story_community_world_summary_to_out(
@@ -108,6 +110,7 @@ def get_story_community_world(
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
         world_cards=[story_world_card_to_out(card) for card in world_cards],
+        comments=comments,
     )
 
 

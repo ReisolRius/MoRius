@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import OPENROUTER_GEMMA_FREE_MODEL, settings
+from app.config import OPENROUTER_GLM_AIR_FREE_MODEL, settings
 from app.models import (
     StoryGame,
     StoryMessage,
@@ -83,6 +83,7 @@ from app.services.story_cards import (
     normalize_story_plot_card_content as _normalize_story_plot_card_content,
     normalize_story_plot_card_source as _normalize_story_plot_card_source,
     normalize_story_plot_card_title as _normalize_story_plot_card_title,
+    story_plot_card_to_out as _story_plot_card_to_out,
 )
 from app.services.story_events import (
     story_plot_card_change_event_to_out as _story_plot_card_change_event_to_out,
@@ -102,6 +103,9 @@ from app.services.story_undo import (
 from app.services.story_games import (
     coerce_story_image_model as _coerce_story_image_model,
     get_story_turn_cost_tokens as _get_story_turn_cost_tokens,
+)
+from app.services.story_world_cards import (
+    story_world_card_to_out as _story_world_card_to_out,
 )
 from app.services.story_runtime import (
     StoryRuntimeDeps,
@@ -149,6 +153,8 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES = 4
 STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
+STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
+STORY_PLOT_CARD_MEMORY_FREE_MODEL = "z-ai/glm-4.5-air:free"
 STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
 STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
@@ -177,8 +183,8 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 45
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
 }
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 1_000
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 5_000
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 2_600
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
     (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
     (r"\bgender\s*[:=-]?\s*female\b", 10),
@@ -561,6 +567,10 @@ STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
     r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
+STORY_MARKUP_STANDALONE_PATTERN = re.compile(
+    r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*$",
+    re.IGNORECASE,
+)
 STORY_MARKUP_MALFORMED_PATTERN = re.compile(
     r"^(?:\[\[|\[)?\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
@@ -640,7 +650,7 @@ STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
     "moonshotai/kimi-k2-0905",
 }
 STORY_NON_SAMPLING_MODEL_HINTS = {
-    "google/gemma-3-12b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
 }
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
@@ -2168,7 +2178,7 @@ def _generate_story_npc_profile_with_openrouter(
     if not settings.openrouter_api_key:
         return None
 
-    model_name = OPENROUTER_GEMMA_FREE_MODEL
+    model_name = OPENROUTER_GLM_AIR_FREE_MODEL
     if not model_name:
         return None
 
@@ -3184,7 +3194,7 @@ def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
 
 
 def _is_story_strict_markup_output(text_value: str) -> bool:
-    normalized_text = text_value.replace("\r\n", "\n").strip()
+    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
     if not normalized_text:
         return True
 
@@ -3194,8 +3204,49 @@ def _is_story_strict_markup_output(text_value: str) -> bool:
     return all(_parse_story_markup_paragraph(paragraph) is not None for paragraph in paragraphs)
 
 
-def _prefix_story_narrator_markup(text_value: str) -> str:
+def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
     normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    merged_paragraphs: list[str] = []
+    pending_marker = ""
+    for paragraph in paragraphs:
+        lines = [line.strip() for line in paragraph.split("\n") if line.strip()]
+        if not lines:
+            continue
+
+        first_line = lines[0]
+        if pending_marker:
+            if STORY_MARKUP_STANDALONE_PATTERN.match(first_line) is not None:
+                merged_paragraphs.append(pending_marker)
+            else:
+                merged_paragraphs.append(f"{pending_marker} {' '.join(lines)}".strip())
+                pending_marker = ""
+                continue
+            pending_marker = ""
+
+        if STORY_MARKUP_STANDALONE_PATTERN.match(first_line) is not None:
+            if len(lines) == 1:
+                pending_marker = first_line
+                continue
+            merged_paragraphs.append(f"{first_line} {' '.join(lines[1:])}".strip())
+            continue
+
+        merged_paragraphs.append("\n".join(lines))
+
+    if pending_marker:
+        merged_paragraphs.append(pending_marker)
+
+    return "\n\n".join(paragraph for paragraph in merged_paragraphs if paragraph.strip())
+
+
+def _prefix_story_narrator_markup(text_value: str) -> str:
+    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
     if not normalized_text:
         return normalized_text
 
@@ -3217,7 +3268,7 @@ def _prefix_story_narrator_markup(text_value: str) -> str:
 
 
 def _strip_story_markup_for_memory_text(text_value: str) -> str:
-    normalized_text = text_value.replace("\r\n", "\n").strip()
+    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
     if not normalized_text:
         return normalized_text
 
@@ -3459,7 +3510,7 @@ def _normalize_generated_story_output(
     text_value: str,
     world_cards: list[dict[str, Any]],
 ) -> str:
-    normalized_text = text_value.replace("\r\n", "\n").strip()
+    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
     if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:
@@ -3562,19 +3613,19 @@ def _build_mock_story_response(prompt: str, turn_index: int) -> str:
         prompt_reference = f"{prompt_reference[:237]}..."
 
     openings = (
-        f"Р’С‹ РґРµР»Р°РµС‚Рµ С€Р°Рі: {prompt_reference}. РњРёСЂ РѕС‚РєР»РёРєР°РµС‚СЃСЏ СЃСЂР°Р·Сѓ, Р±СѓРґС‚Рѕ РґР°РІРЅРѕ Р¶РґР°Р» РёРјРµРЅРЅРѕ СЌС‚РѕРіРѕ СЂРµС€РµРЅРёСЏ.",
-        f"Р’Р°С€Рµ РґРµР№СЃС‚РІРёРµ Р·РІСѓС‡РёС‚ СѓРІРµСЂРµРЅРЅРѕ: {prompt_reference}. РќРµСЃРєРѕР»СЊРєРѕ С„РёРіСѓСЂ РІ С‚РµРЅРё РѕРґРЅРѕРІСЂРµРјРµРЅРЅРѕ РїРѕРІРѕСЂР°С‡РёРІР°СЋС‚СЃСЏ Рє РІР°Рј.",
-        f"РџРѕСЃР»Рµ РІР°С€РёС… СЃР»РѕРІ ({prompt_reference}) РІ Р·Р°Р»Рµ РЅР° РјРёРі СЃС‚Р°РЅРѕРІРёС‚СЃСЏ С‚РёС€Рµ, Рё РґР°Р¶Рµ РѕРіРѕРЅСЊ РІ Р»Р°РјРїР°С… Р±СѓРґС‚Рѕ С‚СѓСЃРєРЅРµРµС‚.",
+        f"Вы делаете шаг: {prompt_reference}. Мир откликается сразу, будто давно ждал именно этого решения.",
+        f"Ваше действие звучит уверенно: {prompt_reference}. Несколько фигур в тени одновременно поворачиваются к вам.",
+        f"После ваших слов ({prompt_reference}) в зале на миг становится тише, и даже огонь в лампах будто тускнеет.",
     )
     complications = (
-        "РЎР»РµРІР° СЃР»С‹С€РёС‚СЃСЏ РєРѕСЂРѕС‚РєРёР№ РјРµС‚Р°Р»Р»РёС‡РµСЃРєРёР№ Р·РІРѕРЅ, Р° РІРїРµСЂРµРґРё РєС‚Рѕ-С‚Рѕ Р·Р°РєСЂС‹РІР°РµС‚ РїСѓС‚СЊ, РїСЂРёС‰СѓСЂРёРІС€РёСЃСЊ Рё РѕР¶РёРґР°СЏ РІР°С€РµРіРѕ СЃР»РµРґСѓСЋС‰РµРіРѕ С€Р°РіР°.",
-        "РЎС‚Р°СЂС‹Р№ С‚СЂР°РєС‚РёСЂС‰РёРє Р±С‹СЃС‚СЂРѕ СѓРІРѕРґРёС‚ РІР·РіР»СЏРґ, РЅРѕ РµРґРІР° Р·Р°РјРµС‚РЅРѕ РїРѕРєР°Р·С‹РІР°РµС‚ РЅР° СѓР·РєРёР№ РїСЂРѕС…РѕРґ Р·Р° СЃС‚РѕР№РєРѕР№, РіРґРµ РѕР±С‹С‡РЅРѕ РЅРёРєРѕРіРѕ РЅРµ Р±С‹РІР°РµС‚.",
-        "РР· РґР°Р»СЊРЅРµРіРѕ СѓРіР»Р° РґРѕРЅРѕСЃРёС‚СЃСЏ С€РµРїРѕС‚ Рѕ С†РµРЅРµ РІР°С€РµР№ СЃРјРµР»РѕСЃС‚Рё, Рё СЃС‚Р°РЅРѕРІРёС‚СЃСЏ СЏСЃРЅРѕ: РЅР°Р·Р°Рґ РґРѕСЂРѕРіР° Р±СѓРґРµС‚ СѓР¶Рµ РЅРµ С‚Р°РєРѕР№ РїСЂРѕСЃС‚РѕР№.",
+        "Слева слышится короткий металлический звон, а впереди кто-то закрывает путь, прищурившись и ожидая вашего следующего шага.",
+        "Старый трактирщик быстро уводит взгляд, но едва заметно показывает на узкий проход за стойкой, где обычно никого не бывает.",
+        "Из дальнего угла доносится шепот о цене вашей смелости, и становится ясно: назад дорога будет уже не такой простой.",
     )
     outcomes = (
-        "РЈ РІР°СЃ РїРѕСЏРІР»СЏРµС‚СЃСЏ С€Р°РЅСЃ РІС‹РёРіСЂР°С‚СЊ РІСЂРµРјСЏ Рё РїРѕРґРіРѕС‚РѕРІРёС‚СЊ РїРѕС‡РІСѓ РґР»СЏ Р±РѕР»РµРµ СЂРёСЃРєРѕРІР°РЅРЅРѕРіРѕ С…РѕРґР°.",
-        "РћР±СЃС‚Р°РЅРѕРІРєР° СЃРіСѓС‰Р°РµС‚СЃСЏ, РЅРѕ РёРЅРёС†РёР°С‚РёРІР° РІСЃРµ РµС‰Рµ Сѓ РІР°СЃ, РµСЃР»Рё РґРµР№СЃС‚РІРѕРІР°С‚СЊ С‚РѕС‡РЅРѕ Рё Р±РµР· РїР°СѓР·С‹.",
-        "РЎРёС‚СѓР°С†РёСЏ РЅР°РєР°Р»СЏРµС‚СЃСЏ, РѕРґРЅР°РєРѕ РёРјРµРЅРЅРѕ СЌС‚Рѕ РјРѕР¶РµС‚ РґР°С‚СЊ РІР°Рј СЂРµРґРєСѓСЋ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРµСЂРµС…РІР°С‚РёС‚СЊ РєРѕРЅС‚СЂРѕР»СЊ.",
+        "У вас появляется шанс выиграть время и подготовить почву для более рискованного хода.",
+        "Обстановка сгущается, но инициатива все еще у вас, если действовать точно и без паузы.",
+        "Ситуация накаляется, однако именно это может дать вам редкую возможность перехватить контроль.",
     )
     followups = (
         "Сцена продолжается, напряжение нарастает.",
@@ -5114,43 +5165,52 @@ def _build_story_plot_card_memory_messages(
     existing_card: StoryPlotCard | None,
     latest_assistant_text: str,
     latest_user_prompt: str,
+    latest_turn_memory_delta: str,
     model_name: str | None = None,
 ) -> list[dict[str, str]]:
     compact_mode = _is_story_paid_model(model_name)
-    current_title = existing_card.title.strip() if existing_card is not None else ""
-    current_memory = existing_card.content.replace("\r\n", "\n").strip() if existing_card is not None else ""
+    should_generate_title = existing_card is None
     current_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
     current_assistant_text = latest_assistant_text.replace("\r\n", "\n").strip()
-    prompt_max_chars = 900 if compact_mode else 2_000
-    memory_max_chars = 1_400 if compact_mode else 3_000
-    assistant_max_chars = 2_800 if compact_mode else 8_000
+    prompt_max_chars = 700 if compact_mode else 1_500
+    assistant_max_chars = 2_000 if compact_mode else 4_500
     current_prompt = _normalize_story_prompt_text(current_prompt, max_chars=prompt_max_chars)
-    current_memory = _normalize_story_prompt_text(current_memory, max_chars=memory_max_chars)
     current_assistant_text = _normalize_story_prompt_text(current_assistant_text, max_chars=assistant_max_chars)
+    _ = latest_turn_memory_delta
 
     return [
         {
             "role": "system",
             "content": (
-                "Обнови карточку памяти RPG по новому ответу мастера. "
-                "Верни строго JSON без markdown: {\"title\": string, \"memory_points\": string[], \"content\": string}. "
-                "title: 3-7 слов, по сути эпизода, на русском, без шаблонов вроде 'Суть эпизода'. "
-                "memory_points: 3-6 коротких пунктов <=150 символов, каждый с меткой "
-                "'Контекст:', 'Цель:', 'Конфликт:', 'Факты:', 'Риск:' или 'Незакрытое:'. "
-                "content: только новая сжатая дельта текущего хода, без переписывания старой памяти."
+                "Ты редактор памяти RPG. "
+                "Сожми текущий ход (действие игрока + ответ мастера) без потери смысла и важных деталей. "
+                "Не выдумывай факты и не теряй важные детали."
             ),
         },
         {
             "role": "user",
             "content": (
-                f"Текущая карточка:\nЗаголовок: {current_title or 'нет'}\n"
-                f"Память:\n{current_memory or 'нет'}\n\n"
-                f"Последний ход игрока:\n{current_prompt or 'нет'}\n\n"
-                f"Новый ответ мастера:\n{current_assistant_text or 'нет'}\n\n"
-                "Верни только JSON."
+                (
+                    (
+                        "Верни строго JSON без markdown: {\"title\": string, \"content\": string}. "
+                        "title обязателен (3-7 слов, без шаблонов). content обязателен.\n\n"
+                    )
+                    if should_generate_title
+                    else "Верни только сжатый текст (без JSON, без markdown, без заголовка).\n\n"
+                )
+                + f"Ход игрока:\n{current_prompt or 'нет'}\n\n"
+                + f"Ответ мастера:\n{current_assistant_text or 'нет'}\n\n"
+                + "Сожми этот ход без потери смысла и важных деталей."
             ),
         },
     ]
+
+
+def _resolve_story_plot_memory_model_name() -> str:
+    configured_model = str(settings.openrouter_plot_card_model or "").strip()
+    if configured_model == OPENROUTER_GLM_AIR_FREE_MODEL:
+        return configured_model
+    return STORY_PLOT_CARD_MEMORY_FREE_MODEL
 
 
 def _extract_story_plot_memory_points(raw_payload: dict[str, Any]) -> list[str]:
@@ -5330,7 +5390,9 @@ def _normalize_story_plot_card_ai_payload(
             return None
 
     title = " ".join(raw_title.split()).strip() if isinstance(raw_title, str) else ""
-    content = _compress_story_plot_memory_content(raw_content, preferred_lines=raw_points)
+    content = raw_content.replace("\r\n", "\n").strip()
+    if not content and raw_points:
+        content = "\n".join(point for point in raw_points if isinstance(point, str) and point.strip()).strip()
 
     if len(title) < 3:
         title = ""
@@ -5353,6 +5415,74 @@ def _normalize_story_plot_card_ai_payload(
     return (title, content)
 
 
+def _normalize_story_plot_card_ai_response(
+    *,
+    raw_response: str,
+    existing_card: StoryPlotCard | None,
+    should_generate_title: bool,
+) -> tuple[str, str] | None:
+    fallback_title = existing_card.title.strip() if existing_card is not None else ""
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    normalized_payload = _normalize_story_plot_card_ai_payload(
+        parsed_payload,
+        fallback_title=fallback_title,
+        allow_title_from_content=should_generate_title,
+    )
+    if normalized_payload is not None:
+        return normalized_payload
+
+    plain_response = str(raw_response or "").replace("\r\n", "\n").strip()
+    if not plain_response:
+        return None
+
+    title = fallback_title
+    content = plain_response
+    if should_generate_title:
+        title_line_match = re.search(
+            r"(?im)^\s*(?:title|заголовок)\s*:\s*(.+?)\s*$",
+            plain_response,
+        )
+        if title_line_match:
+            raw_title_line = " ".join(title_line_match.group(1).split()).strip()
+            if len(raw_title_line) >= 3:
+                title = raw_title_line
+            content = re.sub(r"(?im)^\s*(?:title|заголовок)\s*:\s*.+?\s*$", "", content).strip()
+            content = re.sub(r"(?im)^\s*```(?:json)?\s*$", "", content).strip()
+            content = re.sub(r"(?im)^\s*```\s*$", "", content).strip()
+        if not title or _is_story_plot_card_default_title(title):
+            title = _derive_story_plot_card_title_from_content(content)
+
+    content = content.strip()
+    if not content:
+        return None
+    return (title, content)
+
+
+def _resolve_story_plot_card_title_locally(
+    *,
+    existing_title: str,
+    suggested_title: str,
+    compressed_content: str,
+    latest_user_prompt: str,
+) -> str:
+    normalized_existing = " ".join(existing_title.split()).strip()
+    normalized_suggested = " ".join(suggested_title.split()).strip()
+    if normalized_suggested and not _is_story_plot_card_default_title(normalized_suggested):
+        return normalized_suggested
+    if normalized_existing and not _is_story_plot_card_default_title(normalized_existing):
+        return normalized_existing
+
+    derived_from_content = _derive_story_plot_card_title_from_content(compressed_content)
+    if derived_from_content and not _is_story_plot_card_default_title(derived_from_content):
+        return derived_from_content
+
+    derived_from_prompt = _derive_story_plot_card_title_from_content(latest_user_prompt)
+    if derived_from_prompt and not _is_story_plot_card_default_title(derived_from_prompt):
+        return derived_from_prompt
+
+    return STORY_PLOT_CARD_DEFAULT_TITLE
+
+
 def _normalize_story_plot_memory_line(value: str) -> str:
     compact = re.sub(r"\s+", " ", value).strip(" -•\t")
     if not compact:
@@ -5362,35 +5492,46 @@ def _normalize_story_plot_memory_line(value: str) -> str:
     return compact
 
 
+def _build_story_plot_turn_memory_delta(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> str:
+    normalized_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
+    normalized_assistant = latest_assistant_text.replace("\r\n", "\n").strip()
+    if not normalized_prompt and not normalized_assistant:
+        return ""
+
+    delta_parts: list[str] = []
+    if normalized_prompt:
+        delta_parts.append(
+            "Ход игрока:\n"
+            + _normalize_story_prompt_text(
+                normalized_prompt,
+                max_chars=3_000,
+            )
+        )
+    if normalized_assistant:
+        delta_parts.append(
+            "Ответ мастера:\n"
+            + _normalize_story_prompt_text(
+                normalized_assistant,
+                max_chars=8_000,
+            )
+        )
+    return "\n\n".join(part for part in delta_parts if part.strip()).strip()
+
+
 def _merge_story_plot_memory_content(existing_content: str, new_content: str) -> str:
-    existing_lines = [
-        _normalize_story_plot_memory_line(line)
-        for line in existing_content.replace("\r\n", "\n").split("\n")
-        if line.strip()
-    ]
-    existing_lines = [line for line in existing_lines if line]
-    new_lines = [
-        _normalize_story_plot_memory_line(line)
-        for line in new_content.replace("\r\n", "\n").split("\n")
-        if line.strip()
-    ]
-    new_lines = [line for line in new_lines if line]
-    if not new_lines:
-        return existing_content.replace("\r\n", "\n").strip()
-
-    seen_lines = {line.casefold() for line in existing_lines}
-    appended_lines: list[str] = []
-    for line in new_lines:
-        key = line.casefold()
-        if key in seen_lines:
-            continue
-        seen_lines.add(key)
-        appended_lines.append(line)
-
-    if not appended_lines:
-        return existing_content.replace("\r\n", "\n").strip()
-    merged_lines = existing_lines + appended_lines
-    return "\n".join(f"- {line}" for line in merged_lines)
+    existing_normalized = existing_content.replace("\r\n", "\n").strip()
+    new_normalized = new_content.replace("\r\n", "\n").strip()
+    if not existing_normalized:
+        return new_normalized
+    if not new_normalized:
+        return existing_normalized
+    if existing_normalized.casefold() == new_normalized.casefold():
+        return existing_normalized
+    return f"{existing_normalized}\n\n{new_normalized}".strip()
 
 
 def _append_story_plot_memory_content_raw(existing_content: str, new_content: str) -> str:
@@ -5423,16 +5564,22 @@ def _generate_story_plot_card_title_with_openrouter(
     model_name: str,
     latest_assistant_text: str,
     latest_user_prompt: str,
+    latest_turn_memory_delta: str,
     current_title: str,
 ) -> str:
     compact_mode = _is_story_paid_model(model_name)
     normalized_assistant = latest_assistant_text.replace("\r\n", "\n").strip()
-    if not normalized_assistant:
-        return ""
     normalized_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
-    summary_basis = _compress_story_plot_memory_content(normalized_assistant)
+    summary_basis = latest_turn_memory_delta.replace("\r\n", "\n").strip()
     if not summary_basis:
-        summary_basis = normalized_assistant
+        summary_basis = "\n\n".join(
+            part for part in [
+                f"Ход игрока:\n{normalized_prompt}" if normalized_prompt else "",
+                f"Ответ мастера:\n{normalized_assistant}" if normalized_assistant else "",
+            ] if part.strip()
+        ).strip()
+    if not summary_basis:
+        return ""
 
     prompt_max_chars = 500 if compact_mode else 1_000
     summary_max_chars = 1_100 if compact_mode else 2_000
@@ -5456,7 +5603,7 @@ def _generate_story_plot_card_title_with_openrouter(
             "content": (
                 f"Текущий заголовок: {normalized_title or 'нет'}\n\n"
                 f"Последний ход игрока:\n{normalized_prompt or 'нет'}\n\n"
-                f"Сжатая суть нового ответа мастера:\n{summary_basis or 'нет'}\n\n"
+                f"Сжатая суть нового хода (игрок + мастер):\n{summary_basis or 'нет'}\n\n"
                 "Сформируй один заголовок. Верни только JSON."
             ),
         },
@@ -5490,29 +5637,14 @@ def _generate_story_plot_card_title_with_openrouter(
     return title
 
 
-def _build_story_plot_card_delta_fallback(
-    *,
-    existing_card: StoryPlotCard | None,
-    latest_assistant_text: str,
-) -> tuple[str, str] | None:
-    combined_content = _compress_story_plot_memory_content(latest_assistant_text)
-    if not combined_content:
-        return None
-
-    fallback_title = existing_card.title.strip() if existing_card is not None else ""
-    if _is_story_plot_card_default_title(fallback_title):
-        fallback_title = ""
-    return (fallback_title, combined_content)
-
-
 def _resolve_story_plot_card_title(
     *,
     model_name: str,
     existing_title: str,
     suggested_title: str,
-    fallback_content: str,
     latest_assistant_text: str,
     latest_user_prompt: str,
+    latest_turn_memory_delta: str,
     prefer_fresh_title: bool = False,
 ) -> str:
     normalized_existing = " ".join(existing_title.split()).strip()
@@ -5533,10 +5665,11 @@ def _resolve_story_plot_card_title(
             model_name=model_name,
             latest_assistant_text=latest_assistant_text,
             latest_user_prompt=latest_user_prompt,
+            latest_turn_memory_delta=latest_turn_memory_delta,
             current_title=normalized_existing,
         )
     except Exception as exc:
-        logger.warning("Plot card title generation failed, fallback will be used: %s", exc)
+        logger.warning("Plot card title generation via memory model failed; keeping existing/suggested title: %s", exc)
         generated_title = ""
     if generated_title:
         return generated_title
@@ -5544,11 +5677,7 @@ def _resolve_story_plot_card_title(
         return normalized_suggested
     if has_existing_title:
         return normalized_existing
-
-    derived_title = _derive_story_plot_card_title_from_content(fallback_content)
-    if derived_title and not _is_story_plot_card_default_title(derived_title):
-        return derived_title
-    return STORY_PLOT_CARD_DEFAULT_TITLE
+    return ""
 
 
 def _upsert_story_plot_memory_card(
@@ -5556,28 +5685,53 @@ def _upsert_story_plot_memory_card(
     db: Session,
     game: StoryGame,
     assistant_message: StoryMessage,
+    latest_user_prompt_override: str | None = None,
+    latest_assistant_text_override: str | None = None,
 ) -> tuple[bool, list[StoryPlotCardChangeEvent]]:
     if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
         return (False, [])
-    latest_assistant_text = _strip_story_markup_for_memory_text(assistant_message.content).replace("\r\n", "\n").strip()
-    if not latest_assistant_text:
-        return (False, [])
-
-    latest_user_message = db.scalar(
-        select(StoryMessage)
-        .where(
-            StoryMessage.game_id == game.id,
-            StoryMessage.role == STORY_USER_ROLE,
-            StoryMessage.id < assistant_message.id,
-            StoryMessage.undone_at.is_(None),
-        )
-        .order_by(StoryMessage.id.desc())
-        .limit(1)
+    logger.info(
+        "Plot memory upsert started: game_id=%s assistant_message_id=%s",
+        game.id,
+        assistant_message.id,
     )
-    latest_user_prompt = (
-        latest_user_message.content.replace("\r\n", "\n").strip()
-        if isinstance(latest_user_message, StoryMessage)
-        else ""
+    assistant_text_source = (
+        latest_assistant_text_override
+        if isinstance(latest_assistant_text_override, str)
+        else assistant_message.content
+    )
+    latest_assistant_text = _strip_story_markup_for_memory_text(assistant_text_source).replace("\r\n", "\n").strip()
+    if not latest_assistant_text:
+        latest_assistant_text = _normalize_story_markup_to_plain_text(assistant_text_source).replace("\r\n", "\n").strip()
+    if not latest_assistant_text:
+        latest_assistant_text = assistant_text_source.replace("\r\n", "\n").strip()
+    if not latest_assistant_text:
+        raise RuntimeError(
+            "Plot memory generation failed: assistant text is empty after normalization"
+        )
+
+    if isinstance(latest_user_prompt_override, str):
+        latest_user_prompt = latest_user_prompt_override.replace("\r\n", "\n").strip()
+    else:
+        latest_user_message = db.scalar(
+            select(StoryMessage)
+            .where(
+                StoryMessage.game_id == game.id,
+                StoryMessage.role == STORY_USER_ROLE,
+                StoryMessage.id < assistant_message.id,
+                StoryMessage.undone_at.is_(None),
+            )
+            .order_by(StoryMessage.id.desc())
+            .limit(1)
+        )
+        latest_user_prompt = (
+            latest_user_message.content.replace("\r\n", "\n").strip()
+            if isinstance(latest_user_message, StoryMessage)
+            else ""
+        )
+    latest_turn_memory_delta = _build_story_plot_turn_memory_delta(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
     )
 
     existing_cards = _list_story_plot_cards(db, game.id)
@@ -5590,105 +5744,88 @@ def _upsert_story_plot_memory_card(
         None,
     )
     target_card = ai_card or (existing_cards[0] if existing_cards else None)
-    if target_card is not None and _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_USER:
-        merged_content_raw = _append_story_plot_memory_content_raw(target_card.content, latest_assistant_text)
-        if not merged_content_raw:
-            return (False, [])
-
-        content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
-        if target_card.content == content:
-            return (False, [])
-
-        before_snapshot = _story_plot_card_snapshot_from_card(target_card)
-        target_card.content = content
-        target_card.source = STORY_PLOT_CARD_SOURCE_USER
-        db.flush()
-        after_snapshot = _story_plot_card_snapshot_from_card(target_card)
-        changed_text_fallback = _derive_story_changed_text_from_snapshots(
-            action=STORY_WORLD_CARD_EVENT_UPDATED,
-            before_snapshot=before_snapshot,
-            after_snapshot=after_snapshot,
-        )
-        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
-        event = StoryPlotCardChangeEvent(
-            game_id=game.id,
-            assistant_message_id=assistant_message.id,
-            plot_card_id=target_card.id,
-            action=STORY_WORLD_CARD_EVENT_UPDATED,
-            title=target_card.title,
-            changed_text=changed_text,
-            before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
-            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
-        )
-        db.add(event)
-        _touch_story_game(game)
-        db.commit()
-        db.refresh(event)
-        return (False, [event])
+    target_is_user_source = (
+        target_card is not None
+        and _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_USER
+    )
 
     if not settings.openrouter_api_key:
-        return (False, [])
+        raise RuntimeError("Plot memory generation failed: OPENROUTER_API_KEY is missing")
 
-    model_name = (settings.openrouter_plot_card_model or "google/gemma-3-12b-it:free").strip()
+    model_name = _resolve_story_plot_memory_model_name()
     if not model_name:
-        return (False, [])
+        raise RuntimeError("Plot memory generation failed: memory model is not configured")
 
     messages_payload = _build_story_plot_card_memory_messages(
         existing_card=target_card,
         latest_assistant_text=latest_assistant_text,
         latest_user_prompt=latest_user_prompt,
+        latest_turn_memory_delta=latest_turn_memory_delta,
         model_name=model_name,
     )
 
-    normalized_payload: tuple[str, str] | None = None
-    try:
-        raw_response = _request_openrouter_story_text(
-            messages_payload,
-            model_name=model_name,
-            allow_free_fallback=False,
-            temperature=0.0,
-            request_timeout=(
-                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
-            ),
+    logger.info(
+        "Plot memory input prepared: game_id=%s assistant_message_id=%s user_chars=%s assistant_chars=%s",
+        game.id,
+        assistant_message.id,
+        len(latest_user_prompt),
+        len(latest_assistant_text),
+    )
+    logger.info(
+        "Plot memory model request started: game_id=%s assistant_message_id=%s model=%s",
+        game.id,
+        assistant_message.id,
+        model_name,
+    )
+    raw_response = _request_openrouter_story_text(
+        messages_payload,
+        model_name=model_name,
+        allow_free_fallback=False,
+        temperature=0.0,
+        max_tokens=STORY_PLOT_CARD_REQUEST_MAX_TOKENS,
+        request_timeout=(
+            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+        ),
+    )
+    logger.info(
+        "Plot memory model response received: game_id=%s assistant_message_id=%s chars=%s",
+        game.id,
+        assistant_message.id,
+        len(raw_response),
+    )
+    normalized_payload = _normalize_story_plot_card_ai_response(
+        raw_response=raw_response,
+        existing_card=target_card,
+        should_generate_title=target_card is None,
+    )
+    if normalized_payload is None:
+        raise RuntimeError(
+            "Plot memory generation failed: memory model returned empty or invalid payload"
         )
-        parsed_payload = _extract_json_object_from_text(raw_response)
-        normalized_payload = _normalize_story_plot_card_ai_payload(
-            parsed_payload,
-            fallback_title="",
-            allow_title_from_content=False,
-        )
-    except Exception as exc:
-        logger.warning("Plot card memory generation failed, fallback will be used: %s", exc)
 
-    if normalized_payload is None:
-        normalized_payload = _build_story_plot_card_delta_fallback(
-            existing_card=target_card,
-            latest_assistant_text=latest_assistant_text,
-        )
-    if normalized_payload is None:
-        return (False, [])
     suggested_title, delta_content = normalized_payload
+    delta_content = delta_content.replace("\r\n", "\n").strip()
     if not delta_content:
-        return (False, [])
+        raise RuntimeError(
+            "Plot memory generation failed: memory model returned empty compressed text"
+        )
 
     if target_card is None:
-        resolved_title = _resolve_story_plot_card_title(
-            model_name=model_name,
+        resolved_title = _resolve_story_plot_card_title_locally(
             existing_title="",
             suggested_title=suggested_title,
-            fallback_content=delta_content,
-            latest_assistant_text=latest_assistant_text,
+            compressed_content=delta_content,
             latest_user_prompt=latest_user_prompt,
-            prefer_fresh_title=True,
         )
         title = _normalize_story_plot_card_title(resolved_title)
         content = _normalize_story_plot_card_content(delta_content, preserve_tail=True)
-        content = _trim_story_plot_card_content_for_context(
+        trimmed_content = _trim_story_plot_card_content_for_context(
             content,
             context_limit_tokens=game.context_limit_chars,
         )
-        content = _normalize_story_plot_card_content(content, preserve_tail=True)
+        if trimmed_content.strip():
+            content = _normalize_story_plot_card_content(trimmed_content, preserve_tail=True)
         new_card = StoryPlotCard(
             game_id=game.id,
             title=title,
@@ -5718,59 +5855,66 @@ def _upsert_story_plot_memory_card(
         _touch_story_game(game)
         db.commit()
         db.refresh(event)
+        logger.info(
+            "Plot memory created: game_id=%s assistant_message_id=%s plot_card_id=%s",
+            game.id,
+            assistant_message.id,
+            new_card.id,
+        )
         return (True, [event])
-
-    merged_content_raw = _merge_story_plot_memory_content(target_card.content, delta_content)
-    if not merged_content_raw:
-        return (False, [])
-    content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
-    content = _trim_story_plot_card_content_for_context(
-        content,
-        context_limit_tokens=game.context_limit_chars,
-    )
-    content = _normalize_story_plot_card_content(content, preserve_tail=True)
-    prefer_fresh_title = _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_AI
-    title = _normalize_story_plot_card_title(
-        _resolve_story_plot_card_title(
-            model_name=model_name,
+    else:
+        merged_content_raw = _merge_story_plot_memory_content(target_card.content, delta_content)
+        if not merged_content_raw:
+            return (False, [])
+        content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
+        content = _trim_story_plot_card_content_for_context(
+            content,
+            context_limit_tokens=game.context_limit_chars,
+        )
+        content = _normalize_story_plot_card_content(content, preserve_tail=True)
+        resolved_title = _resolve_story_plot_card_title_locally(
             existing_title=target_card.title,
             suggested_title=suggested_title,
-            fallback_content=delta_content,
-            latest_assistant_text=latest_assistant_text,
+            compressed_content=delta_content,
             latest_user_prompt=latest_user_prompt,
-            prefer_fresh_title=prefer_fresh_title,
         )
-    )
-    if target_card.title == title and target_card.content == content:
-        return (False, [])
+        title = _normalize_story_plot_card_title(resolved_title)
+        if target_card.title == title and target_card.content == content:
+            return (False, [])
 
-    before_snapshot = _story_plot_card_snapshot_from_card(target_card)
-    target_card.title = title
-    target_card.content = content
-    target_card.source = STORY_PLOT_CARD_SOURCE_AI
-    db.flush()
-    after_snapshot = _story_plot_card_snapshot_from_card(target_card)
-    changed_text_fallback = _derive_story_changed_text_from_snapshots(
-        action=STORY_WORLD_CARD_EVENT_UPDATED,
-        before_snapshot=before_snapshot,
-        after_snapshot=after_snapshot,
-    )
-    changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
-    event = StoryPlotCardChangeEvent(
-        game_id=game.id,
-        assistant_message_id=assistant_message.id,
-        plot_card_id=target_card.id,
-        action=STORY_WORLD_CARD_EVENT_UPDATED,
-        title=target_card.title,
-        changed_text=changed_text,
-        before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
-        after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
-    )
-    db.add(event)
-    _touch_story_game(game)
-    db.commit()
-    db.refresh(event)
-    return (False, [event])
+        before_snapshot = _story_plot_card_snapshot_from_card(target_card)
+        target_card.title = title
+        target_card.content = content
+        target_card.source = STORY_PLOT_CARD_SOURCE_USER if target_is_user_source else STORY_PLOT_CARD_SOURCE_AI
+        db.flush()
+        after_snapshot = _story_plot_card_snapshot_from_card(target_card)
+        changed_text_fallback = _derive_story_changed_text_from_snapshots(
+            action=STORY_WORLD_CARD_EVENT_UPDATED,
+            before_snapshot=before_snapshot,
+            after_snapshot=after_snapshot,
+        )
+        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
+        event = StoryPlotCardChangeEvent(
+            game_id=game.id,
+            assistant_message_id=assistant_message.id,
+            plot_card_id=target_card.id,
+            action=STORY_WORLD_CARD_EVENT_UPDATED,
+            title=target_card.title,
+            changed_text=changed_text,
+            before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
+            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
+        )
+        db.add(event)
+        _touch_story_game(game)
+        db.commit()
+        db.refresh(event)
+        logger.info(
+            "Plot memory updated: game_id=%s assistant_message_id=%s plot_card_id=%s",
+            game.id,
+            assistant_message.id,
+            target_card.id,
+        )
+        return (False, [event])
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -6209,6 +6353,7 @@ def _request_openrouter_story_text(
     *,
     model_name: str | None = None,
     allow_free_fallback: bool = True,
+    fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
     top_k: int | None = None,
     top_p: float | None = None,
@@ -6230,8 +6375,15 @@ def _request_openrouter_story_text(
         raise RuntimeError("OpenRouter chat model is not configured")
 
     candidate_models = [primary_model]
+    if fallback_model_names:
+        for fallback_model in fallback_model_names:
+            normalized_fallback_model = str(fallback_model or "").strip()
+            if not normalized_fallback_model or normalized_fallback_model in candidate_models:
+                continue
+            candidate_models.append(normalized_fallback_model)
     if allow_free_fallback and primary_model != "openrouter/free":
-        candidate_models.append("openrouter/free")
+        if "openrouter/free" not in candidate_models:
+            candidate_models.append("openrouter/free")
 
     last_error: RuntimeError | None = None
     timeout_value = request_timeout or (20, 120)
@@ -6249,61 +6401,77 @@ def _request_openrouter_story_text(
             payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = int(max_tokens)
-        try:
-            response = HTTP_SESSION.post(
-                settings.openrouter_chat_url,
-                headers=headers,
-                json=payload,
-                timeout=timeout_value,
-            )
-        except requests.RequestException as exc:
-            raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
-
-        if response.status_code >= 400:
-            detail = ""
+        for attempt_index in range(2):
             try:
-                error_payload = response.json()
-            except ValueError:
-                error_payload = {}
+                response = HTTP_SESSION.post(
+                    settings.openrouter_chat_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=timeout_value,
+                )
+            except requests.RequestException as exc:
+                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
 
-            if isinstance(error_payload, dict):
-                error_value = error_payload.get("error")
-                if isinstance(error_value, dict):
-                    detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                    metadata_value = error_value.get("metadata")
-                    if isinstance(metadata_value, dict):
-                        raw_detail = str(metadata_value.get("raw") or "").strip()
-                        if raw_detail:
-                            detail = f"{detail}. {raw_detail}" if detail else raw_detail
-                elif isinstance(error_value, str):
-                    detail = error_value.strip()
-                if not detail:
-                    detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
+            if response.status_code >= 400:
+                detail = ""
+                try:
+                    error_payload = response.json()
+                except ValueError:
+                    error_payload = {}
 
-            error_text = f"OpenRouter chat error ({response.status_code})"
-            if detail:
-                error_text = f"{error_text}: {detail}"
+                if isinstance(error_payload, dict):
+                    error_value = error_payload.get("error")
+                    if isinstance(error_value, dict):
+                        detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+                        metadata_value = error_value.get("metadata")
+                        if isinstance(metadata_value, dict):
+                            raw_detail = str(metadata_value.get("raw") or "").strip()
+                            if raw_detail:
+                                detail = f"{detail}. {raw_detail}" if detail else raw_detail
+                    elif isinstance(error_value, str):
+                        detail = error_value.strip()
+                    if not detail:
+                        detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
 
-            if response.status_code in {404, 429, 503} and candidate_model != candidate_models[-1]:
-                last_error = RuntimeError(error_text)
-                continue
-            raise RuntimeError(error_text)
+                if response.status_code == 429 and attempt_index == 0:
+                    logger.warning(
+                        "OpenRouter chat rate-limited; retrying once: model=%s status=%s",
+                        candidate_model,
+                        response.status_code,
+                    )
+                    time.sleep(1.1)
+                    continue
 
-        try:
-            payload_value = response.json()
-        except ValueError as exc:
-            raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+                error_text = f"OpenRouter chat error ({response.status_code})"
+                if detail:
+                    error_text = f"{error_text}: {detail}"
 
-        if not isinstance(payload_value, dict):
-            return ""
-        choices = payload_value.get("choices")
-        if not isinstance(choices, list) or not choices:
-            return ""
-        choice = choices[0] if isinstance(choices[0], dict) else {}
-        message_value = choice.get("message")
-        if not isinstance(message_value, dict):
-            return ""
-        return _extract_text_from_model_content(message_value.get("content"))
+                if response.status_code in {404, 429, 503} and candidate_model != candidate_models[-1]:
+                    logger.warning(
+                        "OpenRouter chat failed for model=%s; trying fallback model. status=%s detail=%s",
+                        candidate_model,
+                        response.status_code,
+                        detail or "n/a",
+                    )
+                    last_error = RuntimeError(error_text)
+                    break
+                raise RuntimeError(error_text)
+
+            try:
+                payload_value = response.json()
+            except ValueError as exc:
+                raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+
+            if not isinstance(payload_value, dict):
+                return ""
+            choices = payload_value.get("choices")
+            if not isinstance(choices, list) or not choices:
+                return ""
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            message_value = choice.get("message")
+            if not isinstance(message_value, dict):
+                return ""
+            return _extract_text_from_model_content(message_value.get("content"))
 
     if last_error is not None:
         raise last_error
@@ -6366,7 +6534,79 @@ def _limit_story_turn_image_request_prompt(prompt: str, *, model_name: str | Non
     max_chars = max(_get_story_turn_image_request_prompt_max_chars(model_name), 1)
     if len(normalized_prompt) <= max_chars:
         return normalized_prompt
+    if "CHARACTER_CARD_LOCK_BEGIN:" in normalized_prompt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Character card locks exceed image prompt limit "
+                f"({len(normalized_prompt)} > {max_chars} chars). "
+                "Shorten character cards to keep full locks intact."
+            ),
+        )
     return normalized_prompt[:max_chars].rstrip()
+
+
+def _join_story_turn_image_prompt_parts(parts: list[str]) -> str:
+    return " ".join(
+        part.strip()
+        for part in parts
+        if isinstance(part, str) and part.strip()
+    )
+
+
+def _trim_story_turn_image_prompt_tail_text(value: str, *, max_chars: int) -> str:
+    normalized = re.sub(r"\s+", " ", str(value or "").replace("\r\n", "\n")).strip()
+    if not normalized or max_chars <= 0:
+        return ""
+    if len(normalized) <= max_chars:
+        return normalized
+    if max_chars <= 3:
+        return normalized[-max_chars:]
+    tail = normalized[-(max_chars - 3):].lstrip(" ,;:-")
+    if not tail:
+        tail = normalized[-(max_chars - 3):]
+    return f"...{tail}"
+
+
+def _append_story_turn_image_optional_context_part(
+    prompt_parts: list[str],
+    *,
+    part_prefix: str,
+    part_body: str,
+    part_suffix: str,
+    prompt_max_chars: int,
+    prefer_fresh_tail: bool,
+) -> None:
+    normalized_body = re.sub(r"\s+", " ", str(part_body or "").replace("\r\n", "\n")).strip()
+    if not normalized_body:
+        return
+
+    full_part = f"{part_prefix}{normalized_body}{part_suffix}"
+    full_candidate = _join_story_turn_image_prompt_parts([*prompt_parts, full_part])
+    if len(full_candidate) <= prompt_max_chars:
+        prompt_parts.append(full_part)
+        return
+
+    current_prompt = _join_story_turn_image_prompt_parts(prompt_parts)
+    remaining_chars = prompt_max_chars - len(current_prompt)
+    if remaining_chars <= 0:
+        return
+    join_overhead = 1 if prompt_parts else 0
+    body_budget = remaining_chars - join_overhead - len(part_prefix) - len(part_suffix)
+    if body_budget < 40:
+        return
+
+    if prefer_fresh_tail:
+        trimmed_body = _trim_story_turn_image_prompt_tail_text(normalized_body, max_chars=body_budget)
+    else:
+        trimmed_body = _normalize_story_prompt_text(normalized_body, max_chars=body_budget)
+    if not trimmed_body:
+        return
+
+    trimmed_part = f"{part_prefix}{trimmed_body}{part_suffix}"
+    trimmed_candidate = _join_story_turn_image_prompt_parts([*prompt_parts, trimmed_part])
+    if len(trimmed_candidate) <= prompt_max_chars:
+        prompt_parts.append(trimmed_part)
 
 
 def _extract_story_turn_image_gender_hint_from_card(
@@ -6827,6 +7067,43 @@ def _merge_story_turn_image_world_cards(
     return merged_cards
 
 
+def _build_story_turn_image_latest_scene_focus_text(assistant_text: str, *, max_chars: int) -> str:
+    normalized_text = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(assistant_text),
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
+    )
+    if not normalized_text:
+        return ""
+
+    sentences = _split_story_text_into_sentences(normalized_text)
+    if not sentences:
+        return _trim_story_turn_image_prompt_tail_text(normalized_text, max_chars=max_chars)
+
+    selected_sentences_reversed: list[str] = []
+    selected_length = 0
+    for sentence in reversed(sentences):
+        normalized_sentence = _normalize_story_prompt_text(sentence, max_chars=max_chars)
+        if not normalized_sentence:
+            continue
+        next_length = selected_length + len(normalized_sentence) + (1 if selected_sentences_reversed else 0)
+        if selected_sentences_reversed and next_length > max_chars:
+            break
+        if not selected_sentences_reversed and len(normalized_sentence) > max_chars:
+            return _trim_story_turn_image_prompt_tail_text(normalized_sentence, max_chars=max_chars)
+        selected_sentences_reversed.append(normalized_sentence)
+        selected_length = next_length
+        if len(selected_sentences_reversed) >= 5:
+            break
+
+    selected_sentences = list(reversed(selected_sentences_reversed))
+    merged_scene_focus = " ".join(selected_sentences).strip()
+    if not merged_scene_focus:
+        return _trim_story_turn_image_prompt_tail_text(normalized_text, max_chars=max_chars)
+    if len(merged_scene_focus) <= max_chars:
+        return merged_scene_focus
+    return _trim_story_turn_image_prompt_tail_text(merged_scene_focus, max_chars=max_chars)
+
+
 def _build_story_turn_image_prompt(
     *,
     user_prompt: str,
@@ -6834,7 +7111,9 @@ def _build_story_turn_image_prompt(
     world_cards: list[dict[str, Any]],
     image_style_prompt: str | None = None,
     full_character_card_locks: list[str] | None = None,
+    model_name: str | None = None,
 ) -> str:
+    prompt_max_chars = max(_get_story_turn_image_request_prompt_max_chars(model_name), 1)
     normalized_user_prompt = _normalize_story_prompt_text(
         _normalize_story_markup_to_plain_text(user_prompt),
         max_chars=STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS,
@@ -6884,88 +7163,131 @@ def _build_story_turn_image_prompt(
     has_appearance_lock_line = any("appearance-lock" in line for line in character_lines)
     has_hair_length_lock = _story_turn_image_has_hair_length_lock(full_character_card_locks)
     style_instructions = _build_story_turn_image_style_instructions(normalized_image_style_prompt)
-    assistant_scene_sentences = _split_story_text_into_sentences(normalized_assistant_text)
-    scene_focus_text = _normalize_story_prompt_text(
-        " ".join(assistant_scene_sentences[:4]) if assistant_scene_sentences else normalized_assistant_text,
+    scene_focus_text = _build_story_turn_image_latest_scene_focus_text(
+        assistant_text,
         max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
     )
+    if not scene_focus_text and normalized_assistant_text:
+        scene_focus_text = _trim_story_turn_image_prompt_tail_text(
+            normalized_assistant_text,
+            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
+        )
 
-    prompt_parts = [
+    mandatory_prompt_parts = [
         "Single cinematic frame from one interactive RPG scene.",
         "Hard constraints: no text, no UI, no watermark, no logo, no collage, no random symbols on clothes or objects.",
         "Never render any readable text: no letters, no words, no numbers, no captions, no speech bubbles, no signs.",
         "Keep one coherent location and one coherent moment.",
     ]
-    if style_instructions:
-        prompt_parts.append(style_instructions)
-    if normalized_user_prompt:
-        prompt_parts.append(f"Hero action right before this frame: {normalized_user_prompt}.")
-    if scene_focus_text:
-        prompt_parts.append(f"Current scene state: {scene_focus_text}.")
-    elif normalized_assistant_text:
-        prompt_parts.append(f"Current scene state: {normalized_assistant_text}.")
-    if world_context:
-        prompt_parts.append(f"Environment context: {world_context}.")
     if has_full_character_card_lock:
-        prompt_parts.append(
+        mandatory_prompt_parts.append(
             "CHARACTER_CARD_LOCKS (FULL, STRICT, MANDATORY):\n"
             + "\n\n".join(full_character_card_locks)
         )
-        prompt_parts.append("Full Character Card Lock has absolute highest priority.")
-        prompt_parts.append("Every attribute in CHARACTER_CARD_LOCK is mandatory.")
-        prompt_parts.append("No reinterpretation, no stylistic substitution.")
-        prompt_parts.append("Scene text cannot override locked card attributes.")
-        prompt_parts.append("Conflict precedence: CHARACTER_CARD_LOCK > appearance-lock > scene state.")
+        mandatory_prompt_parts.append(
+            "CHARACTER_CARD_LOCK priority is absolute: "
+            "CHARACTER_CARD_LOCK > appearance-lock > scene state."
+        )
+
+    mandatory_prompt = _join_story_turn_image_prompt_parts(mandatory_prompt_parts)
+    if len(mandatory_prompt) > prompt_max_chars:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Character card locks exceed image prompt limit "
+                f"({len(mandatory_prompt)} > {prompt_max_chars} chars). "
+                "Shorten character cards so full locks fit."
+            ),
+        )
+
+    prompt_parts = list(mandatory_prompt_parts)
+
+    def _try_append_optional_line(value: str) -> None:
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            return
+        candidate_prompt = _join_story_turn_image_prompt_parts([*prompt_parts, normalized_value])
+        if len(candidate_prompt) <= prompt_max_chars:
+            prompt_parts.append(normalized_value)
+
+    _try_append_optional_line(style_instructions)
+
     if character_lines:
-        prompt_parts.append(
+        _try_append_optional_line(
             "Mandatory visible cast (must match exactly): "
             + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
         )
-        prompt_parts.append(
+        _try_append_optional_line(
             f"Exactly {len(character_lines)} visible people in the frame. "
             "Do not add, remove, replace, or duplicate any character."
         )
-        prompt_parts.append("Keep each listed character's role, gender, and key appearance.")
+        _try_append_optional_line("Keep each listed character's role, gender, and key appearance.")
         if has_gender_lock_line:
-            prompt_parts.append(
+            _try_append_optional_line(
                 "Gender lock is absolute and has highest priority. "
                 "If a character is marked with gender-lock, never swap gender due to strength, MMA/combat role, "
                 "muscular body, short haircut, clothing style, or pose."
             )
             if has_full_character_card_lock:
-                prompt_parts.append("Gender lock is part of CHARACTER_CARD_LOCK and cannot be overridden.")
+                _try_append_optional_line("Gender lock is part of CHARACTER_CARD_LOCK and cannot be overridden.")
         if has_appearance_lock_line:
-            prompt_parts.append(
+            _try_append_optional_line(
                 "Appearance lock is absolute and has highest priority. "
                 "For each character marked with appearance-lock, every listed trait is mandatory and must match exactly."
             )
             if has_full_character_card_lock:
-                prompt_parts.append(
+                _try_append_optional_line(
                     "Appearance-lock is a compact helper; if it conflicts with CHARACTER_CARD_LOCK, follow CHARACTER_CARD_LOCK."
                 )
-            prompt_parts.append(
+            _try_append_optional_line(
                 "No reinterpretation or substitution for locked traits: never alter face shape, facial features, eye color, "
                 "hair color, hair length, hairstyle, skin details, scars, tattoos, or other distinctive marks when specified."
             )
-            prompt_parts.append(
+            _try_append_optional_line(
                 "Choose framing and lighting so locked facial and hair details remain clearly readable."
             )
         if has_main_hero_line:
-            prompt_parts.append("Main hero must be visible in-frame. Do not switch to first-person POV.")
+            _try_append_optional_line("Main hero must be visible in-frame. Do not switch to first-person POV.")
     if has_hair_length_lock:
-        prompt_parts.append("Hair length lock: hair length must match exactly.")
-        prompt_parts.append("Hair length lock: forbidden conflicting hair lengths.")
-        prompt_parts.append(
+        _try_append_optional_line("Hair length lock: hair length must match exactly.")
+        _try_append_optional_line("Hair length lock: forbidden conflicting hair lengths.")
+        _try_append_optional_line(
             "Composition for hair length lock: keep head and visible hair in frame so the true length is readable; "
             "do not hide hair with pose, clothing, crop, or camera angle."
         )
-    prompt_parts.append(
+
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Current scene state (latest events): ",
+        part_body=scene_focus_text,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=True,
+    )
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Hero action right before this frame: ",
+        part_body=normalized_user_prompt,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=False,
+    )
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Environment context: ",
+        part_body=world_context,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=True,
+    )
+
+    _try_append_optional_line(
         "Use a medium-wide or medium, side or three-quarter camera angle so all listed characters are clearly visible and identifiable."
     )
-    prompt_parts.append(
+    _try_append_optional_line(
         "Show only what is happening in this exact scene right now."
     )
-    return " ".join(prompt_parts)
+    return _join_story_turn_image_prompt_parts(prompt_parts)
 
 
 def _extract_openrouter_error_detail(response: requests.Response) -> str:
@@ -7439,6 +7761,8 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         normalize_generated_story_output=_normalize_generated_story_output,
         persist_generated_world_cards=_persist_generated_story_world_cards,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
+        plot_card_to_out=_story_plot_card_to_out,
+        world_card_to_out=_story_world_card_to_out,
         world_card_event_to_out=_story_world_card_change_event_to_out,
         plot_card_event_to_out=_story_plot_card_change_event_to_out,
         story_default_title=STORY_DEFAULT_TITLE,
@@ -7526,11 +7850,15 @@ def generate_story_turn_image_impl(
     )
     if not relevant_world_cards:
         relevant_world_cards = active_world_cards
+    prompt_world_cards = _merge_story_turn_image_world_cards(
+        relevant_world_cards,
+        all_world_cards,
+    )
 
     full_character_card_locks = _build_story_turn_image_full_character_card_locks(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
-        world_cards=relevant_world_cards,
+        world_cards=prompt_world_cards,
     )
     _validate_story_turn_image_character_card_lock_budget(full_character_card_locks)
 
@@ -7538,9 +7866,10 @@ def generate_story_turn_image_impl(
     visual_prompt = _build_story_turn_image_prompt(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
-        world_cards=relevant_world_cards,
+        world_cards=prompt_world_cards,
         image_style_prompt=getattr(game, "image_style_prompt", ""),
         full_character_card_locks=full_character_card_locks,
+        model_name=selected_image_model,
     )
     visual_prompt = _limit_story_turn_image_request_prompt(
         visual_prompt,

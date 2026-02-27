@@ -5676,7 +5676,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Комьюнити миры', isActive: false, onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Сообщество', isActive: false, onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',

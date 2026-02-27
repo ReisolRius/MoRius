@@ -168,6 +168,7 @@ function CharacterManagerDialog({
   const [triggersDraft, setTriggersDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
+  const [visibilityDraft, setVisibilityDraft] = useState<'private' | 'public'>('private')
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -175,6 +176,7 @@ function CharacterManagerDialog({
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const [characterDeleteTarget, setCharacterDeleteTarget] = useState<StoryCharacter | null>(null)
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
+  const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
 
   const sortedCharacters = useMemo(
     () =>
@@ -199,6 +201,7 @@ function CharacterManagerDialog({
     setTriggersDraft('')
     setAvatarDraft(null)
     setAvatarScaleDraft(1)
+    setVisibilityDraft('private')
     setAvatarCropSource(null)
     setAvatarError('')
   }, [])
@@ -225,6 +228,7 @@ function CharacterManagerDialog({
       setCharacters([])
     } finally {
       setIsLoadingCharacters(false)
+      setHasLoadedCharacters(true)
     }
   }, [authToken])
 
@@ -235,8 +239,10 @@ function CharacterManagerDialog({
       setCharacterDeleteTarget(null)
       setAvatarCropSource(null)
       setHasAppliedInitialAction(false)
+      setHasLoadedCharacters(false)
       return
     }
+    setHasLoadedCharacters(false)
     setIsEditorOpen(false)
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
@@ -276,6 +282,7 @@ function CharacterManagerDialog({
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
+    setVisibilityDraft(character.visibility === 'public' ? 'public' : 'private')
     setAvatarCropSource(null)
     setAvatarError('')
     setIsEditorOpen(true)
@@ -371,6 +378,7 @@ function CharacterManagerDialog({
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
             avatar_scale: avatarScaleDraft,
+            visibility: visibilityDraft,
           },
         })
       } else if (editingCharacterId !== null) {
@@ -383,6 +391,7 @@ function CharacterManagerDialog({
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
             avatar_scale: avatarScaleDraft,
+            visibility: visibilityDraft,
           },
         })
       }
@@ -396,7 +405,7 @@ function CharacterManagerDialog({
     } finally {
       setIsSavingCharacter(false)
     }
-  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, loadCharacters, nameDraft, resetDraft, triggersDraft])
+  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, loadCharacters, nameDraft, resetDraft, triggersDraft, visibilityDraft])
 
   const handleDeleteCharacter = useCallback(
     async (characterId: number) => {
@@ -470,11 +479,14 @@ function CharacterManagerDialog({
   }, [characterDeleteTarget, handleDeleteCharacter])
 
   useEffect(() => {
-    if (!open || isLoadingCharacters || hasAppliedInitialAction) {
+    if (!open || hasAppliedInitialAction) {
       return
     }
 
     if (initialCharacterId !== null) {
+      if (!hasLoadedCharacters || isLoadingCharacters) {
+        return
+      }
       const targetCharacter = sortedCharacters.find((character) => character.id === initialCharacterId) ?? null
       if (targetCharacter) {
         handleStartEdit(targetCharacter)
@@ -494,6 +506,7 @@ function CharacterManagerDialog({
     handleStartCreate,
     handleStartEdit,
     hasAppliedInitialAction,
+    hasLoadedCharacters,
     initialCharacterId,
     initialMode,
     isLoadingCharacters,
@@ -643,6 +656,47 @@ function CharacterManagerDialog({
                   disabled={isSavingCharacter}
                   placeholder="через запятую"
                 />
+                <Stack spacing={0.6}>
+                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem', fontWeight: 700 }}>
+                    Видимость карточки
+                  </Typography>
+                  <Stack direction="row" spacing={0.8}>
+                    <Button
+                      onClick={() => setVisibilityDraft('private')}
+                      disabled={isSavingCharacter}
+                      sx={{
+                        minHeight: 34,
+                        borderRadius: '10px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: visibilityDraft === 'private' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-text-primary)',
+                        textTransform: 'none',
+                        '&:hover': {
+                          backgroundColor: 'var(--morius-button-hover)',
+                        },
+                      }}
+                    >
+                      Приватная
+                    </Button>
+                    <Button
+                      onClick={() => setVisibilityDraft('public')}
+                      disabled={isSavingCharacter}
+                      sx={{
+                        minHeight: 34,
+                        borderRadius: '10px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: visibilityDraft === 'public' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-text-primary)',
+                        textTransform: 'none',
+                        '&:hover': {
+                          backgroundColor: 'var(--morius-button-hover)',
+                        },
+                      }}
+                    >
+                      Публичная
+                    </Button>
+                  </Stack>
+                </Stack>
                 {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
                 <Stack direction="row" justifyContent="flex-end" spacing={0.8}>
                   <Button onClick={handleCancelEdit} disabled={isSavingCharacter} sx={{ color: 'text.secondary' }}>
@@ -741,6 +795,16 @@ function CharacterManagerDialog({
                               Триггеры: {character.triggers.join(', ')}
                             </Typography>
                           ) : null}
+                          <Typography
+                            sx={{
+                              color: 'var(--morius-text-secondary)',
+                              fontSize: '0.74rem',
+                              lineHeight: 1.2,
+                              opacity: 0.92,
+                            }}
+                          >
+                            {character.visibility === 'public' ? 'Публичная' : 'Приватная'}
+                          </Typography>
                         </Stack>
                         <IconButton
                           onClick={(event) => handleOpenCharacterItemMenu(event, character.id)}

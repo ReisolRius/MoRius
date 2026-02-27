@@ -89,19 +89,23 @@ type AdminUserListResponse = {
   users: AdminManagedUser[]
 }
 
-export type AdminWorldReport = {
-  world_id: number
-  world_title: string
-  world_cover_image_url: string | null
-  world_author_name: string
+export type AdminReportTargetType = 'world' | 'character' | 'instruction_template'
+export type AdminReportReason = 'cp' | 'politics' | 'racism' | 'nationalism' | 'other'
+
+export type AdminReport = {
+  target_type: AdminReportTargetType
+  target_id: number
+  target_title: string
+  target_preview_image_url: string | null
+  target_author_name: string
   open_reports_count: number
-  latest_reason: 'cp' | 'politics' | 'racism' | 'nationalism' | 'other'
+  latest_reason: AdminReportReason
   latest_description: string
   latest_created_at: string
 }
 
-type AdminWorldReportListResponse = {
-  reports: AdminWorldReport[]
+type AdminReportListResponse = {
+  reports: AdminReport[]
 }
 
 const AUTH_NETWORK_ERROR =
@@ -368,10 +372,10 @@ export async function unbanUserAsAdmin(payload: {
   )
 }
 
-export async function listOpenWorldReportsForAdmin(payload: {
+export async function listOpenReportsForAdmin(payload: {
   token: string
-}): Promise<AdminWorldReport[]> {
-  const response = await requestJson<AdminWorldReportListResponse>(
+}): Promise<AdminReport[]> {
+  const response = await requestJson<AdminReportListResponse>(
     '/api/auth/admin/reports',
     {
       method: 'GET',
@@ -406,6 +410,70 @@ export async function removeWorldFromCommunityAsAdmin(payload: {
 }): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     `/api/auth/admin/reports/worlds/${payload.world_id}/remove`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function dismissCharacterReportsAsAdmin(payload: {
+  token: string
+  character_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/reports/characters/${payload.character_id}/dismiss`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function removeCharacterFromCommunityAsAdmin(payload: {
+  token: string
+  character_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/reports/characters/${payload.character_id}/remove`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function dismissInstructionTemplateReportsAsAdmin(payload: {
+  token: string
+  template_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/reports/instruction-templates/${payload.template_id}/dismiss`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function removeInstructionTemplateFromCommunityAsAdmin(payload: {
+  token: string
+  template_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/reports/instruction-templates/${payload.template_id}/remove`,
     {
       method: 'POST',
       headers: {

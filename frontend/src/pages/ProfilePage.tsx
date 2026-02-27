@@ -268,7 +268,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [publicationGames, profileName, user.avatar_url, user.id],
   )
-  const resolvedProfileUser = profileView?.user ?? {
+  const fallbackOwnProfileUser = {
     id: user.id,
     display_name: profileName,
     profile_description: profileDescription,
@@ -276,8 +276,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     avatar_scale: user.avatar_scale ?? 1,
     created_at: user.created_at,
   }
-  const resolvedProfileName = resolvedProfileUser.display_name?.trim() || profileName
-  const resolvedProfileDescription = resolvedProfileUser.profile_description || profileDescription
+  const fallbackViewedProfileUser = {
+    id: normalizedViewedUserId ?? 0,
+    display_name: '',
+    profile_description: '',
+    avatar_url: null,
+    avatar_scale: 1,
+    created_at: user.created_at,
+  }
+  const resolvedProfileUser = profileView?.user ?? (isOwnProfile ? fallbackOwnProfileUser : fallbackViewedProfileUser)
+  const resolvedProfileName = resolvedProfileUser.display_name?.trim() || (isOwnProfile ? profileName : 'Игрок')
+  const resolvedProfileDescription = resolvedProfileUser.profile_description || ''
   const resolvedAvatarUser = isOwnProfile ? user : toAvatarUser(resolvedProfileUser)
   const resolvedCanOpenAdmin = isOwnProfile && canOpenAdmin
   const followersCount = Math.max(0, profileView?.followers_count ?? 0)
@@ -285,7 +294,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const canViewSubscriptions = Boolean(profileView?.can_view_subscriptions)
   const canViewPublicWorlds = Boolean(profileView?.can_view_public_worlds)
   const canViewPrivateWorlds = Boolean(profileView?.can_view_private_worlds)
-  const visiblePublicationWorlds = profileView?.published_worlds ?? publicationWorlds
+  const visiblePublicationWorlds = profileView?.published_worlds ?? (isOwnProfile ? publicationWorlds : [])
   const visibleUnpublishedWorlds = useMemo(
     () =>
       (profileView?.unpublished_worlds ?? []).map((game) =>
@@ -446,6 +455,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setIsProfileViewLoading(false)
     }
   }, [authToken, normalizedViewedUserId])
+
+  useEffect(() => {
+    setProfileView(null)
+  }, [normalizedViewedUserId])
 
   useEffect(() => {
     void loadProfileContent()
@@ -1561,8 +1574,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Комьюнити миры', onClick: () => onNavigate('/games/all') },
-          { key: 'profile', label: 'Профиль', isActive: true, onClick: () => onNavigate('/profile') },
+          { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню',

@@ -5,7 +5,7 @@ from datetime import datetime
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
-from app.models import CoinPurchase, StoryGame, User
+from app.models import CoinPurchase, StoryCharacter, StoryGame, StoryInstructionTemplate, User
 
 
 def increment_story_world_views(db: Session, world_id: int) -> None:
@@ -42,6 +42,64 @@ def apply_story_world_rating_update(db: Session, world_id: int, rating_delta: in
         sa_update(StoryGame)
         .where(StoryGame.id == world_id)
         .values(community_rating_sum=StoryGame.community_rating_sum + rating_delta)
+    )
+
+
+def apply_story_character_rating_insert(db: Session, character_id: int, rating_value: int) -> None:
+    db.execute(
+        sa_update(StoryCharacter)
+        .where(StoryCharacter.id == character_id)
+        .values(
+            community_rating_sum=StoryCharacter.community_rating_sum + rating_value,
+            community_rating_count=StoryCharacter.community_rating_count + 1,
+        )
+    )
+
+
+def apply_story_character_rating_update(db: Session, character_id: int, rating_delta: int) -> None:
+    if rating_delta == 0:
+        return
+    db.execute(
+        sa_update(StoryCharacter)
+        .where(StoryCharacter.id == character_id)
+        .values(community_rating_sum=StoryCharacter.community_rating_sum + rating_delta)
+    )
+
+
+def increment_story_character_additions(db: Session, character_id: int) -> None:
+    db.execute(
+        sa_update(StoryCharacter)
+        .where(StoryCharacter.id == character_id)
+        .values(community_additions_count=StoryCharacter.community_additions_count + 1)
+    )
+
+
+def apply_story_instruction_template_rating_insert(db: Session, template_id: int, rating_value: int) -> None:
+    db.execute(
+        sa_update(StoryInstructionTemplate)
+        .where(StoryInstructionTemplate.id == template_id)
+        .values(
+            community_rating_sum=StoryInstructionTemplate.community_rating_sum + rating_value,
+            community_rating_count=StoryInstructionTemplate.community_rating_count + 1,
+        )
+    )
+
+
+def apply_story_instruction_template_rating_update(db: Session, template_id: int, rating_delta: int) -> None:
+    if rating_delta == 0:
+        return
+    db.execute(
+        sa_update(StoryInstructionTemplate)
+        .where(StoryInstructionTemplate.id == template_id)
+        .values(community_rating_sum=StoryInstructionTemplate.community_rating_sum + rating_delta)
+    )
+
+
+def increment_story_instruction_template_additions(db: Session, template_id: int) -> None:
+    db.execute(
+        sa_update(StoryInstructionTemplate)
+        .where(StoryInstructionTemplate.id == template_id)
+        .values(community_additions_count=StoryInstructionTemplate.community_additions_count + 1)
     )
 
 

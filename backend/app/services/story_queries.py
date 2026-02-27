@@ -20,6 +20,7 @@ from app.models import (
 )
 
 STORY_GAME_VISIBILITY_PUBLIC = "public"
+STORY_CARD_VISIBILITY_PUBLIC = "public"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
 
 
@@ -54,6 +55,32 @@ def get_public_story_world_or_404(db: Session, world_id: int) -> StoryGame:
     if world is not None:
         return world
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community world not found")
+
+
+def get_public_story_character_or_404(db: Session, character_id: int) -> StoryCharacter:
+    character = db.scalar(
+        select(StoryCharacter).where(
+            StoryCharacter.id == character_id,
+            StoryCharacter.visibility == STORY_CARD_VISIBILITY_PUBLIC,
+            StoryCharacter.source_character_id.is_(None),
+        )
+    )
+    if character is not None:
+        return character
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community character not found")
+
+
+def get_public_story_instruction_template_or_404(db: Session, template_id: int) -> StoryInstructionTemplate:
+    template = db.scalar(
+        select(StoryInstructionTemplate).where(
+            StoryInstructionTemplate.id == template_id,
+            StoryInstructionTemplate.visibility == STORY_CARD_VISIBILITY_PUBLIC,
+            StoryInstructionTemplate.source_template_id.is_(None),
+        )
+    )
+    if template is not None:
+        return template
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Community instruction template not found")
 
 
 def list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:

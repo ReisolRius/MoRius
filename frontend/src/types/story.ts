@@ -68,6 +68,11 @@ export type StoryInstructionTemplate = {
   user_id: number
   title: string
   content: string
+  visibility: StoryGameVisibility
+  source_template_id: number | null
+  community_rating_avg: number
+  community_rating_count: number
+  community_additions_count: number
   created_at: string
   updated_at: string
 }
@@ -168,6 +173,50 @@ export type StoryCharacter = {
   avatar_url: string | null
   avatar_scale: number
   source: StoryCharacterSource
+  visibility: StoryGameVisibility
+  source_character_id: number | null
+  community_rating_avg: number
+  community_rating_count: number
+  community_additions_count: number
+  created_at: string
+  updated_at: string
+}
+
+export type StoryCommunityCharacterSummary = {
+  id: number
+  name: string
+  description: string
+  triggers: string[]
+  avatar_url: string | null
+  avatar_scale: number
+  visibility: StoryGameVisibility
+  author_id: number
+  author_name: string
+  author_avatar_url: string | null
+  community_rating_avg: number
+  community_rating_count: number
+  community_additions_count: number
+  user_rating: number | null
+  is_added_by_user: boolean
+  is_reported_by_user: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type StoryCommunityInstructionTemplateSummary = {
+  id: number
+  title: string
+  content: string
+  visibility: StoryGameVisibility
+  author_id: number
+  author_name: string
+  author_avatar_url: string | null
+  community_rating_avg: number
+  community_rating_count: number
+  community_additions_count: number
+  user_rating: number | null
+  is_added_by_user: boolean
+  is_reported_by_user: boolean
   created_at: string
   updated_at: string
 }
@@ -208,12 +257,25 @@ export type StoryCommunityWorldSummary = {
   updated_at: string
 }
 
+export type StoryCommunityWorldComment = {
+  id: number
+  world_id: number
+  user_id: number
+  user_display_name: string
+  user_avatar_url: string | null
+  user_avatar_scale: number
+  content: string
+  created_at: string
+  updated_at: string
+}
+
 export type StoryCommunityWorldPayload = {
   world: StoryCommunityWorldSummary
   context_limit_chars: number
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
   world_cards: StoryWorldCard[]
+  comments: StoryCommunityWorldComment[]
 }
 
 export type StoryStreamStartPayload = {
@@ -243,6 +305,8 @@ export type StoryStreamDonePayload = {
   turn_cost_tokens?: number
   world_card_events?: StoryWorldCardEvent[]
   plot_card_events?: StoryPlotCardEvent[]
+  plot_cards?: StoryPlotCard[]
+  world_cards?: StoryWorldCard[]
   plot_card_created?: boolean
   ambient?: StoryAmbientProfile
   postprocess_pending?: boolean

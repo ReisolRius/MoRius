@@ -47,6 +47,8 @@ import {
   type CoinTopUpPlan,
 } from '../services/authApi'
 import {
+  createCommunityWorldComment,
+  deleteCommunityWorldComment,
   deleteStoryGame,
   favoriteCommunityWorld,
   getCommunityWorld,
@@ -55,6 +57,7 @@ import {
   listStoryGames,
   rateCommunityWorld,
   reportCommunityWorld,
+  updateCommunityWorldComment,
   unfavoriteCommunityWorld,
   type StoryCommunityWorldReportReason,
 } from '../services/storyApi'
@@ -113,6 +116,7 @@ const DASHBOARD_NEWS: DashboardNewsItem[] = [
 ]
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const DialogTransition = forwardRef(function DialogTransition(
@@ -294,7 +298,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       const worlds = await listCommunityWorlds(authToken)
       setCommunityWorlds(worlds)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить комьюнити миры'
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить сообщество'
       setCommunityWorldsError(detail)
       setCommunityWorlds([])
     } finally {
@@ -305,6 +309,49 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   useEffect(() => {
     void loadCommunityWorlds()
   }, [loadCommunityWorlds])
+
+  useEffect(() => {
+    const refreshTimerId = window.setInterval(() => {
+      void loadCommunityWorlds()
+    }, COMMUNITY_WORLD_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(refreshTimerId)
+  }, [loadCommunityWorlds])
+
+  useEffect(() => {
+    const selectedWorldId = selectedCommunityWorld?.world.id ?? null
+    if (!selectedWorldId) {
+      return
+    }
+    const syncedSummary = communityWorlds.find((world) => world.id === selectedWorldId)
+    if (!syncedSummary) {
+      return
+    }
+    setSelectedCommunityWorld((previous) => {
+      if (!previous || previous.world.id !== syncedSummary.id) {
+        return previous
+      }
+      const previousWorld = previous.world
+      if (
+        previousWorld.updated_at === syncedSummary.updated_at &&
+        previousWorld.community_rating_avg === syncedSummary.community_rating_avg &&
+        previousWorld.community_rating_count === syncedSummary.community_rating_count &&
+        previousWorld.community_views === syncedSummary.community_views &&
+        previousWorld.community_launches === syncedSummary.community_launches &&
+        previousWorld.user_rating === syncedSummary.user_rating &&
+        previousWorld.is_favorited_by_user === syncedSummary.is_favorited_by_user &&
+        previousWorld.is_reported_by_user === syncedSummary.is_reported_by_user
+      ) {
+        return previous
+      }
+      return {
+        ...previous,
+        world: {
+          ...previousWorld,
+          ...syncedSummary,
+        },
+      }
+    })
+  }, [communityWorlds, selectedCommunityWorld?.world.id])
 
   const syncCommunityWorldGameIds = useCallback(async () => {
     setIsDashboardDataLoading(true)
@@ -336,10 +383,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           token: authToken,
           worldId,
         })
-        setSelectedCommunityWorld(payload)
-        setCommunityRatingDraft(payload.world.user_rating ?? 0)
+        const normalizedPayload: StoryCommunityWorldPayload = {
+          ...payload,
+          comments: payload.comments ?? [],
+        }
+        setSelectedCommunityWorld(normalizedPayload)
+        setCommunityRatingDraft(normalizedPayload.world.user_rating ?? 0)
         setCommunityWorlds((previous) =>
-          previous.map((world) => (world.id === payload.world.id ? payload.world : world)),
+          previous.map((world) => (world.id === normalizedPayload.world.id ? normalizedPayload.world : world)),
         )
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось открыть мир'
@@ -375,19 +426,75 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     if (!selectedCommunityWorld || ratingValue < 1 || ratingValue > 5 || isCommunityRatingSaving) {
       return
     }
+    const worldId = selectedCommunityWorld.world.id
+    const previousRating = selectedCommunityWorld.world.user_rating ?? 0
     setCommunityRatingDraft(ratingValue)
+    setSelectedCommunityWorld((previous) =>
+      previous && previous.world.id === worldId
+        ? {
+            ...previous,
+            world: {
+              ...previous.world,
+              user_rating: ratingValue,
+            },
+          }
+        : previous,
+    )
+    setCommunityWorlds((previous) =>
+      previous.map((world) => (world.id === worldId ? { ...world, user_rating: ratingValue } : world)),
+    )
     setIsCommunityRatingSaving(true)
     try {
       const updatedWorld = await rateCommunityWorld({
         token: authToken,
-        worldId: selectedCommunityWorld.world.id,
+        worldId,
         rating: ratingValue,
       })
-      setSelectedCommunityWorld((previous) => (previous ? { ...previous, world: updatedWorld } : previous))
-      setCommunityWorlds((previous) => previous.map((world) => (world.id === updatedWorld.id ? updatedWorld : world)))
+      setSelectedCommunityWorld((previous) =>
+        previous && previous.world.id === updatedWorld.id
+          ? {
+              ...previous,
+              world: {
+                ...previous.world,
+                user_rating: updatedWorld.user_rating,
+                is_reported_by_user: updatedWorld.is_reported_by_user,
+                is_favorited_by_user: updatedWorld.is_favorited_by_user,
+              },
+            }
+          : previous,
+      )
+      setCommunityWorlds((previous) =>
+        previous.map((world) =>
+          world.id === updatedWorld.id
+            ? {
+                ...world,
+                user_rating: updatedWorld.user_rating,
+                is_reported_by_user: updatedWorld.is_reported_by_user,
+                is_favorited_by_user: updatedWorld.is_favorited_by_user,
+              }
+            : world,
+        ),
+      )
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить рейтинг'
       setCommunityWorldsError(detail)
+      setCommunityRatingDraft(previousRating)
+      setSelectedCommunityWorld((previous) =>
+        previous && previous.world.id === worldId
+          ? {
+              ...previous,
+              world: {
+                ...previous.world,
+                user_rating: previousRating > 0 ? previousRating : null,
+              },
+            }
+          : previous,
+      )
+      setCommunityWorlds((previous) =>
+        previous.map((world) =>
+          world.id === worldId ? { ...world, user_rating: previousRating > 0 ? previousRating : null } : world,
+        ),
+      )
     } finally {
       setIsCommunityRatingSaving(false)
     }
@@ -417,6 +524,74 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       }
     },
     [authToken, isCommunityReportSubmitting, selectedCommunityWorld],
+  )
+
+  const handleCreateCommunityWorldComment = useCallback(
+    async (content: string) => {
+      if (!selectedCommunityWorld) {
+        return
+      }
+      const createdComment = await createCommunityWorldComment({
+        token: authToken,
+        worldId: selectedCommunityWorld.world.id,
+        content,
+      })
+      setSelectedCommunityWorld((previous) =>
+        previous && previous.world.id === createdComment.world_id
+          ? {
+              ...previous,
+              comments: [...previous.comments, createdComment],
+            }
+          : previous,
+      )
+    },
+    [authToken, selectedCommunityWorld],
+  )
+
+  const handleUpdateCommunityWorldComment = useCallback(
+    async (commentId: number, content: string) => {
+      if (!selectedCommunityWorld) {
+        return
+      }
+      const updatedComment = await updateCommunityWorldComment({
+        token: authToken,
+        worldId: selectedCommunityWorld.world.id,
+        commentId,
+        content,
+      })
+      setSelectedCommunityWorld((previous) =>
+        previous && previous.world.id === updatedComment.world_id
+          ? {
+              ...previous,
+              comments: previous.comments.map((item) => (item.id === updatedComment.id ? updatedComment : item)),
+            }
+          : previous,
+      )
+    },
+    [authToken, selectedCommunityWorld],
+  )
+
+  const handleDeleteCommunityWorldComment = useCallback(
+    async (commentId: number) => {
+      if (!selectedCommunityWorld) {
+        return
+      }
+      const worldId = selectedCommunityWorld.world.id
+      await deleteCommunityWorldComment({
+        token: authToken,
+        worldId,
+        commentId,
+      })
+      setSelectedCommunityWorld((previous) =>
+        previous && previous.world.id === worldId
+          ? {
+              ...previous,
+              comments: previous.comments.filter((item) => item.id !== commentId),
+            }
+          : previous,
+      )
+    },
+    [authToken, selectedCommunityWorld],
   )
 
   const handleToggleFavoriteWorld = useCallback(
@@ -678,7 +853,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Комьюнити миры', onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',
@@ -969,7 +1144,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           >
             <Stack spacing={0.45}>
               <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-                Комьюнити миры
+                Сообщество
               </Typography>
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
                 Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
@@ -1182,6 +1357,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         open={Boolean(selectedCommunityWorld) || isCommunityWorldDialogLoading}
         isLoading={isCommunityWorldDialogLoading}
         worldPayload={selectedCommunityWorld}
+        currentUserId={user.id}
         ratingDraft={communityRatingDraft}
         isRatingSaving={isCommunityRatingSaving}
         isLaunching={isLaunchingCommunityWorld}
@@ -1196,6 +1372,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           onNavigate(`/profile/${authorId}`)
         }}
         onSubmitReport={(payload) => handleReportCommunityWorld(payload)}
+        onCreateComment={(content) => handleCreateCommunityWorldComment(content)}
+        onUpdateComment={(commentId, content) => handleUpdateCommunityWorldComment(commentId, content)}
+        onDeleteComment={(commentId) => handleDeleteCommunityWorldComment(commentId)}
         isReportSubmitting={isCommunityReportSubmitting}
       />
       <ProfileDialog

@@ -697,7 +697,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
     return games.find((game) => game.id === gameMenuGameId) ?? null
   }, [gameMenuGameId, games])
-  const pageTitle = mode === 'all' ? 'Комьюнити миры' : 'Мои игры'
+  const pageTitle = mode === 'all' ? 'Сообщество' : 'Мои игры'
   const profileName = user.display_name || 'Игрок'
 
   return (
@@ -717,7 +717,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Комьюнити миры', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Сообщество', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',

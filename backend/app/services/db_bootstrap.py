@@ -9,6 +9,13 @@ from app.database import Base, engine
 from app.models import (
     CoinPurchase,
     StoryCharacter,
+    StoryCommunityCharacterAddition,
+    StoryCommunityCharacterReport,
+    StoryCommunityCharacterRating,
+    StoryCommunityWorldComment,
+    StoryCommunityInstructionTemplateAddition,
+    StoryCommunityInstructionTemplateReport,
+    StoryCommunityInstructionTemplateRating,
     StoryCommunityWorldFavorite,
     StoryCommunityWorldLaunch,
     StoryCommunityWorldReport,
@@ -381,6 +388,90 @@ def _ensure_story_character_avatar_scale_column_exists() -> None:
         )
 
 
+def _ensure_story_character_community_columns_exist(private_visibility: str) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryCharacter.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryCharacter.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "visibility" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            f"ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT '{private_visibility}'"
+        )
+    if "source_character_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN source_character_id INTEGER"
+        )
+    if "community_rating_sum" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN community_rating_sum INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_rating_count" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN community_rating_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_additions_count" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN community_additions_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
+def _ensure_story_instruction_template_community_columns_exist(private_visibility: str) -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryInstructionTemplate.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryInstructionTemplate.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "visibility" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            f"ADD COLUMN visibility VARCHAR(16) NOT NULL DEFAULT '{private_visibility}'"
+        )
+    if "source_template_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN source_template_id INTEGER"
+        )
+    if "community_rating_sum" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN community_rating_sum INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_rating_count" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN community_rating_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "community_additions_count" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN community_additions_count INTEGER NOT NULL DEFAULT 0"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
 def _ensure_story_turn_image_history_schema() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(StoryTurnImage.__tablename__):
@@ -529,6 +620,10 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_user_id_id "
         f"ON {StoryInstructionTemplate.__tablename__} (user_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_visibility_source_id "
+        f"ON {StoryInstructionTemplate.__tablename__} (visibility, source_template_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_source_template_id_id "
+        f"ON {StoryInstructionTemplate.__tablename__} (source_template_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_plot_cards_game_id_id "
         f"ON {StoryPlotCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "
@@ -539,6 +634,10 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryWorldCard.__tablename__} (game_id, kind, character_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_characters_user_id_id "
         f"ON {StoryCharacter.__tablename__} (user_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_characters_visibility_source_id "
+        f"ON {StoryCharacter.__tablename__} (visibility, source_character_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_characters_source_character_id_id "
+        f"ON {StoryCharacter.__tablename__} (source_character_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_id_id "
         f"ON {StoryWorldCardChangeEvent.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_undone_id "
@@ -557,12 +656,40 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCommunityWorldFavorite.__tablename__} (world_id, user_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_favorites_user_world_id "
         f"ON {StoryCommunityWorldFavorite.__tablename__} (user_id, world_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_comments_world_created_id "
+        f"ON {StoryCommunityWorldComment.__tablename__} (world_id, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_world_comments_user_created_id "
+        f"ON {StoryCommunityWorldComment.__tablename__} (user_id, created_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_world_status_id "
         f"ON {StoryCommunityWorldReport.__tablename__} (world_id, status, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_reporter_world_id "
         f"ON {StoryCommunityWorldReport.__tablename__} (reporter_user_id, world_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_world_reports_status_created_id "
         f"ON {StoryCommunityWorldReport.__tablename__} (status, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_ratings_character_user_id "
+        f"ON {StoryCommunityCharacterRating.__tablename__} (character_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_additions_character_user_id "
+        f"ON {StoryCommunityCharacterAddition.__tablename__} (character_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_additions_user_character_id "
+        f"ON {StoryCommunityCharacterAddition.__tablename__} (user_id, character_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_reports_character_status_id "
+        f"ON {StoryCommunityCharacterReport.__tablename__} (character_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_reports_reporter_character_id "
+        f"ON {StoryCommunityCharacterReport.__tablename__} (reporter_user_id, character_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_character_reports_status_created_id "
+        f"ON {StoryCommunityCharacterReport.__tablename__} (status, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_ratings_template_user_id "
+        f"ON {StoryCommunityInstructionTemplateRating.__tablename__} (template_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_additions_template_user_id "
+        f"ON {StoryCommunityInstructionTemplateAddition.__tablename__} (template_id, user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_additions_user_template_id "
+        f"ON {StoryCommunityInstructionTemplateAddition.__tablename__} (user_id, template_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_reports_template_status_id "
+        f"ON {StoryCommunityInstructionTemplateReport.__tablename__} (template_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_reports_reporter_template_id "
+        f"ON {StoryCommunityInstructionTemplateReport.__tablename__} (reporter_user_id, template_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_reports_status_created_id "
+        f"ON {StoryCommunityInstructionTemplateReport.__tablename__} (status, created_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
         "CREATE INDEX IF NOT EXISTS ix_user_follows_follower_following_id "
@@ -592,6 +719,8 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     )
     _ensure_story_world_card_extended_columns_exist(defaults)
     _ensure_story_character_avatar_scale_column_exists()
+    _ensure_story_character_community_columns_exist(defaults.private_visibility)
+    _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)
     _ensure_story_turn_image_history_schema()
     _ensure_story_soft_undo_columns_exist()
     _ensure_performance_indexes_exist()

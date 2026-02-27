@@ -221,6 +221,21 @@ class StoryCommunityWorldFavorite(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class StoryCommunityWorldComment(Base):
+    __tablename__ = "story_community_world_comments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StoryCommunityWorldReport(Base):
     __tablename__ = "story_community_world_reports"
     __table_args__ = (
@@ -229,6 +244,50 @@ class StoryCommunityWorldReport(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     world_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCommunityCharacterReport(Base):
+    __tablename__ = "story_community_character_reports"
+    __table_args__ = (
+        UniqueConstraint("character_id", "reporter_user_id", name="uq_story_community_character_reports_character_reporter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    character_id: Mapped[int] = mapped_column(ForeignKey("story_characters.id"), nullable=False, index=True)
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    resolved_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCommunityInstructionTemplateReport(Base):
+    __tablename__ = "story_community_instruction_template_reports"
+    __table_args__ = (
+        UniqueConstraint("template_id", "reporter_user_id", name="uq_story_community_instruction_template_reports_template_reporter"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("story_instruction_templates.id"), nullable=False, index=True)
     reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     reason: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
@@ -301,6 +360,11 @@ class StoryInstructionTemplate(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
+    source_template_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_additions_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -320,12 +384,77 @@ class StoryCharacter(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
+    source_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    community_additions_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class StoryCommunityCharacterRating(Base):
+    __tablename__ = "story_community_character_ratings"
+    __table_args__ = (
+        UniqueConstraint("character_id", "user_id", name="uq_story_community_character_ratings_character_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    character_id: Mapped[int] = mapped_column(ForeignKey("story_characters.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCommunityCharacterAddition(Base):
+    __tablename__ = "story_community_character_additions"
+    __table_args__ = (
+        UniqueConstraint("character_id", "user_id", name="uq_story_community_character_additions_character_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    character_id: Mapped[int] = mapped_column(ForeignKey("story_characters.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class StoryCommunityInstructionTemplateRating(Base):
+    __tablename__ = "story_community_instruction_template_ratings"
+    __table_args__ = (
+        UniqueConstraint("template_id", "user_id", name="uq_story_community_instruction_template_ratings_template_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("story_instruction_templates.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCommunityInstructionTemplateAddition(Base):
+    __tablename__ = "story_community_instruction_template_additions"
+    __table_args__ = (
+        UniqueConstraint("template_id", "user_id", name="uq_story_community_instruction_template_additions_template_user"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("story_instruction_templates.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class StoryWorldCard(Base):

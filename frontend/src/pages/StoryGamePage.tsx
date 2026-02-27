@@ -270,6 +270,13 @@ const STORY_SENTENCE_MATCH_PATTERN = /[^.!?…]+[.!?…]?/gu
 const STORY_BULLET_PREFIX_PATTERN = /^\s*[-•*]+\s*/u
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
 const STORY_CYRILLIC_TOKEN_PATTERN = /^[\u0430-\u044f\u0451]+$/i
+const DIALOGUE_QUOTE_CUE_PATTERN = /["'\u00ab\u00bb\u201e\u201c\u201d]/u
+const DIALOGUE_DASH_START_CUE_PATTERN = /^\s*(?:\u2014|-)\s*\S/u
+const DIALOGUE_DASH_AFTER_PUNCT_CUE_PATTERN = /[.!?\u2026]\s*(?:\u2014|-)\s*\S/u
+const FIRST_OR_SECOND_PERSON_PRONOUN_PATTERN =
+  /\b(?:\u044f|\u043c\u0435\u043d\u044f|\u043c\u043d\u0435|\u043c\u043d\u043e\u0439|\u043c\u044b|\u043d\u0430\u0441|\u043d\u0430\u043c|\u043d\u0430\u0448|\u043d\u0430\u0448\u0430|\u043d\u0430\u0448\u0435|\u043d\u0430\u0448\u0438|\u0442\u044b|\u0442\u0435\u0431\u044f|\u0442\u0435\u0431\u0435|\u0442\u043e\u0431\u043e\u0439|\u0432\u044b|\u0432\u0430\u0441|\u0432\u0430\u043c|\u0432\u0430\u043c\u0438|\u0432\u0430\u0448|\u0432\u0430\u0448\u0430|\u0432\u0430\u0448\u0435|\u0432\u0430\u0448\u0438|i|me|my|mine|we|us|our|ours|you|your|yours)\b/iu
+const THIRD_PERSON_NARRATIVE_START_PATTERN =
+  /^(?:\u043e\u043d|\u043e\u043d\u0430|\u043e\u043d\u0438|\u0435\u0433\u043e|\u0435\u0451|\u0435\u0435|\u0438\u0445|\u043a\u0442\u043e-\u0442\u043e|\u043a\u0442\u043e \u0442\u043e|he|she|they|his|her|their)\b/iu
 const STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP: Record<string, string> = {
   a: 'а',
   b: 'в',
@@ -449,6 +456,20 @@ function normalizeAssistantMarkerKey(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, '_').trim()
 }
 
+function stripLeadingStructuredMarkerLines(value: string): string {
+  let normalized = value.replace(/\r\n/g, '\n').trim()
+  while (true) {
+    const nextValue = normalized.replace(
+      /^\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]\s*(?:\n+\s*|\s+)/u,
+      '',
+    ).trim()
+    if (nextValue === normalized) {
+      return normalized
+    }
+    normalized = nextValue
+  }
+}
+
 type AssistantMarkerKind = 'narrative' | 'speech' | 'thought'
 
 function resolveAssistantMarkerKind(
@@ -543,7 +564,7 @@ function parseStructuredAssistantParagraph(paragraph: string): AssistantMessageB
     return null
   }
 
-  const bodyText = markerMatch[3].trim()
+  const bodyText = stripLeadingStructuredMarkerLines(markerMatch[3].trim())
   if (!bodyText) {
     return null
   }
@@ -588,7 +609,7 @@ function parseTaggedAssistantParagraph(paragraph: string): AssistantMessageBlock
     return null
   }
 
-  const bodyText = tagMatch[3].trim()
+  const bodyText = stripLeadingStructuredMarkerLines(tagMatch[3].trim())
   if (!bodyText) {
     return null
   }
@@ -697,6 +718,29 @@ function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
   })
 
   return blocks
+}
+
+function isLikelyNarrativeSpeechLine(text: string, speakerName: string): boolean {
+  const normalizedText = text.replace(/\s+/g, ' ').trim()
+  if (!normalizedText) {
+    return true
+  }
+  if (
+    DIALOGUE_QUOTE_CUE_PATTERN.test(normalizedText) ||
+    DIALOGUE_DASH_START_CUE_PATTERN.test(normalizedText) ||
+    DIALOGUE_DASH_AFTER_PUNCT_CUE_PATTERN.test(normalizedText) ||
+    FIRST_OR_SECOND_PERSON_PRONOUN_PATTERN.test(normalizedText)
+  ) {
+    return false
+  }
+
+  const normalizedLine = normalizedText.replace(/^[\s"'.,:;!?()[\]\u00ab\u00bb\u201e\u201c\u201d-]+/u, '').toLowerCase()
+  if (THIRD_PERSON_NARRATIVE_START_PATTERN.test(normalizedLine)) {
+    return true
+  }
+
+  const normalizedSpeakerName = speakerName.replace(/\s+/g, ' ').trim().toLowerCase()
+  return Boolean(normalizedSpeakerName) && normalizedLine.startsWith(`${normalizedSpeakerName} `)
 }
 
 function serializeAssistantMessageBlock(block: AssistantMessageBlock): string {
@@ -5185,6 +5229,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       let streamStarted = false
       let generationFailed = false
       let postprocessPending = false
+      let startedAssistantMessageId: number | null = null
+      let completedAssistantMessageId: number | null = null
+      let autoTurnImageKickoffScheduled = false
 
       try {
         await generateStoryResponseStream({
@@ -5208,6 +5255,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
+            startedAssistantMessageId = payload.assistant_message_id
             setActiveAssistantMessageId(payload.assistant_message_id)
             setMessages((previousMessages) => {
               const nextMessages = [...previousMessages]
@@ -5265,10 +5313,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             })
           },
           onDone: (payload) => {
+            completedAssistantMessageId = payload.message.id
             if (payload.user) {
               onUserUpdate(payload.user)
             }
             postprocessPending = Boolean(payload.postprocess_pending)
+            const nextPlotEvents = payload.plot_card_events ?? []
+            const nextWorldEvents = payload.world_card_events ?? []
+            const nextPlotCards = payload.plot_cards ?? null
+            const nextWorldCards = payload.world_cards ?? null
+            if (nextPlotCards !== null) {
+              setPlotCards(nextPlotCards)
+            } else if (nextPlotEvents.length > 0) {
+              setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, nextPlotEvents, options.gameId))
+            }
+            if (nextWorldCards !== null) {
+              setWorldCards(nextWorldCards)
+            } else if (nextWorldEvents.length > 0) {
+              setWorldCards((previousCards) => reapplyWorldCardsByEvents(previousCards, nextWorldEvents, options.gameId))
+            }
+            applyPlotCardEvents(nextPlotEvents)
+            applyWorldCardEvents(nextWorldEvents)
             if (payload.ambient) {
               const normalizedAmbient = normalizeStoryAmbientProfile(payload.ambient)
               setPersistedAmbientProfile(normalizedAmbient)
@@ -5299,6 +5364,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               return nextMessages
             })
             if (isTurnImageGenerationEnabled && payload.message.id > 0) {
+              autoTurnImageKickoffScheduled = true
               window.setTimeout(() => {
                 void generateTurnImageAfterAssistantMessage({
                   gameId: options.gameId,
@@ -5345,6 +5411,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           // Keep current games if refresh failed.
         }
 
+        const resolvedAssistantMessageIdForImage =
+          completedAssistantMessageId && completedAssistantMessageId > 0
+            ? completedAssistantMessageId
+            : startedAssistantMessageId && startedAssistantMessageId > 0
+              ? startedAssistantMessageId
+              : null
+
+        if (
+          isTurnImageGenerationEnabled &&
+          !autoTurnImageKickoffScheduled &&
+          !generationFailed &&
+          !wasAborted &&
+          resolvedAssistantMessageIdForImage !== null
+        ) {
+          void generateTurnImageAfterAssistantMessage({
+            gameId: options.gameId,
+            assistantMessageId: resolvedAssistantMessageIdForImage,
+          }).catch((error) => {
+            console.error('Turn image fallback generation start failed', error)
+          })
+        }
+
         if (postprocessPending) {
           void (async () => {
             const maxAttempts = 20
@@ -5379,6 +5467,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     },
     [
+      applyPlotCardEvents,
+      applyWorldCardEvents,
       ambientEnabled,
       authToken,
       generateTurnImageAfterAssistantMessage,
@@ -5797,7 +5887,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
-          { key: 'games-all', label: 'Комьюнити миры', isActive: false, onClick: () => onNavigate('/games/all') },
+          { key: 'games-all', label: 'Сообщество', isActive: false, onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',
@@ -7464,22 +7554,46 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     py: 0.3,
                   }}
                 >
-                  <Stack spacing="var(--morius-story-message-gap)">
-                    {quickStartIntroBlocks.map((block, index) => {
-                      if (block.type === 'character') {
-                        const nearbyNarrativeContext = quickStartIntroBlocks
-                          .slice(Math.max(0, index - 3), Math.min(quickStartIntroBlocks.length, index + 4))
-                          .filter((candidate) => candidate.type === 'narrative')
-                          .map((candidate) => candidate.text)
-                          .join('\n')
-                        const resolvedSpeakerName = resolveDialogueSpeakerName(
-                          block.speakerName,
-                          block.text,
-                          nearbyNarrativeContext,
-                        )
-                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
-                        return (
-                          <Stack
+	                  <Stack spacing="var(--morius-story-message-gap)">
+	                    {quickStartIntroBlocks.map((block, index) => {
+	                      if (block.type === 'character') {
+	                        const nearbyNarrativeContext = quickStartIntroBlocks
+	                          .slice(Math.max(0, index - 3), Math.min(quickStartIntroBlocks.length, index + 4))
+	                          .filter((candidate) => candidate.type === 'narrative')
+	                          .map((candidate) => candidate.text)
+	                          .join('\n')
+	                        const resolvedSpeakerName = resolveDialogueSpeakerName(
+	                          block.speakerName,
+	                          block.text,
+	                          nearbyNarrativeContext,
+	                        )
+	                        const shouldShowCharacterIdentity =
+	                          block.delivery === 'thought' || !isLikelyNarrativeSpeechLine(block.text, resolvedSpeakerName)
+	                        if (!shouldShowCharacterIdentity) {
+	                          return (
+	                            <Box
+	                              key={`quick-start-character-narrative-${index}`}
+	                              sx={{
+	                                px: 0.05,
+	                                py: 0.05,
+	                              }}
+	                            >
+	                              <Typography
+	                                sx={{
+	                                  color: 'var(--morius-title-text)',
+	                                  lineHeight: 1.58,
+	                                  fontSize: { xs: '1.02rem', md: '1.12rem' },
+	                                  whiteSpace: 'pre-wrap',
+	                                }}
+	                              >
+	                                {block.text}
+	                              </Typography>
+	                            </Box>
+	                          )
+	                        }
+	                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+	                        return (
+	                          <Stack
                             key={`quick-start-character-${index}`}
                             direction="row"
                             spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
@@ -7674,14 +7788,63 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 .filter((candidate) => candidate.type === 'narrative')
                                 .map((candidate) => candidate.text)
                                 .join('\n')
-                              const resolvedSpeakerName = resolveDialogueSpeakerName(
-                                block.speakerName,
-                                block.text,
-                                nearbyNarrativeContext,
-                              )
-                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
-                              return (
-                                <Stack
+	                              const resolvedSpeakerName = resolveDialogueSpeakerName(
+	                                block.speakerName,
+	                                block.text,
+	                                nearbyNarrativeContext,
+	                              )
+	                              const shouldShowCharacterIdentity =
+	                                block.delivery === 'thought' || !isLikelyNarrativeSpeechLine(block.text, resolvedSpeakerName)
+	                              if (!shouldShowCharacterIdentity) {
+	                                return (
+	                                  <Box
+	                                    key={`${message.id}-${index}-character-narrative`}
+	                                    sx={{
+	                                      px: 0.05,
+	                                      py: 0.05,
+	                                    }}
+	                                  >
+	                                    <Box
+	                                      component="div"
+	                                      contentEditable={!isGenerating && !isSavingMessage}
+	                                      suppressContentEditableWarning
+	                                      spellCheck={false}
+	                                      onKeyDown={(event) => {
+	                                        if (event.key === 'Escape') {
+	                                          event.preventDefault()
+	                                          event.currentTarget.textContent = block.text
+	                                          event.currentTarget.blur()
+	                                        }
+	                                      }}
+	                                      onBlur={(event) => {
+	                                        const nextContent = buildAssistantMessageContentWithEditedBlock(
+	                                          message.content,
+	                                          index,
+	                                          event.currentTarget.textContent ?? '',
+	                                        )
+	                                        if (!nextContent) {
+	                                          event.currentTarget.textContent = block.text
+	                                          return
+	                                        }
+	                                        void handleSaveMessageInline(message.id, nextContent)
+	                                      }}
+	                                      sx={{
+	                                        color: 'var(--morius-title-text)',
+	                                        lineHeight: 1.58,
+	                                        fontSize: { xs: '1.02rem', md: '1.12rem' },
+	                                        whiteSpace: 'pre-wrap',
+	                                        outline: 'none',
+	                                        cursor: isGenerating ? 'default' : 'text',
+	                                      }}
+	                                    >
+	                                      {block.text}
+	                                    </Box>
+	                                  </Box>
+	                                )
+	                              }
+	                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+	                              return (
+	                                <Stack
                                   key={`${message.id}-${index}-character`}
                                   direction="row"
                                   spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}

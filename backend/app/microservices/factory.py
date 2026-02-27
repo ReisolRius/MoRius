@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterable
 
 from fastapi import FastAPI
@@ -10,6 +11,9 @@ from fastapi.routing import APIRoute
 
 from app import main as monolith
 from app.config import settings
+
+
+_ADD_API_ROUTE_SUPPORTED_PARAMS = set(inspect.signature(FastAPI.add_api_route).parameters)
 
 
 def _normalize_prefix(value: str) -> str:
@@ -36,32 +40,36 @@ def _clone_route_to_app(target_app: FastAPI, route: APIRoute) -> None:
     callbacks = list(route.callbacks) if route.callbacks else None
     responses = dict(route.responses) if route.responses else None
 
-    target_app.add_api_route(
-        path=route.path,
-        endpoint=route.endpoint,
-        methods=methods,
-        name=route.name,
-        response_model=route.response_model,
-        status_code=route.status_code,
-        tags=tags,
-        dependencies=dependencies,
-        summary=route.summary,
-        description=route.description,
-        response_description=route.response_description,
-        responses=responses,
-        deprecated=route.deprecated,
-        operation_id=route.operation_id,
-        response_model_include=route.response_model_include,
-        response_model_exclude=route.response_model_exclude,
-        response_model_by_alias=route.response_model_by_alias,
-        response_model_exclude_unset=route.response_model_exclude_unset,
-        response_model_exclude_defaults=route.response_model_exclude_defaults,
-        response_model_exclude_none=route.response_model_exclude_none,
-        include_in_schema=route.include_in_schema,
-        response_class=route.response_class,
-        callbacks=callbacks,
-        openapi_extra=route.openapi_extra,
-    )
+    route_kwargs = {
+        "path": route.path,
+        "endpoint": route.endpoint,
+        "methods": methods,
+        "name": route.name,
+        "response_model": route.response_model,
+        "status_code": route.status_code,
+        "tags": tags,
+        "dependencies": dependencies,
+        "summary": route.summary,
+        "description": route.description,
+        "response_description": route.response_description,
+        "responses": responses,
+        "deprecated": route.deprecated,
+        "operation_id": route.operation_id,
+        "response_model_include": route.response_model_include,
+        "response_model_exclude": route.response_model_exclude,
+        "response_model_by_alias": route.response_model_by_alias,
+        "response_model_exclude_unset": route.response_model_exclude_unset,
+        "response_model_exclude_defaults": route.response_model_exclude_defaults,
+        "response_model_exclude_none": route.response_model_exclude_none,
+        "include_in_schema": route.include_in_schema,
+        "response_class": route.response_class,
+        "callbacks": callbacks,
+        "openapi_extra": route.openapi_extra,
+    }
+    filtered_kwargs = {
+        key: value for key, value in route_kwargs.items() if key in _ADD_API_ROUTE_SUPPORTED_PARAMS
+    }
+    target_app.add_api_route(**filtered_kwargs)
 
 
 def _clone_monolith_routes(

@@ -1,5 +1,8 @@
 ﻿import type {
   StoryCharacter,
+  StoryCommunityCharacterSummary,
+  StoryCommunityWorldComment,
+  StoryCommunityInstructionTemplateSummary,
   StoryCommunityWorldPayload,
   StoryCommunityWorldSummary,
   StoryGamePayload,
@@ -88,6 +91,7 @@ export type StoryCharacterInput = {
   triggers: string[]
   avatar_url: string | null
   avatar_scale?: number
+  visibility?: StoryGameVisibility
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -247,6 +251,68 @@ export async function reportCommunityWorld(payload: {
   })
 }
 
+export async function listCommunityWorldComments(payload: {
+  token: string
+  worldId: number
+}): Promise<StoryCommunityWorldComment[]> {
+  return request<StoryCommunityWorldComment[]>(`/api/story/community/worlds/${payload.worldId}/comments`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function createCommunityWorldComment(payload: {
+  token: string
+  worldId: number
+  content: string
+}): Promise<StoryCommunityWorldComment> {
+  return request<StoryCommunityWorldComment>(`/api/story/community/worlds/${payload.worldId}/comments`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      content: payload.content,
+    }),
+  })
+}
+
+export async function updateCommunityWorldComment(payload: {
+  token: string
+  worldId: number
+  commentId: number
+  content: string
+}): Promise<StoryCommunityWorldComment> {
+  return request<StoryCommunityWorldComment>(
+    `/api/story/community/worlds/${payload.worldId}/comments/${payload.commentId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        content: payload.content,
+      }),
+    },
+  )
+}
+
+export async function deleteCommunityWorldComment(payload: {
+  token: string
+  worldId: number
+  commentId: number
+}): Promise<void> {
+  return requestNoContent(`/api/story/community/worlds/${payload.worldId}/comments/${payload.commentId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
 export async function favoriteCommunityWorld(payload: {
   token: string
   worldId: number
@@ -265,6 +331,144 @@ export async function unfavoriteCommunityWorld(payload: {
 }): Promise<StoryCommunityWorldSummary> {
   return request<StoryCommunityWorldSummary>(`/api/story/community/worlds/${payload.worldId}/favorite`, {
     method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function listCommunityCharacters(token: string): Promise<StoryCommunityCharacterSummary[]> {
+  return request<StoryCommunityCharacterSummary[]>('/api/story/community/characters', {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
+export async function getCommunityCharacter(payload: {
+  token: string
+  characterId: number
+}): Promise<StoryCommunityCharacterSummary> {
+  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function rateCommunityCharacter(payload: {
+  token: string
+  characterId: number
+  rating: number
+}): Promise<StoryCommunityCharacterSummary> {
+  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/rating`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      rating: payload.rating,
+    }),
+  })
+}
+
+export async function reportCommunityCharacter(payload: {
+  token: string
+  characterId: number
+  reason: StoryCommunityWorldReportReason
+  description: string
+}): Promise<StoryCommunityCharacterSummary> {
+  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/report`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      reason: payload.reason,
+      description: payload.description,
+    }),
+  })
+}
+
+export async function addCommunityCharacter(payload: {
+  token: string
+  characterId: number
+}): Promise<StoryCommunityCharacterSummary> {
+  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/add`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function listCommunityInstructionTemplates(token: string): Promise<StoryCommunityInstructionTemplateSummary[]> {
+  return request<StoryCommunityInstructionTemplateSummary[]>('/api/story/community/instruction-templates', {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
+export async function getCommunityInstructionTemplate(payload: {
+  token: string
+  templateId: number
+}): Promise<StoryCommunityInstructionTemplateSummary> {
+  return request<StoryCommunityInstructionTemplateSummary>(`/api/story/community/instruction-templates/${payload.templateId}`, {
+    method: 'GET',
+    cache: 'no-store',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function rateCommunityInstructionTemplate(payload: {
+  token: string
+  templateId: number
+  rating: number
+}): Promise<StoryCommunityInstructionTemplateSummary> {
+  return request<StoryCommunityInstructionTemplateSummary>(`/api/story/community/instruction-templates/${payload.templateId}/rating`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      rating: payload.rating,
+    }),
+  })
+}
+
+export async function reportCommunityInstructionTemplate(payload: {
+  token: string
+  templateId: number
+  reason: StoryCommunityWorldReportReason
+  description: string
+}): Promise<StoryCommunityInstructionTemplateSummary> {
+  return request<StoryCommunityInstructionTemplateSummary>(`/api/story/community/instruction-templates/${payload.templateId}/report`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      reason: payload.reason,
+      description: payload.description,
+    }),
+  })
+}
+
+export async function addCommunityInstructionTemplate(payload: {
+  token: string
+  templateId: number
+}): Promise<StoryCommunityInstructionTemplateSummary> {
+  return request<StoryCommunityInstructionTemplateSummary>(`/api/story/community/instruction-templates/${payload.templateId}/add`, {
+    method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
@@ -332,6 +536,7 @@ export async function createStoryInstructionTemplate(payload: {
   token: string
   title: string
   content: string
+  visibility?: StoryGameVisibility
 }): Promise<StoryInstructionTemplate> {
   return request<StoryInstructionTemplate>('/api/story/instruction-templates', {
     method: 'POST',
@@ -341,6 +546,7 @@ export async function createStoryInstructionTemplate(payload: {
     body: JSON.stringify({
       title: payload.title,
       content: payload.content,
+      visibility: payload.visibility ?? null,
     }),
   })
 }
@@ -350,6 +556,7 @@ export async function updateStoryInstructionTemplate(payload: {
   templateId: number
   title: string
   content: string
+  visibility?: StoryGameVisibility
 }): Promise<StoryInstructionTemplate> {
   return request<StoryInstructionTemplate>(`/api/story/instruction-templates/${payload.templateId}`, {
     method: 'PATCH',
@@ -359,6 +566,7 @@ export async function updateStoryInstructionTemplate(payload: {
     body: JSON.stringify({
       title: payload.title,
       content: payload.content,
+      visibility: payload.visibility ?? null,
     }),
   })
 }
