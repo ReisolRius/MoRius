@@ -40,7 +40,7 @@ function TopUpDialog({
       }}
     >
       <DialogTitle sx={{ pb: 0.8 }}>
-        <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Пополнение токенов</Typography>
+        <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Пополнение солов</Typography>
         <Typography sx={{ color: 'text.secondary', mt: 0.6 }}>
           Выберите пакет и нажмите «Купить», чтобы перейти к оплате.
         </Typography>
@@ -84,7 +84,7 @@ function TopUpDialog({
                       </Typography>
                       <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>{plan.description}</Typography>
                       <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-                        +{plan.coins.toLocaleString('ru-RU')} токенов
+                        +{plan.coins.toLocaleString('ru-RU')} солов
                       </Typography>
                     </Stack>
                     <Button

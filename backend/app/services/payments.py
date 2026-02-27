@@ -22,28 +22,28 @@ COIN_TOP_UP_PLANS: tuple[dict[str, Any], ...] = (
     {
         "id": "standard",
         "title": "Путник",
-        "description": "250 токенов",
+        "description": "250 солов",
         "price_rub": 399,
         "coins": 250,
     },
     {
         "id": "pro",
         "title": "Искатель",
-        "description": "800 токенов",
+        "description": "800 солов",
         "price_rub": 999,
         "coins": 800,
     },
     {
         "id": "mega",
         "title": "Хронист",
-        "description": "2500 токенов",
+        "description": "2500 солов",
         "price_rub": 2890,
         "coins": 2500,
     },
 )
 COIN_TOP_UP_PLANS_BY_ID = {plan["id"]: plan for plan in COIN_TOP_UP_PLANS}
 RECEIPT_ITEM_DESCRIPTION_MAX_LENGTH = 128
-DEFAULT_RECEIPT_ITEM_DESCRIPTION = "Top up coins"
+DEFAULT_RECEIPT_ITEM_DESCRIPTION = "Top up sols"
 YOOKASSA_WEBHOOK_IP_RANGES: tuple[str, ...] = (
     "185.71.76.0/27",
     "185.71.77.0/27",
@@ -130,7 +130,7 @@ def get_coin_plan(plan_id: str) -> dict[str, Any]:
     plan = COIN_TOP_UP_PLANS_BY_ID.get(plan_id)
     if plan:
         return plan
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown coin top-up plan")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown sol top-up plan")
 
 
 def _normalize_receipt_item_description(raw_value: str) -> str:
@@ -159,7 +159,7 @@ def _build_receipt_payload(plan: dict[str, Any], user: User, amount_value: str) 
     vat_code = settings.yookassa_receipt_vat_code
 
     item_description = _normalize_receipt_item_description(
-        f"MoRius оплата покупки токенов: {plan['title']} ({plan['price_rub']} руб)"
+        f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)"
     )
     item_payload: dict[str, Any] = {
         "description": item_description,
@@ -253,7 +253,7 @@ def create_payment_in_provider(plan: dict[str, Any], user: User) -> dict[str, An
             "type": "redirect",
             "return_url": settings.payments_return_url,
         },
-        "description": f"MoRius оплата покупки токенов: {plan['title']} ({plan['price_rub']} руб)",
+        "description": f"MoRius оплата покупки солов: {plan['title']} ({plan['price_rub']} руб)",
         "metadata": {
             "app": "morius",
             "user_id": str(user.id),

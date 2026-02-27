@@ -621,6 +621,31 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   const toStreamError = (error: unknown, fallbackMessage: string): Error =>
     error instanceof Error ? error : new Error(fallbackMessage)
 
+  const processBufferedBlocks = (allowTrailingBlock: boolean) => {
+    buffer = buffer.replace(/\r\n/g, '\n')
+    let separatorIndex = buffer.indexOf('\n\n')
+    while (separatorIndex >= 0) {
+      const rawBlock = buffer.slice(0, separatorIndex)
+      buffer = buffer.slice(separatorIndex + 2)
+      processBlock(rawBlock)
+      if (streamTerminalEventReceived) {
+        return
+      }
+      separatorIndex = buffer.indexOf('\n\n')
+    }
+
+    if (!allowTrailingBlock || streamTerminalEventReceived) {
+      return
+    }
+    const trailingBlock = buffer.trim()
+    if (!trailingBlock) {
+      buffer = ''
+      return
+    }
+    buffer = ''
+    processBlock(trailingBlock)
+  }
+
   const processBlock = (rawBlock: string) => {
     const parsed = parseSseBlock(rawBlock)
     if (!parsed) {
@@ -682,17 +707,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     }
 
     buffer += decoder.decode(value, { stream: true })
-    buffer = buffer.replace(/\r\n/g, '\n')
-    let separatorIndex = buffer.indexOf('\n\n')
-    while (separatorIndex >= 0) {
-      const rawBlock = buffer.slice(0, separatorIndex)
-      buffer = buffer.slice(separatorIndex + 2)
-      processBlock(rawBlock)
-      if (streamTerminalEventReceived) {
-        break
-      }
-      separatorIndex = buffer.indexOf('\n\n')
-    }
+    processBufferedBlocks(false)
     if (streamTerminalEventReceived) {
       try {
         await reader.cancel()
@@ -705,10 +720,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
 
   if (!streamTerminalEventReceived) {
     buffer += decoder.decode()
-    buffer = buffer.replace(/\r\n/g, '\n')
-    if (buffer.trim()) {
-      processBlock(buffer)
-    }
+    processBufferedBlocks(true)
   }
 
   if (streamError) {
@@ -1014,6 +1026,30 @@ export async function undoStoryWorldCardEvent(payload: {
   eventId: number
 }): Promise<void> {
   return requestNoContent(`/api/story/games/${payload.gameId}/world-card-events/${payload.eventId}/undo`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function undoStoryAssistantStep(payload: {
+  token: string
+  gameId: number
+}): Promise<void> {
+  return requestNoContent(`/api/story/games/${payload.gameId}/assistant-step/undo`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function redoStoryAssistantStep(payload: {
+  token: string
+  gameId: number
+}): Promise<void> {
+  return requestNoContent(`/api/story/games/${payload.gameId}/assistant-step/redo`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,

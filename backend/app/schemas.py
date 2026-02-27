@@ -574,3 +574,4 @@ class StoryGameOut(BaseModel):
     plot_card_events: list[StoryPlotCardChangeEventOut]
     world_cards: list[StoryWorldCardOut]
     world_card_events: list[StoryWorldCardChangeEventOut]
+    can_redo_assistant_step: bool = False

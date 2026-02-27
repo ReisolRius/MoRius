@@ -748,12 +748,15 @@ function CharacterManagerDialog({
                           sx={{
                             width: 28,
                             height: 28,
-                            borderRadius: 'var(--morius-radius)',
                             color: 'var(--morius-text-secondary)',
                             flexShrink: 0,
+                            backgroundColor: 'transparent !important',
+                            border: 'none',
                             '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
+                              backgroundColor: 'transparent !important',
                             },
+                            '&:active': { backgroundColor: 'transparent !important' },
+                            '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
                           }}
                         >
                           {deletingCharacterId === character.id ? (

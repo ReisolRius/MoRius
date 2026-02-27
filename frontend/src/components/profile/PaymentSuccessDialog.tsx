@@ -36,7 +36,7 @@ function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: Pay
       </DialogTitle>
       <DialogContent sx={{ pt: 0.6 }}>
         <Typography sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
-          Начислено +{Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')} токенов.
+          Начислено +{Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')} солов.
         </Typography>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.4 }}>

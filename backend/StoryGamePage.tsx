@@ -178,7 +178,7 @@ const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
-const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Закончились токены'
+const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Закончились солы'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
@@ -231,22 +231,22 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
     title: 'Flux',
-    description: '3 токена за генерацию кадра.',
+    description: '3 сола за генерацию кадра.',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream',
-    description: '5 токенов за генерацию кадра.',
+    description: '5 солов за генерацию кадра.',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
-    description: '15 токенов за генерацию кадра.',
+    description: '15 солов за генерацию кадра.',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
-    description: '25 токенов за генерацию кадра.',
+    description: '30 солов за генерацию кадра.',
   },
 ]
 const RIGHT_PANEL_WIDTH_MIN = 300
@@ -5154,7 +5154,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         } else {
           generationFailed = true
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
-          if (/недостаточно токенов/i.test(detail)) {
+          if (/недостаточно (?:токенов|солов)/i.test(detail)) {
             setInputValue('')
             setTopUpError('')
             setTopUpDialogOpen(true)
@@ -5244,7 +5244,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     if (hasInsufficientTokensForTurn) {
       setInputValue('')
-      setErrorMessage(`Недостаточно токенов для хода: нужно ${currentTurnCostTokens}.`)
+      setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setTopUpDialogOpen(true)
       setProfileDialogOpen(false)
@@ -5408,7 +5408,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     if (hasInsufficientTokensForTurn) {
       setInputValue('')
-      setErrorMessage(`Недостаточно токенов для хода: нужно ${currentTurnCostTokens}.`)
+      setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setTopUpDialogOpen(true)
       setProfileDialogOpen(false)
@@ -8349,7 +8349,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   placement="top"
                   title={
                     <Box sx={{ whiteSpace: 'pre-line' }}>
-                      {'Стоимость хода зависит от использованного контекста:\nдо 1500 — 1 токен\n1500-3000 — 2 токена\n3000-4000 — 3 токена'}
+                      {'Стоимость хода зависит от использованного контекста:\nдо 1500 — 1 сол\n1500-3000 — 2 сола\n3000-4000 — 3 сола'}
                     </Box>
                   }
                 >

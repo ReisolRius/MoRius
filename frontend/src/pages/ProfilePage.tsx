@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Alert,
   Box,
@@ -11,6 +11,8 @@ import {
   DialogTitle,
   FormControlLabel,
   IconButton,
+  Menu,
+  MenuItem,
   Skeleton,
   Stack,
   Switch,
@@ -44,6 +46,8 @@ import {
   type ProfileView,
 } from '../services/authApi'
 import {
+  deleteStoryCharacter,
+  deleteStoryInstructionTemplate,
   favoriteCommunityWorld,
   listFavoriteCommunityWorlds,
   listStoryCharacters,
@@ -228,6 +232,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [instructionDialogMode, setInstructionDialogMode] = useState<'list' | 'create'>('list')
   const [instructionEditId, setInstructionEditId] = useState<number | null>(null)
+  const [contentCardMenuAnchorEl, setContentCardMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [contentCardMenuType, setContentCardMenuType] = useState<'character' | 'instruction' | null>(null)
+  const [contentCardMenuItemId, setContentCardMenuItemId] = useState<number | null>(null)
 
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
@@ -324,6 +331,20 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         (left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id,
       ),
     [templates],
+  )
+  const selectedContentCharacterMenuItem = useMemo(
+    () =>
+      contentCardMenuType === 'character' && contentCardMenuItemId !== null
+        ? sortedCharacters.find((character) => character.id === contentCardMenuItemId) ?? null
+        : null,
+    [contentCardMenuItemId, contentCardMenuType, sortedCharacters],
+  )
+  const selectedContentInstructionMenuItem = useMemo(
+    () =>
+      contentCardMenuType === 'instruction' && contentCardMenuItemId !== null
+        ? sortedTemplates.find((template) => template.id === contentCardMenuItemId) ?? null
+        : null,
+    [contentCardMenuItemId, contentCardMenuType, sortedTemplates],
   )
   const normalizedContentSearchQuery = useMemo(
     () => normalizeProfileSearchValue(contentSearchQuery),
@@ -796,6 +817,96 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     void loadTemplatesOnly()
   }, [loadTemplatesOnly])
 
+  const handleOpenContentCardMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, type: 'character' | 'instruction', itemId: number) => {
+      event.preventDefault()
+      event.stopPropagation()
+      setContentCardMenuAnchorEl(event.currentTarget)
+      setContentCardMenuType(type)
+      setContentCardMenuItemId(itemId)
+    },
+    [],
+  )
+
+  const handleCloseContentCardMenu = useCallback(() => {
+    setContentCardMenuAnchorEl(null)
+    setContentCardMenuType(null)
+    setContentCardMenuItemId(null)
+  }, [])
+
+  const handleEditContentCardFromMenu = useCallback(() => {
+    if (contentCardMenuType === 'character' && selectedContentCharacterMenuItem) {
+      openCharacterEdit(selectedContentCharacterMenuItem.id)
+    }
+    if (contentCardMenuType === 'instruction' && selectedContentInstructionMenuItem) {
+      openInstructionEdit(selectedContentInstructionMenuItem.id)
+    }
+    handleCloseContentCardMenu()
+  }, [
+    contentCardMenuType,
+    handleCloseContentCardMenu,
+    openCharacterEdit,
+    openInstructionEdit,
+    selectedContentCharacterMenuItem,
+    selectedContentInstructionMenuItem,
+  ])
+
+  const handleDeleteContentCardFromMenu = useCallback(async () => {
+    if (contentCardMenuType === 'character' && selectedContentCharacterMenuItem) {
+      try {
+        setError('')
+        await deleteStoryCharacter({
+          token: authToken,
+          characterId: selectedContentCharacterMenuItem.id,
+        })
+        setCharacters((previous) => previous.filter((item) => item.id !== selectedContentCharacterMenuItem.id))
+        if (characterEditId === selectedContentCharacterMenuItem.id) {
+          setCharacterDialogOpen(false)
+          setCharacterDialogMode('list')
+          setCharacterEditId(null)
+        }
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить персонажа'
+        setError(detail)
+      } finally {
+        handleCloseContentCardMenu()
+      }
+      return
+    }
+
+    if (contentCardMenuType === 'instruction' && selectedContentInstructionMenuItem) {
+      try {
+        setError('')
+        await deleteStoryInstructionTemplate({
+          token: authToken,
+          templateId: selectedContentInstructionMenuItem.id,
+        })
+        setTemplates((previous) => previous.filter((item) => item.id !== selectedContentInstructionMenuItem.id))
+        if (instructionEditId === selectedContentInstructionMenuItem.id) {
+          setInstructionDialogOpen(false)
+          setInstructionDialogMode('list')
+          setInstructionEditId(null)
+        }
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить инструкцию'
+        setError(detail)
+      } finally {
+        handleCloseContentCardMenu()
+      }
+      return
+    }
+
+    handleCloseContentCardMenu()
+  }, [
+    authToken,
+    characterEditId,
+    contentCardMenuType,
+    handleCloseContentCardMenu,
+    instructionEditId,
+    selectedContentCharacterMenuItem,
+    selectedContentInstructionMenuItem,
+  ])
+
   const renderCharacterAvatar = (character: StoryCharacter) => {
     const fallbackLetter = resolveFirstLetter(character.name)
     return (
@@ -837,6 +948,47 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
   }
 
+  const renderCreatePlaceholderCard = (options: { onClick: () => void; ariaLabel: string }) => (
+    <ButtonBase
+      onClick={options.onClick}
+      aria-label={options.ariaLabel}
+      sx={{
+        width: '100%',
+        minHeight: CARD_MIN_HEIGHT,
+        p: 1.1,
+        borderRadius: '12px',
+        border: 'var(--morius-border-width) dashed rgba(203, 217, 236, 0.46)',
+        backgroundColor: 'rgba(116, 140, 171, 0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
+        '&:hover': {
+          backgroundColor: 'rgba(129, 151, 182, 0.14)',
+          borderColor: 'rgba(203, 217, 236, 0.7)',
+          transform: 'translateY(-1px)',
+        },
+      }}
+    >
+      <Box
+        sx={{
+          width: 44,
+          height: 44,
+          borderRadius: '50%',
+          border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
+          display: 'grid',
+          placeItems: 'center',
+          color: 'var(--morius-text-primary)',
+          fontSize: '1.6rem',
+          fontWeight: 700,
+          lineHeight: 1,
+        }}
+      >
+        +
+      </Box>
+    </ButtonBase>
+  )
+
   const renderCharacters = () => {
     const filteredCharacters = sortedCharacters.filter((item) =>
       matchesProfileSearch(normalizedContentSearchQuery, [item.name, item.description, item.triggers.join(' ')]),
@@ -867,7 +1019,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         </Stack>
 
         {!filteredCharacters.length ? (
+          <>
+            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character' })}
           <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет персонажей.</Typography>
+          </>
         ) : (
           <Box
             sx={{
@@ -876,6 +1031,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
             }}
           >
+            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character' })}
             {filteredCharacters.map((item) => (
               <ButtonBase
                 key={item.id}
@@ -898,7 +1054,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 }}
               >
                 <Stack spacing={0.7} sx={{ width: '100%', height: '100%' }}>
-                  <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+                  <Stack direction="row" spacing={0.75} alignItems="flex-start" sx={{ minWidth: 0 }}>
                     {renderCharacterAvatar(item)}
                     <Stack spacing={0.2} sx={{ minWidth: 0, flex: 1 }}>
                       <Typography
@@ -926,6 +1082,23 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Typography>
                       ) : null}
                     </Stack>
+                    <IconButton
+                      onClick={(event) => handleOpenContentCardMenu(event, 'character', item.id)}
+                      aria-label="Open character actions"
+                      sx={{
+                        width: 26,
+                        height: 26,
+                        color: 'rgba(208, 219, 235, 0.84)',
+                        flexShrink: 0,
+                        backgroundColor: 'transparent !important',
+                        border: 'none',
+                        '&:hover': { backgroundColor: 'transparent !important' },
+                        '&:active': { backgroundColor: 'transparent !important' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
+                      }}
+                    >
+                      <Box sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+                    </IconButton>
                   </Stack>
                   <Typography
                     sx={{
@@ -985,7 +1158,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         </Stack>
 
         {!filteredTemplates.length ? (
+          <>
+            {renderCreatePlaceholderCard({ onClick: openInstructionCreate, ariaLabel: 'Create instruction' })}
           <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет инструкций.</Typography>
+          </>
         ) : (
           <Box
             sx={{
@@ -994,6 +1170,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
             }}
           >
+            {renderCreatePlaceholderCard({ onClick: openInstructionCreate, ariaLabel: 'Create instruction' })}
             {filteredTemplates.map((item) => (
               <ButtonBase
                 key={item.id}
@@ -1016,17 +1193,38 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 }}
               >
                 <Stack spacing={0.7} sx={{ width: '100%', height: '100%' }}>
-                  <Typography
-                    sx={{
-                      fontWeight: 700,
-                      fontSize: '0.95rem',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {item.title}
-                  </Typography>
+                  <Stack direction="row" spacing={0.65} alignItems="flex-start" sx={{ minWidth: 0 }}>
+                    <Typography
+                      sx={{
+                        fontWeight: 700,
+                        fontSize: '0.95rem',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      {item.title}
+                    </Typography>
+                    <IconButton
+                      onClick={(event) => handleOpenContentCardMenu(event, 'instruction', item.id)}
+                      aria-label="Open instruction actions"
+                      sx={{
+                        width: 26,
+                        height: 26,
+                        color: 'rgba(208, 219, 235, 0.84)',
+                        flexShrink: 0,
+                        backgroundColor: 'transparent !important',
+                        border: 'none',
+                        '&:hover': { backgroundColor: 'transparent !important' },
+                        '&:active': { backgroundColor: 'transparent !important' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
+                      }}
+                    >
+                      <Box sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+                    </IconButton>
+                  </Stack>
                   <Typography
                     sx={{
                       color: 'var(--morius-text-secondary)',
@@ -1376,6 +1574,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
         rightActions={
           <Button
@@ -1507,7 +1706,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     },
                   }}
                 >
-                  {coins.toLocaleString('ru-RU')} токенов
+                  {coins.toLocaleString('ru-RU')} солов
                 </Button>
               </Stack>
 
@@ -1562,7 +1761,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   },
                 }}
               >
-                Токены: {coins.toLocaleString('ru-RU')}
+                Солы: {coins.toLocaleString('ru-RU')}
               </Button>
             </Stack>
 
@@ -2208,6 +2407,44 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={contentCardMenuAnchorEl}
+        open={Boolean(contentCardMenuAnchorEl && (selectedContentCharacterMenuItem || selectedContentInstructionMenuItem))}
+        onClose={handleCloseContentCardMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 0.5,
+            borderRadius: '12px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            minWidth: 176,
+          },
+        }}
+      >
+        <MenuItem
+          onClick={handleEditContentCardFromMenu}
+          disabled={!selectedContentCharacterMenuItem && !selectedContentInstructionMenuItem}
+          sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+        >
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
+            <Box component="span">Редактировать</Box>
+          </Stack>
+        </MenuItem>
+        <MenuItem
+          onClick={() => void handleDeleteContentCardFromMenu()}
+          disabled={!selectedContentCharacterMenuItem && !selectedContentInstructionMenuItem}
+          sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+        >
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
+            <Box component="span">Удалить</Box>
+          </Stack>
+        </MenuItem>
+      </Menu>
 
       <input
         ref={avatarInputRef}

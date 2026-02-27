@@ -199,7 +199,7 @@ function AppHeader({
             <IconButton aria-label="Поддержка" onClick={handleOpenSupportDialog} sx={menuFooterButtonSx}>
               <Box component="img" src={icons.help} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
             </IconButton>
-            <IconButton aria-label="Пополнение токенов" onClick={handleOpenTopUpDialog} sx={menuFooterButtonSx}>
+            <IconButton aria-label="Пополнение солов" onClick={handleOpenTopUpDialog} sx={menuFooterButtonSx}>
               <Box component="img" src={icons.menuShop} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />
             </IconButton>
           </Stack>

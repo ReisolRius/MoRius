@@ -155,7 +155,12 @@ STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_TITLE_CHARS = 80
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARD_CONTENT_CHARS = 360
 STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS = 3
-STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS = 260
+STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_CHARS = 420
+STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_CHARS = 620
+STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_FRAGMENTS = 6
+STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS = 3_000
+STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
+STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
 STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
@@ -165,13 +170,113 @@ STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX: 3,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 25,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 30,
 }
 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 45
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
 }
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 1_000
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 5_000
+STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
+    (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
+    (r"\bgender\s*[:=-]?\s*female\b", 10),
+    (r"\bsex\s*[:=-]?\s*female\b", 10),
+    (r"\bженщин\w*\b", 6),
+    (r"\bдевушк\w*\b", 6),
+    (r"\bдевочк\w*\b", 6),
+    (r"\bженск\w*\b", 4),
+    (r"\bгероин\w*\b", 4),
+    (r"\bfemale\b", 6),
+    (r"\bwoman\b", 6),
+    (r"\bgirl\b", 6),
+    (r"\bshe\b", 2),
+    (r"\bher\b", 1),
+    (r"\bона\b", 2),
+    (r"\bе[её]\b", 1),
+)
+STORY_TURN_IMAGE_GENDER_PATTERNS_MALE: tuple[tuple[str, int], ...] = (
+    (r"\bпол\s*[:=-]?\s*муж\w*\b", 10),
+    (r"\bgender\s*[:=-]?\s*male\b", 10),
+    (r"\bsex\s*[:=-]?\s*male\b", 10),
+    (r"\bмужчин\w*\b", 6),
+    (r"\bпарн\w*\b", 6),
+    (r"\bюнош\w*\b", 6),
+    (r"\bмальчик\w*\b", 6),
+    (r"\bмальчиш\w*\b", 6),
+    (r"\bмужск\w*\b", 4),
+    (r"\bmale\b", 6),
+    (r"\bman\b", 6),
+    (r"\bboy\b", 6),
+    (r"\bhe\b", 2),
+    (r"\bhim\b", 1),
+    (r"\bhis\b", 1),
+    (r"\bон\b", 2),
+    (r"\bего\b", 1),
+    (r"\bему\b", 1),
+)
+STORY_TURN_IMAGE_APPEARANCE_LOCK_KEYWORDS: tuple[str, ...] = (
+    "внеш",
+    "лиц",
+    "черты лица",
+    "волос",
+    "цвет волос",
+    "длина волос",
+    "причес",
+    "глаз",
+    "цвет глаз",
+    "бров",
+    "ресниц",
+    "губ",
+    "нос",
+    "челюст",
+    "скул",
+    "кожа",
+    "родинк",
+    "веснуш",
+    "шрам",
+    "тату",
+    "piercing",
+    "appearance",
+    "face",
+    "facial",
+    "hair",
+    "hair color",
+    "hair length",
+    "hairstyle",
+    "eyes",
+    "eye color",
+    "eyebrow",
+    "lips",
+    "nose",
+    "jaw",
+    "cheek",
+    "skin",
+    "freckle",
+    "scar",
+    "tattoo",
+)
+STORY_TURN_IMAGE_HAIR_LENGTH_LOCK_KEYWORDS: tuple[str, ...] = (
+    "длина волос",
+    "ниже лопаток",
+    "до лопаток",
+    "до плеч",
+    "до талии",
+    "ниже плеч",
+    "длинные волосы",
+    "короткие волосы",
+    "очень короткие волосы",
+    "каре",
+    "hair length",
+    "below the shoulder blades",
+    "to shoulder blades",
+    "to shoulders",
+    "to the waist",
+    "long hair",
+    "short hair",
+    "bob cut",
+)
 STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS = 40
 STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS = 260
 STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
@@ -553,6 +658,10 @@ STORY_PROMPT_COMPACT_PLOT_MAX_CHARS = 300
 STORY_PROMPT_COMPACT_WORLD_MAX_CHARS = 280
 STORY_PROMPT_COMPACT_TRIGGER_MAX_ITEMS = 4
 STORY_PROMPT_COMPACT_TRIGGER_MAX_CHARS = 36
+STORY_TEXT_CHARACTER_CARD_LOCK_SCOPE = {
+    STORY_WORLD_CARD_KIND_MAIN_HERO,
+    STORY_WORLD_CARD_KIND_NPC,
+}
 STORY_RUSSIAN_INFLECTION_ENDINGS = tuple(
     sorted(
         {
@@ -2808,6 +2917,42 @@ def _select_story_world_cards_triggered_by_text(
     return [payload for _, payload in ranked_cards]
 
 
+def _build_story_text_character_card_locks(world_cards: list[dict[str, Any]]) -> list[str]:
+    character_card_locks: list[str] = []
+    seen_keys: set[str] = set()
+    for card in world_cards:
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind not in STORY_TEXT_CHARACTER_CARD_LOCK_SCOPE:
+            continue
+
+        title = " ".join(str(card.get("title", "")).replace("\r\n", " ").split()).strip()
+        raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+        if not title or not raw_content:
+            continue
+
+        role_label = "main_hero" if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO else "npc"
+        dedupe_key = f"{role_label}:{title.casefold()}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
+        plain_content = _normalize_story_markup_to_plain_text(raw_content).replace("\r\n", "\n").strip()
+        if not plain_content:
+            plain_content = raw_content
+        if not plain_content:
+            continue
+
+        appearance_lock = _extract_story_turn_image_appearance_lock_from_card({"content": plain_content})
+        lock_lines = [f"CHARACTER_CARD_LOCK_BEGIN: {role_label} | {title}"]
+        if appearance_lock:
+            lock_lines.append(f"APPEARANCE_LOCK: {appearance_lock}")
+        lock_lines.append(plain_content)
+        lock_lines.append("CHARACTER_CARD_LOCK_END")
+        character_card_locks.append("\n".join(lock_lines))
+
+    return character_card_locks
+
+
 def _build_story_system_prompt(
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
@@ -2833,6 +2978,22 @@ def _build_story_system_prompt(
         else world_cards
     )
     lines = [STORY_SYSTEM_PROMPT]
+    character_card_locks = _build_story_text_character_card_locks(world_cards)
+
+    if character_card_locks:
+        lines.extend(
+            [
+                "",
+                "CHARACTER_CARD_LOCKS (ОБЯЗАТЕЛЬНО К ИСПОЛНЕНИЮ):",
+                "\n\n".join(character_card_locks),
+                "Правила CHARACTER_CARD_LOCK:",
+                "1) Все факты внешности из CHARACTER_CARD_LOCK обязательны и неизменны между ходами, если в сцене не было явного события, которое их меняет.",
+                "2) Нельзя подменять или обобщать признаки внешности: цвет глаз, цвет волос, длину волос, прическу, черты лица, телосложение.",
+                "3) Если в карточке сказано \"зеленые глаза\" или \"каштановые волосы\", используй именно эти признаки без замены на другие.",
+                "4) При конфликте источников приоритет такой: CHARACTER_CARD_LOCK > активные карточки мира > текст сцены.",
+                "5) Если признак внешности не указан в карточке, не утверждай его как новый факт без явного основания в сцене.",
+            ]
+        )
 
     if instruction_cards_for_prompt:
         lines.extend(["", "Карточки инструкций игрока:"])
@@ -2875,6 +3036,13 @@ def _build_story_system_prompt(
         for index, card in enumerate(world_cards_for_prompt, start=1):
             raw_title = str(card.get("title", "")).replace("\r\n", " ").strip()
             raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+                kind_label = "главный_герой"
+            elif card_kind == STORY_WORLD_CARD_KIND_NPC:
+                kind_label = "npc"
+            else:
+                kind_label = "мир"
             if compact_mode:
                 title = _normalize_story_prompt_text(raw_title, max_chars=STORY_PROMPT_COMPACT_TITLE_MAX_CHARS)
                 content = _normalize_story_prompt_text(
@@ -2886,13 +3054,6 @@ def _build_story_system_prompt(
                 content = raw_content
             if not title or not content:
                 continue
-            card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
-            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
-                kind_label = "главный_герой"
-            elif card_kind == STORY_WORLD_CARD_KIND_NPC:
-                kind_label = "npc"
-            else:
-                kind_label = "мир"
             raw_triggers = card.get("triggers")
             trigger_values = raw_triggers if isinstance(raw_triggers, list) else []
             if compact_mode:
@@ -3248,6 +3409,51 @@ def _repair_story_markup_with_openrouter(
     )
 
 
+def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").rstrip()
+    if not normalized_text:
+        return ""
+
+    if normalized_text[-1] in STORY_OUTPUT_TERMINAL_CHARS:
+        return normalized_text
+
+    # Drop obviously broken tails like unfinished marker fragments.
+    dangling_markup_match = re.search(r"(?:\[\[[^\]]*|<[^>]*?)$", normalized_text)
+    if dangling_markup_match is not None:
+        candidate = normalized_text[:dangling_markup_match.start()].rstrip(" ,;:-")
+        if candidate:
+            normalized_text = candidate
+            if normalized_text[-1] in STORY_OUTPUT_TERMINAL_CHARS:
+                return normalized_text
+
+    if "\ufffd" in normalized_text:
+        replacement_index = normalized_text.rfind("\ufffd")
+        candidate = normalized_text[:replacement_index].rstrip(" ,;:-")
+        if candidate:
+            normalized_text = candidate
+            if normalized_text[-1] in STORY_OUTPUT_TERMINAL_CHARS:
+                return normalized_text
+
+    # If there is no sentence ending and text ends with a word-like token,
+    # cut the last token to avoid half-word endings.
+    tail_token_match = re.search(r"[^\s]+$", normalized_text)
+    if tail_token_match is None:
+        return normalized_text
+
+    tail_token = tail_token_match.group(0)
+    if re.search(r"[A-Za-zА-Яа-яЁё]", tail_token) is None:
+        return normalized_text
+
+    word_count = len(normalized_text.split())
+    if word_count < 2:
+        return normalized_text
+
+    candidate = normalized_text[:tail_token_match.start()].rstrip(" ,;:-")
+    if candidate:
+        return candidate
+    return normalized_text
+
+
 def _normalize_generated_story_output(
     *,
     text_value: str,
@@ -3267,6 +3473,7 @@ def _normalize_generated_story_output(
             line_break_index = normalized_text.rfind("\n")
             if line_break_index > 0:
                 normalized_text = normalized_text[:line_break_index].rstrip()
+    normalized_text = _trim_story_trailing_incomplete_fragment(normalized_text)
 
     if not normalized_text:
         return normalized_text
@@ -3294,6 +3501,7 @@ def _normalize_generated_story_output(
             line_break_index = repaired_normalized.rfind("\n")
             if line_break_index > 0:
                 repaired_normalized = repaired_normalized[:line_break_index].rstrip()
+    repaired_normalized = _trim_story_trailing_incomplete_fragment(repaired_normalized)
 
     if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
         return _enforce_story_output_language(repaired_normalized)
@@ -5361,6 +5569,7 @@ def _upsert_story_plot_memory_card(
             StoryMessage.game_id == game.id,
             StoryMessage.role == STORY_USER_ROLE,
             StoryMessage.id < assistant_message.id,
+            StoryMessage.undone_at.is_(None),
         )
         .order_by(StoryMessage.id.desc())
         .limit(1)
@@ -6143,6 +6352,23 @@ def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
     )
 
 
+def _get_story_turn_image_request_prompt_max_chars(model_name: str | None) -> int:
+    normalized_model = str(model_name or "").strip()
+    if normalized_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
+        return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM
+    return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT
+
+
+def _limit_story_turn_image_request_prompt(prompt: str, *, model_name: str | None) -> str:
+    normalized_prompt = str(prompt or "").replace("\r\n", "\n").strip()
+    if not normalized_prompt:
+        return ""
+    max_chars = max(_get_story_turn_image_request_prompt_max_chars(model_name), 1)
+    if len(normalized_prompt) <= max_chars:
+        return normalized_prompt
+    return normalized_prompt[:max_chars].rstrip()
+
+
 def _extract_story_turn_image_gender_hint_from_card(
     *,
     card: dict[str, Any],
@@ -6155,21 +6381,51 @@ def _extract_story_turn_image_gender_hint_from_card(
 
     profile_gender = _sanitize_story_npc_profile_value(
         _extract_story_npc_profile_field(lines, ("пол", "gender"))
-    ).casefold()
-    if any(token in profile_gender for token in ("жен", "female", "girl", "woman")):
-        return "женский"
-    if any(token in profile_gender for token in ("муж", "male", "boy", "man")):
-        return "мужской"
+    )
+    profile_gender_hint = _extract_story_turn_image_gender_hint_from_text(profile_gender)
+    if profile_gender_hint:
+        return profile_gender_hint
 
-    plain_content_casefold = plain_content.casefold()
-    if any(token in plain_content_casefold for token in ("девушка", "женщина", "female", "girl", "woman")):
-        return "женский"
-    if any(token in plain_content_casefold for token in ("мужчина", "парень", "male", "boy", "man")):
-        return "мужской"
+    content_gender_hint = _extract_story_turn_image_gender_hint_from_text(plain_content)
+    if content_gender_hint:
+        return content_gender_hint
 
     inferred_gender = _infer_story_npc_gender_from_context(raw_title, user_prompt, assistant_text)
     if inferred_gender in {"женский", "мужской"}:
         return inferred_gender
+    return ""
+
+
+def _score_story_turn_image_gender_patterns(
+    text: str,
+    patterns: tuple[tuple[str, int], ...],
+) -> int:
+    score = 0
+    for pattern, weight in patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            score += max(int(weight), 0)
+    return score
+
+
+def _extract_story_turn_image_gender_hint_from_text(text: str) -> str:
+    normalized_text = _normalize_story_markup_to_plain_text(str(text or "")).replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return ""
+
+    female_score = _score_story_turn_image_gender_patterns(
+        normalized_text,
+        STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE,
+    )
+    male_score = _score_story_turn_image_gender_patterns(
+        normalized_text,
+        STORY_TURN_IMAGE_GENDER_PATTERNS_MALE,
+    )
+    if female_score <= 0 and male_score <= 0:
+        return ""
+    if female_score > male_score:
+        return "женский"
+    if male_score > female_score:
+        return "мужской"
     return ""
 
 
@@ -6179,6 +6435,21 @@ def _story_turn_image_gender_hint_for_prompt(gender_hint: str) -> str:
         return "male (мужской)"
     if normalized == "женский":
         return "female (женский)"
+    return ""
+
+
+def _story_turn_image_gender_lock_for_prompt(gender_hint: str) -> str:
+    normalized = str(gender_hint or "").strip().casefold()
+    if normalized == "женский":
+        return (
+            "gender-lock female ONLY: must be clearly depicted as a woman; "
+            "forbidden male/man/boy presentation."
+        )
+    if normalized == "мужской":
+        return (
+            "gender-lock male ONLY: must be clearly depicted as a man; "
+            "forbidden female/woman/girl presentation."
+        )
     return ""
 
 
@@ -6223,9 +6494,70 @@ def _extract_story_turn_image_visual_sentences(plain_content: str) -> list[str]:
             continue
         if normalized_sentence not in visual_sentences:
             visual_sentences.append(normalized_sentence)
-        if len(visual_sentences) >= 3:
+        if len(visual_sentences) >= 4:
             break
     return visual_sentences
+
+
+def _extract_story_turn_image_appearance_lock_from_card(card: dict[str, Any]) -> str:
+    plain_content = _normalize_story_markup_to_plain_text(str(card.get("content", ""))).replace("\r\n", "\n").strip()
+    if not plain_content:
+        return ""
+    lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
+
+    appearance_fragments: list[str] = []
+    seen_fragments: set[str] = set()
+
+    def _append_fragment(raw_value: str, *, max_chars: int = 180) -> None:
+        if len(appearance_fragments) >= STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_FRAGMENTS:
+            return
+        sanitized_value = _sanitize_story_npc_profile_value(raw_value)
+        if not sanitized_value or _is_story_dialogue_like_fragment(sanitized_value):
+            return
+        normalized_value = _normalize_story_prompt_text(sanitized_value, max_chars=max_chars)
+        if not normalized_value:
+            return
+        dedupe_key = normalized_value.casefold()
+        if dedupe_key in seen_fragments:
+            return
+        seen_fragments.add(dedupe_key)
+        appearance_fragments.append(normalized_value)
+
+    profile_field_groups: tuple[tuple[str, ...], ...] = (
+        ("внешность", "appearance", "облик"),
+        ("лицо", "черты лица", "facial features", "face"),
+        ("волосы", "цвет волос", "длина волос", "прическа", "hair", "hair color", "hair length", "hairstyle"),
+        ("глаза", "цвет глаз", "eyes", "eye color"),
+        ("телосложение", "рост", "build", "body type", "height"),
+        ("особые приметы", "приметы", "шрам", "тату", "marks", "scar", "tattoo"),
+        ("одежда", "style", "outfit", "clothes"),
+    )
+    for prefixes in profile_field_groups:
+        field_value = _extract_story_npc_profile_field(lines, prefixes)
+        _append_fragment(field_value)
+        if len(appearance_fragments) >= STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_FRAGMENTS:
+            break
+
+    for sentence in _split_story_text_into_sentences(plain_content):
+        if len(appearance_fragments) >= STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_FRAGMENTS:
+            break
+        normalized_sentence = _normalize_story_prompt_text(
+            sentence,
+            max_chars=220,
+        )
+        if not normalized_sentence or _is_story_dialogue_like_fragment(normalized_sentence):
+            continue
+        lowered_sentence = normalized_sentence.casefold()
+        if not any(keyword in lowered_sentence for keyword in STORY_TURN_IMAGE_APPEARANCE_LOCK_KEYWORDS):
+            continue
+        _append_fragment(normalized_sentence, max_chars=220)
+
+    if not appearance_fragments:
+        return ""
+    return _normalize_story_prompt_text(
+        "; ".join(appearance_fragments),
+        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_APPEARANCE_LOCK_CHARS,
+    )
 
 
 def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) -> str:
@@ -6248,7 +6580,7 @@ def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) ->
     for visual_sentence in _extract_story_turn_image_visual_sentences(plain_content):
         if visual_sentence not in appearance_fragments:
             appearance_fragments.append(visual_sentence)
-        if len(appearance_fragments) >= 3:
+        if len(appearance_fragments) >= 4:
             break
 
     if not appearance_fragments:
@@ -6390,15 +6722,83 @@ def _build_story_turn_image_character_lines(
             assistant_text=assistant_text,
         )
         appearance_hint = _extract_story_turn_image_appearance_hint_from_card(card)
+        appearance_lock = _extract_story_turn_image_appearance_lock_from_card(card)
 
         line_parts = [f"{role_label}: {title}"]
         gender_label = _story_turn_image_gender_hint_for_prompt(gender_hint)
         if gender_label:
             line_parts.append(f"gender {gender_label}")
+        gender_lock = _story_turn_image_gender_lock_for_prompt(gender_hint)
+        if gender_lock:
+            line_parts.append(gender_lock)
+        if appearance_lock:
+            line_parts.append(f"appearance-lock {appearance_lock}")
         if appearance_hint:
             line_parts.append(f"appearance {appearance_hint}")
         character_lines.append("; ".join(line_parts))
     return character_lines
+
+
+def _build_story_turn_image_full_character_card_locks(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+) -> list[str]:
+    selected_cards = _select_story_turn_image_character_cards(
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        world_cards=world_cards,
+    )
+    lock_blocks: list[str] = []
+    for card in selected_cards:
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind not in STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE:
+            continue
+
+        role_label = "main_hero" if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO else "npc"
+        title = " ".join(str(card.get("title", "")).split()).strip()
+        if not title:
+            continue
+
+        raw_content = str(card.get("content", ""))
+        plain_content = _normalize_story_markup_to_plain_text(raw_content).replace("\r\n", "\n").strip()
+        if not plain_content:
+            continue
+
+        lock_blocks.append(
+            f"CHARACTER_CARD_LOCK_BEGIN: {role_label} | {title}\n"
+            f"{plain_content}\n"
+            "CHARACTER_CARD_LOCK_END"
+        )
+    return lock_blocks
+
+
+def _validate_story_turn_image_character_card_lock_budget(card_blocks: list[str]) -> None:
+    if not STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED:
+        return
+    if not card_blocks:
+        return
+
+    total_tokens = sum(_estimate_story_tokens(block) for block in card_blocks)
+    if total_tokens <= STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Full character cards do not fit into image prompt budget "
+            f"({total_tokens} > {STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS} tokens). "
+            "Shorten character cards or reduce the number of visible characters."
+        ),
+    )
+
+
+def _story_turn_image_has_hair_length_lock(card_blocks: list[str]) -> bool:
+    if not card_blocks:
+        return False
+    combined_lock_text = "\n".join(card_blocks).casefold()
+    return any(keyword in combined_lock_text for keyword in STORY_TURN_IMAGE_HAIR_LENGTH_LOCK_KEYWORDS)
 
 
 def _merge_story_turn_image_world_cards(
@@ -6433,6 +6833,7 @@ def _build_story_turn_image_prompt(
     assistant_text: str,
     world_cards: list[dict[str, Any]],
     image_style_prompt: str | None = None,
+    full_character_card_locks: list[str] | None = None,
 ) -> str:
     normalized_user_prompt = _normalize_story_prompt_text(
         _normalize_story_markup_to_plain_text(user_prompt),
@@ -6471,7 +6872,17 @@ def _build_story_turn_image_prompt(
         assistant_text=assistant_text,
         world_cards=world_cards,
     )
+    if full_character_card_locks is None:
+        full_character_card_locks = _build_story_turn_image_full_character_card_locks(
+            user_prompt=user_prompt,
+            assistant_text=assistant_text,
+            world_cards=world_cards,
+        )
+    has_full_character_card_lock = bool(full_character_card_locks)
     has_main_hero_line = any(line.startswith("main_hero:") for line in character_lines)
+    has_gender_lock_line = any("gender-lock" in line for line in character_lines)
+    has_appearance_lock_line = any("appearance-lock" in line for line in character_lines)
+    has_hair_length_lock = _story_turn_image_has_hair_length_lock(full_character_card_locks)
     style_instructions = _build_story_turn_image_style_instructions(normalized_image_style_prompt)
     assistant_scene_sentences = _split_story_text_into_sentences(normalized_assistant_text)
     scene_focus_text = _normalize_story_prompt_text(
@@ -6495,6 +6906,16 @@ def _build_story_turn_image_prompt(
         prompt_parts.append(f"Current scene state: {normalized_assistant_text}.")
     if world_context:
         prompt_parts.append(f"Environment context: {world_context}.")
+    if has_full_character_card_lock:
+        prompt_parts.append(
+            "CHARACTER_CARD_LOCKS (FULL, STRICT, MANDATORY):\n"
+            + "\n\n".join(full_character_card_locks)
+        )
+        prompt_parts.append("Full Character Card Lock has absolute highest priority.")
+        prompt_parts.append("Every attribute in CHARACTER_CARD_LOCK is mandatory.")
+        prompt_parts.append("No reinterpretation, no stylistic substitution.")
+        prompt_parts.append("Scene text cannot override locked card attributes.")
+        prompt_parts.append("Conflict precedence: CHARACTER_CARD_LOCK > appearance-lock > scene state.")
     if character_lines:
         prompt_parts.append(
             "Mandatory visible cast (must match exactly): "
@@ -6505,10 +6926,41 @@ def _build_story_turn_image_prompt(
             "Do not add, remove, replace, or duplicate any character."
         )
         prompt_parts.append("Keep each listed character's role, gender, and key appearance.")
+        if has_gender_lock_line:
+            prompt_parts.append(
+                "Gender lock is absolute and has highest priority. "
+                "If a character is marked with gender-lock, never swap gender due to strength, MMA/combat role, "
+                "muscular body, short haircut, clothing style, or pose."
+            )
+            if has_full_character_card_lock:
+                prompt_parts.append("Gender lock is part of CHARACTER_CARD_LOCK and cannot be overridden.")
+        if has_appearance_lock_line:
+            prompt_parts.append(
+                "Appearance lock is absolute and has highest priority. "
+                "For each character marked with appearance-lock, every listed trait is mandatory and must match exactly."
+            )
+            if has_full_character_card_lock:
+                prompt_parts.append(
+                    "Appearance-lock is a compact helper; if it conflicts with CHARACTER_CARD_LOCK, follow CHARACTER_CARD_LOCK."
+                )
+            prompt_parts.append(
+                "No reinterpretation or substitution for locked traits: never alter face shape, facial features, eye color, "
+                "hair color, hair length, hairstyle, skin details, scars, tattoos, or other distinctive marks when specified."
+            )
+            prompt_parts.append(
+                "Choose framing and lighting so locked facial and hair details remain clearly readable."
+            )
         if has_main_hero_line:
             prompt_parts.append("Main hero must be visible in-frame. Do not switch to first-person POV.")
+    if has_hair_length_lock:
+        prompt_parts.append("Hair length lock: hair length must match exactly.")
+        prompt_parts.append("Hair length lock: forbidden conflicting hair lengths.")
+        prompt_parts.append(
+            "Composition for hair length lock: keep head and visible hair in frame so the true length is readable; "
+            "do not hide hair with pose, clothing, crop, or camera angle."
+        )
     prompt_parts.append(
-        "Use a medium-wide, side or three-quarter camera angle so all listed characters are clearly visible."
+        "Use a medium-wide or medium, side or three-quarter camera angle so all listed characters are clearly visible and identifiable."
     )
     prompt_parts.append(
         "Show only what is happening in this exact scene right now."
@@ -7026,6 +7478,7 @@ def generate_story_turn_image_impl(
         select(StoryMessage).where(
             StoryMessage.id == payload.assistant_message_id,
             StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_(None),
         )
     )
     if assistant_message is None:
@@ -7042,6 +7495,7 @@ def generate_story_turn_image_impl(
             StoryMessage.game_id == game.id,
             StoryMessage.role == STORY_USER_ROLE,
             StoryMessage.id < assistant_message.id,
+            StoryMessage.undone_at.is_(None),
         )
         .order_by(StoryMessage.id.desc())
     )
@@ -7073,25 +7527,37 @@ def generate_story_turn_image_impl(
     if not relevant_world_cards:
         relevant_world_cards = active_world_cards
 
+    full_character_card_locks = _build_story_turn_image_full_character_card_locks(
+        user_prompt=source_user_message.content,
+        assistant_text=assistant_message.content,
+        world_cards=relevant_world_cards,
+    )
+    _validate_story_turn_image_character_card_lock_budget(full_character_card_locks)
+
+    selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
     visual_prompt = _build_story_turn_image_prompt(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
         world_cards=relevant_world_cards,
         image_style_prompt=getattr(game, "image_style_prompt", ""),
+        full_character_card_locks=full_character_card_locks,
     )
-    if not visual_prompt.strip():
+    visual_prompt = _limit_story_turn_image_request_prompt(
+        visual_prompt,
+        model_name=selected_image_model,
+    )
+    if not visual_prompt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Turn context is empty and cannot be rendered",
         )
 
-    selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
     image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
     if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Not enough tokens to generate image",
+            detail="Not enough sols to generate image",
         )
     db.commit()
     db.refresh(user)

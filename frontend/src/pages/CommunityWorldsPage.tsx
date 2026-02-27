@@ -452,6 +452,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenTopUpDialog={() => onNavigate('/profile')}
         hideRightToggle
         rightActions={
           <Stack direction="row" spacing={0}>

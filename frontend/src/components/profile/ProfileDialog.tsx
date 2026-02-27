@@ -375,7 +375,7 @@ function ProfileDialog({
               <Stack direction="row" spacing={1.1} alignItems="center">
                 <Box component="img" src={icons.coin} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />
                 <Typography sx={{ fontSize: '0.98rem', color: 'text.secondary' }}>
-                  Токены: {user.coins.toLocaleString('ru-RU')}
+                  Солы: {user.coins.toLocaleString('ru-RU')}
                 </Typography>
               </Stack>
               <Button

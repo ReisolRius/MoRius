@@ -422,6 +422,7 @@ def _ensure_story_turn_image_history_schema() -> None:
                     revised_prompt TEXT,
                     image_url TEXT,
                     image_data_url TEXT,
+                    undone_at TIMESTAMP WITH TIME ZONE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     PRIMARY KEY (id),
@@ -454,6 +455,7 @@ def _ensure_story_turn_image_history_schema() -> None:
                     revised_prompt,
                     image_url,
                     image_data_url,
+                    NULL AS undone_at,
                     created_at,
                     updated_at
                 FROM {legacy_table_name}
@@ -476,6 +478,34 @@ def _ensure_story_turn_image_history_schema() -> None:
             )
 
 
+def _ensure_story_soft_undo_columns_exist() -> None:
+    inspector = inspect(engine)
+    alter_statements: list[str] = []
+
+    if inspector.has_table(StoryMessage.__tablename__):
+        message_columns = {column["name"] for column in inspector.get_columns(StoryMessage.__tablename__)}
+        if "undone_at" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN undone_at TIMESTAMP WITH TIME ZONE"
+            )
+
+    if inspector.has_table(StoryTurnImage.__tablename__):
+        image_columns = {column["name"] for column in inspector.get_columns(StoryTurnImage.__tablename__)}
+        if "undone_at" not in image_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryTurnImage.__tablename__} "
+                "ADD COLUMN undone_at TIMESTAMP WITH TIME ZONE"
+            )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
 def _ensure_performance_indexes_exist() -> None:
     index_statements = (
         "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
@@ -489,8 +519,12 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryGame.__tablename__} (source_world_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_messages_game_id_id "
         f"ON {StoryMessage.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_messages_game_undone_id "
+        f"ON {StoryMessage.__tablename__} (game_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_assistant_id "
         f"ON {StoryTurnImage.__tablename__} (game_id, assistant_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_turn_images_game_undone_id "
+        f"ON {StoryTurnImage.__tablename__} (game_id, undone_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_cards_game_id_id "
         f"ON {StoryInstructionCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_instruction_templates_user_id_id "
@@ -559,4 +593,5 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_world_card_extended_columns_exist(defaults)
     _ensure_story_character_avatar_scale_column_exists()
     _ensure_story_turn_image_history_schema()
+    _ensure_story_soft_undo_columns_exist()
     _ensure_performance_indexes_exist()

@@ -9,8 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     StoryGame,
+    StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
+    StoryTurnImage,
     StoryWorldCard,
     StoryWorldCardChangeEvent,
 )
@@ -47,9 +49,27 @@ from app.services.story_world_cards import (
     serialize_story_world_card_triggers,
 )
 
+STORY_USER_ROLE = "user"
+STORY_ASSISTANT_ROLE = "assistant"
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _extract_snapshot_card_id(snapshot: dict[str, object] | None) -> int | None:
+    if snapshot is None:
+        return None
+    raw_card_id = snapshot.get("id")
+    if isinstance(raw_card_id, int) and raw_card_id > 0:
+        return raw_card_id
+    if isinstance(raw_card_id, str):
+        normalized_card_id = raw_card_id.strip()
+        if normalized_card_id.isdigit():
+            parsed_card_id = int(normalized_card_id)
+            if parsed_card_id > 0:
+                return parsed_card_id
+    return None
 
 
 def restore_story_world_card_from_snapshot(
@@ -245,6 +265,69 @@ def undo_story_world_card_change_event(
         db.flush()
 
 
+def redo_story_world_card_change_event(
+    db: Session,
+    game: StoryGame,
+    event: StoryWorldCardChangeEvent,
+    *,
+    commit: bool = True,
+) -> None:
+    if event.undone_at is None:
+        return
+
+    action = normalize_story_world_card_event_action(event.action)
+    if not action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
+
+    before_snapshot = deserialize_story_world_card_snapshot(event.before_snapshot)
+    after_snapshot = deserialize_story_world_card_snapshot(event.after_snapshot)
+
+    if action in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}:
+        restored_card = restore_story_world_card_from_snapshot(db, game.id, after_snapshot)
+        if restored_card is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot reapply world card state for this event",
+            )
+        event.world_card_id = restored_card.id
+    elif action == STORY_WORLD_CARD_EVENT_DELETED:
+        target_card_id = event.world_card_id
+        if target_card_id is None:
+            target_card_id = _extract_snapshot_card_id(before_snapshot)
+
+        if target_card_id is not None:
+            # Break FK links from event log rows before deleting the restored card.
+            db.execute(
+                sa_update(StoryWorldCardChangeEvent)
+                .where(
+                    StoryWorldCardChangeEvent.game_id == game.id,
+                    StoryWorldCardChangeEvent.world_card_id == target_card_id,
+                )
+                .values(world_card_id=None)
+            )
+            if event.world_card_id == target_card_id:
+                event.world_card_id = None
+            world_card = db.scalar(
+                select(StoryWorldCard).where(
+                    StoryWorldCard.id == target_card_id,
+                    StoryWorldCard.game_id == game.id,
+                )
+            )
+            if world_card is not None:
+                db.delete(world_card)
+                db.flush()
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
+
+    event.undone_at = None
+    touch_story_game(game)
+    if commit:
+        db.commit()
+        db.refresh(event)
+    else:
+        db.flush()
+
+
 def restore_story_plot_card_from_snapshot(
     db: Session,
     game_id: int,
@@ -357,11 +440,76 @@ def undo_story_plot_card_change_event(
         db.flush()
 
 
+def redo_story_plot_card_change_event(
+    db: Session,
+    game: StoryGame,
+    event: StoryPlotCardChangeEvent,
+    *,
+    commit: bool = True,
+) -> None:
+    if event.undone_at is None:
+        return
+
+    action = normalize_story_world_card_event_action(event.action)
+    if not action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
+
+    before_snapshot = deserialize_story_plot_card_snapshot(event.before_snapshot)
+    after_snapshot = deserialize_story_plot_card_snapshot(event.after_snapshot)
+
+    if action in {STORY_WORLD_CARD_EVENT_ADDED, STORY_WORLD_CARD_EVENT_UPDATED}:
+        restored_card = restore_story_plot_card_from_snapshot(db, game.id, after_snapshot)
+        if restored_card is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot reapply plot card state for this event",
+            )
+        event.plot_card_id = restored_card.id
+    elif action == STORY_WORLD_CARD_EVENT_DELETED:
+        target_card_id = event.plot_card_id
+        if target_card_id is None:
+            target_card_id = _extract_snapshot_card_id(before_snapshot)
+
+        if target_card_id is not None:
+            # Break FK links from event log rows before deleting the restored card.
+            db.execute(
+                sa_update(StoryPlotCardChangeEvent)
+                .where(
+                    StoryPlotCardChangeEvent.game_id == game.id,
+                    StoryPlotCardChangeEvent.plot_card_id == target_card_id,
+                )
+                .values(plot_card_id=None)
+            )
+            if event.plot_card_id == target_card_id:
+                event.plot_card_id = None
+            plot_card = db.scalar(
+                select(StoryPlotCard).where(
+                    StoryPlotCard.id == target_card_id,
+                    StoryPlotCard.game_id == game.id,
+                )
+            )
+            if plot_card is not None:
+                db.delete(plot_card)
+                db.flush()
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
+
+    event.undone_at = None
+    touch_story_game(game)
+    if commit:
+        db.commit()
+        db.refresh(event)
+    else:
+        db.flush()
+
+
 def rollback_story_card_events_for_assistant_message(
     *,
     db: Session,
     game: StoryGame,
     assistant_message_id: int,
+    commit: bool = True,
+    purge_events: bool = True,
 ) -> None:
     world_events = list_story_world_card_events(
         db,
@@ -381,20 +529,185 @@ def rollback_story_card_events_for_assistant_message(
     for event in reversed(plot_events):
         undo_story_plot_card_change_event(db, game, event, commit=False)
 
-    for event in list_story_world_card_events(
-        db,
-        game.id,
-        assistant_message_id=assistant_message_id,
-        include_undone=True,
-    ):
-        db.delete(event)
-    for event in list_story_plot_card_events(
-        db,
-        game.id,
-        assistant_message_id=assistant_message_id,
-        include_undone=True,
-    ):
-        db.delete(event)
+    if purge_events:
+        for event in list_story_world_card_events(
+            db,
+            game.id,
+            assistant_message_id=assistant_message_id,
+            include_undone=True,
+        ):
+            db.delete(event)
+        for event in list_story_plot_card_events(
+            db,
+            game.id,
+            assistant_message_id=assistant_message_id,
+            include_undone=True,
+        ):
+            db.delete(event)
 
     touch_story_game(game)
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+
+
+def reapply_story_card_events_for_assistant_message(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message_id: int,
+    commit: bool = True,
+) -> None:
+    world_events = [
+        event
+        for event in list_story_world_card_events(
+            db,
+            game.id,
+            assistant_message_id=assistant_message_id,
+            include_undone=True,
+        )
+        if event.undone_at is not None
+    ]
+    for event in world_events:
+        redo_story_world_card_change_event(db, game, event, commit=False)
+
+    plot_events = [
+        event
+        for event in list_story_plot_card_events(
+            db,
+            game.id,
+            assistant_message_id=assistant_message_id,
+            include_undone=True,
+        )
+        if event.undone_at is not None
+    ]
+    for event in plot_events:
+        redo_story_plot_card_change_event(db, game, event, commit=False)
+
+    touch_story_game(game)
+    if commit:
+        db.commit()
+    else:
+        db.flush()
+
+
+def undo_story_assistant_step(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> str:
+    last_message = db.scalar(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.desc())
+    )
+    if last_message is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to rollback")
+
+    if last_message.role == STORY_ASSISTANT_ROLE:
+        latest_image = db.scalar(
+            select(StoryTurnImage)
+            .where(
+                StoryTurnImage.game_id == game.id,
+                StoryTurnImage.assistant_message_id == last_message.id,
+                StoryTurnImage.undone_at.is_(None),
+            )
+            .order_by(StoryTurnImage.id.desc())
+        )
+        if latest_image is not None:
+            latest_image.undone_at = _utcnow()
+            touch_story_game(game)
+            db.commit()
+            return "assistant_image_deleted"
+
+        rollback_story_card_events_for_assistant_message(
+            db=db,
+            game=game,
+            assistant_message_id=last_message.id,
+            commit=False,
+            purge_events=False,
+        )
+        last_message.undone_at = _utcnow()
+        touch_story_game(game)
+        db.commit()
+        return "assistant_message_deleted"
+
+    if last_message.role == STORY_USER_ROLE:
+        last_message.undone_at = _utcnow()
+        touch_story_game(game)
+        db.commit()
+        return "user_message_deleted"
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported message role for rollback")
+
+
+def redo_story_assistant_step(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> str:
+    latest_undone_message = db.scalar(
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_not(None),
+        )
+        .order_by(StoryMessage.undone_at.desc(), StoryMessage.id.desc())
+    )
+    latest_undone_image = db.scalar(
+        select(StoryTurnImage)
+        .where(
+            StoryTurnImage.game_id == game.id,
+            StoryTurnImage.undone_at.is_not(None),
+        )
+        .order_by(StoryTurnImage.undone_at.desc(), StoryTurnImage.id.desc())
+    )
+
+    if latest_undone_message is None and latest_undone_image is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to restore")
+
+    restore_image_step = False
+    if latest_undone_image is not None:
+        if latest_undone_message is None:
+            restore_image_step = True
+        else:
+            image_undone_at = latest_undone_image.undone_at
+            message_undone_at = latest_undone_message.undone_at
+            if image_undone_at is not None and message_undone_at is not None:
+                if image_undone_at > message_undone_at:
+                    restore_image_step = True
+                elif image_undone_at == message_undone_at and latest_undone_image.id > latest_undone_message.id:
+                    restore_image_step = True
+
+    if restore_image_step and latest_undone_image is not None:
+        latest_undone_image.undone_at = None
+        touch_story_game(game)
+        db.commit()
+        return "assistant_image_restored"
+
+    if latest_undone_message is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nothing to restore")
+
+    if latest_undone_message.role == STORY_ASSISTANT_ROLE:
+        reapply_story_card_events_for_assistant_message(
+            db=db,
+            game=game,
+            assistant_message_id=latest_undone_message.id,
+            commit=False,
+        )
+        latest_undone_message.undone_at = None
+        touch_story_game(game)
+        db.commit()
+        return "assistant_message_restored"
+
+    if latest_undone_message.role == STORY_USER_ROLE:
+        latest_undone_message.undone_at = None
+        touch_story_game(game)
+        db.commit()
+        return "user_message_restored"
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported message role for restore")

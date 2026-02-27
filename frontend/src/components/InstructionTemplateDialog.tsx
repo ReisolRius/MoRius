@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   CircularProgress,
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
+  Menu,
+  MenuItem,
   Stack,
   Typography,
 } from '@mui/material'
@@ -30,8 +34,15 @@ type InstructionTemplateDialogProps = {
   mode: InstructionTemplateDialogMode
   onClose: () => void
   onSelectTemplate?: (template: StoryInstructionTemplate) => Promise<void> | void
+  selectedTemplateSignatures?: string[]
   initialMode?: 'list' | 'create'
   initialTemplateId?: number | null
+}
+
+function createInstructionTemplateSignature(title: string, content: string): string {
+  const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
+  const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
+  return `${normalizedTitle}::${normalizedContent}`
 }
 
 function InstructionTemplateDialog({
@@ -40,6 +51,7 @@ function InstructionTemplateDialog({
   mode,
   onClose,
   onSelectTemplate,
+  selectedTemplateSignatures = [],
   initialMode = 'list',
   initialTemplateId = null,
 }: InstructionTemplateDialogProps) {
@@ -53,6 +65,8 @@ function InstructionTemplateDialog({
   const [isSavingTemplate, setIsSavingTemplate] = useState(false)
   const [deletingTemplateId, setDeletingTemplateId] = useState<number | null>(null)
   const [applyingTemplateId, setApplyingTemplateId] = useState<number | null>(null)
+  const [templateMenuAnchorEl, setTemplateMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [templateMenuTemplateId, setTemplateMenuTemplateId] = useState<number | null>(null)
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
 
   const isBusy = isSavingTemplate || deletingTemplateId !== null || applyingTemplateId !== null
@@ -89,6 +103,8 @@ function InstructionTemplateDialog({
       setIsSavingTemplate(false)
       setDeletingTemplateId(null)
       setApplyingTemplateId(null)
+      setTemplateMenuAnchorEl(null)
+      setTemplateMenuTemplateId(null)
       setHasAppliedInitialAction(false)
       return
     }
@@ -102,6 +118,17 @@ function InstructionTemplateDialog({
         .filter((item): item is StoryInstructionTemplate => Boolean(item) && typeof item.id === 'number')
         .sort((left, right) => left.id - right.id),
     [templates],
+  )
+  const selectedTemplateSignatureSet = useMemo(
+    () => new Set(selectedTemplateSignatures.map((signature) => signature.trim()).filter(Boolean)),
+    [selectedTemplateSignatures],
+  )
+  const selectedTemplateMenuItem = useMemo(
+    () =>
+      templateMenuTemplateId !== null
+        ? sortedTemplates.find((template) => template.id === templateMenuTemplateId) ?? null
+        : null,
+    [sortedTemplates, templateMenuTemplateId],
   )
 
   const handleCloseDialog = () => {
@@ -122,7 +149,7 @@ function InstructionTemplateDialog({
     setIsEditorOpen(true)
   }
 
-  const handleOpenEditEditor = (template: StoryInstructionTemplate) => {
+  const handleOpenEditEditor = useCallback((template: StoryInstructionTemplate) => {
     if (isBusy) {
       return
     }
@@ -131,7 +158,7 @@ function InstructionTemplateDialog({
     setTemplateTitleDraft(template.title)
     setTemplateContentDraft(template.content)
     setIsEditorOpen(true)
-  }
+  }, [isBusy])
 
   const handleCloseEditor = () => {
     if (isBusy) {
@@ -142,6 +169,17 @@ function InstructionTemplateDialog({
     setTemplateTitleDraft('')
     setTemplateContentDraft('')
   }
+
+  const handleOpenTemplateMenu = useCallback((event: ReactMouseEvent<HTMLElement>, templateId: number) => {
+    event.stopPropagation()
+    setTemplateMenuAnchorEl(event.currentTarget)
+    setTemplateMenuTemplateId(templateId)
+  }, [])
+
+  const handleCloseTemplateMenu = useCallback(() => {
+    setTemplateMenuAnchorEl(null)
+    setTemplateMenuTemplateId(null)
+  }, [])
 
   const handleSaveTemplate = useCallback(async () => {
     if (isBusy) {
@@ -223,6 +261,11 @@ function InstructionTemplateDialog({
       if (!onSelectTemplate || isBusy) {
         return
       }
+      const templateSignature = createInstructionTemplateSignature(template.title, template.content)
+      if (selectedTemplateSignatureSet.has(templateSignature)) {
+        setErrorMessage('Этот шаблон уже добавлен.')
+        return
+      }
       setErrorMessage('')
       setApplyingTemplateId(template.id)
       try {
@@ -235,7 +278,63 @@ function InstructionTemplateDialog({
         setApplyingTemplateId(null)
       }
     },
-    [isBusy, onClose, onSelectTemplate],
+    [isBusy, onClose, onSelectTemplate, selectedTemplateSignatureSet],
+  )
+
+  const handleEditTemplateFromMenu = useCallback(() => {
+    if (!selectedTemplateMenuItem || isBusy) {
+      return
+    }
+    handleOpenEditEditor(selectedTemplateMenuItem)
+    handleCloseTemplateMenu()
+  }, [handleCloseTemplateMenu, handleOpenEditEditor, isBusy, selectedTemplateMenuItem])
+
+  const handleDeleteTemplateFromMenu = useCallback(async () => {
+    if (!selectedTemplateMenuItem || isBusy) {
+      return
+    }
+    handleCloseTemplateMenu()
+    await handleDeleteTemplate(selectedTemplateMenuItem.id)
+  }, [handleCloseTemplateMenu, handleDeleteTemplate, isBusy, selectedTemplateMenuItem])
+
+  const renderCreatePlaceholderCard = (options: { onClick: () => void }) => (
+    <ButtonBase
+      onClick={options.onClick}
+      disabled={isBusy}
+      aria-label="Create template"
+      sx={{
+        width: '100%',
+        minHeight: 68,
+        borderRadius: '12px',
+        border: 'var(--morius-border-width) dashed rgba(203, 217, 236, 0.46)',
+        backgroundColor: 'rgba(116, 140, 171, 0.08)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--morius-text-primary)',
+        transition: 'background-color 180ms ease, border-color 180ms ease',
+        '&:hover': {
+          backgroundColor: 'rgba(129, 151, 182, 0.14)',
+          borderColor: 'rgba(203, 217, 236, 0.7)',
+        },
+      }}
+    >
+      <Box
+        sx={{
+          width: 34,
+          height: 34,
+          borderRadius: '50%',
+          border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
+          display: 'grid',
+          placeItems: 'center',
+          fontSize: '1.42rem',
+          fontWeight: 700,
+          lineHeight: 1,
+        }}
+      >
+        +
+      </Box>
+    </ButtonBase>
   )
 
   useEffect(() => {
@@ -304,23 +403,10 @@ function InstructionTemplateDialog({
           </Stack>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.35 }}>
-          <Stack spacing={1.05}>
+          <Stack spacing={0.9}>
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
 
-            <Button
-              onClick={handleOpenCreateEditor}
-              disabled={isBusy}
-              sx={{
-                minHeight: 40,
-                borderRadius: '12px',
-                textTransform: 'none',
-                color: 'var(--morius-text-primary)',
-                border: 'var(--morius-border-width) dashed var(--morius-card-border)',
-                backgroundColor: 'var(--morius-elevated-bg)',
-              }}
-            >
-              Создать шаблон
-            </Button>
+            {renderCreatePlaceholderCard({ onClick: handleOpenCreateEditor })}
 
             {isLoadingTemplates ? (
               <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
@@ -332,101 +418,145 @@ function InstructionTemplateDialog({
                   borderRadius: '12px',
                   border: 'var(--morius-border-width) solid var(--morius-card-border)',
                   backgroundColor: 'var(--morius-elevated-bg)',
-                  px: 1.1,
-                  py: 1.05,
+                  px: 1.05,
+                  py: 0.95,
                 }}
               >
-                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.87rem' }}>
                   Пока нет сохраненных шаблонов.
                 </Typography>
               </Box>
             ) : (
               <Box className="morius-scrollbar" sx={{ maxHeight: 352, overflowY: 'auto', pr: 0.25 }}>
-                <Stack spacing={0.75}>
-                  {sortedTemplates.map((template) => (
-                    <Box
-                      key={template.id}
-                      sx={{
-                        borderRadius: '12px',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        px: 1.05,
-                        py: 0.9,
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          color: 'var(--morius-text-primary)',
-                          fontSize: '0.95rem',
-                          fontWeight: 700,
-                          lineHeight: 1.25,
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {template.title}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          mt: 0.45,
-                          color: 'var(--morius-text-secondary)',
-                          fontSize: '0.85rem',
-                          lineHeight: 1.4,
-                          whiteSpace: 'pre-wrap',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 3,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {template.content}
-                      </Typography>
-                      <Stack direction="row" spacing={0.65} sx={{ mt: 0.85 }}>
-                        {mode === 'picker' ? (
-                          <Button
-                            onClick={() => void handleApplyTemplate(template)}
-                            disabled={isBusy || !onSelectTemplate}
+                <Stack spacing={0.6}>
+                  {sortedTemplates.map((template) => {
+                    const templateSignature = createInstructionTemplateSignature(template.title, template.content)
+                    const isTemplateSelected = mode === 'picker' && selectedTemplateSignatureSet.has(templateSignature)
+                    const isTemplateDisabled = isBusy || (mode === 'picker' && (!onSelectTemplate || isTemplateSelected))
+                    const isTemplateApplying = applyingTemplateId === template.id
+
+                    const cardBody = (
+                      <Stack spacing={0.46} sx={{ width: '100%' }}>
+                        <Stack direction="row" spacing={0.6} alignItems="flex-start" justifyContent="space-between">
+                          <Typography
                             sx={{
-                              minHeight: 30,
-                              px: 1.05,
-                              textTransform: 'none',
-                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                              backgroundColor: 'var(--morius-button-active)',
                               color: 'var(--morius-text-primary)',
-                              '&:hover': {
-                                backgroundColor: 'var(--morius-button-hover)',
-                              },
+                              fontSize: '0.93rem',
+                              fontWeight: 700,
+                              lineHeight: 1.23,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              minWidth: 0,
+                              flex: 1,
                             }}
                           >
-                            {applyingTemplateId === template.id ? (
-                              <CircularProgress size={14} sx={{ color: 'var(--morius-text-primary)' }} />
-                            ) : (
-                              'Применить'
-                            )}
-                          </Button>
+                            {template.title}
+                          </Typography>
+                          {mode === 'manage' ? (
+                            <IconButton
+                              onClick={(event) => handleOpenTemplateMenu(event, template.id)}
+                              disabled={isBusy}
+                              sx={{
+                                width: 26,
+                                height: 26,
+                                color: 'rgba(208, 219, 235, 0.84)',
+                                flexShrink: 0,
+                                backgroundColor: 'transparent !important',
+                                border: 'none',
+                                '&:hover': { backgroundColor: 'transparent !important' },
+                                '&:active': { backgroundColor: 'transparent !important' },
+                                '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
+                              }}
+                            >
+                              {deletingTemplateId === template.id ? (
+                                <CircularProgress size={13} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                              ) : (
+                                <Box sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+                              )}
+                            </IconButton>
+                          ) : isTemplateApplying ? (
+                            <CircularProgress size={13} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                          ) : null}
+                        </Stack>
+                        <Typography
+                          sx={{
+                            color: 'var(--morius-text-secondary)',
+                            fontSize: '0.82rem',
+                            lineHeight: 1.3,
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            wordBreak: 'break-word',
+                            overflowWrap: 'anywhere',
+                          }}
+                        >
+                          {template.content}
+                        </Typography>
+                        {mode === 'picker' ? (
+                          <Typography
+                            sx={{
+                              fontSize: '0.74rem',
+                              fontWeight: 700,
+                              color: isTemplateSelected ? 'rgba(238, 198, 142, 0.94)' : 'rgba(181, 199, 220, 0.82)',
+                            }}
+                          >
+                            {isTemplateSelected ? 'Уже выбрано' : 'Нажмите для выбора'}
+                          </Typography>
                         ) : null}
-                        <Button
-                          onClick={() => handleOpenEditEditor(template)}
-                          disabled={isBusy}
-                          sx={{ minHeight: 30, px: 1.05, textTransform: 'none' }}
-                        >
-                          Изменить
-                        </Button>
-                        <Button
-                          onClick={() => void handleDeleteTemplate(template.id)}
-                          disabled={isBusy}
-                          sx={{ minHeight: 30, px: 1.05, textTransform: 'none', color: 'var(--morius-text-secondary)' }}
-                        >
-                          {deletingTemplateId === template.id ? (
-                            <CircularProgress size={14} sx={{ color: 'var(--morius-text-secondary)' }} />
-                          ) : (
-                            'Удалить'
-                          )}
-                        </Button>
                       </Stack>
-                    </Box>
-                  ))}
+                    )
+
+                    if (mode === 'picker') {
+                      return (
+                        <ButtonBase
+                          key={template.id}
+                          onClick={() => void handleApplyTemplate(template)}
+                          disabled={isTemplateDisabled}
+                          sx={{
+                            width: '100%',
+                            borderRadius: '12px',
+                            border: isTemplateSelected
+                              ? 'var(--morius-border-width) solid rgba(226, 188, 141, 0.55)'
+                              : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: isTemplateSelected
+                              ? 'rgba(137, 106, 69, 0.14)'
+                              : 'var(--morius-elevated-bg)',
+                            px: 0.95,
+                            py: 0.75,
+                            textAlign: 'left',
+                            alignItems: 'stretch',
+                            transition: 'background-color 180ms ease, border-color 180ms ease',
+                            opacity: isTemplateDisabled && !isTemplateSelected ? 0.62 : 1,
+                            '&:hover': {
+                              backgroundColor: isTemplateSelected
+                                ? 'rgba(137, 106, 69, 0.14)'
+                                : 'var(--morius-button-hover)',
+                            },
+                          }}
+                        >
+                          {cardBody}
+                        </ButtonBase>
+                      )
+                    }
+
+                    return (
+                      <Box
+                        key={template.id}
+                        sx={{
+                          width: '100%',
+                          borderRadius: '12px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                          px: 0.95,
+                          py: 0.75,
+                        }}
+                      >
+                        {cardBody}
+                      </Box>
+                    )
+                  })}
                 </Stack>
               </Box>
             )}
@@ -437,6 +567,43 @@ function InstructionTemplateDialog({
             Закрыть
           </Button>
         </DialogActions>
+        <Menu
+          anchorEl={templateMenuAnchorEl}
+          open={mode === 'manage' && Boolean(templateMenuAnchorEl && selectedTemplateMenuItem)}
+          onClose={handleCloseTemplateMenu}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          PaperProps={{
+            sx: {
+              mt: 0.5,
+              borderRadius: '12px',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              background: 'var(--morius-card-bg)',
+              minWidth: 178,
+            },
+          }}
+        >
+          <MenuItem
+            onClick={handleEditTemplateFromMenu}
+            disabled={!selectedTemplateMenuItem || isBusy}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            <Stack direction="row" spacing={0.7} alignItems="center">
+              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
+              <Box component="span">Редактировать</Box>
+            </Stack>
+          </MenuItem>
+          <MenuItem
+            onClick={() => void handleDeleteTemplateFromMenu()}
+            disabled={!selectedTemplateMenuItem || isBusy}
+            sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+          >
+            <Stack direction="row" spacing={0.7} alignItems="center">
+              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
+              <Box component="span">Удалить</Box>
+            </Stack>
+          </MenuItem>
+        </Menu>
       </BaseDialog>
 
       <BaseDialog
@@ -546,3 +713,8 @@ function InstructionTemplateDialog({
 }
 
 export default InstructionTemplateDialog
+
+
+
+
+

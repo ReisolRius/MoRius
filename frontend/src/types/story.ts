@@ -181,6 +181,7 @@ export type StoryGamePayload = {
   plot_card_events: StoryPlotCardEvent[]
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
+  can_redo_assistant_step: boolean
 }
 
 export type StoryCommunityWorldSummary = {

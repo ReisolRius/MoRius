@@ -43,7 +43,7 @@ type AdminPanelDialogProps = {
 
 function formatBanLabel(user: AdminManagedUser): string {
   if (!user.is_banned) {
-    return `${user.coins.toLocaleString('ru-RU')} токенов`
+    return `${user.coins.toLocaleString('ru-RU')} солов`
   }
   if (!user.ban_expires_at) {
     return 'В бане'
@@ -237,7 +237,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
       }
       const parsedAmount = Number.parseInt(tokenAmountDraft.trim(), 10)
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        setErrorMessage('Укажите корректное количество токенов')
+        setErrorMessage('Укажите корректное количество солов')
         return
       }
 
@@ -252,7 +252,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
           amount: parsedAmount,
         })
         mergeUpdatedUser(updatedUser)
-        setSuccessMessage(operation === 'add' ? 'Токены начислены' : 'Токены списаны')
+        setSuccessMessage(operation === 'add' ? 'Солы начислены' : 'Солы списаны')
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось изменить баланс'
         setErrorMessage(detail)
@@ -543,7 +543,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                   <TextField
                     value={tokenAmountDraft}
                     onChange={(event) => setTokenAmountDraft(event.target.value)}
-                    label="Сумма токенов"
+                    label="Сумма солов"
                     size="small"
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
                     inputProps={{ inputMode: 'numeric' }}

@@ -201,7 +201,7 @@ def update_user_tokens(
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Insufficient tokens for subtraction",
+            detail="Insufficient sols for subtraction",
         )
 
     sync_user_access_state(target_user)

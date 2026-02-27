@@ -30,6 +30,7 @@ def update_story_message(
         select(StoryMessage).where(
             StoryMessage.id == message_id,
             StoryMessage.game_id == game.id,
+            StoryMessage.undone_at.is_(None),
         )
     )
     if message is None:

@@ -328,8 +328,10 @@ def _stream_story_response(
                 last_persisted_at = current_time
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
     except GeneratorExit:
+        # Client disconnected or canceled stream: finalize what is already produced
+        # so we don't persist a broken tail from interim chunk checkpoints.
         aborted = True
-        raise
+        stream_error = stream_error or "stream cancelled by client"
     except Exception as exc:
         stream_error = str(exc)
         logger.exception("Story generation failed")
@@ -576,6 +578,7 @@ def generate_story_response(
                     db=db,
                     game=game,
                     assistant_message_id=last_message.id,
+                    commit=False,
                 )
                 # Extra safety for legacy rows: ensure no event still references removed assistant message.
                 db.execute(
@@ -644,7 +647,7 @@ def generate_story_response(
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Недостаточно токенов для хода",
+                detail="Недостаточно солов для хода",
             )
         db.commit()
         db.refresh(user)
@@ -663,7 +666,7 @@ def generate_story_response(
             db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Недостаточно токенов для хода",
+                detail="Недостаточно солов для хода",
             )
         source_user_message = StoryMessage(
             game_id=game.id,

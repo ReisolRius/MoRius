@@ -46,19 +46,19 @@ const tariffPlans = [
     id: 'standard',
     title: 'Путник',
     price: '399 ₽',
-    coins: '250 токенов',
+    coins: '250 солов',
   },
   {
     id: 'pro',
     title: 'Искатель',
     price: '999 ₽',
-    coins: '800 токенов',
+    coins: '800 солов',
   },
   {
     id: 'mega',
     title: 'Хронист',
     price: '2890 ₽',
-    coins: '2500 токенов',
+    coins: '2500 солов',
   },
 ]
 
@@ -467,7 +467,7 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                     }}
                   >
                     <Stack direction="row" alignItems="center" spacing={0.4} sx={{ pl: 0.6, pr: 0.8 }}>
-                      <Box component="img" src={icons.tabcoin} alt="token count" sx={{ width: 12, height: 12 }} />
+                      <Box component="img" src={icons.tabcoin} alt="sol count" sx={{ width: 12, height: 12 }} />
                       <Typography sx={{ fontSize: '1.42rem', lineHeight: 1, color: 'rgba(211, 217, 228, 0.85)' }}>
                         5
                       </Typography>
@@ -621,7 +621,7 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                   Тарифные планы
                 </Typography>
                 <Typography sx={{ color: 'rgba(214, 221, 231, 0.62)', fontSize: { xs: '0.9rem', md: '0.95rem' } }}>
-                  Выберите пакет токенов под ваш темп игры.
+                  Выберите пакет солов под ваш темп игры.
                 </Typography>
               </Stack>
             </RevealOnView>

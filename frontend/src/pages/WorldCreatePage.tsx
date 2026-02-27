@@ -121,6 +121,12 @@ function parseTriggers(value: string, fallback: string): string[] {
   return fallback.trim() ? [fallback.trim()] : []
 }
 
+function createInstructionTemplateSignature(title: string, content: string): string {
+  const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
+  const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
+  return `${normalizedTitle}::${normalizedContent}`
+}
+
 function normalizeCharacterIdentity(value: string): string {
   return value
     .toLowerCase()
@@ -288,6 +294,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const hasInitializedDefaultCoverRef = useRef(false)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
+  const selectedInstructionTemplateSignatures = useMemo(
+    () => instructionCards.map((card) => createInstructionTemplateSignature(card.title, card.content)),
+    [instructionCards],
+  )
   const openingSceneTagCharacters = useMemo(() => sortedCharacters.slice(0, 8), [sortedCharacters])
   const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHero?.name ?? ''), [mainHero?.name])
   const npcCharacterIds = useMemo(() => new Set(npcs.map((npc) => npc.character_id).filter((id): id is number => Boolean(id))), [npcs])
@@ -488,8 +498,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       setErrorMessage('Шаблон инструкции пустой')
       return
     }
+    const templateSignature = createInstructionTemplateSignature(normalizedTitle, normalizedContent)
+    const alreadyAdded = instructionCards.some(
+      (card) => createInstructionTemplateSignature(card.title, card.content) === templateSignature,
+    )
+    if (alreadyAdded) {
+      const detail = 'Этот шаблон уже добавлен в карточки инструкций.'
+      setErrorMessage(detail)
+      throw new Error(detail)
+    }
     setInstructionCards((previous) => [...previous, { localId: makeLocalId(), title: normalizedTitle, content: normalizedContent }])
-  }, [])
+  }, [instructionCards])
 
   const openCharacterDialog = useCallback((target: 'main_hero' | 'npc', card?: EditableCharacterCard) => {
     setCharacterDialogTarget(target)
@@ -718,6 +737,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         isRightPanelOpen={isHeaderActionsOpen}
         onToggleRightPanel={() => setIsHeaderActionsOpen((p) => !p)}
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
+        onOpenTopUpDialog={() => onNavigate('/profile')}
         rightActions={
           <Button onClick={() => onNavigate('/profile')} sx={{ minWidth: 48, minHeight: 48, p: 0, borderRadius: '50%' }}>
             <UserAvatar user={user} size={moriusThemeTokens.layout.headerButtonSize} />
@@ -965,6 +985,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         open={instructionTemplateDialogOpen}
         authToken={authToken}
         mode="picker"
+        selectedTemplateSignatures={selectedInstructionTemplateSignatures}
         onClose={() => setInstructionTemplateDialogOpen(false)}
         onSelectTemplate={(template) => handleApplyInstructionTemplate(template)}
       />

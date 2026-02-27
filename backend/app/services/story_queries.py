@@ -58,16 +58,48 @@ def get_public_story_world_or_404(db: Session, world_id: int) -> StoryGame:
 
 def list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
     return db.scalars(
-        select(StoryMessage).where(StoryMessage.game_id == game_id).order_by(StoryMessage.id.asc())
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.asc())
     ).all()
 
 
 def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
     return db.scalars(
         select(StoryTurnImage)
-        .where(StoryTurnImage.game_id == game_id)
+        .where(
+            StoryTurnImage.game_id == game_id,
+            StoryTurnImage.undone_at.is_(None),
+        )
         .order_by(StoryTurnImage.assistant_message_id.asc(), StoryTurnImage.id.asc())
     ).all()
+
+
+def has_story_assistant_redo_step(db: Session, game_id: int) -> bool:
+    has_undone_message = db.scalar(
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.undone_at.is_not(None),
+        )
+        .order_by(StoryMessage.undone_at.desc(), StoryMessage.id.desc())
+        .limit(1)
+    )
+    if has_undone_message is not None:
+        return True
+    has_undone_image = db.scalar(
+        select(StoryTurnImage.id)
+        .where(
+            StoryTurnImage.game_id == game_id,
+            StoryTurnImage.undone_at.is_not(None),
+        )
+        .order_by(StoryTurnImage.undone_at.desc(), StoryTurnImage.id.desc())
+        .limit(1)
+    )
+    return has_undone_image is not None
 
 
 def list_story_instruction_cards(db: Session, game_id: int) -> list[StoryInstructionCard]:
