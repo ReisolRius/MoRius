@@ -30,6 +30,7 @@ import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCa
 import AdminPanelDialog from '../components/profile/AdminPanelDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
 import {
@@ -77,6 +78,7 @@ type TabId = 'characters' | 'instructions' | 'favorites' | 'plots' | 'subscripti
 
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
+const PROFILE_CONTENT_SEARCH_MAX = 120
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const HEADER_AVATAR_SIZE = 44
 const PROFILE_AVATAR_SIZE = 96
@@ -1851,6 +1853,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         label="Ник"
                         value={nameDraft}
                         onChange={(event) => setNameDraft(event.target.value.slice(0, PROFILE_NAME_MAX))}
+                        inputProps={{ maxLength: PROFILE_NAME_MAX }}
+                        helperText={<TextLimitIndicator currentLength={nameDraft.length} maxLength={PROFILE_NAME_MAX} />}
+                        FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                       />
                       <TextField
                         label="Описание"
@@ -1859,6 +1864,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         multiline
                         minRows={3}
                         maxRows={5}
+                        inputProps={{ maxLength: PROFILE_DESC_MAX }}
+                        helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={PROFILE_DESC_MAX} />}
+                        FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                       />
                       <Stack direction="row" spacing={0.7}>
                         <Button
@@ -2194,8 +2202,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   <TextField
                     size="small"
                     value={contentSearchQuery}
-                    onChange={(event) => setContentSearchQuery(event.target.value.slice(0, 120))}
+                    onChange={(event) => setContentSearchQuery(event.target.value.slice(0, PROFILE_CONTENT_SEARCH_MAX))}
                     placeholder="Поиск"
+                    inputProps={{ maxLength: PROFILE_CONTENT_SEARCH_MAX }}
+                    helperText={<TextLimitIndicator currentLength={contentSearchQuery.length} maxLength={PROFILE_CONTENT_SEARCH_MAX} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     sx={{
                       flex: 1,
                       '& .MuiInputBase-root': {

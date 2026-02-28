@@ -23,6 +23,7 @@ import {
   verifyEmailRegistration,
 } from '../services/authApi'
 import type { AuthResponse } from '../types/auth'
+import TextLimitIndicator from './TextLimitIndicator'
 import BaseDialog from './dialogs/BaseDialog'
 
 export type AuthMode = 'login' | 'register'
@@ -37,6 +38,9 @@ type AuthDialogProps = {
 
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
+const AUTH_EMAIL_MAX_LENGTH = 320
+const AUTH_PASSWORD_MAX_LENGTH = 128
+const AUTH_VERIFICATION_CODE_LENGTH = 6
 
 function formatResendCooldown(seconds: number): string {
   const safeSeconds = Math.max(seconds, 0)
@@ -421,6 +425,9 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                 fullWidth
                 disabled={isVerificationStep}
                 sx={formFieldSx}
+                inputProps={{ maxLength: AUTH_EMAIL_MAX_LENGTH }}
+                helperText={<TextLimitIndicator currentLength={email.length} maxLength={AUTH_EMAIL_MAX_LENGTH} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
 
               {isVerificationStep ? (
@@ -431,7 +438,9 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                   fullWidth
                   autoFocus
                   sx={formFieldSx}
-                  inputProps={{ inputMode: 'numeric', maxLength: 6 }}
+                  inputProps={{ inputMode: 'numeric', maxLength: AUTH_VERIFICATION_CODE_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={verificationCode.length} maxLength={AUTH_VERIFICATION_CODE_LENGTH} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
               ) : (
                 <>
@@ -442,6 +451,9 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                     onChange={(event) => setPassword(event.target.value)}
                     fullWidth
                     sx={formFieldSx}
+                    inputProps={{ maxLength: AUTH_PASSWORD_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={password.length} maxLength={AUTH_PASSWORD_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                   />
                   {isRegisterMode ? (
                     <TextField
@@ -451,6 +463,9 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                       onChange={(event) => setConfirmPassword(event.target.value)}
                       fullWidth
                       sx={formFieldSx}
+                      inputProps={{ maxLength: AUTH_PASSWORD_MAX_LENGTH }}
+                      helperText={<TextLimitIndicator currentLength={confirmPassword.length} maxLength={AUTH_PASSWORD_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     />
                   ) : null}
                 </>

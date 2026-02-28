@@ -45,6 +45,7 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar, { AvatarPlaceholder } from '../components/profile/UserAvatar'
 import { OPEN_CHARACTER_MANAGER_FLAG_KEY, QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
@@ -174,6 +175,7 @@ const STORY_TURN_IMAGE_TOGGLE_STORAGE_KEY = 'morius.story.turn-image.enabled'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 45_000
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_NANO_BANANO_2_MS = 180_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
+const STORY_PROMPT_MAX_LENGTH = 8000
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
@@ -181,8 +183,15 @@ const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
 const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Закончились солы'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
+const STORY_GAME_TITLE_MAX_LENGTH = 160
+const STORY_CARD_TITLE_MAX_LENGTH = 120
+const STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH = 4
+const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
+const STORY_CHARACTER_NAME_MAX_LENGTH = 120
 const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 16000
+const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
+const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 4000
 const STORY_DEFAULT_CONTEXT_LIMIT = 1500
@@ -256,6 +265,52 @@ function getStoryTurnImageRequestTimeoutMs(modelId: StoryImageModelId): number {
   }
   return STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS
 }
+const contentEditableLimitSx = {
+  position: 'relative',
+  pb: 1.3,
+  '&[data-char-limit-visible="true"]::after': {
+    content: 'attr(data-char-limit)',
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    color: 'rgba(190, 202, 220, 0.62)',
+    fontSize: '0.76rem',
+    lineHeight: 1,
+    pointerEvents: 'none',
+  },
+} as const
+
+function moveContentEditableCaretToEnd(element: HTMLDivElement): void {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return
+  }
+  const selection = window.getSelection()
+  if (!selection) {
+    return
+  }
+  const range = document.createRange()
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function syncContentEditableCharLimit(element: HTMLDivElement, maxLength: number): string {
+  const rawText = element.textContent ?? ''
+  const nextText = rawText.slice(0, maxLength)
+  if (nextText !== rawText) {
+    element.textContent = nextText
+    moveContentEditableCaretToEnd(element)
+  }
+  element.dataset.charLimit = `${nextText.length}/${maxLength}`
+  element.dataset.charLimitVisible = 'true'
+  return nextText
+}
+
+function hideContentEditableCharLimit(element: HTMLDivElement): void {
+  element.dataset.charLimitVisible = 'false'
+}
+
 const RIGHT_PANEL_WIDTH_MIN = 300
 const RIGHT_PANEL_WIDTH_MAX = 460
 const RIGHT_PANEL_WIDTH_DEFAULT = 332
@@ -3293,7 +3348,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (!activeGameId) {
         return
       }
-      const normalized = rawValue.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim() || DEFAULT_STORY_TITLE
+      const normalized =
+        rawValue.replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim().slice(0, STORY_GAME_TITLE_MAX_LENGTH)
+        || DEFAULT_STORY_TITLE
       applyCustomTitle(activeGameId, normalized)
     },
     [activeGameId, applyCustomTitle],
@@ -3316,7 +3373,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const handleInlineTitleBlur = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
-    handleCommitInlineTitle(event.currentTarget.textContent ?? '')
+    const nextValue = syncContentEditableCharLimit(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
+    hideContentEditableCharLimit(event.currentTarget)
+    handleCommitInlineTitle(nextValue)
   }, [handleCommitInlineTitle])
 
   const handleInlineTitleFocus = useCallback((event: ReactFocusEvent<HTMLDivElement>) => {
@@ -3324,6 +3383,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       event.currentTarget.blur()
       return
     }
+    syncContentEditableCharLimit(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
   }, [activeGameId, isGenerating])
 
   const handleCancelMessageEdit = () => {
@@ -3344,7 +3404,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const normalized = messageDraft.trim()
+    const normalized = messageDraft.slice(0, STORY_MESSAGE_MAX_LENGTH).trim()
     if (!normalized) {
       setErrorMessage('Текст сообщения не может быть пустым')
       return
@@ -3390,7 +3450,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
 
-      const normalized = nextContentRaw.replace(/\r\n/g, '\n').trim()
+      const normalized = nextContentRaw.replace(/\r\n/g, '\n').slice(0, STORY_MESSAGE_MAX_LENGTH).trim()
       const currentNormalized = currentMessage.content.replace(/\r\n/g, '\n').trim()
       if (!normalized) {
         setErrorMessage('Текст сообщения не может быть пустым')
@@ -4856,7 +4916,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const handleContextLimitDraftChange = useCallback((value: string) => {
-    const sanitized = value.replace(/[^\d]/g, '')
+    const sanitized = value.replace(/[^\d]/g, '').slice(0, STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH)
     setContextLimitDraft(sanitized)
     if (!sanitized) {
       return
@@ -6587,6 +6647,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Box
                         component="input"
                         value={contextLimitDraft}
+                        maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
                         onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
                         onBlur={() => {
                           void handleContextLimitDraftCommit()
@@ -6614,6 +6675,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Токенов</Typography>
                       {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
                     </Stack>
+                    <TextLimitIndicator
+                      currentLength={contextLimitDraft.length}
+                      maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
+                      sx={{ mt: 0.45 }}
+                    />
 
                     <Slider
                       value={contextLimitChars}
@@ -7532,9 +7598,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               suppressContentEditableWarning
               spellCheck={false}
               onFocus={handleInlineTitleFocus}
+              onInput={(event) => {
+                syncContentEditableCharLimit(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
+              }}
               onBlur={handleInlineTitleBlur}
               onKeyDown={handleInlineTitleKeyDown}
               sx={{
+                ...contentEditableLimitSx,
                 px: { xs: 0.3, md: 0.8 },
                 mb: 1.1,
                 color: '#e0e7f4',
@@ -7709,7 +7779,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           component="textarea"
                           value={messageDraft}
                           autoFocus
-                          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setMessageDraft(event.target.value)}
+                          maxLength={STORY_MESSAGE_MAX_LENGTH}
+                          onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                            setMessageDraft(event.target.value.slice(0, STORY_MESSAGE_MAX_LENGTH))
+                          }
                           onKeyDown={(event) => {
                             if (event.key === 'Escape') {
                               event.preventDefault()
@@ -7732,6 +7805,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             fontSize: { xs: '1rem', md: '1.07rem' },
                             fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
                           }}
+                        />
+                        <TextLimitIndicator
+                          currentLength={messageDraft.length}
+                          maxLength={STORY_MESSAGE_MAX_LENGTH}
+                          sx={{ mt: 0.65 }}
                         />
                         <Stack direction="row" spacing={0.7} justifyContent="flex-end" sx={{ mt: 0.7 }}>
                           <Button
@@ -7832,6 +7910,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                                      contentEditable={!isGenerating && !isSavingMessage}
 	                                      suppressContentEditableWarning
 	                                      spellCheck={false}
+	                                      onFocus={(event) => {
+	                                        syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+	                                      }}
+	                                      onInput={(event) => {
+	                                        syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+	                                      }}
 	                                      onKeyDown={(event) => {
 	                                        if (event.key === 'Escape') {
 	                                          event.preventDefault()
@@ -7847,11 +7931,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                                        )
 	                                        if (!nextContent) {
 	                                          event.currentTarget.textContent = block.text
+	                                          hideContentEditableCharLimit(event.currentTarget)
 	                                          return
 	                                        }
+	                                        hideContentEditableCharLimit(event.currentTarget)
 	                                        void handleSaveMessageInline(message.id, nextContent)
 	                                      }}
 	                                      sx={{
+	                                        ...contentEditableLimitSx,
 	                                        color: 'var(--morius-title-text)',
 	                                        lineHeight: 1.58,
 	                                        fontSize: { xs: '1.02rem', md: '1.12rem' },
@@ -7899,6 +7986,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       contentEditable={!isGenerating && !isSavingMessage}
                                       suppressContentEditableWarning
                                       spellCheck={false}
+                                      onFocus={(event) => {
+                                        syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                                      }}
+                                      onInput={(event) => {
+                                        syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                                      }}
                                       onKeyDown={(event) => {
                                         if (event.key === 'Escape') {
                                           event.preventDefault()
@@ -7914,11 +8007,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         )
                                         if (!nextContent) {
                                           event.currentTarget.textContent = block.text
+                                          hideContentEditableCharLimit(event.currentTarget)
                                           return
                                         }
+                                        hideContentEditableCharLimit(event.currentTarget)
                                         void handleSaveMessageInline(message.id, nextContent)
                                       }}
                                       sx={{
+                                        ...contentEditableLimitSx,
                                         color: block.delivery === 'thought' ? 'rgba(207, 220, 237, 0.92)' : 'var(--morius-title-text)',
                                         lineHeight: 1.54,
                                         fontSize: { xs: '1rem', md: '1.08rem' },
@@ -7948,6 +8044,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   contentEditable={!isGenerating && !isSavingMessage}
                                   suppressContentEditableWarning
                                   spellCheck={false}
+                                  onFocus={(event) => {
+                                    syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                                  }}
+                                  onInput={(event) => {
+                                    syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                                  }}
                                   onKeyDown={(event) => {
                                     if (event.key === 'Escape') {
                                       event.preventDefault()
@@ -7963,11 +8065,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     )
                                     if (!nextContent) {
                                       event.currentTarget.textContent = block.text
+                                      hideContentEditableCharLimit(event.currentTarget)
                                       return
                                     }
+                                    hideContentEditableCharLimit(event.currentTarget)
                                     void handleSaveMessageInline(message.id, nextContent)
                                   }}
                                   sx={{
+                                    ...contentEditableLimitSx,
                                     color: 'var(--morius-title-text)',
                                     lineHeight: 1.58,
                                     fontSize: { xs: '1.02rem', md: '1.12rem' },
@@ -8435,6 +8540,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         contentEditable={!isGenerating && !isSavingMessage}
                         suppressContentEditableWarning
                         spellCheck={false}
+                        onFocus={(event) => {
+                          syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                        }}
+                        onInput={(event) => {
+                          syncContentEditableCharLimit(event.currentTarget, STORY_MESSAGE_MAX_LENGTH)
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === 'Escape') {
                             event.preventDefault()
@@ -8443,9 +8554,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           }
                         }}
                         onBlur={(event) => {
+                          hideContentEditableCharLimit(event.currentTarget)
                           void handleSaveMessageInline(message.id, event.currentTarget.textContent ?? '')
                         }}
                         sx={{
+                          ...contentEditableLimitSx,
                           color: 'var(--morius-text-secondary)',
                           lineHeight: 1.58,
                           whiteSpace: 'pre-wrap',
@@ -8531,8 +8644,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ref={textAreaRef}
                 value={inputValue}
                 placeholder={inputPlaceholder}
+                maxLength={STORY_PROMPT_MAX_LENGTH}
                 disabled={isGenerating || hasInsufficientTokensForTurn}
-                onChange={(event) => setInputValue(event.target.value)}
+                onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' && !event.shiftKey) {
                     event.preventDefault()
@@ -8717,7 +8831,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Tooltip>
               </Stack>
 
-              <IconButton
+              <Stack direction="row" alignItems="center" spacing={0.9}>
+                <TextLimitIndicator currentLength={inputValue.length} maxLength={STORY_PROMPT_MAX_LENGTH} />
+                <IconButton
                 aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
                 onClick={() => {
                   if (isGenerating) {
@@ -8766,7 +8882,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)' }}
                   />
                 )}
-              </IconButton>
+                </IconButton>
+              </Stack>
             </Stack>
           </Box>
       </Box>
@@ -8926,9 +9043,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="input"
               value={instructionTitleDraft}
               placeholder="Название карточки"
-              maxLength={120}
+              maxLength={STORY_CARD_TITLE_MAX_LENGTH}
               autoFocus
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setInstructionTitleDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setInstructionTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -8947,12 +9066,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: '0.96rem',
               }}
             />
+            <TextLimitIndicator currentLength={instructionTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />
             <Box
               component="textarea"
               value={instructionContentDraft}
               placeholder="Опишите стиль, жанр, формат и другие пожелания к ответам ИИ."
               maxLength={8000}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInstructionContentDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInstructionContentDraft(event.target.value.slice(0, 8000))}
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                   event.preventDefault()
@@ -8975,9 +9095,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
               }}
             />
-            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
-              {instructionContentDraft.length}/8000
-            </Typography>
+            <TextLimitIndicator currentLength={instructionContentDraft.length} maxLength={8000} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
@@ -9039,9 +9157,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="input"
               value={plotCardTitleDraft}
               placeholder="Название карточки сюжета"
-              maxLength={120}
+              maxLength={STORY_CARD_TITLE_MAX_LENGTH}
               autoFocus
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setPlotCardTitleDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setPlotCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -9060,12 +9180,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: '0.96rem',
               }}
             />
+            <TextLimitIndicator currentLength={plotCardTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />
             <Box
               component="textarea"
               value={plotCardContentDraft}
               placeholder="Кратко сохраните важные сюжетные события и детали."
               maxLength={STORY_PLOT_CARD_CONTENT_MAX_LENGTH}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setPlotCardContentDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                setPlotCardContentDraft(event.target.value.slice(0, STORY_PLOT_CARD_CONTENT_MAX_LENGTH))
+              }
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                   event.preventDefault()
@@ -9088,9 +9211,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
               }}
             />
-            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
-              {plotCardContentDraft.length}/{STORY_PLOT_CARD_CONTENT_MAX_LENGTH}
-            </Typography>
+            <TextLimitIndicator currentLength={plotCardContentDraft.length} maxLength={STORY_PLOT_CARD_CONTENT_MAX_LENGTH} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
@@ -9222,9 +9343,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="input"
               value={worldCardTitleDraft}
               placeholder="Название (персонаж, предмет, место)"
-              maxLength={120}
+              maxLength={STORY_CARD_TITLE_MAX_LENGTH}
               autoFocus
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setWorldCardTitleDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setWorldCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter' && !event.shiftKey) {
                   event.preventDefault()
@@ -9243,12 +9366,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: '0.96rem',
               }}
             />
+            <TextLimitIndicator currentLength={worldCardTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />
             <Box
               component="textarea"
               value={worldCardContentDraft}
               placeholder="Кратко опишите сущность: внешность, роль, свойства, важные детали."
               maxLength={WORLD_CARD_CONTENT_MAX_LENGTH}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setWorldCardContentDraft(event.target.value)}
+              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                setWorldCardContentDraft(event.target.value.slice(0, WORLD_CARD_CONTENT_MAX_LENGTH))
+              }
               onKeyDown={(event) => {
                 if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                   event.preventDefault()
@@ -9275,7 +9401,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               component="input"
               value={worldCardTriggersDraft}
               placeholder="Триггеры через запятую: Алекс, Алексу, капитан"
-              onChange={(event: ChangeEvent<HTMLInputElement>) => setWorldCardTriggersDraft(event.target.value)}
+              maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setWorldCardTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))
+              }
               sx={{
                 width: '100%',
                 minHeight: 40,
@@ -9288,6 +9417,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontSize: '0.9rem',
               }}
             />
+            <TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />
             {editingWorldCardKind === 'npc' ? (
               <Stack spacing={0.35}>
                 <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
@@ -9319,9 +9449,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Box>
               </Stack>
             ) : null}
-            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
-              {worldCardContentDraft.length}/{WORLD_CARD_CONTENT_MAX_LENGTH}
-            </Typography>
+            <TextLimitIndicator currentLength={worldCardContentDraft.length} maxLength={WORLD_CARD_CONTENT_MAX_LENGTH} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
@@ -9496,7 +9624,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     component="input"
                     value={characterNameDraft}
                     placeholder="Имя"
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterNameDraft(event.target.value)}
+                    maxLength={STORY_CHARACTER_NAME_MAX_LENGTH}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setCharacterNameDraft(event.target.value.slice(0, STORY_CHARACTER_NAME_MAX_LENGTH))
+                    }
                     sx={{
                       width: '100%',
                       minHeight: 40,
@@ -9509,12 +9640,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       fontSize: '0.96rem',
                     }}
                   />
+                  <TextLimitIndicator currentLength={characterNameDraft.length} maxLength={STORY_CHARACTER_NAME_MAX_LENGTH} />
                   <Box
                     component="textarea"
                     value={characterDescriptionDraft}
-                    maxLength={6000}
+                    maxLength={STORY_CHARACTER_DESCRIPTION_MAX_LENGTH}
                     placeholder="Описание персонажа"
-                    onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setCharacterDescriptionDraft(event.target.value)}
+                    onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
+                      setCharacterDescriptionDraft(event.target.value.slice(0, STORY_CHARACTER_DESCRIPTION_MAX_LENGTH))
+                    }
                     sx={{
                       width: '100%',
                       minHeight: 92,
@@ -9531,11 +9665,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
                     }}
                   />
+                  <TextLimitIndicator
+                    currentLength={characterDescriptionDraft.length}
+                    maxLength={STORY_CHARACTER_DESCRIPTION_MAX_LENGTH}
+                  />
                   <Box
                     component="input"
                     value={characterTriggersDraft}
                     placeholder="Триггеры через запятую"
-                    onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterTriggersDraft(event.target.value)}
+                    maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setCharacterTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))
+                    }
                     sx={{
                       width: '100%',
                       minHeight: 38,
@@ -9548,6 +9689,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       fontSize: '0.9rem',
                     }}
                   />
+                  <TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />
                   {characterAvatarError ? <Alert severity="error">{characterAvatarError}</Alert> : null}
                   <Stack direction="row" spacing={0.7}>
                     <Button

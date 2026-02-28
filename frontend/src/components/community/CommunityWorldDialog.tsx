@@ -19,6 +19,7 @@ import { icons } from '../../assets'
 import type { StoryCommunityWorldReportReason } from '../../services/storyApi'
 import type { StoryCommunityWorldComment, StoryCommunityWorldPayload } from '../../types/story'
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
+import TextLimitIndicator from '../TextLimitIndicator'
 import BaseDialog from '../dialogs/BaseDialog'
 
 const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
@@ -855,11 +856,11 @@ function CommunityWorldDialog({
                           multiline
                           minRows={2}
                           maxRows={6}
+                          inputProps={{ maxLength: 2000 }}
+                          helperText={<TextLimitIndicator currentLength={commentDraft.length} maxLength={2000} />}
+                          FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                         />
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>
-                            {commentDraft.trim().length}/2000
-                          </Typography>
+                        <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1}>
                           <Button
                             onClick={() => void handleCreateComment()}
                             disabled={isCommentActionLocked || commentDraft.trim().length === 0}
@@ -983,6 +984,9 @@ function CommunityWorldDialog({
                                       multiline
                                       minRows={2}
                                       maxRows={6}
+                                      inputProps={{ maxLength: 2000 }}
+                                      helperText={<TextLimitIndicator currentLength={editingCommentDraft.length} maxLength={2000} />}
+                                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                                     />
                                     <Stack direction="row" spacing={0.7} justifyContent="flex-end">
                                       <Button onClick={handleCancelEditComment} disabled={isCommentActionLocked} sx={{ color: APP_TEXT_SECONDARY }}>
@@ -1395,6 +1399,8 @@ function CommunityWorldDialog({
               maxRows={8}
               inputProps={{ maxLength: 2000 }}
               placeholder="Опишите причину жалобы."
+              helperText={<TextLimitIndicator currentLength={reportDescriptionDraft.length} maxLength={2000} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
             />
             {reportValidationError ? (
               <Alert severity="error" sx={{ borderRadius: '12px' }}>

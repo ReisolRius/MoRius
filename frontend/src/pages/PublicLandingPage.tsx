@@ -13,10 +13,12 @@ import {
 } from '@mui/material'
 import { brandLogo, heroBackground, heroClouds, icons } from '../assets'
 import AuthDialog, { type AuthMode } from '../components/AuthDialog'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import type { AuthResponse } from '../types/auth'
 
 const STORY_TEXT =
   'Трактирщик с грохотом ставит перед вами деревянную кружку, пена стекает по краям. «Пять медных, странник», - бурчит он. В этот момент музыка стихает, и вы чувствуете тяжелую руку на своем плече. Это один из местных наемников, и он выглядит недружелюбно.'
+const LANDING_PROMPT_MAX_LENGTH = 8000
 
 const featureCards = [
   {
@@ -434,9 +436,10 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                   <Box
                     component="textarea"
                     value={promptText}
-                    onChange={(event) => setPromptText(event.target.value)}
+                    onChange={(event) => setPromptText(event.target.value.slice(0, LANDING_PROMPT_MAX_LENGTH))}
                     placeholder="Что же будете делать дальше?"
                     rows={3}
+                    maxLength={LANDING_PROMPT_MAX_LENGTH}
                     spellCheck={false}
                     sx={{
                       display: 'block',
@@ -494,6 +497,9 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                       <Box component="img" src={icons.reroll} alt="" sx={{ width: 15, height: 15 }} />
                     </IconButton>
                     <Box sx={{ flexGrow: 1 }} />
+                    <Box sx={{ minWidth: 108, pr: 0.6 }}>
+                      <TextLimitIndicator currentLength={promptText.length} maxLength={LANDING_PROMPT_MAX_LENGTH} />
+                    </Box>
                     <IconButton
                       size="small"
                       aria-label="send disabled"

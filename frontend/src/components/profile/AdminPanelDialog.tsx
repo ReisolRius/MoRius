@@ -39,6 +39,7 @@ import {
   getCommunityInstructionTemplate,
   getCommunityWorld,
 } from '../../services/storyApi'
+import TextLimitIndicator from '../TextLimitIndicator'
 import type {
   StoryCommunityCharacterSummary,
   StoryCommunityInstructionTemplateSummary,
@@ -46,6 +47,9 @@ import type {
 } from '../../types/story'
 
 const ADMIN_PANEL_EMAIL_ALLOWLIST = new Set(['alexunderstood8@gmail.com', 'borisow.n2011@gmail.com'])
+const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
+const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
+const ADMIN_BAN_DURATION_MAX_LENGTH = 5
 
 type AdminPanelTab = 'users' | 'reports'
 
@@ -599,10 +603,13 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
               <Stack spacing={1.2}>
                 <TextField
                   value={query}
-                  onChange={(event) => setQuery(event.target.value)}
+                  onChange={(event) => setQuery(event.target.value.slice(0, ADMIN_SEARCH_QUERY_MAX_LENGTH))}
                   placeholder="Введите email или ник"
                   size="small"
                   disabled={!canUseAdminPanel || isApplyingUserAction}
+                  inputProps={{ maxLength: ADMIN_SEARCH_QUERY_MAX_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={query.length} maxLength={ADMIN_SEARCH_QUERY_MAX_LENGTH} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
 
                 <Box
@@ -666,11 +673,15 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField
                     value={tokenAmountDraft}
-                    onChange={(event) => setTokenAmountDraft(event.target.value)}
+                    onChange={(event) =>
+                      setTokenAmountDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_TOKEN_AMOUNT_MAX_LENGTH))
+                    }
                     label="Сумма солов"
                     size="small"
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    inputProps={{ inputMode: 'numeric' }}
+                    inputProps={{ inputMode: 'numeric', maxLength: ADMIN_TOKEN_AMOUNT_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={tokenAmountDraft.length} maxLength={ADMIN_TOKEN_AMOUNT_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     sx={{ flex: 1 }}
                   />
                   <Button
@@ -703,11 +714,15 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField
                     value={banDurationDraft}
-                    onChange={(event) => setBanDurationDraft(event.target.value)}
+                    onChange={(event) =>
+                      setBanDurationDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_BAN_DURATION_MAX_LENGTH))
+                    }
                     label="Длительность"
                     size="small"
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
-                    inputProps={{ inputMode: 'numeric' }}
+                    inputProps={{ inputMode: 'numeric', maxLength: ADMIN_BAN_DURATION_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={banDurationDraft.length} maxLength={ADMIN_BAN_DURATION_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     sx={{ flex: 1 }}
                   />
                   <Select

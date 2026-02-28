@@ -33,6 +33,7 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
 import {
@@ -77,6 +78,7 @@ const TOP_FILTER_CONTROL_RADIUS = '12px'
 const TOP_FILTER_TEXT_PADDING_X = '14px'
 const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
+const MY_GAMES_SEARCH_QUERY_MAX_LENGTH = 120
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
 const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
@@ -815,50 +817,54 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               {pageTitle}
             </Typography>
 
-            <Box
-              sx={{
-                position: 'relative',
-                borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                minHeight: TOP_FILTER_CONTROL_HEIGHT,
-              }}
-            >
+            <Stack spacing={0.45}>
               <Box
-                component="input"
-                value={searchQuery}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-                placeholder="Поиск"
                 sx={{
-                  width: '100%',
-                  height: TOP_FILTER_CONTROL_HEIGHT,
+                  position: 'relative',
                   borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: APP_TEXT_PRIMARY,
-                  pl: TOP_FILTER_TEXT_PADDING_X,
-                  pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
-                  outline: 'none',
-                  fontSize: '1.02rem',
-                  '&::placeholder': {
-                    color: APP_TEXT_SECONDARY,
-                  },
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  right: TOP_FILTER_ICON_OFFSET_X,
-                  transform: 'translateY(-50%)',
-                  color: APP_TEXT_SECONDARY,
-                  display: 'grid',
-                  placeItems: 'center',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  minHeight: TOP_FILTER_CONTROL_HEIGHT,
                 }}
               >
-                <SearchGlyph />
+                <Box
+                  component="input"
+                  value={searchQuery}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value.slice(0, MY_GAMES_SEARCH_QUERY_MAX_LENGTH))}
+                  placeholder="Поиск"
+                  maxLength={MY_GAMES_SEARCH_QUERY_MAX_LENGTH}
+                  sx={{
+                    width: '100%',
+                    height: TOP_FILTER_CONTROL_HEIGHT,
+                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: APP_TEXT_PRIMARY,
+                    pl: TOP_FILTER_TEXT_PADDING_X,
+                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                    outline: 'none',
+                    fontSize: '1.02rem',
+                    '&::placeholder': {
+                      color: APP_TEXT_SECONDARY,
+                    },
+                  }}
+                />
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: '50%',
+                    right: TOP_FILTER_ICON_OFFSET_X,
+                    transform: 'translateY(-50%)',
+                    color: APP_TEXT_SECONDARY,
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  <SearchGlyph />
+                </Box>
               </Box>
-            </Box>
+              <TextLimitIndicator currentLength={searchQuery.length} maxLength={MY_GAMES_SEARCH_QUERY_MAX_LENGTH} />
+            </Stack>
 
             <FormControl
               sx={{

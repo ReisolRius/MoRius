@@ -17,6 +17,7 @@ import {
 } from '@mui/material'
 import { icons } from '../../assets'
 import type { AuthUser } from '../../types/auth'
+import TextLimitIndicator from '../TextLimitIndicator'
 import AdminPanelDialog, { ADMIN_PANEL_EMAIL_ALLOWLIST } from './AdminPanelDialog'
 import UserAvatar from './UserAvatar'
 
@@ -241,6 +242,8 @@ function ProfileDialog({
                     inputProps={{
                       maxLength: PROFILE_NAME_MAX_LENGTH,
                     }}
+                    helperText={<TextLimitIndicator currentLength={profileNameDraft.length} maxLength={PROFILE_NAME_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         backgroundColor: 'rgba(12, 17, 27, 0.72)',

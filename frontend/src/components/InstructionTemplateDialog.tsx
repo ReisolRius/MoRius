@@ -22,6 +22,7 @@ import {
   updateStoryInstructionTemplate,
 } from '../services/storyApi'
 import type { StoryInstructionTemplate } from '../types/story'
+import TextLimitIndicator from './TextLimitIndicator'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
 const TEMPLATE_CONTENT_MAX_LENGTH = 8000
@@ -671,6 +672,7 @@ function InstructionTemplateDialog({
                 fontSize: '0.96rem',
               }}
             />
+            <TextLimitIndicator currentLength={templateTitleDraft.length} maxLength={TEMPLATE_TITLE_MAX_LENGTH} />
             <Box
               component="textarea"
               value={templateContentDraft}
@@ -740,9 +742,7 @@ function InstructionTemplateDialog({
                 </Button>
               </Stack>
             </Stack>
-            <Typography sx={{ color: 'rgba(190, 202, 220, 0.62)', fontSize: '0.8rem', textAlign: 'right' }}>
-              {templateContentDraft.length}/{TEMPLATE_CONTENT_MAX_LENGTH}
-            </Typography>
+            <TextLimitIndicator currentLength={templateContentDraft.length} maxLength={TEMPLATE_CONTENT_MAX_LENGTH} />
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>

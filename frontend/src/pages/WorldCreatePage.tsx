@@ -17,6 +17,7 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
 import UserAvatar from '../components/profile/UserAvatar'
 import ImageCropper from '../components/ImageCropper'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
   createStoryGame,
@@ -750,10 +751,40 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={1.5}>
             <Stack spacing={0.35}><Typography sx={{ fontSize: { xs: '1.65rem', md: '1.9rem' }, fontWeight: 800 }}>{heroTitle}</Typography><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Заполните мир и добавьте карточки. После создания он сразу откроется в игре.</Typography></Stack>
-            <TextField label="Название мира" value={title} onChange={(e) => setTitle(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
-            <TextField label="Краткое описание" value={description} onChange={(e) => setDescription(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 1000 }} />
+            <TextField
+              label="Название мира"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              fullWidth
+              inputProps={{ maxLength: 140 }}
+              helperText={<TextLimitIndicator currentLength={title.length} maxLength={140} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
+            <TextField
+              label="Краткое описание"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              maxRows={8}
+              inputProps={{ maxLength: 1000 }}
+              helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
             {!isEditMode ? <>
-            <TextField label="Вступительная сцена" value={openingScene} onChange={(e) => setOpeningScene(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 4000 }} />
+            <TextField
+              label="Вступительная сцена"
+              value={openingScene}
+              onChange={(e) => setOpeningScene(e.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              maxRows={8}
+              inputProps={{ maxLength: 4000 }}
+              helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={4000} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
               Разметка для вступления: {'\n'}
               {'<narrative>Ночь была неспокойной...</narrative>'}{'\n'}
@@ -887,8 +918,27 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       >
 
           <Stack spacing={1}>
-            <TextField label="Заголовок" value={cardTitleDraft} onChange={(e) => setCardTitleDraft(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
-            <TextField label="Содержание" value={cardContentDraft} onChange={(e) => setCardContentDraft(e.target.value)} fullWidth multiline minRows={4} maxRows={10} inputProps={{ maxLength: 6000 }} />
+            <TextField
+              label="Заголовок"
+              value={cardTitleDraft}
+              onChange={(e) => setCardTitleDraft(e.target.value)}
+              fullWidth
+              inputProps={{ maxLength: 140 }}
+              helperText={<TextLimitIndicator currentLength={cardTitleDraft.length} maxLength={140} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
+            <TextField
+              label="Содержание"
+              value={cardContentDraft}
+              onChange={(e) => setCardContentDraft(e.target.value)}
+              fullWidth
+              multiline
+              minRows={4}
+              maxRows={10}
+              inputProps={{ maxLength: 6000 }}
+              helperText={<TextLimitIndicator currentLength={cardContentDraft.length} maxLength={6000} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
             {!cardTitleDraft.trim() || !cardContentDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Введите заголовок и текст карточки, чтобы кнопка сохранения стала доступна.</Typography> : null}
           </Stack>
         
@@ -974,9 +1024,36 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               <Button onClick={openCharacterAvatarCrop} disabled={!characterAvatarDraft} sx={{ minHeight: 34 }}>Настроить кадр</Button>
               <Button onClick={() => setCharacterAvatarDraft(null)} sx={{ minHeight: 34, color: APP_TEXT_SECONDARY }}>Удалить</Button>
             </Stack>
-            <TextField label="Имя" value={characterNameDraft} onChange={(e) => setCharacterNameDraft(e.target.value)} fullWidth inputProps={{ maxLength: 140 }} />
-            <TextField label="Описание" value={characterDescriptionDraft} onChange={(e) => setCharacterDescriptionDraft(e.target.value)} fullWidth multiline minRows={3} maxRows={8} inputProps={{ maxLength: 6000 }} />
-            <TextField label="Триггеры (через запятую)" value={characterTriggersDraft} onChange={(e) => setCharacterTriggersDraft(e.target.value)} fullWidth inputProps={{ maxLength: 600 }} />
+            <TextField
+              label="Имя"
+              value={characterNameDraft}
+              onChange={(e) => setCharacterNameDraft(e.target.value)}
+              fullWidth
+              inputProps={{ maxLength: 140 }}
+              helperText={<TextLimitIndicator currentLength={characterNameDraft.length} maxLength={140} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
+            <TextField
+              label="Описание"
+              value={characterDescriptionDraft}
+              onChange={(e) => setCharacterDescriptionDraft(e.target.value)}
+              fullWidth
+              multiline
+              minRows={3}
+              maxRows={8}
+              inputProps={{ maxLength: 6000 }}
+              helperText={<TextLimitIndicator currentLength={characterDescriptionDraft.length} maxLength={6000} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
+            <TextField
+              label="Триггеры (через запятую)"
+              value={characterTriggersDraft}
+              onChange={(e) => setCharacterTriggersDraft(e.target.value)}
+              fullWidth
+              inputProps={{ maxLength: 600 }}
+              helperText={<TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={600} />}
+              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+            />
             {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Имя и описание обязательны для сохранения персонажа.</Typography> : null}
           </Stack>
         

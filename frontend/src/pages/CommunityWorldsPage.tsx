@@ -23,6 +23,7 @@ import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCa
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import TextLimitIndicator from '../components/TextLimitIndicator'
 import UserAvatar from '../components/profile/UserAvatar'
 import { updateCurrentUserAvatar, updateCurrentUserProfile } from '../services/authApi'
 import {
@@ -183,6 +184,8 @@ const COMMUNITY_REPORT_REASON_OPTIONS: Array<{ value: StoryCommunityWorldReportR
   { value: 'nationalism', label: 'Nationalism' },
   { value: 'other', label: 'Other' },
 ]
+const COMMUNITY_SEARCH_QUERY_MAX_LENGTH = 120
+const COMMUNITY_REPORT_DESCRIPTION_MAX_LENGTH = 2000
 
 const CARD_SORT_OPTIONS: Array<{ value: CommunityCardSortMode; label: string }> = [
   { value: 'updated_desc', label: 'Недавние' },
@@ -1598,50 +1601,54 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               mb: 1.4,
             }}
           >
-            <Box
-              sx={{
-                position: 'relative',
-                borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                minHeight: TOP_FILTER_CONTROL_HEIGHT,
-              }}
-            >
+            <Stack spacing={0.45}>
               <Box
-                component="input"
-                value={searchQuery}
-                onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value)}
-                placeholder={searchPlaceholder}
                 sx={{
-                  width: '100%',
-                  height: TOP_FILTER_CONTROL_HEIGHT,
+                  position: 'relative',
                   borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: APP_TEXT_PRIMARY,
-                  pl: TOP_FILTER_TEXT_PADDING_X,
-                  pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
-                  outline: 'none',
-                  fontSize: '1rem',
-                  '&::placeholder': {
-                    color: APP_TEXT_SECONDARY,
-                  },
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  right: TOP_FILTER_ICON_OFFSET_X,
-                  transform: 'translateY(-50%)',
-                  color: APP_TEXT_SECONDARY,
-                  display: 'grid',
-                  placeItems: 'center',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  minHeight: TOP_FILTER_CONTROL_HEIGHT,
                 }}
               >
-                <SearchGlyph />
+                <Box
+                  component="input"
+                  value={searchQuery}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value.slice(0, COMMUNITY_SEARCH_QUERY_MAX_LENGTH))}
+                  placeholder={searchPlaceholder}
+                  maxLength={COMMUNITY_SEARCH_QUERY_MAX_LENGTH}
+                  sx={{
+                    width: '100%',
+                    height: TOP_FILTER_CONTROL_HEIGHT,
+                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: APP_TEXT_PRIMARY,
+                    pl: TOP_FILTER_TEXT_PADDING_X,
+                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                    outline: 'none',
+                    fontSize: '1rem',
+                    '&::placeholder': {
+                      color: APP_TEXT_SECONDARY,
+                    },
+                  }}
+                />
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    top: '50%',
+                    right: TOP_FILTER_ICON_OFFSET_X,
+                    transform: 'translateY(-50%)',
+                    color: APP_TEXT_SECONDARY,
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  <SearchGlyph />
+                </Box>
               </Box>
-            </Box>
+              <TextLimitIndicator currentLength={searchQuery.length} maxLength={COMMUNITY_SEARCH_QUERY_MAX_LENGTH} />
+            </Stack>
 
             {activeSection === 'worlds' ? (
               <>
@@ -2750,11 +2757,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               component="textarea"
               value={communityEntityReportDescriptionDraft}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-                setCommunityEntityReportDescriptionDraft(event.target.value)
+                setCommunityEntityReportDescriptionDraft(event.target.value.slice(0, COMMUNITY_REPORT_DESCRIPTION_MAX_LENGTH))
                 setCommunityEntityReportValidationError('')
               }}
               disabled={isCommunityEntityReportSubmitting}
               placeholder="Опишите причину жалобы."
+              maxLength={COMMUNITY_REPORT_DESCRIPTION_MAX_LENGTH}
               sx={{
                 width: '100%',
                 minHeight: 112,
@@ -2771,6 +2779,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   color: APP_TEXT_SECONDARY,
                 },
               }}
+            />
+            <TextLimitIndicator
+              currentLength={communityEntityReportDescriptionDraft.length}
+              maxLength={COMMUNITY_REPORT_DESCRIPTION_MAX_LENGTH}
             />
             {communityEntityReportValidationError ? (
               <Typography sx={{ color: 'error.main', fontSize: '0.86rem' }}>{communityEntityReportValidationError}</Typography>

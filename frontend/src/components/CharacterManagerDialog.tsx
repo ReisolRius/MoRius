@@ -24,6 +24,7 @@ import {
   updateStoryCharacter,
 } from '../services/storyApi'
 import type { StoryCharacter } from '../types/story'
+import TextLimitIndicator from './TextLimitIndicator'
 
 type CharacterManagerDialogProps = {
   open: boolean
@@ -37,6 +38,7 @@ type CharacterDraftMode = 'create' | 'edit'
 
 const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
 const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_TRIGGERS_MAX_LENGTH = 600
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -633,6 +635,8 @@ function CharacterManagerDialog({
                   fullWidth
                   disabled={isSavingCharacter}
                   inputProps={{ maxLength: 120 }}
+                  helperText={<TextLimitIndicator currentLength={nameDraft.length} maxLength={120} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <TextField
                   label="Описание"
@@ -644,6 +648,8 @@ function CharacterManagerDialog({
                   maxRows={8}
                   disabled={isSavingCharacter}
                   inputProps={{ maxLength: 6000 }}
+                  helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={6000} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <TextField
                   label="Триггеры"
@@ -655,6 +661,9 @@ function CharacterManagerDialog({
                   maxRows={5}
                   disabled={isSavingCharacter}
                   placeholder="через запятую"
+                  inputProps={{ maxLength: CHARACTER_TRIGGERS_MAX_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={triggersDraft.length} maxLength={CHARACTER_TRIGGERS_MAX_LENGTH} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <Stack spacing={0.6}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem', fontWeight: 700 }}>
