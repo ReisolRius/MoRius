@@ -6879,12 +6879,35 @@ def _build_story_turn_image_style_instructions(style_prompt: str) -> str:
 
 def _select_story_turn_image_character_cards(
     *,
-    user_prompt: str,
-    assistant_text: str,
     world_cards: list[dict[str, Any]],
+    max_cards: int | None = None,
 ) -> list[dict[str, Any]]:
-    context_tokens = _normalize_story_match_tokens(f"{user_prompt}\n{assistant_text}")
     selected_cards: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    def _get_card_key(card: dict[str, Any]) -> str:
+        card_id = card.get("id")
+        if isinstance(card_id, int):
+            return f"id:{card_id}"
+        return (
+            f"{_normalize_story_world_card_kind(str(card.get('kind', '')))}:"
+            f"{str(card.get('title', '')).strip().casefold()}"
+        )
+
+    def _append_card(card: dict[str, Any]) -> bool:
+        title = str(card.get("title", "")).strip()
+        if not title:
+            return False
+        dedupe_key = _get_card_key(card)
+        if dedupe_key in seen_keys:
+            return False
+        seen_keys.add(dedupe_key)
+        selected_cards.append(card)
+        return True
+
+    normalized_max_cards = max_cards
+    if normalized_max_cards is not None and normalized_max_cards <= 0:
+        return []
 
     main_hero_card = next(
         (
@@ -6897,50 +6920,24 @@ def _select_story_turn_image_character_cards(
         None,
     )
     if main_hero_card is not None:
-        selected_cards.append(main_hero_card)
+        _append_card(main_hero_card)
+        if normalized_max_cards is not None and len(selected_cards) >= normalized_max_cards:
+            return selected_cards[:normalized_max_cards]
 
-    matched_npc_cards: list[tuple[int, dict[str, Any]]] = []
-    fallback_npc_cards: list[tuple[int, dict[str, Any]]] = []
     for card in world_cards:
         if not isinstance(card, dict):
             continue
         if _normalize_story_world_card_kind(str(card.get("kind", ""))) != STORY_WORLD_CARD_KIND_NPC:
             continue
-
-        title = str(card.get("title", "")).strip()
-        if not title:
+        appended = _append_card(card)
+        if not appended:
             continue
-        title_tokens = _normalize_story_match_tokens(title)
-        triggers = [
-            str(trigger).strip()
-            for trigger in card.get("triggers", [])
-            if isinstance(trigger, str) and trigger.strip()
-        ]
-        matched_by_name = bool(context_tokens) and any(token in context_tokens for token in title_tokens)
-        matched_by_trigger = bool(context_tokens) and any(
-            _is_story_trigger_match(trigger, context_tokens)
-            for trigger in triggers
-        )
-
-        card_id_raw = card.get("id")
-        if isinstance(card_id_raw, int):
-            card_id_rank = card_id_raw
-        else:
-            card_id_rank = 10**9 + len(matched_npc_cards) + len(fallback_npc_cards)
-
-        if matched_by_name or matched_by_trigger:
-            matched_npc_cards.append((card_id_rank, card))
-        else:
-            fallback_npc_cards.append((card_id_rank, card))
-
-    ranked_candidates = matched_npc_cards if matched_npc_cards else fallback_npc_cards
-    ranked_candidates.sort(key=lambda value: value[0])
-    for _, npc_card in ranked_candidates:
-        if len(selected_cards) >= STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS:
+        if normalized_max_cards is not None and len(selected_cards) >= normalized_max_cards:
             break
-        selected_cards.append(npc_card)
 
-    return selected_cards[:STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS]
+    if normalized_max_cards is None:
+        return selected_cards
+    return selected_cards[:normalized_max_cards]
 
 
 def _build_story_turn_image_character_lines(
@@ -6948,11 +6945,11 @@ def _build_story_turn_image_character_lines(
     user_prompt: str,
     assistant_text: str,
     world_cards: list[dict[str, Any]],
+    max_cards: int | None = STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS,
 ) -> list[str]:
     character_cards = _select_story_turn_image_character_cards(
-        user_prompt=user_prompt,
-        assistant_text=assistant_text,
         world_cards=world_cards,
+        max_cards=max_cards,
     )
     character_lines: list[str] = []
     for card in character_cards:
@@ -6993,9 +6990,8 @@ def _build_story_turn_image_full_character_card_locks(
     assistant_text: str,
     world_cards: list[dict[str, Any]],
 ) -> list[str]:
+    _ = (user_prompt, assistant_text)
     selected_cards = _select_story_turn_image_character_cards(
-        user_prompt=user_prompt,
-        assistant_text=assistant_text,
         world_cards=world_cards,
     )
     lock_blocks: list[str] = []
@@ -7117,6 +7113,7 @@ def _build_story_turn_image_prompt(
     user_prompt: str,
     assistant_text: str,
     world_cards: list[dict[str, Any]],
+    character_world_cards: list[dict[str, Any]] | None = None,
     image_style_prompt: str | None = None,
     full_character_card_locks: list[str] | None = None,
     model_name: str | None = None,
@@ -7131,6 +7128,7 @@ def _build_story_turn_image_prompt(
         max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
     )
     normalized_image_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
+    effective_character_world_cards = character_world_cards if character_world_cards is not None else world_cards
 
     world_context_items: list[str] = []
     for card in world_cards:
@@ -7157,13 +7155,14 @@ def _build_story_turn_image_prompt(
     character_lines = _build_story_turn_image_character_lines(
         user_prompt=user_prompt,
         assistant_text=assistant_text,
-        world_cards=world_cards,
+        world_cards=effective_character_world_cards,
+        max_cards=STORY_TURN_IMAGE_PROMPT_MAX_CHARACTER_HINTS,
     )
     if full_character_card_locks is None:
         full_character_card_locks = _build_story_turn_image_full_character_card_locks(
             user_prompt=user_prompt,
             assistant_text=assistant_text,
-            world_cards=world_cards,
+            world_cards=effective_character_world_cards,
         )
     has_full_character_card_lock = bool(full_character_card_locks)
     has_main_hero_line = any(line.startswith("main_hero:") for line in character_lines)
@@ -7183,8 +7182,6 @@ def _build_story_turn_image_prompt(
 
     mandatory_prompt_parts = [
         "Single cinematic frame from one interactive RPG scene.",
-        "Hard constraints: no text, no UI, no watermark, no logo, no collage, no random symbols on clothes or objects.",
-        "Never render any readable text: no letters, no words, no numbers, no captions, no speech bubbles, no signs.",
         "Keep one coherent location and one coherent moment.",
     ]
     if has_full_character_card_lock:
@@ -7218,6 +7215,25 @@ def _build_story_turn_image_prompt(
         if len(candidate_prompt) <= prompt_max_chars:
             prompt_parts.append(normalized_value)
 
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Player prompt: ",
+        part_body=normalized_user_prompt,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=False,
+    )
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Latest AI response: ",
+        part_body=scene_focus_text,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=True,
+    )
+    _try_append_optional_line(
+        "No text, UI, watermark, logo, captions, speech bubbles, signs, letters, words, or numbers."
+    )
     _try_append_optional_line(style_instructions)
 
     if character_lines:
@@ -7264,22 +7280,6 @@ def _build_story_turn_image_prompt(
             "do not hide hair with pose, clothing, crop, or camera angle."
         )
 
-    _append_story_turn_image_optional_context_part(
-        prompt_parts,
-        part_prefix="Current scene state (latest events): ",
-        part_body=scene_focus_text,
-        part_suffix=".",
-        prompt_max_chars=prompt_max_chars,
-        prefer_fresh_tail=True,
-    )
-    _append_story_turn_image_optional_context_part(
-        prompt_parts,
-        part_prefix="Hero action right before this frame: ",
-        part_body=normalized_user_prompt,
-        part_suffix=".",
-        prompt_max_chars=prompt_max_chars,
-        prefer_fresh_tail=False,
-    )
     _append_story_turn_image_optional_context_part(
         prompt_parts,
         part_prefix="Environment context: ",
@@ -7858,6 +7858,7 @@ def generate_story_turn_image_impl(
     )
     if not relevant_world_cards:
         relevant_world_cards = active_world_cards
+    character_world_cards = relevant_world_cards if relevant_world_cards else active_world_cards
     prompt_world_cards = _merge_story_turn_image_world_cards(
         relevant_world_cards,
         all_world_cards,
@@ -7866,7 +7867,7 @@ def generate_story_turn_image_impl(
     full_character_card_locks = _build_story_turn_image_full_character_card_locks(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
-        world_cards=prompt_world_cards,
+        world_cards=character_world_cards,
     )
     _validate_story_turn_image_character_card_lock_budget(full_character_card_locks)
 
@@ -7875,6 +7876,7 @@ def generate_story_turn_image_impl(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
         world_cards=prompt_world_cards,
+        character_world_cards=character_world_cards,
         image_style_prompt=getattr(game, "image_style_prompt", ""),
         full_character_card_locks=full_character_card_locks,
         model_name=selected_image_model,
