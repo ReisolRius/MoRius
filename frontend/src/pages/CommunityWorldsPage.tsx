@@ -889,7 +889,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
 
   const syncCommunityWorldGameIds = useCallback(async () => {
     try {
-      const games = await listStoryGames(authToken)
+      const games = await listStoryGames(authToken, { compact: true })
       setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
     } catch {
       // Optional data for dialog button state; ignore failures.

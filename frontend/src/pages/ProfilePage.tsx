@@ -433,7 +433,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       const [loadedCharacters, loadedTemplates, loadedGames, loadedFavorites] = await Promise.all([
         listStoryCharacters(authToken),
         listStoryInstructionTemplates(authToken),
-        listStoryGames(authToken),
+        listStoryGames(authToken, { compact: true }),
         listFavoriteCommunityWorlds(authToken),
       ])
 

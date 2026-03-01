@@ -43,11 +43,11 @@ import {
   updateCurrentUserProfile,
   type CoinTopUpPlan,
 } from '../services/authApi'
-import { cloneStoryGame, deleteStoryGame, getStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
+import { cloneStoryGame, deleteStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryCommunityWorldSummary, StoryGameSummary, StoryMessage } from '../types/story'
+import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 
 type MyGamesPageProps = {
   user: AuthUser
@@ -79,7 +79,6 @@ const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
 const MY_GAMES_SEARCH_QUERY_MAX_LENGTH = 120
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
-const PREVIEW_ERROR_TEXT = 'Не удалось загрузить превью этой истории.'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -146,16 +145,11 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function normalizePreview(messages: StoryMessage[]): string {
-  const source = [...messages]
-    .reverse()
-    .find((message) => message.content.replace(/\s+/g, ' ').trim().length > 0)
-
-  if (!source) {
+function normalizeGamePreview(value: string | null | undefined): string {
+  const compact = typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : ''
+  if (!compact) {
     return EMPTY_PREVIEW_TEXT
   }
-
-  const compact = source.content.replace(/\s+/g, ' ').trim()
   if (compact.length <= 145) {
     return compact
   }
@@ -280,7 +274,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setErrorMessage('')
     setIsLoadingGames(true)
     try {
-      const loadedGames = await listStoryGames(authToken)
+      const [loadedGames, communityWorlds] = await Promise.all([
+        listStoryGames(authToken, { compact: true }),
+        listCommunityWorlds(authToken).catch(() => null),
+      ])
       const sortedGames = sortGamesByActivity(loadedGames)
       setGames(sortedGames)
       setCustomTitleMap((previousMap) => {
@@ -300,25 +297,16 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         return previousMap
       })
 
-      const previews = await Promise.all(
-        sortedGames.map(async (game) => {
-          try {
-            const payload = await getStoryGame({ token: authToken, gameId: game.id })
-            return [game.id, normalizePreview(payload.messages)] as const
-          } catch {
-            return [game.id, PREVIEW_ERROR_TEXT] as const
-          }
-        }),
+      setGamePreviews(
+        Object.fromEntries(
+          sortedGames.map((game) => [game.id, normalizeGamePreview(game.latest_message_preview)]),
+        ),
       )
-
-      setGamePreviews(Object.fromEntries(previews))
-
-      try {
-        const communityWorlds = await listCommunityWorlds(authToken)
-        setCommunityWorldById(Object.fromEntries(communityWorlds.map((world) => [world.id, world])))
-      } catch {
-        setCommunityWorldById({})
-      }
+      setCommunityWorldById(
+        communityWorlds
+          ? Object.fromEntries(communityWorlds.map((world) => [world.id, world]))
+          : {},
+      )
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
       setErrorMessage(detail)

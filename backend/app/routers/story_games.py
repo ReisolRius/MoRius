@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.database import get_db
 from app.models import (
@@ -75,6 +75,7 @@ from app.services.story_games import (
     story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
+    story_game_summary_to_compact_out,
     story_game_summary_to_out,
 )
 from app.services.story_queries import (
@@ -95,6 +96,8 @@ STORY_WORLD_REPORT_STATUS_OPEN = "open"
 STORY_GAME_TITLE_MAX_LENGTH = 160
 STORY_CLONE_TITLE_SUFFIX = " (копия)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
+STORY_LIST_PREVIEW_MAX_CHARS = 145
+STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
 
 
 def _utcnow() -> datetime:
@@ -108,6 +111,53 @@ def _build_story_clone_title(source_title: str) -> str:
     if not trimmed_source_title:
         trimmed_source_title = STORY_DEFAULT_TITLE[: max(max_base_length, 0)].rstrip() or STORY_DEFAULT_TITLE
     return f"{trimmed_source_title}{STORY_CLONE_TITLE_SUFFIX}"[:STORY_GAME_TITLE_MAX_LENGTH]
+
+
+def _build_story_list_preview(raw_content: str | None) -> str | None:
+    if not isinstance(raw_content, str):
+        return None
+    normalized = " ".join(raw_content.split()).strip()
+    if not normalized:
+        return None
+    if len(normalized) <= STORY_LIST_PREVIEW_MAX_CHARS:
+        return normalized
+    return f"{normalized[:STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS]}..."
+
+
+def _load_latest_story_message_preview_by_game_id(
+    db: Session,
+    *,
+    game_ids: list[int],
+) -> dict[int, str]:
+    if not game_ids:
+        return {}
+
+    latest_message_ids_subquery = (
+        select(
+            StoryMessage.game_id.label("game_id"),
+            func.max(StoryMessage.id).label("max_message_id"),
+        )
+        .where(
+            StoryMessage.game_id.in_(game_ids),
+            StoryMessage.undone_at.is_(None),
+        )
+        .group_by(StoryMessage.game_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(StoryMessage.game_id, StoryMessage.content).join(
+            latest_message_ids_subquery,
+            (StoryMessage.game_id == latest_message_ids_subquery.c.game_id)
+            & (StoryMessage.id == latest_message_ids_subquery.c.max_message_id),
+        )
+    ).all()
+
+    preview_by_game_id: dict[int, str] = {}
+    for game_id, message_content in rows:
+        preview = _build_story_list_preview(message_content)
+        if preview:
+            preview_by_game_id[int(game_id)] = preview
+    return preview_by_game_id
 
 
 def _build_story_community_world_summary(
@@ -167,16 +217,63 @@ def _build_story_community_world_summary(
 
 @router.get("/api/story/games", response_model=list[StoryGameSummaryOut])
 def list_story_games(
+    compact: bool = False,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryGameSummaryOut]:
     user = get_current_user(db, authorization)
-    games = db.scalars(
+    query = (
         select(StoryGame)
         .where(StoryGame.user_id == user.id)
         .order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
-    ).all()
-    return [story_game_summary_to_out(game) for game in games]
+    )
+    if compact:
+        query = query.options(
+            load_only(
+                StoryGame.id,
+                StoryGame.title,
+                StoryGame.description,
+                StoryGame.visibility,
+                StoryGame.age_rating,
+                StoryGame.genres,
+                StoryGame.cover_image_url,
+                StoryGame.cover_scale,
+                StoryGame.cover_position_x,
+                StoryGame.cover_position_y,
+                StoryGame.source_world_id,
+                StoryGame.community_views,
+                StoryGame.community_launches,
+                StoryGame.community_rating_sum,
+                StoryGame.community_rating_count,
+                StoryGame.context_limit_chars,
+                StoryGame.response_max_tokens,
+                StoryGame.response_max_tokens_enabled,
+                StoryGame.story_llm_model,
+                StoryGame.image_model,
+                StoryGame.memory_optimization_enabled,
+                StoryGame.story_top_k,
+                StoryGame.story_top_r,
+                StoryGame.ambient_enabled,
+                StoryGame.last_activity_at,
+                StoryGame.created_at,
+                StoryGame.updated_at,
+            )
+        )
+    games = db.scalars(query).all()
+    if not compact:
+        return [story_game_summary_to_out(game) for game in games]
+
+    preview_by_game_id = _load_latest_story_message_preview_by_game_id(
+        db,
+        game_ids=[game.id for game in games],
+    )
+    return [
+        story_game_summary_to_compact_out(
+            game,
+            latest_message_preview=preview_by_game_id.get(game.id),
+        )
+        for game in games
+    ]
 
 
 @router.get("/api/story/community/worlds", response_model=list[StoryCommunityWorldSummaryOut])

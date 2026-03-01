@@ -3063,7 +3063,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const bootstrap = async () => {
       setIsBootstrappingGameData(true)
       try {
-        const loadedGames = await listStoryGames(authToken)
+        const loadedGames = await listStoryGames(authToken, { compact: true })
         if (!isActive) {
           return
         }
@@ -5496,7 +5496,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
         await loadGameById(options.gameId, { silent: true })
         try {
-          const refreshedGames = await listStoryGames(authToken)
+          const refreshedGames = await listStoryGames(authToken, { compact: true })
           setGames(sortGamesByActivity(refreshedGames))
         } catch {
           // Keep current games if refresh failed.
@@ -5559,7 +5559,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               }
               try {
                 await loadGameById(options.gameId, { silent: true })
-                const refreshedGames = await listStoryGames(authToken)
+                const refreshedGames = await listStoryGames(authToken, { compact: true })
                 setGames(sortGamesByActivity(refreshedGames))
               } catch {
                 // Ignore background sync errors; next attempt may succeed.
@@ -5677,7 +5677,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       })
       await loadGameById(activeGameId, { silent: true })
       try {
-        const refreshedGames = await listStoryGames(authToken)
+        const refreshedGames = await listStoryGames(authToken, { compact: true })
         setGames(sortGamesByActivity(refreshedGames))
       } catch {
         // Keep current list if refresh failed.
@@ -5704,7 +5704,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       })
       await loadGameById(activeGameId, { silent: true })
       try {
-        const refreshedGames = await listStoryGames(authToken)
+        const refreshedGames = await listStoryGames(authToken, { compact: true })
         setGames(sortGamesByActivity(refreshedGames))
       } catch {
         // Keep current list if refresh failed.

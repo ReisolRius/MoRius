@@ -16,6 +16,7 @@ export type StoryGameSummary = {
   id: number
   title: string
   description: string
+  latest_message_preview?: string | null
   opening_scene: string
   visibility: StoryGameVisibility
   age_rating: '6+' | '16+' | '18+'

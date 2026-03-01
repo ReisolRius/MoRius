@@ -392,11 +392,16 @@ def story_game_rating_average(game: StoryGame) -> float:
     return round(rating_sum / rating_count, 2)
 
 
-def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
+def story_game_summary_to_out(
+    game: StoryGame,
+    *,
+    latest_message_preview: str | None = None,
+) -> StoryGameSummaryOut:
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
         description=(game.description or "").strip(),
+        latest_message_preview=latest_message_preview,
         opening_scene=(game.opening_scene or "").strip(),
         visibility=coerce_story_game_visibility(game.visibility),
         age_rating=coerce_story_game_age_rating(game.age_rating),
@@ -423,6 +428,48 @@ def story_game_summary_to_out(game: StoryGame) -> StoryGameSummaryOut:
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
+        last_activity_at=game.last_activity_at,
+        created_at=game.created_at,
+        updated_at=game.updated_at,
+    )
+
+
+def story_game_summary_to_compact_out(
+    game: StoryGame,
+    *,
+    latest_message_preview: str | None = None,
+) -> StoryGameSummaryOut:
+    return StoryGameSummaryOut(
+        id=game.id,
+        title=game.title,
+        description=(game.description or "").strip(),
+        latest_message_preview=latest_message_preview,
+        opening_scene="",
+        visibility=coerce_story_game_visibility(game.visibility),
+        age_rating=coerce_story_game_age_rating(game.age_rating),
+        genres=deserialize_story_game_genres(game.genres),
+        cover_image_url=normalize_avatar_value(game.cover_image_url),
+        cover_scale=normalize_story_cover_scale(game.cover_scale),
+        cover_position_x=normalize_story_cover_position(game.cover_position_x),
+        cover_position_y=normalize_story_cover_position(game.cover_position_y),
+        source_world_id=game.source_world_id,
+        community_views=max(int(game.community_views or 0), 0),
+        community_launches=max(int(game.community_launches or 0), 0),
+        community_rating_avg=story_game_rating_average(game),
+        community_rating_count=max(int(game.community_rating_count or 0), 0),
+        context_limit_chars=game.context_limit_chars,
+        response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
+        response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
+            getattr(game, "response_max_tokens_enabled", None)
+        ),
+        story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
+        image_model=coerce_story_image_model(getattr(game, "image_model", None)),
+        image_style_prompt="",
+        memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
+        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
+        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        ambient_profile=None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,

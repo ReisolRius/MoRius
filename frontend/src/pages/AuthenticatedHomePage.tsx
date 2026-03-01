@@ -357,7 +357,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const syncCommunityWorldGameIds = useCallback(async () => {
     setIsDashboardDataLoading(true)
     try {
-      const games = await listStoryGames(authToken)
+      const games = await listStoryGames(authToken, { compact: true })
       setStoryGames(games)
       setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
     } catch {

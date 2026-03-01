@@ -216,8 +216,14 @@ function normalizeStoryCharacterListPayload(rawCharacters: StoryCharacter[]): St
     .filter((item) => item.id > 0)
 }
 
-export async function listStoryGames(token: string): Promise<StoryGameSummary[]> {
-  return request<StoryGameSummary[]>('/api/story/games', {
+export async function listStoryGames(
+  token: string,
+  options: {
+    compact?: boolean
+  } = {},
+): Promise<StoryGameSummary[]> {
+  const path = options.compact ? '/api/story/games?compact=1' : '/api/story/games'
+  return request<StoryGameSummary[]>(path, {
     method: 'GET',
     cache: 'no-store',
     headers: {

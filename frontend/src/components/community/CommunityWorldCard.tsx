@@ -161,20 +161,31 @@ function CommunityWorldCard({
           overflow: 'hidden',
         }}
       >
-      <Box
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          ...(world.cover_image_url
-            ? {
-                backgroundImage: `url(${world.cover_image_url})`,
-                backgroundSize: 'cover',
-                backgroundPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
-                backgroundRepeat: 'no-repeat',
-              }
-            : buildWorldFallbackArtwork(world.id)),
-        }}
-      />
+        {world.cover_image_url ? (
+          <Box
+            component="img"
+            src={world.cover_image_url}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
+            }}
+          />
+        ) : (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              ...buildWorldFallbackArtwork(world.id),
+            }}
+          />
+        )}
         <Box
           aria-hidden
           sx={{
@@ -238,7 +249,14 @@ function CommunityWorldCard({
             }}
           >
             {authorAvatarUrl ? (
-              <Box component="img" src={authorAvatarUrl} alt={authorName} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <Box
+                component="img"
+                src={authorAvatarUrl}
+                alt={authorName}
+                loading="lazy"
+                decoding="async"
+                sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
             ) : (
               authorInitials
             )}
