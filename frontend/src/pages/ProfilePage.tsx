@@ -64,6 +64,7 @@ import type {
   StoryGameSummary,
   StoryInstructionTemplate,
 } from '../types/story'
+import { moriusThemeTokens } from '../theme'
 
 type ProfilePageProps = {
   user: AuthUser
@@ -80,7 +81,7 @@ const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
 const PROFILE_CONTENT_SEARCH_MAX = 120
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
-const HEADER_AVATAR_SIZE = 44
+const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const PROFILE_AVATAR_SIZE = 96
 const CARD_MIN_HEIGHT = 174
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
@@ -253,6 +254,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [adminOpen, setAdminOpen] = useState(false)
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const lastContentTabRef = useRef<TabId>('characters')
 
   const profileName = user.display_name?.trim() || 'Игрок'
   const profileDescription = user.profile_description || ''
@@ -365,11 +367,28 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const mobileContentTabs = useMemo(
     () => [
       { id: 'publications' as TabId, label: 'Миры' },
-      { id: 'instructions' as TabId, label: 'Карточки' },
+      { id: 'instructions' as TabId, label: 'Инструкции' },
       { id: 'characters' as TabId, label: 'Персонажи' },
       { id: 'plots' as TabId, label: 'Сюжеты' },
     ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
     [tabs],
+  )
+
+  const mobilePrimaryTab = tab === 'favorites' ? 'favorites' : tab === 'subscriptions' ? 'subscriptions' : 'content'
+
+  const mobilePrimaryTabs = useMemo(
+    () =>
+      isOwnProfile
+        ? [
+            { id: 'content' as const, label: 'Контент' },
+            { id: 'favorites' as const, label: 'Лайки' },
+            { id: 'subscriptions' as const, label: 'Подписки' },
+          ]
+        : [
+            { id: 'content' as const, label: 'Контент' },
+            { id: 'subscriptions' as const, label: 'Подписки' },
+          ],
+    [isOwnProfile],
   )
 
   useEffect(() => {
@@ -482,6 +501,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   useEffect(() => {
     setIsMobileProfileActionsOpen(false)
+  }, [tab])
+
+  useEffect(() => {
+    if (tab !== 'favorites' && tab !== 'subscriptions') {
+      lastContentTabRef.current = tab
+    }
   }, [tab])
 
   const saveProfile = useCallback(async () => {
@@ -795,6 +820,23 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [authToken, isOwnProfile, isSavingPrivacy, loadProfileView, privacyDraft])
 
+  const handleMobilePrimaryTabChange = useCallback(
+    (newMobileTab: 'content' | 'favorites' | 'subscriptions') => {
+      if (newMobileTab === 'favorites') {
+        setTab('favorites')
+      } else if (newMobileTab === 'subscriptions') {
+        setTab('subscriptions')
+      } else {
+        const isLastValid = mobileContentTabs.some((t) => t.id === lastContentTabRef.current)
+        const targetTab = isLastValid ? lastContentTabRef.current : mobileContentTabs[0]?.id
+        if (targetTab) {
+          setTab(targetTab)
+        }
+      }
+    },
+    [mobileContentTabs],
+  )
+
   const openCharacterCreate = useCallback(() => {
     setCharacterDialogMode('create')
     setCharacterEditId(null)
@@ -1012,27 +1054,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
     return (
       <Stack spacing={1}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={0.7}>
-          <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои персонажи</Typography>
-          <Button
-            onClick={openCharacterCreate}
-            sx={{
-              minHeight: 36,
-              px: 1.25,
-              borderRadius: '10px',
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-button-active)',
-              color: 'var(--morius-text-primary)',
-              textTransform: 'none',
-              fontWeight: 700,
-              '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
-              },
-            }}
-          >
-            Создать персонажа
-          </Button>
-        </Stack>
+        <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои персонажи</Typography>
 
         {!filteredCharacters.length ? (
           <>
@@ -1151,27 +1173,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
     return (
       <Stack spacing={1}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" spacing={0.7}>
-          <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои инструкции</Typography>
-          <Button
-            onClick={openInstructionCreate}
-            sx={{
-              minHeight: 36,
-              px: 1.25,
-              borderRadius: '10px',
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-button-active)',
-              color: 'var(--morius-text-primary)',
-              textTransform: 'none',
-              fontWeight: 700,
-              '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
-              },
-            }}
-          >
-            Создать инструкцию
-          </Button>
-        </Stack>
+        <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои инструкции</Typography>
 
         {!filteredTemplates.length ? (
           <>
@@ -1680,8 +1682,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 display: isProfileBootstrapLoading ? 'none' : { xs: 'flex', md: 'none' },
               }}
             >
-              <Box sx={{ width: 36, height: 36 }} />
-
               <Stack direction="row" spacing={0.55} sx={{ minWidth: 0 }}>
                 <Box
                   sx={{
@@ -1709,15 +1709,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     minHeight: 28,
                     px: 1.2,
                     borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
+                    border: 'none',
+                    backgroundColor: 'transparent',
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     fontSize: '0.78rem',
                     fontWeight: 700,
                     whiteSpace: 'nowrap',
                     '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
+                      backgroundColor: 'rgba(255,255,255,0.06)',
                     },
                   }}
                 >
@@ -1731,11 +1731,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   width: 36,
                   height: 36,
                   borderRadius: '10px',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  backgroundColor: 'var(--morius-elevated-bg)',
+                  border: 'none',
+                  backgroundColor: 'transparent',
                   color: 'var(--morius-text-primary)',
                   '&:hover': {
-                    backgroundColor: 'var(--morius-button-hover)',
+                    backgroundColor: 'rgba(255,255,255,0.06)',
                   },
                 }}
               >
@@ -2129,34 +2129,33 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               }}
             >
               <Box sx={{ display: { xs: 'block', lg: 'none' }, mb: 1 }}>
+                {/* Mobile primary tabs: Контент / Лайки / Подписки */}
                 <Box
                   sx={{
-                    display: 'flex',
-                    gap: 0.5,
-                    overflowX: 'auto',
-                    pb: 0.6,
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${mobilePrimaryTabs.length}, 1fr)`,
                     borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    '&::-webkit-scrollbar': {
-                      display: 'none',
-                    },
-                    scrollbarWidth: 'none',
+                    mb: 0.8,
                   }}
                 >
-                  {tabs.map((item) => (
+                  {mobilePrimaryTabs.map((item) => (
                     <Button
-                      key={`mobile-tab-${item.id}`}
-                      onClick={() => setTab(item.id)}
+                      key={`mobile-primary-tab-${item.id}`}
+                      onClick={() => handleMobilePrimaryTabChange(item.id)}
                       sx={{
-                        flexShrink: 0,
-                        minHeight: 34,
-                        px: 1.15,
-                        borderRadius: '9px',
+                        minWidth: 0,
+                        width: '100%',
+                        minHeight: 40,
+                        borderRadius: 0,
                         textTransform: 'none',
-                        fontSize: '0.8rem',
-                        fontWeight: tab === item.id ? 800 : 700,
-                        color: 'var(--morius-text-primary)',
-                        backgroundColor: tab === item.id ? 'var(--morius-button-active)' : 'transparent',
-                        border: tab === item.id ? 'var(--morius-border-width) solid var(--morius-card-border)' : 'none',
+                        fontSize: '0.82rem',
+                        fontWeight: 700,
+                        color: mobilePrimaryTab === item.id ? 'var(--morius-text-primary)' : 'var(--morius-text-secondary)',
+                        boxShadow: mobilePrimaryTab === item.id
+                          ? 'inset 0 -2px 0 var(--morius-text-primary)'
+                          : 'none',
+                        backgroundColor: 'transparent',
+                        '&:hover': { backgroundColor: 'rgba(255,255,255,0.04)' },
                       }}
                     >
                       {item.label}
@@ -2164,14 +2163,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   ))}
                 </Box>
 
-                {mobileContentTabs.length > 1 &&
-                (tab === 'publications' || tab === 'instructions' || tab === 'characters' || tab === 'plots') ? (
+                {/* Content sub-tabs (Миры / Инструкции / Персонажи / Сюжеты) — swipeable */}
+                {mobilePrimaryTab === 'content' && mobileContentTabs.length > 0 ? (
                   <Box
                     sx={{
-                      display: 'grid',
-                      gridTemplateColumns: `repeat(${Math.min(mobileContentTabs.length, 4)}, minmax(0, 1fr))`,
+                      display: 'flex',
                       gap: 0.55,
-                      pt: 0.8,
+                      mb: 0.8,
+                      overflowX: 'auto',
+                      scrollbarWidth: 'none',
+                      '&::-webkit-scrollbar': { display: 'none' },
                     }}
                   >
                     {mobileContentTabs.map((item) => (
@@ -2179,7 +2180,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         key={`mobile-content-tab-${item.id}`}
                         onClick={() => setTab(item.id)}
                         sx={{
+                          flexShrink: 0,
                           minHeight: 34,
+                          px: 1.4,
                           borderRadius: '10px',
                           border: 'var(--morius-border-width) solid var(--morius-card-border)',
                           backgroundColor: tab === item.id ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',

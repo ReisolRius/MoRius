@@ -5,6 +5,7 @@ import {
   Button,
   CircularProgress,
   Divider,
+  Slider,
   Stack,
   TextField,
   Typography,
@@ -73,6 +74,7 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
 const COVER_MAX_BYTES = 360 * 1024
@@ -741,8 +743,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
         onOpenTopUpDialog={() => onNavigate('/profile')}
         rightActions={
-          <Button onClick={() => onNavigate('/profile')} sx={{ minWidth: 48, minHeight: 48, p: 0, borderRadius: '50%' }}>
-            <UserAvatar user={user} size={moriusThemeTokens.layout.headerButtonSize} />
+          <Button onClick={() => onNavigate('/profile')} sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
+            <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
           </Button>
         }
       />
@@ -1010,51 +1012,158 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       >
 
           <Stack spacing={1}>
-            <input ref={characterAvatarInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCharacterAvatarUpload} style={{ display: 'none' }} />
-            <Box role="button" tabIndex={0} aria-label="Загрузить аватар персонажа" onClick={() => characterAvatarInputRef.current?.click()} onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                characterAvatarInputRef.current?.click()
-              }
-            }} sx={{ width: 176, height: 176, mx: 'auto', borderRadius: '50%', overflow: 'hidden', cursor: 'pointer', outline: 'none' }}>
-              <MiniAvatar avatarUrl={characterAvatarDraft} avatarScale={characterAvatarScaleDraft} label={characterNameDraft || 'Персонаж'} size={176} />
+            <Box
+              sx={{
+                borderRadius: '12px',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                backgroundColor: 'var(--morius-card-bg)',
+                px: 1.1,
+                py: 1.1,
+              }}
+            >
+              <Stack spacing={1}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Изменить аватар персонажа"
+                    onClick={() => characterAvatarInputRef.current?.click()}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        characterAvatarInputRef.current?.click()
+                      }
+                    }}
+                    sx={{
+                      position: 'relative',
+                      width: 64,
+                      height: 64,
+                      borderRadius: '50%',
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      outline: 'none',
+                      '&:hover .world-character-avatar-overlay': {
+                        opacity: 1,
+                      },
+                      '&:focus-visible .world-character-avatar-overlay': {
+                        opacity: 1,
+                      },
+                    }}
+                  >
+                    <MiniAvatar
+                      avatarUrl={characterAvatarDraft}
+                      avatarScale={characterAvatarScaleDraft}
+                      label={characterNameDraft || 'Персонаж'}
+                      size={64}
+                    />
+                    <Box
+                      className="world-character-avatar-overlay"
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: 'rgba(23, 23, 22, 0.72)',
+                        opacity: 0,
+                        transition: 'opacity 180ms ease',
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 30,
+                          height: 30,
+                          borderRadius: '50%',
+                          border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: 'var(--morius-text-primary)',
+                          fontSize: '1.02rem',
+                          fontWeight: 700,
+                        }}
+                      >
+                        {'\u270E'}
+                      </Box>
+                    </Box>
+                  </Box>
+                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                    Нажмите на аватар, чтобы заменить изображение
+                  </Typography>
+                </Stack>
+
+                <Box>
+                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                    Масштаб аватара: {characterAvatarScaleDraft.toFixed(2)}x
+                  </Typography>
+                  <Slider
+                    min={AVATAR_SCALE_MIN}
+                    max={AVATAR_SCALE_MAX}
+                    step={0.05}
+                    value={characterAvatarScaleDraft}
+                    onChange={(_, value) => setCharacterAvatarScaleDraft(value as number)}
+                  />
+                </Box>
+
+                <input
+                  ref={characterAvatarInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  onChange={handleCharacterAvatarUpload}
+                  style={{ display: 'none' }}
+                />
+
+                <Stack direction="row" spacing={0.8}>
+                  <Button onClick={openCharacterAvatarCrop} disabled={!characterAvatarDraft} sx={{ minHeight: 34 }}>
+                    Настроить кадр
+                  </Button>
+                  <Button onClick={() => setCharacterAvatarDraft(null)} sx={{ minHeight: 34, color: APP_TEXT_SECONDARY }}>
+                    Удалить аватар
+                  </Button>
+                </Stack>
+
+                <TextField
+                  label="Имя"
+                  value={characterNameDraft}
+                  onChange={(e) => setCharacterNameDraft(e.target.value)}
+                  fullWidth
+                  inputProps={{ maxLength: 140 }}
+                  helperText={<TextLimitIndicator currentLength={characterNameDraft.length} maxLength={140} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+                <TextField
+                  label="Описание"
+                  value={characterDescriptionDraft}
+                  onChange={(e) => setCharacterDescriptionDraft(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  maxRows={8}
+                  inputProps={{ maxLength: 6000 }}
+                  helperText={<TextLimitIndicator currentLength={characterDescriptionDraft.length} maxLength={6000} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+                <TextField
+                  label="Триггеры"
+                  value={characterTriggersDraft}
+                  onChange={(e) => setCharacterTriggersDraft(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  maxRows={5}
+                  placeholder="через запятую"
+                  inputProps={{ maxLength: 600 }}
+                  helperText={<TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={600} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+                {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? (
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>
+                    Имя и описание обязательны для сохранения персонажа.
+                  </Typography>
+                ) : null}
+              </Stack>
             </Box>
-            <Stack direction="row" justifyContent="center" spacing={0.8}>
-              <Button onClick={() => characterAvatarInputRef.current?.click()} sx={{ minHeight: 34 }}>Загрузить</Button>
-              <Button onClick={openCharacterAvatarCrop} disabled={!characterAvatarDraft} sx={{ minHeight: 34 }}>Настроить кадр</Button>
-              <Button onClick={() => setCharacterAvatarDraft(null)} sx={{ minHeight: 34, color: APP_TEXT_SECONDARY }}>Удалить</Button>
-            </Stack>
-            <TextField
-              label="Имя"
-              value={characterNameDraft}
-              onChange={(e) => setCharacterNameDraft(e.target.value)}
-              fullWidth
-              inputProps={{ maxLength: 140 }}
-              helperText={<TextLimitIndicator currentLength={characterNameDraft.length} maxLength={140} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            <TextField
-              label="Описание"
-              value={characterDescriptionDraft}
-              onChange={(e) => setCharacterDescriptionDraft(e.target.value)}
-              fullWidth
-              multiline
-              minRows={3}
-              maxRows={8}
-              inputProps={{ maxLength: 6000 }}
-              helperText={<TextLimitIndicator currentLength={characterDescriptionDraft.length} maxLength={6000} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            <TextField
-              label="Триггеры (через запятую)"
-              value={characterTriggersDraft}
-              onChange={(e) => setCharacterTriggersDraft(e.target.value)}
-              fullWidth
-              inputProps={{ maxLength: 600 }}
-              helperText={<TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={600} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Имя и описание обязательны для сохранения персонажа.</Typography> : null}
           </Stack>
         
       </FormDialog>

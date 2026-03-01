@@ -77,13 +77,13 @@ def _build_story_community_character_summary(
         user_rating = int(user_rating_override)
 
     if is_added_by_user_override is None:
-        user_addition_id = db.scalar(
-            select(StoryCommunityCharacterAddition.id).where(
-                StoryCommunityCharacterAddition.character_id == character.id,
-                StoryCommunityCharacterAddition.user_id == user_id,
+        user_character_copy_id = db.scalar(
+            select(StoryCharacter.id).where(
+                StoryCharacter.user_id == user_id,
+                StoryCharacter.source_character_id == character.id,
             )
         )
-        is_added_by_user = user_addition_id is not None
+        is_added_by_user = user_character_copy_id is not None
     else:
         is_added_by_user = bool(is_added_by_user_override)
 
@@ -166,13 +166,17 @@ def list_story_community_characters(
     ).all()
     user_rating_by_character_id = {row.character_id: int(row.rating) for row in user_rating_rows}
 
-    user_addition_rows = db.scalars(
-        select(StoryCommunityCharacterAddition).where(
-            StoryCommunityCharacterAddition.user_id == user.id,
-            StoryCommunityCharacterAddition.character_id.in_(character_ids),
+    user_added_character_source_ids = db.scalars(
+        select(StoryCharacter.source_character_id).where(
+            StoryCharacter.user_id == user.id,
+            StoryCharacter.source_character_id.in_(character_ids),
         )
     ).all()
-    added_character_ids = {row.character_id for row in user_addition_rows}
+    added_character_ids = {
+        int(source_character_id)
+        for source_character_id in user_added_character_source_ids
+        if isinstance(source_character_id, int)
+    }
 
     user_report_rows = db.scalars(
         select(StoryCommunityCharacterReport).where(
@@ -339,6 +343,11 @@ def add_story_community_character_to_account(
 ) -> StoryCommunityCharacterSummaryOut:
     user = get_current_user(db, authorization)
     character = get_public_story_character_or_404(db, character_id)
+    if character.user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot add your own public character",
+        )
 
     existing_addition_id = db.scalar(
         select(StoryCommunityCharacterAddition.id).where(

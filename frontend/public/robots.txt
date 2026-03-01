@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Host: morius-ai.ru
+Sitemap: https://morius-ai.ru/sitemap.xml

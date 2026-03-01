@@ -165,9 +165,61 @@ function parseSseBlock(rawBlock: string): StreamEvent | null {
   }
 }
 
+function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryCharacter {
+  const character = rawCharacter as Partial<StoryCharacter>
+  const normalizedTriggers = Array.isArray(character.triggers)
+    ? character.triggers.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
+    : []
+
+  return {
+    ...rawCharacter,
+    id: typeof character.id === 'number' && Number.isFinite(character.id) ? Math.trunc(character.id) : 0,
+    user_id: typeof character.user_id === 'number' && Number.isFinite(character.user_id) ? Math.trunc(character.user_id) : 0,
+    name: typeof character.name === 'string' ? character.name : '',
+    description: typeof character.description === 'string' ? character.description : '',
+    triggers: normalizedTriggers,
+    avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
+    avatar_scale:
+      typeof character.avatar_scale === 'number' && Number.isFinite(character.avatar_scale)
+        ? Math.max(1, Math.min(3, character.avatar_scale))
+        : 1,
+    source: character.source === 'ai' ? 'ai' : 'user',
+    visibility: character.visibility === 'public' ? 'public' : 'private',
+    source_character_id:
+      typeof character.source_character_id === 'number' && Number.isFinite(character.source_character_id)
+        ? Math.trunc(character.source_character_id)
+        : null,
+    community_rating_avg:
+      typeof character.community_rating_avg === 'number' && Number.isFinite(character.community_rating_avg)
+        ? character.community_rating_avg
+        : 0,
+    community_rating_count:
+      typeof character.community_rating_count === 'number' && Number.isFinite(character.community_rating_count)
+        ? Math.max(0, Math.trunc(character.community_rating_count))
+        : 0,
+    community_additions_count:
+      typeof character.community_additions_count === 'number' && Number.isFinite(character.community_additions_count)
+        ? Math.max(0, Math.trunc(character.community_additions_count))
+        : 0,
+    created_at: typeof character.created_at === 'string' ? character.created_at : new Date(0).toISOString(),
+    updated_at: typeof character.updated_at === 'string' ? character.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryCharacterListPayload(rawCharacters: StoryCharacter[]): StoryCharacter[] {
+  if (!Array.isArray(rawCharacters)) {
+    return []
+  }
+  return rawCharacters
+    .filter((item): item is StoryCharacter => Boolean(item) && typeof item === 'object')
+    .map((item) => normalizeStoryCharacterPayload(item))
+    .filter((item) => item.id > 0)
+}
+
 export async function listStoryGames(token: string): Promise<StoryGameSummary[]> {
   return request<StoryGameSummary[]>('/api/story/games', {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -478,25 +530,27 @@ export async function addCommunityInstructionTemplate(payload: {
 }
 
 export async function listStoryCharacters(token: string): Promise<StoryCharacter[]> {
-  return request<StoryCharacter[]>('/api/story/characters', {
+  const response = await request<StoryCharacter[]>('/api/story/characters', {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
     },
   })
+  return normalizeStoryCharacterListPayload(response)
 }
 
 export async function createStoryCharacter(payload: {
   token: string
   input: StoryCharacterInput
 }): Promise<StoryCharacter> {
-  return request<StoryCharacter>('/api/story/characters', {
+  const response = await request<StoryCharacter>('/api/story/characters', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(payload.input),
   })
+  return normalizeStoryCharacterPayload(response)
 }
 
 export async function updateStoryCharacter(payload: {
@@ -504,13 +558,14 @@ export async function updateStoryCharacter(payload: {
   characterId: number
   input: StoryCharacterInput
 }): Promise<StoryCharacter> {
-  return request<StoryCharacter>(`/api/story/characters/${payload.characterId}`, {
+  const response = await request<StoryCharacter>(`/api/story/characters/${payload.characterId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(payload.input),
   })
+  return normalizeStoryCharacterPayload(response)
 }
 
 export async function deleteStoryCharacter(payload: {
@@ -650,6 +705,7 @@ export async function getStoryGame(payload: {
 }): Promise<StoryGamePayload> {
   return request<StoryGamePayload>(`/api/story/games/${payload.gameId}`, {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },

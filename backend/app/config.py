@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 OPENROUTER_GEMMA_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-OPENROUTER_GLM_AIR_FREE_MODEL = "z-ai/glm-4.5-air:free"
+OPENROUTER_GLM_AIR_FREE_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
+OPENROUTER_TRINITY_FREE_MODEL = "arcee-ai/trinity-large-preview:free"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -262,7 +263,7 @@ settings = Settings(
     ).strip(),
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",
-        OPENROUTER_GLM_AIR_FREE_MODEL,
+        OPENROUTER_TRINITY_FREE_MODEL,
     ).strip(),
     openrouter_image_url=os.getenv(
         "OPENROUTER_IMAGE_URL",

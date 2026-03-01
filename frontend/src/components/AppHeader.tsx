@@ -30,6 +30,8 @@ type AppHeaderProps = {
   onOpenTopUpDialog?: () => void
 }
 
+type SidebarIconComponent = typeof SidebarHomeIcon
+
 const HEADER_BUTTON_SIZE = moriusThemeTokens.layout.headerButtonSize
 const MENU_COLLAPSED_WIDTH = 64
 const MENU_EXPANDED_WIDTH = 244
@@ -163,6 +165,13 @@ function AppHeader({
   }
 
   const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon]
+  const primaryMenuIconByKey: Record<string, SidebarIconComponent> = {
+    dashboard: SidebarHomeIcon,
+    'games-my': SidebarLibraryIcon,
+    'games-all': SidebarCommunityIcon,
+    'community-worlds': SidebarCommunityIcon,
+    'world-create': SidebarLibraryIcon,
+  }
   const showLogo = isPageMenuOpen || !isCompactSidebar
   const showPrimaryItems = isPageMenuOpen || !isCompactSidebar
   const showUtilityItems = isPageMenuOpen
@@ -297,7 +306,7 @@ function AppHeader({
                 }}
               >
                 {menuItems.map((item, index) => {
-                  const MenuIcon = primaryMenuIcons[index % primaryMenuIcons.length]
+                  const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
                   const isActive = Boolean(item.isActive)
 
                   return (

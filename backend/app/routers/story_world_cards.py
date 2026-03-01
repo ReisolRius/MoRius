@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryWorldCard
+from app.models import StoryWorldCard, StoryWorldCardChangeEvent
 from app.schemas import (
     MessageResponse,
     StoryCharacterAssignRequest,
@@ -367,6 +367,13 @@ def delete_story_world_card(
             detail="Main hero cannot be removed once selected",
         )
 
+    db.execute(
+        sa_update(StoryWorldCardChangeEvent)
+        .where(
+            StoryWorldCardChangeEvent.world_card_id == world_card.id,
+        )
+        .values(world_card_id=None)
+    )
     db.delete(world_card)
     touch_story_game(game)
     db.commit()

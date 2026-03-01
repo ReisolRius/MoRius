@@ -33,7 +33,6 @@ import BaseDialog from '../components/dialogs/BaseDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
-import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
 import {
@@ -863,7 +862,6 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   <SearchGlyph />
                 </Box>
               </Box>
-              <TextLimitIndicator currentLength={searchQuery.length} maxLength={MY_GAMES_SEARCH_QUERY_MAX_LENGTH} />
             </Stack>
 
             <FormControl
@@ -1067,10 +1065,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         width: 32,
                         height: 32,
                         borderRadius: 'var(--morius-radius)',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: 'rgba(8, 12, 18, 0.6)',
+                        border: 'none',
+                        backgroundColor: 'transparent',
                         color: APP_TEXT_PRIMARY,
                         fontSize: '1rem',
+                        '&:hover': {
+                          backgroundColor: 'rgba(255,255,255,0.08)',
+                        },
                       }}
                     >
                       {String.fromCharCode(8943)}

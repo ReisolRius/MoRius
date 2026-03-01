@@ -68,13 +68,13 @@ def _build_story_community_instruction_template_summary(
         user_rating = int(user_rating_override)
 
     if is_added_by_user_override is None:
-        user_addition_id = db.scalar(
-            select(StoryCommunityInstructionTemplateAddition.id).where(
-                StoryCommunityInstructionTemplateAddition.template_id == template.id,
-                StoryCommunityInstructionTemplateAddition.user_id == user_id,
+        user_template_copy_id = db.scalar(
+            select(StoryInstructionTemplate.id).where(
+                StoryInstructionTemplate.user_id == user_id,
+                StoryInstructionTemplate.source_template_id == template.id,
             )
         )
-        is_added_by_user = user_addition_id is not None
+        is_added_by_user = user_template_copy_id is not None
     else:
         is_added_by_user = bool(is_added_by_user_override)
 
@@ -154,13 +154,17 @@ def list_story_community_instruction_templates(
     ).all()
     user_rating_by_template_id = {row.template_id: int(row.rating) for row in user_rating_rows}
 
-    user_addition_rows = db.scalars(
-        select(StoryCommunityInstructionTemplateAddition).where(
-            StoryCommunityInstructionTemplateAddition.user_id == user.id,
-            StoryCommunityInstructionTemplateAddition.template_id.in_(template_ids),
+    user_added_template_source_ids = db.scalars(
+        select(StoryInstructionTemplate.source_template_id).where(
+            StoryInstructionTemplate.user_id == user.id,
+            StoryInstructionTemplate.source_template_id.in_(template_ids),
         )
     ).all()
-    added_template_ids = {row.template_id for row in user_addition_rows}
+    added_template_ids = {
+        int(source_template_id)
+        for source_template_id in user_added_template_source_ids
+        if isinstance(source_template_id, int)
+    }
 
     user_report_rows = db.scalars(
         select(StoryCommunityInstructionTemplateReport).where(
@@ -324,6 +328,11 @@ def add_story_community_instruction_template_to_account(
 ) -> StoryCommunityInstructionTemplateSummaryOut:
     user = get_current_user(db, authorization)
     template = get_public_story_instruction_template_or_404(db, template_id)
+    if template.user_id == user.id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot add your own public instruction template",
+        )
 
     existing_addition_id = db.scalar(
         select(StoryCommunityInstructionTemplateAddition.id).where(

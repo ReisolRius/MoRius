@@ -111,6 +111,82 @@ type AdminReportListResponse = {
 const AUTH_NETWORK_ERROR =
   'Не удалось подключиться к API. Проверьте, что backend запущен и CORS разрешает ваш origin.'
 
+function normalizeProfilePrivacySettings(value: ProfilePrivacySettings | null | undefined): ProfilePrivacySettings {
+  return {
+    show_subscriptions: Boolean(value?.show_subscriptions),
+    show_public_worlds: Boolean(value?.show_public_worlds),
+    show_private_worlds: Boolean(value?.show_private_worlds),
+  }
+}
+
+function normalizeProfileSubscriptionUsers(
+  value: ProfileView['subscriptions'] | null | undefined,
+): ProfileSubscriptionUser[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is ProfileSubscriptionUser => Boolean(item) && typeof item === 'object')
+    .map((item) => ({
+      id: typeof item.id === 'number' && Number.isFinite(item.id) ? Math.trunc(item.id) : 0,
+      display_name: typeof item.display_name === 'string' ? item.display_name : '',
+      avatar_url: typeof item.avatar_url === 'string' ? item.avatar_url : null,
+      avatar_scale:
+        typeof item.avatar_scale === 'number' && Number.isFinite(item.avatar_scale)
+          ? Math.max(1, Math.min(3, item.avatar_scale))
+          : 1,
+    }))
+    .filter((item) => item.id > 0)
+}
+
+function normalizeProfileUserView(value: ProfileView['user'] | null | undefined): ProfileView['user'] {
+  if (!value) {
+    return {
+      id: 0,
+      display_name: '',
+      profile_description: '',
+      avatar_url: null,
+      avatar_scale: 1,
+      created_at: new Date(0).toISOString(),
+    }
+  }
+  return {
+    id: typeof value.id === 'number' && Number.isFinite(value.id) ? Math.trunc(value.id) : 0,
+    display_name: typeof value.display_name === 'string' ? value.display_name : '',
+    profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
+    avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
+    avatar_scale:
+      typeof value.avatar_scale === 'number' && Number.isFinite(value.avatar_scale)
+        ? Math.max(1, Math.min(3, value.avatar_scale))
+        : 1,
+    created_at: typeof value.created_at === 'string' ? value.created_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
+  const view = rawView as Partial<ProfileView>
+  return {
+    user: normalizeProfileUserView(view.user ?? null),
+    is_self: Boolean(view.is_self),
+    is_following: Boolean(view.is_following),
+    followers_count:
+      typeof view.followers_count === 'number' && Number.isFinite(view.followers_count)
+        ? Math.max(0, Math.trunc(view.followers_count))
+        : 0,
+    subscriptions_count:
+      typeof view.subscriptions_count === 'number' && Number.isFinite(view.subscriptions_count)
+        ? Math.max(0, Math.trunc(view.subscriptions_count))
+        : 0,
+    privacy: normalizeProfilePrivacySettings(view.privacy ?? null),
+    can_view_subscriptions: Boolean(view.can_view_subscriptions),
+    can_view_public_worlds: Boolean(view.can_view_public_worlds),
+    can_view_private_worlds: Boolean(view.can_view_private_worlds),
+    subscriptions: normalizeProfileSubscriptionUsers(view.subscriptions ?? []),
+    published_worlds: Array.isArray(view.published_worlds) ? view.published_worlds : [],
+    unpublished_worlds: Array.isArray(view.unpublished_worlds) ? view.unpublished_worlds : [],
+  }
+}
+
 export async function registerWithEmail(payload: { email: string; password: string }): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     '/api/auth/register',
@@ -220,7 +296,7 @@ export async function getProfileView(payload: {
 }): Promise<ProfileView> {
   const hasTargetUser = typeof payload.user_id === 'number' && Number.isFinite(payload.user_id) && payload.user_id > 0
   const path = hasTargetUser ? `/api/auth/profiles/${payload.user_id}` : '/api/auth/profiles/me'
-  return requestJson<ProfileView>(
+  const response = await requestJson<ProfileView>(
     path,
     {
       method: 'GET',
@@ -230,6 +306,7 @@ export async function getProfileView(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
+  return normalizeProfileViewPayload(response)
 }
 
 export async function updateCurrentUserProfilePrivacy(payload: {

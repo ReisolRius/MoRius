@@ -46,7 +46,7 @@ const blueSteelColors: MoriusThemeColors = {
 const pastelLightColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
   appBackground:
-    'radial-gradient(ellipse 68% 38% at 50% -10%, #F5F2EC 0%, #F0ECE6 100%), linear-gradient(44deg, #EEE9E0 0%, #F0ECE6 100%)',
+    'radial-gradient(ellipse 68% 38% at 50% -10%, #E6E2D9 0%, #F0ECE6 100%), linear-gradient(44deg, #E2DCCE 0%, #F0ECE6 100%)',
   appBase: '#F0ECE6',
   appSurface: '#E2DCCE',
   appElevated: '#E6E2D9',
@@ -60,7 +60,7 @@ const pastelLightColors: MoriusThemeColors = {
   sendButton: '#000000',
   panelGradient: 'linear-gradient(108deg, #E2DCCE 0%, #F0ECE6 100%)',
   bootBackground: '#F0ECE6',
-  baseText: '#1A1A1A',
+  baseText: '#000000',
 }
 
 export const moriusThemePresets: readonly MoriusThemePreset[] = [

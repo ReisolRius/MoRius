@@ -59,6 +59,8 @@ import type {
   StoryCommunityWorldSummary,
   StoryGameSummary,
 } from '../types/story'
+import { moriusThemeTokens } from '../theme'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 
 type CommunityWorldsPageProps = {
   user: AuthUser
@@ -75,7 +77,7 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
-const HEADER_AVATAR_SIZE = 44
+const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `community-world-skeleton-${index}`)
 const TOP_FILTER_CONTROL_HEIGHT = 46
@@ -83,6 +85,7 @@ const TOP_FILTER_CONTROL_RADIUS = '12px'
 const TOP_FILTER_TEXT_PADDING_X = '14px'
 const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
+const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_FEED_CACHE_TTL_MS = 30 * 60 * 1000
 const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
 
@@ -251,12 +254,36 @@ function parseSortDateValue(value: string): number {
 
 type CommunityCharacterCardProps = {
   item: StoryCommunityCharacterSummary
+  currentUserId: number
   disabled?: boolean
   onClick: () => void
 }
 
-function CommunityCharacterCard({ item, disabled = false, onClick }: CommunityCharacterCardProps) {
-  const fallbackLetter = item.name.trim().charAt(0).toUpperCase() || '•'
+function resolveAuthorInitials(authorName: string): string {
+  const cleaned = authorName.trim()
+  if (!cleaned) {
+    return '??'
+  }
+  const parts = cleaned.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) {
+    return parts[0].slice(0, 1).toUpperCase()
+  }
+  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
+}
+
+function CommunityCharacterCard({ item, currentUserId, disabled = false, onClick }: CommunityCharacterCardProps) {
+  const authorName = item.author_name.trim() || 'Неизвестный автор'
+  const authorInitials = resolveAuthorInitials(authorName)
+  const isOwnedByUser = item.author_id === currentUserId
+  const addStatusLabel = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Добавлено' : 'Не добавлено'
+  const heroBackground = item.avatar_url
+    ? {
+        backgroundImage: `url(${item.avatar_url})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+      }
+    : buildWorldFallbackArtwork(item.id)
 
   return (
     <Button
@@ -278,104 +305,137 @@ function CommunityCharacterCard({ item, disabled = false, onClick }: CommunityCh
         },
       }}
     >
-      <Stack sx={{ width: '100%', p: 1.25, textAlign: 'left', minHeight: 206, justifyContent: 'space-between' }}>
-        <Stack spacing={0.9}>
-          <Stack direction="row" spacing={0.8} alignItems="center">
+      <Stack sx={{ width: '100%', textAlign: 'left', minHeight: 238, justifyContent: 'space-between' }}>
+        <Box
+          sx={{
+            position: 'relative',
+            width: '100%',
+            height: COMMUNITY_PUBLIC_CARD_HERO_HEIGHT,
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              ...heroBackground,
+            }}
+          />
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.54) 44%, rgba(0, 0, 0, 0) 100%)',
+            }}
+          />
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            sx={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              right: 10,
+              minWidth: 0,
+            }}
+          >
             <Box
               sx={{
-                width: 40,
-                height: 40,
+                width: 36,
+                height: 36,
                 borderRadius: '50%',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
                 overflow: 'hidden',
                 display: 'grid',
                 placeItems: 'center',
-                backgroundColor: 'var(--morius-elevated-bg)',
-                color: APP_TEXT_PRIMARY,
-                fontSize: '0.92rem',
+                backgroundColor: 'rgba(6, 10, 16, 0.72)',
+                color: 'rgba(233, 241, 252, 0.97)',
+                fontSize: '0.78rem',
                 fontWeight: 800,
                 flexShrink: 0,
               }}
             >
-              {item.avatar_url ? (
+              {item.author_avatar_url ? (
                 <Box
                   component="img"
-                  src={item.avatar_url}
-                  alt={item.name}
+                  src={item.author_avatar_url}
+                  alt={authorName}
                   sx={{
                     width: '100%',
                     height: '100%',
                     objectFit: 'cover',
-                    transform: `scale(${Math.max(1, Math.min(3, item.avatar_scale || 1))})`,
-                    transformOrigin: 'center center',
                   }}
                 />
               ) : (
-                fallbackLetter
+                authorInitials
               )}
             </Box>
-            <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.1}>
-              <Typography
-                sx={{
-                  color: APP_TEXT_PRIMARY,
-                  fontSize: '0.86rem',
-                  fontWeight: 700,
-                  lineHeight: 1.2,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {item.author_name}
+            <Typography
+              sx={{
+                color: 'rgba(233, 241, 252, 0.97)',
+                fontSize: '0.95rem',
+                lineHeight: 1.2,
+                fontWeight: 700,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: 0,
+              }}
+              title={authorName}
+            >
+              {authorName}
+            </Typography>
+          </Stack>
+        </Box>
+        <Stack sx={{ width: '100%', p: 1.25, textAlign: 'left', flex: 1, justifyContent: 'space-between' }}>
+          <Stack spacing={0.8}>
+            <Typography
+              sx={{
+                color: APP_TEXT_PRIMARY,
+                fontSize: '1.03rem',
+                lineHeight: 1.2,
+                fontWeight: 800,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {item.name}
+            </Typography>
+            <Typography
+              sx={{
+                color: APP_TEXT_SECONDARY,
+                fontSize: '0.9rem',
+                lineHeight: 1.42,
+                minHeight: '4.2em',
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {item.description}
+            </Typography>
+          </Stack>
+
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
+              {addStatusLabel}
+            </Typography>
+            <Stack direction="row" spacing={1.1} alignItems="center">
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
+                {item.community_additions_count} +
               </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.74rem', lineHeight: 1.2 }}>
-                {formatCommunityDate(item.created_at)}
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
+                {item.community_rating_avg.toFixed(1)} {'\u2605'}
               </Typography>
             </Stack>
-          </Stack>
-          <Typography
-            sx={{
-              color: APP_TEXT_PRIMARY,
-              fontSize: '1.03rem',
-              lineHeight: 1.2,
-              fontWeight: 800,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {item.name}
-          </Typography>
-          <Typography
-            sx={{
-              color: APP_TEXT_SECONDARY,
-              fontSize: '0.9rem',
-              lineHeight: 1.42,
-              minHeight: '4.2em',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {item.description}
-          </Typography>
-        </Stack>
-
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
-          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-            {item.is_added_by_user ? 'Добавлено' : 'Не добавлено'}
-          </Typography>
-          <Stack direction="row" spacing={1.1} alignItems="center">
-            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-              {item.community_additions_count} +
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-              {item.community_rating_avg.toFixed(1)} ★
-            </Typography>
           </Stack>
         </Stack>
       </Stack>
@@ -385,11 +445,18 @@ function CommunityCharacterCard({ item, disabled = false, onClick }: CommunityCh
 
 type CommunityInstructionCardProps = {
   item: StoryCommunityInstructionTemplateSummary
+  currentUserId: number
   disabled?: boolean
   onClick: () => void
 }
 
-function CommunityInstructionCard({ item, disabled = false, onClick }: CommunityInstructionCardProps) {
+function CommunityInstructionCard({ item, currentUserId, disabled = false, onClick }: CommunityInstructionCardProps) {
+  const authorName = item.author_name.trim() || 'Неизвестный автор'
+  const authorInitials = resolveAuthorInitials(authorName)
+  const isOwnedByUser = item.author_id === currentUserId
+  const addStatusLabel = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Добавлено' : 'Не добавлено'
+  const heroBackground = buildWorldFallbackArtwork(item.id + 100000)
+
   return (
     <Button
       onClick={onClick}
@@ -404,74 +471,143 @@ function CommunityInstructionCard({ item, disabled = false, onClick }: Community
         justifyContent: 'stretch',
         alignItems: 'stretch',
         width: '100%',
+        overflow: 'hidden',
         '&:hover': {
           backgroundColor: APP_BUTTON_HOVER,
         },
       }}
     >
-      <Stack sx={{ width: '100%', p: 1.25, textAlign: 'left', minHeight: 206, justifyContent: 'space-between' }}>
-        <Stack spacing={0.9}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ minWidth: 0 }}>
+      <Stack sx={{ width: '100%', textAlign: 'left', minHeight: 238, justifyContent: 'space-between' }}>
+        <Box
+          sx={{
+            position: 'relative',
+            width: '100%',
+            height: COMMUNITY_PUBLIC_CARD_HERO_HEIGHT,
+            flexShrink: 0,
+            overflow: 'hidden',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              ...heroBackground,
+            }}
+          />
+          <Box
+            aria-hidden
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.54) 44%, rgba(0, 0, 0, 0) 100%)',
+            }}
+          />
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            sx={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              right: 10,
+              minWidth: 0,
+            }}
+          >
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '50%',
+                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
+                overflow: 'hidden',
+                display: 'grid',
+                placeItems: 'center',
+                backgroundColor: 'rgba(6, 10, 16, 0.72)',
+                color: 'rgba(233, 241, 252, 0.97)',
+                fontSize: '0.78rem',
+                fontWeight: 800,
+                flexShrink: 0,
+              }}
+            >
+              {item.author_avatar_url ? (
+                <Box
+                  component="img"
+                  src={item.author_avatar_url}
+                  alt={authorName}
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }}
+                />
+              ) : (
+                authorInitials
+              )}
+            </Box>
             <Typography
               sx={{
-                color: APP_TEXT_SECONDARY,
-                fontSize: '0.8rem',
+                color: 'rgba(233, 241, 252, 0.97)',
+                fontSize: '0.95rem',
                 lineHeight: 1.2,
+                fontWeight: 700,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                pr: 1,
+                minWidth: 0,
               }}
+              title={authorName}
             >
-              {item.author_name}
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.74rem', lineHeight: 1.2 }}>
-              {formatCommunityDate(item.created_at)}
+              {authorName}
             </Typography>
           </Stack>
-          <Typography
-            sx={{
-              color: APP_TEXT_PRIMARY,
-              fontSize: '1.03rem',
-              lineHeight: 1.2,
-              fontWeight: 800,
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {item.title}
-          </Typography>
-          <Typography
-            sx={{
-              color: APP_TEXT_SECONDARY,
-              fontSize: '0.9rem',
-              lineHeight: 1.42,
-              minHeight: '4.2em',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {item.content}
-          </Typography>
-        </Stack>
+        </Box>
+        <Stack sx={{ width: '100%', p: 1.25, textAlign: 'left', flex: 1, justifyContent: 'space-between' }}>
+          <Stack spacing={0.8}>
+            <Typography
+              sx={{
+                color: APP_TEXT_PRIMARY,
+                fontSize: '1.03rem',
+                lineHeight: 1.2,
+                fontWeight: 800,
+                display: '-webkit-box',
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {item.title}
+            </Typography>
+            <Typography
+              sx={{
+                color: APP_TEXT_SECONDARY,
+                fontSize: '0.9rem',
+                lineHeight: 1.42,
+                minHeight: '4.2em',
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {item.content}
+            </Typography>
+          </Stack>
 
-        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
-          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-            {item.is_added_by_user ? 'Добавлено' : 'Не добавлено'}
-          </Typography>
-          <Stack direction="row" spacing={1.1} alignItems="center">
-            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-              {item.community_additions_count} +
+          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
+              {addStatusLabel}
             </Typography>
-            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-              {item.community_rating_avg.toFixed(1)} ★
-            </Typography>
+            <Stack direction="row" spacing={1.1} alignItems="center">
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
+                {item.community_additions_count} +
+              </Typography>
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
+                {item.community_rating_avg.toFixed(1)} {'\u2605'}
+              </Typography>
+            </Stack>
           </Stack>
         </Stack>
       </Stack>
@@ -705,7 +841,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   }, [authToken, user.id])
 
   useEffect(() => {
-    void loadCommunityWorlds()
+    void loadCommunityWorlds({ force: true })
   }, [loadCommunityWorlds])
 
   useEffect(() => {
@@ -1078,7 +1214,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   }, [authToken, isCommunityCharacterRatingSaving, selectedCommunityCharacter])
 
   const handleAddCommunityCharacter = useCallback(async () => {
-    if (!selectedCommunityCharacter || isCommunityCharacterAddSaving || selectedCommunityCharacter.is_added_by_user) {
+    if (
+      !selectedCommunityCharacter ||
+      isCommunityCharacterAddSaving ||
+      selectedCommunityCharacter.is_added_by_user ||
+      selectedCommunityCharacter.author_id === user.id
+    ) {
       return
     }
     setActionError('')
@@ -1096,7 +1237,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     } finally {
       setIsCommunityCharacterAddSaving(false)
     }
-  }, [authToken, isCommunityCharacterAddSaving, selectedCommunityCharacter])
+  }, [authToken, isCommunityCharacterAddSaving, selectedCommunityCharacter, user.id])
 
   const handleOpenCommunityInstructionTemplate = useCallback(
     async (templateId: number) => {
@@ -1150,7 +1291,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     if (
       !selectedCommunityInstructionTemplate ||
       isCommunityInstructionAddSaving ||
-      selectedCommunityInstructionTemplate.is_added_by_user
+      selectedCommunityInstructionTemplate.is_added_by_user ||
+      selectedCommunityInstructionTemplate.author_id === user.id
     ) {
       return
     }
@@ -1169,7 +1311,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     } finally {
       setIsCommunityInstructionAddSaving(false)
     }
-  }, [authToken, isCommunityInstructionAddSaving, selectedCommunityInstructionTemplate])
+  }, [authToken, isCommunityInstructionAddSaving, selectedCommunityInstructionTemplate, user.id])
 
   const resetCommunityEntityReportDialog = useCallback(() => {
     setCommunityEntityReportTarget(null)
@@ -1423,18 +1565,14 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? [] : []
   const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
+  const isSelectedCommunityCharacterOwnedByUser = selectedCommunityCharacter?.author_id === user.id
+  const isSelectedCommunityInstructionOwnedByUser = selectedCommunityInstructionTemplate?.author_id === user.id
   const communitySectionDescription =
     activeSection === 'worlds'
       ? 'Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.'
       : activeSection === 'characters'
         ? 'Персонажи сообщества. Оценивайте и добавляйте понравившихся в мои персонажи.'
         : 'Инструкции сообщества. Оценивайте и добавляйте их в мои инструкции.'
-  const isActiveSectionLoading =
-    activeSection === 'worlds'
-      ? isCommunityWorldsLoading
-      : activeSection === 'characters'
-        ? isCommunityCharactersLoading
-        : isCommunityInstructionTemplatesLoading
   const searchPlaceholder =
     activeSection === 'worlds'
       ? 'Поиск по мирам'
@@ -1568,25 +1706,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 </Button>
               </Stack>
             </Stack>
-            <Button
-              onClick={() => void loadCommunityWorlds({ force: true })}
-              disabled={isActiveSectionLoading}
-              sx={{
-                minHeight: 38,
-                px: 1.35,
-                borderRadius: 'var(--morius-radius)',
-                textTransform: 'none',
-                fontWeight: 700,
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                color: APP_TEXT_PRIMARY,
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              Обновить
-            </Button>
           </Stack>
 
           <Box
@@ -1647,7 +1766,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   <SearchGlyph />
                 </Box>
               </Box>
-              <TextLimitIndicator currentLength={searchQuery.length} maxLength={COMMUNITY_SEARCH_QUERY_MAX_LENGTH} />
             </Stack>
 
             {activeSection === 'worlds' ? (
@@ -2230,6 +2348,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   <CommunityCharacterCard
                     key={item.id}
                     item={item}
+                    currentUserId={user.id}
                     disabled={isCommunityCharacterLoading}
                     onClick={() => void handleOpenCommunityCharacter(item.id)}
                   />
@@ -2290,6 +2409,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 <CommunityInstructionCard
                   key={item.id}
                   item={item}
+                  currentUserId={user.id}
                   disabled={isCommunityInstructionTemplateLoading}
                   onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
                 />
@@ -2510,7 +2630,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               isCommunityCharacterAddSaving ||
               isCommunityCharacterRatingSaving ||
               isCommunityEntityReportSubmitting ||
-              selectedCommunityCharacter.is_added_by_user
+              selectedCommunityCharacter.is_added_by_user ||
+              isSelectedCommunityCharacterOwnedByUser
             }
             sx={{
               minHeight: 38,
@@ -2525,7 +2646,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               },
             }}
           >
-            {selectedCommunityCharacter?.is_added_by_user ? 'Добавлено' : 'Добавить'}
+            {isSelectedCommunityCharacterOwnedByUser
+              ? 'Ваша карточка'
+              : selectedCommunityCharacter?.is_added_by_user
+                ? 'Добавлено'
+                : 'Добавить'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2679,7 +2804,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               isCommunityInstructionAddSaving ||
               isCommunityInstructionRatingSaving ||
               isCommunityEntityReportSubmitting ||
-              selectedCommunityInstructionTemplate.is_added_by_user
+              selectedCommunityInstructionTemplate.is_added_by_user ||
+              isSelectedCommunityInstructionOwnedByUser
             }
             sx={{
               minHeight: 38,
@@ -2694,7 +2820,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               },
             }}
           >
-            {selectedCommunityInstructionTemplate?.is_added_by_user ? 'Добавлено' : 'Добавить'}
+            {isSelectedCommunityInstructionOwnedByUser
+              ? 'Ваша карточка'
+              : selectedCommunityInstructionTemplate?.is_added_by_user
+                ? 'Добавлено'
+                : 'Добавить'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2880,5 +3010,4 @@ function buildCommunityWorldGameMap(games: StoryGameSummary[]): Record<number, n
 }
 
 export default CommunityWorldsPage
-
 

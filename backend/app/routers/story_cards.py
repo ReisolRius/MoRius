@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryInstructionCard, StoryPlotCard
+from app.models import StoryInstructionCard, StoryPlotCard, StoryPlotCardChangeEvent
 from app.schemas import (
     MessageResponse,
     StoryInstructionCardCreateRequest,
@@ -197,6 +197,13 @@ def delete_story_plot_card(
     if plot_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
 
+    db.execute(
+        sa_update(StoryPlotCardChangeEvent)
+        .where(
+            StoryPlotCardChangeEvent.plot_card_id == plot_card.id,
+        )
+        .values(plot_card_id=None)
+    )
     db.delete(plot_card)
     touch_story_game(game)
     db.commit()

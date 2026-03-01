@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import ast
 import json
@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import OPENROUTER_GLM_AIR_FREE_MODEL, settings
+from app.config import OPENROUTER_TRINITY_FREE_MODEL, settings
 from app.models import (
     StoryGame,
     StoryMessage,
@@ -154,7 +154,7 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
-STORY_PLOT_CARD_MEMORY_FREE_MODEL = "z-ai/glm-4.5-air:free"
+STORY_PLOT_CARD_MEMORY_FREE_MODEL = OPENROUTER_TRINITY_FREE_MODEL
 STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
 STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
@@ -649,6 +649,9 @@ STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
     "arcee-ai/trinity-large-preview:free",
     "moonshotai/kimi-k2-0905",
 }
+STORY_KIMI_K2_MODEL_HINTS = {
+    "moonshotai/kimi-k2-0905",
+}
 STORY_NON_SAMPLING_MODEL_HINTS = {
     "meta-llama/llama-3.3-70b-instruct:free",
 }
@@ -788,6 +791,24 @@ STORY_DIALOGUE_FORMAT_RULES = (
     "Не используй заглушки типа НПС/NPC/Персонаж/Реплика/Голос.",
     "Если говорящий есть в карточке мира или героя, используй точный title карточки.",
     "Без JSON, markdown, списков и код-блоков.",
+)
+
+STORY_KIMI_K2_EXTRA_RULES = (
+    "ИНСТРУКЦИИ ИЗ КАРТОЧЕК ИГРОКА - ЭТО ОСНОВА ВСЕГО.",
+    "Ты обязан строго следовать всем инструкциям из карточек и воспринимать их как прямые правила поведения мира и персонажей.",
+    "Критически важно: не игнорируй ни одну инструкцию, не ослабляй их и не интерпретируй творчески.",
+    "Если инструкция говорит X - ты делаешь ровно X.",
+    "При любом сомнении выбирай вариант, который буквально соответствует карточкам.",
+    "Если ответ отклоняется от карточек - он считается неправильным.",
+    "Ты не создаешь правила, ты подчиняешься карточкам.",
+    "Фокус сцены: социальное взаимодействие между персонажами.",
+    "Каждый ответ должен развивать диалог, показывать эмоции через речь и действия, отражать отношение персонажей друг к другу.",
+    "Приоритеты: 1) Диалог 2) Эмоции 3) Реакции 4) Внутреннее напряжение.",
+    "Не делай: сухие описания без общения, длинные нейтральные нарративы, пересказ вместо сцены.",
+    "Делай: живые реплики, паузы, реакции, жесты, подтекст в диалогах.",
+    "Диалоги должны быть естественными, различимыми по голосу персонажей, без шаблонной и пафосной речи.",
+    "Каждая реплика должна иметь цель (убеждение, реакция, давление и т.д.) и отражать эмоцию.",
+    "Избегай одинаковых голосов персонажей, книжной речи и клише.",
 )
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
@@ -2178,7 +2199,7 @@ def _generate_story_npc_profile_with_openrouter(
     if not settings.openrouter_api_key:
         return None
 
-    model_name = OPENROUTER_GLM_AIR_FREE_MODEL
+    model_name = str(settings.openrouter_world_card_model or settings.openrouter_model or OPENROUTER_GEMMA_FREE_MODEL).strip()
     if not model_name:
         return None
 
@@ -2971,7 +2992,8 @@ def _build_story_system_prompt(
     model_name: str | None = None,
     response_max_tokens: int | None = None,
 ) -> str:
-    compact_mode = _is_story_paid_model(model_name)
+    # Story cards must be passed in full for all text models.
+    compact_mode = False
     instruction_cards_for_prompt = (
         instruction_cards[:STORY_PROMPT_COMPACT_MAX_INSTRUCTION_CARDS]
         if compact_mode
@@ -3022,6 +3044,15 @@ def _build_story_system_prompt(
             if not title or not content:
                 continue
             lines.append(f"{index}. {title}: {content}")
+
+    if _is_story_kimi_k2_model(model_name):
+        lines.extend(
+            [
+                "",
+                "Дополнительные правила только для Kimi K2:",
+                *STORY_KIMI_K2_EXTRA_RULES,
+            ]
+        )
 
     if plot_cards_for_prompt:
         lines.extend(["", "Карточки памяти сюжета:"])
@@ -3691,6 +3722,13 @@ def _is_story_paid_model(model_name: str | None) -> bool:
     return any(model_hint in normalized_model for model_hint in STORY_PAID_MODEL_HINTS)
 
 
+def _is_story_kimi_k2_model(model_name: str | None) -> bool:
+    normalized_model = (model_name or "").strip().lower()
+    if not normalized_model:
+        return False
+    return any(model_hint in normalized_model for model_hint in STORY_KIMI_K2_MODEL_HINTS)
+
+
 def _normalize_story_prompt_text(value: str, *, max_chars: int) -> str:
     normalized = re.sub(r"\s+", " ", value.replace("\r\n", "\n")).strip()
     if not normalized:
@@ -3716,12 +3754,7 @@ def _normalize_story_prompt_list(values: list[Any], *, max_items: int, max_chars
 
 def _effective_story_context_limit_tokens(context_limit_tokens: int, *, model_name: str | None) -> int:
     normalized_limit = _normalize_story_context_limit_chars(context_limit_tokens)
-    if not _is_story_paid_model(model_name):
-        return normalized_limit
-    if normalized_limit <= STORY_PAID_MODEL_CONTEXT_LIMIT_MIN:
-        return normalized_limit
-    optimized_limit = int(normalized_limit * STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR)
-    return max(min(normalized_limit, optimized_limit), STORY_PAID_MODEL_CONTEXT_LIMIT_MIN)
+    return normalized_limit
 
 
 def _effective_story_response_max_tokens(response_max_tokens: int | None, *, model_name: str | None) -> int | None:
@@ -4029,38 +4062,15 @@ def _select_story_history_source(
     if not use_plot_memory:
         return history
 
-    # Plot memory replaces long chat history, but we keep a short recent tail
-    # so the model preserves immediate scene coherence.
-    selected_reversed: list[dict[str, str]] = []
-    consumed_tokens = 0
-
+    # When plot-memory optimization is enabled, do not send dialogue history.
+    # Keep only the latest user turn so the model can answer the current request.
     for item in reversed(history):
         role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
         content = str(item.get("content", "")).strip()
-        if role not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE} or not content:
+        if role != STORY_USER_ROLE or not content:
             continue
-        entry_cost = _estimate_story_tokens(content) + 4
-        if (
-            selected_reversed
-            and consumed_tokens + entry_cost > STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS
-        ):
-            break
-        selected_reversed.append({"role": role, "content": content})
-        consumed_tokens += entry_cost
-        if len(selected_reversed) >= STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_MESSAGES:
-            break
-
-    if not selected_reversed:
-        return []
-
-    selected = list(reversed(selected_reversed))
-    if selected[-1].get("role") != STORY_USER_ROLE:
-        for item in reversed(history):
-            content = str(item.get("content", "")).strip()
-            if str(item.get("role", "")).strip() == STORY_USER_ROLE and content:
-                selected.append({"role": STORY_USER_ROLE, "content": content})
-                break
-    return selected
+        return [{"role": STORY_USER_ROLE, "content": content}]
+    return []
 
 
 def _build_story_provider_messages(
@@ -4069,6 +4079,7 @@ def _build_story_provider_messages(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
+    use_plot_memory: bool = False,
     context_limit_tokens: int,
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
@@ -4083,11 +4094,11 @@ def _build_story_provider_messages(
         context_limit_tokens,
         model_name=model_name,
     )
-    recent_history_for_plot_memory = _select_story_history_source(
+    selected_history = _select_story_history_source(
         full_history,
-        use_plot_memory=True,
+        use_plot_memory=use_plot_memory,
     )
-    reserved_history_tokens = _estimate_story_history_tokens(recent_history_for_plot_memory)
+    reserved_history_tokens = _estimate_story_history_tokens(selected_history)
     plot_cards_for_prompt = _fit_story_plot_cards_to_context_limit(
         instruction_cards=instruction_cards,
         plot_cards=plot_cards,
@@ -4097,7 +4108,7 @@ def _build_story_provider_messages(
         model_name=model_name,
         response_max_tokens=response_max_tokens,
     )
-    history = recent_history_for_plot_memory if plot_cards_for_prompt else full_history
+    history = selected_history
 
     system_prompt = _build_story_system_prompt(
         instruction_cards,
@@ -4109,6 +4120,36 @@ def _build_story_provider_messages(
     system_prompt_tokens = _estimate_story_tokens(system_prompt)
     history_budget_tokens = max(effective_context_limit_tokens - system_prompt_tokens, 0)
     history = _trim_story_history_to_context_limit(history, history_budget_tokens)
+
+    # Large system prompts (for example, with many cards + model-specific rules)
+    # can consume the whole budget. Keep at least one recent user turn so OpenRouter
+    # always receives actionable dialogue context.
+    if not history and full_history:
+        fallback_history_item: dict[str, str] | None = None
+        for item in reversed(full_history):
+            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+            content = str(item.get("content", "")).strip()
+            if role == STORY_USER_ROLE and content:
+                fallback_history_item = {"role": role, "content": content}
+                break
+        if fallback_history_item is None:
+            fallback_source = full_history[-1]
+            fallback_role = str(fallback_source.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+            fallback_content = str(fallback_source.get("content", "")).strip()
+            if fallback_content:
+                fallback_history_item = {"role": fallback_role, "content": fallback_content}
+
+        if fallback_history_item is not None:
+            fallback_budget_tokens = max(min(effective_context_limit_tokens // 6, 240), 48)
+            history = [
+                {
+                    "role": fallback_history_item["role"],
+                    "content": _trim_story_text_tail_by_tokens(
+                        fallback_history_item["content"],
+                        fallback_budget_tokens,
+                    ),
+                }
+            ]
 
     messages_payload = [{"role": "system", "content": system_prompt}, *history]
     if not translate_for_model:
@@ -5132,7 +5173,7 @@ def _persist_generated_story_world_cards(
             prompt=prompt,
             assistant_text=assistant_text_for_memory,
             existing_cards=existing_cards,
-            enable_secondary_npc_profile_generation=memory_optimization_enabled,
+            enable_secondary_npc_profile_generation=False,
         )
     except Exception as exc:
         logger.warning("World card extraction failed: %s", exc)
@@ -5150,20 +5191,6 @@ def _persist_generated_story_world_cards(
         )
     except Exception as exc:
         logger.warning("World card persistence failed: %s", exc)
-
-    if memory_optimization_enabled:
-        try:
-            persisted_events.extend(
-                _ensure_story_npc_cards_from_dialogue(
-                    db=db,
-                    game=game,
-                    assistant_message=assistant_message,
-                    prompt=prompt,
-                    assistant_text=assistant_text,
-                )
-            )
-        except Exception as exc:
-            logger.warning("NPC dialogue world card fallback failed: %s", exc)
 
     return persisted_events
 
@@ -5216,9 +5243,37 @@ def _build_story_plot_card_memory_messages(
 
 def _resolve_story_plot_memory_model_name() -> str:
     configured_model = str(settings.openrouter_plot_card_model or "").strip()
-    if configured_model == OPENROUTER_GLM_AIR_FREE_MODEL:
-        return configured_model
+    if configured_model:
+        if configured_model.casefold().endswith(":free"):
+            return configured_model
+        logger.warning(
+            "Ignoring non-free plot memory model: %s",
+            configured_model,
+        )
+
     return STORY_PLOT_CARD_MEMORY_FREE_MODEL
+
+
+def _resolve_story_plot_memory_fallback_models(primary_model: str) -> list[str]:
+    fallback_models: list[str] = []
+
+    configured_model = str(settings.openrouter_plot_card_model or "").strip()
+    if configured_model and configured_model.casefold().endswith(":free"):
+        candidate_models = (
+            configured_model,
+            OPENROUTER_TRINITY_FREE_MODEL,
+        )
+    else:
+        candidate_models = (
+            OPENROUTER_TRINITY_FREE_MODEL,
+        )
+
+    for candidate in candidate_models:
+        if not candidate or candidate == primary_model or candidate in fallback_models:
+            continue
+        fallback_models.append(candidate)
+
+    return fallback_models
 
 
 def _extract_story_plot_memory_points(raw_payload: dict[str, Any]) -> list[str]:
@@ -5763,6 +5818,7 @@ def _upsert_story_plot_memory_card(
     model_name = _resolve_story_plot_memory_model_name()
     if not model_name:
         raise RuntimeError("Plot memory generation failed: memory model is not configured")
+    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
 
     messages_payload = _build_story_plot_card_memory_messages(
         existing_card=target_card,
@@ -5780,15 +5836,17 @@ def _upsert_story_plot_memory_card(
         len(latest_assistant_text),
     )
     logger.info(
-        "Plot memory model request started: game_id=%s assistant_message_id=%s model=%s",
+        "Plot memory model request started: game_id=%s assistant_message_id=%s model=%s fallbacks=%s",
         game.id,
         assistant_message.id,
         model_name,
+        fallback_model_names,
     )
     raw_response = _request_openrouter_story_text(
         messages_payload,
         model_name=model_name,
         allow_free_fallback=False,
+        fallback_model_names=fallback_model_names,
         temperature=0.0,
         max_tokens=STORY_PLOT_CARD_REQUEST_MAX_TOKENS,
         request_timeout=(
@@ -6003,6 +6061,7 @@ def _iter_gigachat_story_stream_chunks(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
+    use_plot_memory: bool = False,
     context_limit_chars: int,
     response_max_tokens: int | None = None,
 ):
@@ -6012,6 +6071,7 @@ def _iter_gigachat_story_stream_chunks(
         instruction_cards,
         plot_cards,
         world_cards,
+        use_plot_memory=use_plot_memory,
         context_limit_tokens=context_limit_chars,
         response_max_tokens=response_max_tokens,
     )
@@ -6110,6 +6170,7 @@ def _iter_openrouter_story_stream_chunks(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     *,
+    use_plot_memory: bool = False,
     context_limit_chars: int,
     model_name: str | None = None,
     top_k: int | None = None,
@@ -6121,6 +6182,7 @@ def _iter_openrouter_story_stream_chunks(
         instruction_cards,
         plot_cards,
         world_cards,
+        use_plot_memory=use_plot_memory,
         context_limit_tokens=context_limit_chars,
         response_max_tokens=max_tokens,
         model_name=model_name,
@@ -7646,6 +7708,7 @@ def _iter_story_provider_stream_chunks(
     story_top_k: int = 0,
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
+    use_plot_memory: bool = False,
 ):
     provider = _effective_story_llm_provider()
 
@@ -7660,6 +7723,7 @@ def _iter_story_provider_stream_chunks(
                 instruction_cards,
                 plot_cards,
                 world_cards,
+                use_plot_memory=use_plot_memory,
                 context_limit_tokens=context_limit_chars,
                 response_max_tokens=effective_response_max_tokens,
                 translate_for_model=True,
@@ -7682,6 +7746,7 @@ def _iter_story_provider_stream_chunks(
             instruction_cards,
             plot_cards,
             world_cards,
+            use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             response_max_tokens=effective_response_max_tokens,
         )
@@ -7706,6 +7771,7 @@ def _iter_story_provider_stream_chunks(
                 instruction_cards,
                 plot_cards,
                 world_cards,
+                use_plot_memory=use_plot_memory,
                 context_limit_tokens=context_limit_chars,
                 response_max_tokens=effective_response_max_tokens,
                 translate_for_model=translation_enabled,
@@ -7735,6 +7801,7 @@ def _iter_story_provider_stream_chunks(
             instruction_cards,
             plot_cards,
             world_cards,
+            use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             model_name=selected_model_name,
             top_k=top_k_value,

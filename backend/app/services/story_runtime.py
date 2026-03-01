@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import delete as sa_delete
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
 from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryTurnImage, StoryWorldCardChangeEvent
@@ -160,9 +160,19 @@ def _estimate_story_context_usage_tokens(
         world_lines.append(f"Триггеры: {', '.join(normalized_triggers) if normalized_triggers else 'нет'}")
     world_tokens_used = _estimate_story_tokens("\n".join(world_lines))
 
+    latest_user_tokens_used = 0
+    for message in reversed(context_messages):
+        if message.role != "user":
+            continue
+        normalized_content = message.content.replace("\r\n", "\n").strip()
+        if not normalized_content:
+            continue
+        latest_user_tokens_used = _estimate_story_tokens(normalized_content) + 4
+        break
+
     story_memory_tokens_used = (
-        plot_tokens_used
-        if memory_optimization_enabled and len(plot_cards) > 0
+        plot_tokens_used + latest_user_tokens_used
+        if memory_optimization_enabled
         else history_tokens_used
     )
     return max(instruction_tokens_used + story_memory_tokens_used + world_tokens_used, 0)
@@ -259,6 +269,7 @@ def _stream_story_response(
             story_response_max_tokens=story_response_max_tokens,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
+            use_plot_memory=memory_optimization_enabled,
         ):
             produced += chunk
             current_time = time.monotonic()
@@ -371,16 +382,15 @@ def _stream_story_response(
                 plot_card_events_out = [
                     deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
                 ]
-                if plot_card_events_out:
-                    plot_memory_payload = {
-                        "assistant_message_id": assistant_message.id,
-                        "plot_card_events": _safe_dump_stream_events(plot_card_events_out),
-                        "plot_cards": _safe_dump_stream_items(
-                            [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
-                        ),
-                        "plot_card_created": plot_card_created,
-                    }
-                    yield _sse_event("plot_memory", plot_memory_payload)
+                plot_memory_payload = {
+                    "assistant_message_id": assistant_message.id,
+                    "plot_card_events": _safe_dump_stream_events(plot_card_events_out),
+                    "plot_cards": _safe_dump_stream_items(
+                        [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
+                    ),
+                    "plot_card_created": plot_card_created,
+                }
+                yield _sse_event("plot_memory", plot_memory_payload)
             except Exception as exc:
                 logger.exception("Failed to update story plot memory card")
                 db.rollback()
@@ -531,7 +541,7 @@ def generate_story_response(
                     "title": card.title.replace("\r\n", " ").strip(),
                     "content": card.content.replace("\r\n", "\n").strip(),
                 }
-                for card in plot_cards_for_cost[:40]
+                for card in plot_cards_for_cost
                 if card.title.strip() and card.content.strip()
             ]
             if memory_optimization_enabled
@@ -581,19 +591,16 @@ def generate_story_response(
                 # Extra safety for legacy rows: ensure no event still references removed assistant message.
                 db.execute(
                     sa_delete(StoryWorldCardChangeEvent).where(
-                        StoryWorldCardChangeEvent.game_id == game.id,
                         StoryWorldCardChangeEvent.assistant_message_id == last_message.id,
                     )
                 )
                 db.execute(
                     sa_delete(StoryPlotCardChangeEvent).where(
-                        StoryPlotCardChangeEvent.game_id == game.id,
                         StoryPlotCardChangeEvent.assistant_message_id == last_message.id,
                     )
                 )
                 db.execute(
                     sa_delete(StoryTurnImage).where(
-                        StoryTurnImage.game_id == game.id,
                         StoryTurnImage.assistant_message_id == last_message.id,
                     )
                 )
@@ -620,6 +627,69 @@ def generate_story_response(
 
         return deps.list_story_messages(db, game.id)
 
+    def _purge_undone_story_steps(*, action_label: str) -> None:
+        try:
+            undone_message_ids = db.scalars(
+                select(StoryMessage.id).where(
+                    StoryMessage.game_id == game.id,
+                    StoryMessage.undone_at.is_not(None),
+                )
+            ).all()
+
+            if undone_message_ids:
+                db.execute(
+                    sa_delete(StoryTurnImage).where(
+                        StoryTurnImage.assistant_message_id.in_(undone_message_ids),
+                    )
+                )
+                db.execute(
+                    sa_delete(StoryWorldCardChangeEvent).where(
+                        StoryWorldCardChangeEvent.assistant_message_id.in_(undone_message_ids),
+                    )
+                )
+                db.execute(
+                    sa_delete(StoryPlotCardChangeEvent).where(
+                        StoryPlotCardChangeEvent.assistant_message_id.in_(undone_message_ids),
+                    )
+                )
+            db.execute(
+                sa_delete(StoryTurnImage).where(
+                    StoryTurnImage.game_id == game.id,
+                    StoryTurnImage.undone_at.is_not(None),
+                )
+            )
+            db.execute(
+                sa_delete(StoryWorldCardChangeEvent).where(
+                    StoryWorldCardChangeEvent.game_id == game.id,
+                    StoryWorldCardChangeEvent.undone_at.is_not(None),
+                )
+            )
+            db.execute(
+                sa_delete(StoryPlotCardChangeEvent).where(
+                    StoryPlotCardChangeEvent.game_id == game.id,
+                    StoryPlotCardChangeEvent.undone_at.is_not(None),
+                )
+            )
+            db.execute(
+                sa_delete(StoryMessage).where(
+                    StoryMessage.game_id == game.id,
+                    StoryMessage.undone_at.is_not(None),
+                )
+            )
+            deps.touch_story_game(game)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception(
+                "Failed to purge undone story steps for %s: game_id=%s",
+                action_label,
+                game.id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to purge undone steps for {action_label}: {_public_story_error_detail(exc)}",
+            ) from exc
+
     if payload.reroll_last_response:
         if discard_last_assistant_steps > 0:
             raise HTTPException(
@@ -627,15 +697,22 @@ def generate_story_response(
                 detail="discard_last_assistant_steps cannot be used with reroll_last_response",
             )
 
-        messages = _drop_last_assistant_steps(
-            steps=1,
-            delete_source_user=False,
-            action_label="reroll",
-        )
-        source_user_message = next(
-            (message for message in reversed(messages) if message.role == deps.story_user_role),
-            None,
-        )
+        messages = deps.list_story_messages(db, game.id)
+        source_user_message = next((message for message in reversed(messages) if message.role == deps.story_user_role), None)
+        if source_user_message is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
+
+        last_message = messages[-1] if messages else None
+        if last_message is not None and last_message.role == deps.story_assistant_role:
+            messages = _drop_last_assistant_steps(
+                steps=1,
+                delete_source_user=False,
+                action_label="reroll",
+            )
+
+        _purge_undone_story_steps(action_label="reroll")
+        messages = deps.list_story_messages(db, game.id)
+        source_user_message = next((message for message in reversed(messages) if message.role == deps.story_user_role), None)
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
@@ -698,7 +775,7 @@ def generate_story_response(
             "title": card.title.replace("\r\n", " ").strip(),
             "content": card.content.replace("\r\n", "\n").strip(),
         }
-        for card in plot_cards[:40]
+        for card in plot_cards
         if card.title.strip() and card.content.strip()
     ] if memory_optimization_enabled else []
     assistant_turn_index = (
