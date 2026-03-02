@@ -186,6 +186,42 @@ STORY_MEMORY_RAW_ASSISTANT_MAX_LINES = 8
 STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS = 2_600
 STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 85
 STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY = 0.72
+STORY_MEMORY_KEY_EVENT_STRONG_TOKENS = (
+    "квест",
+    "цель",
+    "смерт",
+    "погиб",
+    "убит",
+    "предал",
+    "предатель",
+    "тайн",
+    "раскрыл",
+    "артефакт",
+    "ключ",
+    "плен",
+    "побед",
+    "поражен",
+    "угроз",
+    "потер",
+    "нашел",
+    "ритуал",
+    "войн",
+    "quest",
+    "goal",
+    "death",
+    "killed",
+    "betray",
+    "secret",
+    "artifact",
+    "captur",
+    "victor",
+    "defeat",
+    "threat",
+    "lost",
+    "found",
+    "ritual",
+    "war",
+)
 STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
 STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
@@ -3588,17 +3624,10 @@ def _repair_story_markup_with_openrouter(
     text_value: str,
     world_cards: list[dict[str, Any]],
 ) -> str:
-    model_name = (settings.openrouter_translation_model or settings.openrouter_model).strip()
-    if not model_name:
-        return ""
-    repair_messages = _build_story_markup_repair_messages(text_value, world_cards)
-    return _request_openrouter_story_text(
-        repair_messages,
-        model_name=model_name,
-        allow_free_fallback=False,
-        temperature=0,
-        request_timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
-    )
+    # Keep story generation within a strict 2-request budget:
+    # narrator call + one post-processing call.
+    _ = (text_value, world_cards)
+    return ""
 
 
 def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
@@ -6231,115 +6260,8 @@ def _compress_story_memory_block_with_model(
     fallback_model_names: list[str],
     super_mode: bool,
 ) -> tuple[str, str]:
-    if not settings.openrouter_api_key:
-        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
-
-    normalized_content = _normalize_story_prompt_text(raw_content, max_chars=9_000)
-    if not normalized_content:
-        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
-
-    task_hint = (
-        "Сожми максимально агрессивно: только сухие факты, имена, цели, незакрытые конфликты и критические последствия."
-        if super_mode
-        else "Сожми умеренно: убери воду и повторы, сохрани контекст, причинно-следственные связи и важные детали."
-    )
-    messages_payload = [
-        {
-            "role": "system",
-            "content": (
-                "Ты модуль рекурсивной памяти RPG. Не выдумывай факты. "
-                "Верни строго JSON без markdown: {\"title\": string, \"content\": string}. "
-                "Пиши только на русском. "
-                "Нельзя обрезать слова или предложения. "
-                "Если нужно сократить текст, удаляй целые пункты, но не делай обрывов и многоточий от усечения."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"{task_hint}\n\n"
-                f"Исходный блок:\n{normalized_content}\n\n"
-                "Сохрани факты и контекст. Верни только JSON."
-            ),
-        },
-    ]
-    try:
-        raw_response = _request_openrouter_story_text(
-            messages_payload,
-            model_name=model_name,
-            allow_free_fallback=False,
-            fallback_model_names=fallback_model_names,
-            temperature=0.0,
-            max_tokens=STORY_MEMORY_COMPRESSION_REQUEST_MAX_TOKENS,
-            request_timeout=(
-                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
-            ),
-        )
-        parsed_payload = _extract_json_object_from_text(raw_response)
-        raw_title = ""
-        raw_content_candidate = ""
-        if isinstance(parsed_payload, dict):
-            parsed_title = (
-                parsed_payload.get("title")
-                or parsed_payload.get("name")
-                or parsed_payload.get("heading")
-                or parsed_payload.get("заголовок")
-            )
-            if isinstance(parsed_title, str):
-                raw_title = " ".join(parsed_title.split()).strip()
-            parsed_content = (
-                parsed_payload.get("content")
-                or parsed_payload.get("summary")
-                or parsed_payload.get("text")
-                or parsed_payload.get("текст")
-            )
-            if isinstance(parsed_content, str):
-                raw_content_candidate = parsed_content.replace("\r\n", "\n").strip()
-            elif not raw_content_candidate:
-                parsed_points = _extract_story_plot_memory_points(parsed_payload)
-                if parsed_points:
-                    raw_content_candidate = "\n".join(point for point in parsed_points if point.strip()).strip()
-            if not raw_content_candidate and isinstance(parsed_payload.get("card"), dict):
-                nested_payload = parsed_payload.get("card")
-                nested_content = (
-                    nested_payload.get("content")
-                    or nested_payload.get("summary")
-                    or nested_payload.get("text")
-                    or nested_payload.get("текст")
-                )
-                if isinstance(nested_content, str):
-                    raw_content_candidate = nested_content.replace("\r\n", "\n").strip()
-
-        if not raw_content_candidate:
-            raw_content_candidate = str(raw_response or "").replace("\r\n", "\n").strip()
-        raw_content_candidate = re.sub(r"(?im)^\s*```(?:json)?\s*$", "", raw_content_candidate).strip()
-        raw_content_candidate = re.sub(r"(?im)^\s*```\s*$", "", raw_content_candidate).strip()
-        if not raw_content_candidate:
-            return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
-
-        content = _build_story_memory_summary_without_truncation(
-            raw_content_candidate,
-            super_mode=super_mode,
-        )
-        if not content:
-            return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
-
-        title = raw_title
-        if not title:
-            title = _build_story_memory_block_title(
-                content,
-                fallback_prefix="Суперсжатая память" if super_mode else "Сжатая память",
-            )
-        normalized_title = _normalize_story_memory_block_title(
-            title,
-            fallback="Суперсжатая память" if super_mode else "Сжатая память",
-        )
-        normalized_content = _normalize_story_memory_block_content(content)
-        return (normalized_title, normalized_content)
-    except Exception as exc:
-        logger.warning("Story memory block compression failed; fallback to local compression: %s", exc)
-        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+    _ = (model_name, fallback_model_names)
+    return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
 
 
 def _rebalance_story_memory_layers(
@@ -6457,96 +6379,64 @@ def _extract_story_important_plot_card_payload(
     latest_user_prompt: str,
     latest_assistant_text: str,
 ) -> tuple[str, str] | None:
-    if not settings.openrouter_api_key:
-        return None
-
-    model_name = _resolve_story_plot_memory_model_name()
-    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
     normalized_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=2_800)
     normalized_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=6_500)
     if not normalized_prompt and not normalized_assistant:
         return None
 
-    messages_payload = [
-        {
-            "role": "system",
-            "content": (
-                "Ты анализируешь ход RPG и выделяешь только действительно ключевые события сюжета. "
-                "Высокий порог важности: не отмечай обычные шаги, мелкие действия, рутину и локальные реплики. "
-                "Возвращай строго JSON без markdown. Формат: "
-                "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
-                "importance_score: 0..100. "
-                "is_important=true только для событий с долгосрочными или необратимыми последствиями: "
-                "новая цель/квест, раскрытая критичная информация, крупное поражение/победа, смерть, предательство, "
-                "смена статуса отношений, потеря ключевого ресурса, смена стратегического положения. "
-                "title: 3-7 слов. content: сухие факты и последствия. Только русский."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Ход игрока:\n{normalized_prompt or 'нет'}\n\n"
-                f"Ответ мастера:\n{normalized_assistant or 'нет'}\n\n"
-                "Если событие не тянет на действительно важный сюжетный поворот, "
-                "верни is_important=false и importance_score<85."
-            ),
-        },
-    ]
-    raw_response = _request_openrouter_story_text(
-        messages_payload,
-        model_name=model_name,
-        allow_free_fallback=False,
-        fallback_model_names=fallback_model_names,
-        temperature=0.0,
-        max_tokens=STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS,
-        request_timeout=(
-            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+    combined_text = "\n".join(
+        part
+        for part in [
+            f"Ход игрока: {normalized_prompt}" if normalized_prompt else "",
+            f"Ответ мастера: {normalized_assistant}" if normalized_assistant else "",
+        ]
+        if part
+    )
+    sentences = _extract_story_memory_sentences(combined_text)
+    if not sentences:
+        return None
+
+    ranked_sentences: list[tuple[int, int, str, int, int]] = []
+    strong_hits_total = 0
+    weak_hits_total = 0
+    for index, sentence in enumerate(sentences):
+        normalized_sentence = sentence.casefold()
+        strong_hits = sum(1 for token in STORY_MEMORY_KEY_EVENT_STRONG_TOKENS if token in normalized_sentence)
+        weak_hits = sum(1 for token in STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS if token in normalized_sentence)
+        score = _score_story_plot_memory_line(sentence) + strong_hits * 3 + weak_hits
+        if re.search(r"\d", sentence):
+            score += 1
+        if len(sentence) < 18:
+            score -= 1
+        ranked_sentences.append((score, index, sentence, strong_hits, weak_hits))
+        strong_hits_total += strong_hits
+        weak_hits_total += weak_hits
+
+    if not ranked_sentences:
+        return None
+
+    ranked_sentences.sort(key=lambda item: (-item[0], item[1]))
+    top_score = ranked_sentences[0][0]
+    importance_score = min(
+        100,
+        max(
+            0,
+            35 + top_score * 6 + strong_hits_total * 9 + min(weak_hits_total, 6) * 3,
         ),
     )
-    parsed_payload = _extract_json_object_from_text(raw_response)
-    if not isinstance(parsed_payload, dict):
+    if strong_hits_total == 0 and top_score < 12:
         return None
-
-    raw_is_important = parsed_payload.get("is_important")
-    is_important = False
-    if isinstance(raw_is_important, bool):
-        is_important = raw_is_important
-    elif isinstance(raw_is_important, (int, float)):
-        is_important = bool(raw_is_important)
-    elif isinstance(raw_is_important, str):
-        is_important = raw_is_important.strip().lower() in {"1", "true", "yes", "да"}
-    if not is_important:
-        return None
-
-    raw_importance_score = parsed_payload.get("importance_score")
-    importance_score = 0
-    if isinstance(raw_importance_score, bool):
-        importance_score = 100 if raw_importance_score else 0
-    elif isinstance(raw_importance_score, (int, float)):
-        importance_score = int(raw_importance_score)
-    elif isinstance(raw_importance_score, str):
-        score_match = re.search(r"-?\d+", raw_importance_score.strip())
-        if score_match is not None:
-            try:
-                importance_score = int(score_match.group(0))
-            except Exception:
-                importance_score = 0
-    importance_score = max(min(importance_score, 100), 0)
     if importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
         return None
 
-    raw_title = str(parsed_payload.get("title") or parsed_payload.get("name") or "").strip()
-    raw_content = str(parsed_payload.get("content") or parsed_payload.get("summary") or "").strip()
-    if not raw_content:
-        return None
-    content = _build_story_memory_summary_without_truncation(
-        raw_content,
-        super_mode=False,
-    )
+    selected_sentences = sorted(ranked_sentences[:3], key=lambda item: item[1])
+    selected_lines = [sentence for _, _, sentence, _, _ in selected_sentences]
+    summary_source = "\n".join(f"- {line}" for line in selected_lines)
+    content = _build_story_memory_summary_without_truncation(summary_source, super_mode=False)
     if not content:
         return None
-    title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
+
+    title = _derive_story_plot_card_title_from_content(content, preferred_lines=selected_lines)
     title = _normalize_story_memory_block_title(title, fallback="Важный момент")
     content = _normalize_story_memory_block_content(content)
     return (title, content)
