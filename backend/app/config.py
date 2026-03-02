@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 OPENROUTER_GEMMA_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
+OPENROUTER_LLAMA_32_1B_INSTRUCT_MODEL = "meta-llama/llama-3.2-1b-instruct"
 OPENROUTER_GLM_AIR_FREE_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
 OPENROUTER_TRINITY_FREE_MODEL = "arcee-ai/trinity-large-preview:free"
 OPENROUTER_GROK_41_FAST_MODEL = "x-ai/grok-4.1-fast"
@@ -260,7 +261,7 @@ settings = Settings(
     ).strip(),
     openrouter_translation_model=os.getenv(
         "OPENROUTER_TRANSLATION_MODEL",
-        OPENROUTER_GEMMA_FREE_MODEL,
+        OPENROUTER_LLAMA_32_1B_INSTRUCT_MODEL,
     ).strip(),
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",

@@ -22,7 +22,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import OPENROUTER_TRINITY_FREE_MODEL, settings
+from app.config import settings
 from app.models import (
     StoryGame,
     StoryMemoryBlock,
@@ -170,7 +170,7 @@ STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
 STORY_PLOT_CARD_MEMORY_MODEL = "x-ai/grok-4.1-fast"
-STORY_OUTPUT_TRANSLATION_MODEL = "x-ai/grok-4.1-fast"
+STORY_OUTPUT_TRANSLATION_MODEL = "meta-llama/llama-3.2-1b-instruct"
 STORY_MEMORY_LAYER_RAW_BUDGET_SHARE = 0.50
 STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE = 0.30
 STORY_MEMORY_LAYER_SUPER_BUDGET_SHARE = 0.20
@@ -5531,42 +5531,13 @@ def _build_story_plot_card_memory_messages(
 
 
 def _resolve_story_plot_memory_model_name() -> str:
-    configured_model = str(settings.openrouter_plot_card_model or "").strip()
-    if configured_model:
-        if configured_model.casefold() == OPENROUTER_TRINITY_FREE_MODEL.casefold():
-            logger.info(
-                "Replacing Trinity with Grok 4.1 Fast for memory pipeline",
-            )
-            return STORY_PLOT_CARD_MEMORY_MODEL
-        return configured_model
-
+    # Memory extraction is pinned to Grok for stable quality.
     return STORY_PLOT_CARD_MEMORY_MODEL
 
 
 def _resolve_story_plot_memory_fallback_models(primary_model: str) -> list[str]:
-    fallback_models: list[str] = []
-
-    configured_model = str(settings.openrouter_plot_card_model or "").strip()
-    resolved_configured_model = configured_model
-    if resolved_configured_model and resolved_configured_model.casefold() == OPENROUTER_TRINITY_FREE_MODEL.casefold():
-        resolved_configured_model = STORY_PLOT_CARD_MEMORY_MODEL
-
-    if resolved_configured_model:
-        candidate_models = (
-            resolved_configured_model,
-            STORY_PLOT_CARD_MEMORY_MODEL,
-        )
-    else:
-        candidate_models = (
-            STORY_PLOT_CARD_MEMORY_MODEL,
-        )
-
-    for candidate in candidate_models:
-        if not candidate or candidate == primary_model or candidate in fallback_models:
-            continue
-        fallback_models.append(candidate)
-
-    return fallback_models
+    _ = primary_model
+    return []
 
 
 def _extract_story_plot_memory_points(raw_payload: dict[str, Any]) -> list[str]:
