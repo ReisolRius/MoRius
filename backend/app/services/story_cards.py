@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import re
+
 from fastapi import HTTPException, status
 
 from app.models import StoryInstructionTemplate, StoryPlotCard
@@ -7,8 +10,12 @@ from app.schemas import StoryInstructionTemplateOut, StoryPlotCardOut
 
 STORY_PLOT_CARD_SOURCE_USER = "user"
 STORY_PLOT_CARD_SOURCE_AI = "ai"
-STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 16_000
+STORY_PLOT_CARD_MAX_CONTENT_LENGTH = 32_000
 STORY_PLOT_CARD_MAX_TITLE_LENGTH = 120
+STORY_PLOT_CARD_TRIGGER_MAX_LENGTH = 80
+STORY_PLOT_CARD_TRIGGER_ACTIVE_TURNS = 10
+STORY_PLOT_CARD_MEMORY_TURNS_OPTIONS = {3, 5, 10, 15}
+STORY_PLOT_CARD_MEMORY_TURNS_DISABLED = -1
 STORY_TEMPLATE_VISIBILITY_PRIVATE = "private"
 STORY_TEMPLATE_VISIBILITY_PUBLIC = "public"
 STORY_TEMPLATE_VISIBILITY_VALUES = {
@@ -100,12 +107,151 @@ def normalize_story_plot_card_source(value: str | None) -> str:
     return STORY_PLOT_CARD_SOURCE_USER
 
 
+def normalize_story_plot_card_trigger(value: str) -> str:
+    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) > STORY_PLOT_CARD_TRIGGER_MAX_LENGTH:
+        normalized = normalized[:STORY_PLOT_CARD_TRIGGER_MAX_LENGTH].rstrip()
+    return normalized
+
+
+def _split_story_plot_trigger_candidates(value: str) -> list[str]:
+    normalized = value.replace("\r\n", "\n")
+    parts = re.split(r"[,;\n]+", normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        candidate_values = _split_story_plot_trigger_candidates(value)
+        if not candidate_values:
+            candidate_values = [value]
+        for candidate in candidate_values:
+            trigger = normalize_story_plot_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
+
+    fallback_trigger = normalize_story_plot_card_trigger(fallback_title)
+    if fallback_trigger:
+        fallback_key = fallback_trigger.casefold()
+        if fallback_key not in seen:
+            normalized.insert(0, fallback_trigger)
+
+    return normalized[:40]
+
+
+def serialize_story_plot_card_triggers(values: list[str]) -> str:
+    return json.dumps(values, ensure_ascii=False)
+
+
+def deserialize_story_plot_card_triggers(raw_value: str) -> list[str]:
+    raw = raw_value.strip()
+    if not raw:
+        return []
+
+    parsed: object
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = [part.strip() for part in raw.split(",")]
+
+    if not isinstance(parsed, list):
+        return []
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in parsed:
+        if not isinstance(item, str):
+            continue
+        candidate_values = _split_story_plot_trigger_candidates(item)
+        if not candidate_values:
+            candidate_values = [item]
+        for candidate in candidate_values:
+            trigger = normalize_story_plot_card_trigger(candidate)
+            if not trigger:
+                continue
+            trigger_key = trigger.casefold()
+            if trigger_key in seen:
+                continue
+            seen.add(trigger_key)
+            normalized.append(trigger)
+
+    return normalized[:40]
+
+
+def normalize_story_plot_card_memory_turns_for_storage(
+    raw_value: int | float | str | None,
+    *,
+    explicit: bool = False,
+    current_value: int | None = None,
+) -> int:
+    fallback_value = (
+        STORY_PLOT_CARD_TRIGGER_ACTIVE_TURNS
+        if current_value is None
+        else current_value
+    )
+    if not explicit:
+        return fallback_value
+
+    if raw_value is None:
+        return STORY_PLOT_CARD_MEMORY_TURNS_DISABLED
+
+    parsed_value: int | None = None
+    if isinstance(raw_value, bool):
+        parsed_value = None
+    elif isinstance(raw_value, int):
+        parsed_value = raw_value
+    elif isinstance(raw_value, float) and raw_value.is_integer():
+        parsed_value = int(raw_value)
+    elif isinstance(raw_value, str):
+        cleaned = raw_value.strip().lower()
+        if cleaned in {"off", "disabled", "disable", "none", "never"}:
+            parsed_value = STORY_PLOT_CARD_MEMORY_TURNS_DISABLED
+        elif cleaned.lstrip("-").isdigit():
+            parsed_value = int(cleaned)
+
+    if parsed_value is None:
+        return fallback_value
+    if parsed_value <= 0:
+        return STORY_PLOT_CARD_MEMORY_TURNS_DISABLED
+    if parsed_value in STORY_PLOT_CARD_MEMORY_TURNS_OPTIONS:
+        return parsed_value
+    return fallback_value
+
+
+def serialize_story_plot_card_memory_turns(raw_value: int | None) -> int | None:
+    normalized_value = normalize_story_plot_card_memory_turns_for_storage(
+        raw_value,
+        explicit=False,
+        current_value=raw_value,
+    )
+    if normalized_value == STORY_PLOT_CARD_MEMORY_TURNS_DISABLED:
+        return None
+    return normalized_value
+
+
 def story_plot_card_to_out(card: StoryPlotCard) -> StoryPlotCardOut:
+    triggers = normalize_story_plot_card_triggers(
+        deserialize_story_plot_card_triggers(getattr(card, "triggers", "")),
+        fallback_title=card.title,
+    )
     return StoryPlotCardOut(
         id=card.id,
         game_id=card.game_id,
         title=card.title,
         content=card.content,
+        triggers=triggers,
+        memory_turns=serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None)),
+        ai_edit_enabled=bool(card.ai_edit_enabled),
+        is_enabled=bool(getattr(card, "is_enabled", True)),
         source=normalize_story_plot_card_source(card.source),
         created_at=card.created_at,
         updated_at=card.updated_at,

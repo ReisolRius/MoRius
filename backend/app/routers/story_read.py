@@ -11,6 +11,7 @@ from app.schemas import (
     StoryCommunityWorldOut,
     StoryGameOut,
     StoryInstructionCardOut,
+    StoryMemoryBlockOut,
     StoryMessageOut,
     StoryTurnImageOut,
 )
@@ -27,11 +28,13 @@ from app.services.story_games import (
     story_community_world_summary_to_out,
     story_game_summary_to_out,
 )
+from app.services.story_memory import story_memory_block_to_out
 from app.services.story_queries import (
     get_public_story_world_or_404,
     get_user_story_game_or_404,
     has_story_assistant_redo_step,
     list_story_instruction_cards,
+    list_story_memory_blocks,
     list_story_messages,
     list_story_turn_images,
     list_story_plot_card_events,
@@ -127,6 +130,7 @@ def get_story_game(
     instruction_cards = list_story_instruction_cards(db, game.id)
     plot_cards = list_story_plot_cards(db, game.id)
     plot_card_events = list_story_plot_card_events(db, game.id)
+    memory_blocks = list_story_memory_blocks(db, game.id)
     world_cards = list_story_world_cards(db, game.id)
     world_card_events = list_story_world_card_events(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
@@ -137,6 +141,7 @@ def get_story_game(
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
         plot_card_events=[story_plot_card_change_event_to_out(event) for event in plot_card_events],
+        memory_blocks=[StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks],
         world_cards=[story_world_card_to_out(card) for card in world_cards],
         world_card_events=[story_world_card_change_event_to_out(event) for event in world_card_events],
         can_redo_assistant_step=can_redo_assistant_step,

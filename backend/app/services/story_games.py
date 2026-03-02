@@ -17,6 +17,13 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_url,
 )
+from app.services.story_cards import (
+    deserialize_story_plot_card_triggers,
+    normalize_story_plot_card_memory_turns_for_storage,
+    normalize_story_plot_card_source,
+    normalize_story_plot_card_triggers,
+    serialize_story_plot_card_triggers,
+)
 from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_plot_cards,
@@ -56,24 +63,38 @@ STORY_GAME_GENRE_VALUES = {
     "Повседневность",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 10_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
-STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX = 1_500
-STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX = 3_000
-STORY_TURN_COST_LOW = 1
-STORY_TURN_COST_MEDIUM = 2
-STORY_TURN_COST_HIGH = 3
+STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX = 1_500
+STORY_TURN_COST_STAGE_2_CONTEXT_LIMIT_MAX = 3_000
+STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX = 4_000
+STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX = 5_500
+STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX = 7_000
+STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX = 8_500
+STORY_TURN_COST_STAGE_1 = 1
+STORY_TURN_COST_STAGE_2 = 2
+STORY_TURN_COST_STAGE_3 = 3
+STORY_TURN_COST_STAGE_4 = 4
+STORY_TURN_COST_STAGE_5 = 5
+STORY_TURN_COST_STAGE_6 = 6
+STORY_TURN_COST_STAGE_7 = 7
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
+STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
+STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
+STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
 STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
-STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905 = "moonshotai/kimi-k2-0905"
+STORY_LLM_MODEL_GEMINI_3_FLASH_PREVIEW = "google/gemini-3-flash-preview"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_GLM5
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
+    STORY_LLM_MODEL_GLM47,
+    STORY_LLM_MODEL_DEEPSEEK_V32,
+    STORY_LLM_MODEL_GROK_41_FAST,
     STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE,
-    STORY_LLM_MODEL_MOONSHOT_KIMI_K2_0905,
+    STORY_LLM_MODEL_GEMINI_3_FLASH_PREVIEW,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
@@ -92,6 +113,8 @@ STORY_DEFAULT_TOP_K = 0
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
 STORY_DEFAULT_TOP_R = 1.0
+STORY_DEFAULT_SHOW_GG_THOUGHTS = True
+STORY_DEFAULT_SHOW_NPC_THOUGHTS = True
 STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 STORY_COVER_SCALE_MIN = 1.0
 STORY_COVER_SCALE_MAX = 3.0
@@ -265,11 +288,19 @@ def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
 
 def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
-    if normalized_usage <= STORY_TURN_COST_LOW_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_LOW
-    if normalized_usage <= STORY_TURN_COST_MEDIUM_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_MEDIUM
-    return STORY_TURN_COST_HIGH
+    if normalized_usage <= STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_1
+    if normalized_usage <= STORY_TURN_COST_STAGE_2_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_2
+    if normalized_usage <= STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_3
+    if normalized_usage <= STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_4
+    if normalized_usage <= STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_5
+    if normalized_usage <= STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_6
+    return STORY_TURN_COST_STAGE_7
 
 
 def coerce_story_llm_model(value: str | None) -> str:
@@ -286,7 +317,8 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, arcee-ai/trinity-large-preview:free, moonshotai/kimi-k2-0905"
+                "Use one of: z-ai/glm-5, z-ai/glm-4.7, deepseek/deepseek-v3.2, x-ai/grok-4.1-fast, "
+                "arcee-ai/trinity-large-preview:free, google/gemini-3-flash-preview"
             ),
         )
     return normalized
@@ -330,6 +362,18 @@ def normalize_story_top_r(value: float | None) -> float:
         return STORY_DEFAULT_TOP_R
     clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
     return round(clamped_value, 2)
+
+
+def normalize_story_show_gg_thoughts(value: bool | None) -> bool:
+    if value is None:
+        return STORY_DEFAULT_SHOW_GG_THOUGHTS
+    return bool(value)
+
+
+def normalize_story_show_npc_thoughts(value: bool | None) -> bool:
+    if value is None:
+        return STORY_DEFAULT_SHOW_NPC_THOUGHTS
+    return bool(value)
 
 
 def normalize_story_ambient_enabled(value: bool | None) -> bool:
@@ -426,6 +470,8 @@ def story_game_summary_to_out(
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
+        show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
         last_activity_at=game.last_activity_at,
@@ -468,6 +514,8 @@ def story_game_summary_to_compact_out(
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
+        show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         ambient_profile=None,
         last_activity_at=game.last_activity_at,
@@ -583,7 +631,20 @@ def clone_story_world_cards_to_game(
                 game_id=target_game_id,
                 title=card.title,
                 content=card.content,
-                source=card.source,
+                triggers=serialize_story_plot_card_triggers(
+                    normalize_story_plot_card_triggers(
+                        deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+                        fallback_title=card.title,
+                    )
+                ),
+                memory_turns=normalize_story_plot_card_memory_turns_for_storage(
+                    getattr(card, "memory_turns", None),
+                    explicit=False,
+                    current_value=getattr(card, "memory_turns", None),
+                ),
+                ai_edit_enabled=bool(getattr(card, "ai_edit_enabled", True)),
+                is_enabled=bool(getattr(card, "is_enabled", True)),
+                source=normalize_story_plot_card_source(getattr(card, "source", "")),
             )
             db.add(cloned_plot)
 

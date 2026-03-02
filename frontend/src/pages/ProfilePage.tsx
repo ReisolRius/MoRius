@@ -18,6 +18,7 @@ import {
   Switch,
   TextField,
   Typography,
+  useMediaQuery,
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
@@ -203,7 +204,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [tab, setTab] = useState<TabId>('characters')
   const [contentSearchQuery, setContentSearchQuery] = useState('')
-  const [isMobileProfileActionsOpen, setIsMobileProfileActionsOpen] = useState(false)
+  const [mobileProfileMenuAnchorEl, setMobileProfileMenuAnchorEl] = useState<HTMLElement | null>(null)
 
   const [isEditing, setIsEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState(user.display_name || 'Игрок')
@@ -258,9 +259,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const profileName = user.display_name?.trim() || 'Игрок'
   const profileDescription = user.profile_description || ''
-  const userLevel = Math.max(1, Math.trunc(user.level || 1))
   const coins = Math.max(0, Math.trunc(user.coins || 0))
   const canOpenAdmin = user.role === 'administrator' || user.role === 'moderator'
+  const isProfileNarrowMobile = useMediaQuery('(max-width:550px)')
 
   const publicationWorlds = useMemo(
     () =>
@@ -500,7 +501,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [tab, tabs])
 
   useEffect(() => {
-    setIsMobileProfileActionsOpen(false)
+    setMobileProfileMenuAnchorEl(null)
   }, [tab])
 
   useEffect(() => {
@@ -820,6 +821,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [authToken, isOwnProfile, isSavingPrivacy, loadProfileView, privacyDraft])
 
+  const handleOpenMobileProfileMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    setMobileProfileMenuAnchorEl(event.currentTarget)
+  }, [])
+
+  const handleCloseMobileProfileMenu = useCallback(() => {
+    setMobileProfileMenuAnchorEl(null)
+  }, [])
+
   const handleMobilePrimaryTabChange = useCallback(
     (newMobileTab: 'content' | 'favorites' | 'subscriptions') => {
       if (newMobileTab === 'favorites') {
@@ -1012,6 +1021,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       aria-label={options.ariaLabel}
       sx={{
         width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
         minHeight: CARD_MIN_HEIGHT,
         p: 1.1,
         borderRadius: '12px',
@@ -1020,6 +1031,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'hidden',
         transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
         '&:hover': {
           backgroundColor: 'rgba(129, 151, 182, 0.14)',
@@ -1053,7 +1065,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
 
     return (
-      <Stack spacing={1}>
+      <Stack spacing={1} sx={{ width: '100%', minWidth: 0 }}>
         <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои персонажи</Typography>
 
         {!filteredCharacters.length ? (
@@ -1067,6 +1079,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               display: 'grid',
               gap: 1,
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
+              width: '100%',
+              minWidth: 0,
             }}
           >
             {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character' })}
@@ -1076,6 +1090,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 onClick={() => openCharacterEdit(item.id)}
                 sx={{
                   width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
                   minHeight: CARD_MIN_HEIGHT,
                   p: 1.1,
                   borderRadius: '12px',
@@ -1083,6 +1099,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   backgroundColor: 'var(--morius-elevated-bg)',
                   textAlign: 'left',
                   alignItems: 'stretch',
+                  overflow: 'hidden',
                   transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
                   '&:hover': {
                     backgroundColor: 'var(--morius-button-hover)',
@@ -1172,7 +1189,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
 
     return (
-      <Stack spacing={1}>
+      <Stack spacing={1} sx={{ width: '100%', minWidth: 0 }}>
         <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои инструкции</Typography>
 
         {!filteredTemplates.length ? (
@@ -1186,6 +1203,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               display: 'grid',
               gap: 1,
               gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
+              width: '100%',
+              minWidth: 0,
             }}
           >
             {renderCreatePlaceholderCard({ onClick: openInstructionCreate, ariaLabel: 'Create instruction' })}
@@ -1195,6 +1214,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 onClick={() => openInstructionEdit(item.id)}
                 sx={{
                   width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
                   minHeight: CARD_MIN_HEIGHT,
                   p: 1.1,
                   borderRadius: '12px',
@@ -1202,6 +1223,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   backgroundColor: 'var(--morius-elevated-bg)',
                   textAlign: 'left',
                   alignItems: 'stretch',
+                  overflow: 'hidden',
                   transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
                   '&:hover': {
                     backgroundColor: 'var(--morius-button-hover)',
@@ -1663,7 +1685,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 useFlexGap
                 flexWrap="wrap"
                 alignItems="center"
-                sx={{ display: { xs: isMobileProfileActionsOpen ? 'flex' : 'none', md: 'flex' } }}
+                sx={{ display: { xs: 'none', md: 'flex' } }}
               >
                 <Skeleton variant="rounded" width={110} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
                 <Skeleton variant="rounded" width={122} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
@@ -1682,23 +1704,21 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 display: isProfileBootstrapLoading ? 'none' : { xs: 'flex', md: 'none' },
               }}
             >
-              <Stack direction="row" spacing={0.55} sx={{ minWidth: 0 }}>
-                <Box
+              <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                <Typography
                   sx={{
-                    minHeight: 28,
-                    px: 1.2,
-                    borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
                     fontSize: '0.78rem',
                     fontWeight: 700,
+                    color: 'var(--morius-text-secondary)',
+                    lineHeight: 1,
                     whiteSpace: 'nowrap',
+                    minHeight: 28,
+                    display: 'inline-flex',
+                    alignItems: 'center',
                   }}
                 >
-                  {userLevel} уровень
-                </Box>
+                  Подписчики ({followersCount.toLocaleString('ru-RU')})
+                </Typography>
                 <Button
                   onClick={() => {
                     if (isOwnProfile) {
@@ -1726,7 +1746,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </Stack>
 
               <IconButton
-                onClick={() => setIsMobileProfileActionsOpen((previous) => !previous)}
+                onClick={handleOpenMobileProfileMenu}
+                aria-label="Действия профиля"
                 sx={{
                   width: 36,
                   height: 36,
@@ -1753,35 +1774,52 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               sx={{ mb: 1.1, display: isProfileBootstrapLoading ? 'none' : { xs: 'none', md: 'flex' } }}
             >
               <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.48rem' }, fontWeight: 800 }}>Об аккаунте</Typography>
-              <Button
-                onClick={() => {
-                  if (isOwnProfile) {
-                    handleOpenTopUpDialog()
-                  }
-                }}
-                sx={{
-                  display: isOwnProfile ? 'inline-flex' : 'none',
-                  minHeight: 34,
-                  px: 1.05,
-                  py: 0.45,
-                  borderRadius: '999px',
-                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                  backgroundColor: 'var(--morius-elevated-bg)',
-                  color: 'var(--morius-text-primary)',
-                  fontSize: '0.9rem',
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  '&:hover': {
-                    backgroundColor: 'var(--morius-button-hover)',
-                  },
-                }}
-              >
-                Солы: {coins.toLocaleString('ru-RU')}
-              </Button>
+              <Stack direction="row" spacing={0.8} alignItems="center">
+                <Typography
+                  sx={{
+                    fontSize: '0.82rem',
+                    fontWeight: 700,
+                    color: 'var(--morius-text-secondary)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  Подписчики ({followersCount.toLocaleString('ru-RU')})
+                </Typography>
+                <Button
+                  onClick={() => {
+                    if (isOwnProfile) {
+                      handleOpenTopUpDialog()
+                    }
+                  }}
+                  sx={{
+                    display: isOwnProfile ? 'inline-flex' : 'none',
+                    minHeight: 30,
+                    px: 0.4,
+                    py: 0,
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: 'var(--morius-text-primary)',
+                    fontSize: '0.9rem',
+                    fontWeight: 700,
+                    textTransform: 'none',
+                    '&:hover': {
+                      backgroundColor: 'rgba(255,255,255,0.06)',
+                    },
+                  }}
+                >
+                  Солы: {coins.toLocaleString('ru-RU')}
+                </Button>
+              </Stack>
             </Stack>
 
             <Stack spacing={1.15} sx={{ display: isProfileBootstrapLoading ? 'none' : undefined }}>
-              <Stack direction="row" spacing={1.1} alignItems="flex-start">
+              <Stack
+                direction={isProfileNarrowMobile ? 'column' : 'row'}
+                spacing={isProfileNarrowMobile ? 0.9 : 1.1}
+                alignItems={isProfileNarrowMobile ? 'center' : 'flex-start'}
+                sx={{ minWidth: 0 }}
+              >
                 <Box
                   role="button"
                   tabIndex={isOwnProfile ? 0 : -1}
@@ -1809,6 +1847,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     overflow: 'hidden',
                     cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                     flexShrink: 0,
+                    mx: isProfileNarrowMobile ? 'auto' : 0,
                     '&:hover .morius-profile-avatar-overlay': {
                       opacity: isOwnProfile && !isAvatarSaving ? 1 : 0,
                     },
@@ -1845,7 +1884,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   </Box>
                 </Box>
 
-                <Stack spacing={0.72} sx={{ minWidth: 0, flex: 1 }}>
+                <Stack
+                  spacing={0.72}
+                  sx={{
+                    minWidth: 0,
+                    flex: 1,
+                    width: isProfileNarrowMobile ? '100%' : 'auto',
+                    alignItems: isProfileNarrowMobile && !(isEditing && isOwnProfile) ? 'center' : 'stretch',
+                    textAlign: isProfileNarrowMobile && !(isEditing && isOwnProfile) ? 'center' : 'left',
+                  }}
+                >
                   {isEditing && isOwnProfile ? (
                     <>
                       <TextField
@@ -1904,89 +1952,18 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   ) : (
                     <>
                       <Typography sx={{ fontSize: { xs: '1.34rem', md: '1.54rem' }, fontWeight: 800 }}>{resolvedProfileName}</Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem', whiteSpace: 'pre-wrap' }}>
-                        {resolvedProfileDescription || 'Описание пока не добавлено.'}
-                      </Typography>
                       {isOwnProfile ? (
                         <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>{user.email}</Typography>
                       ) : null}
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem', whiteSpace: 'pre-wrap' }}>
+                        {resolvedProfileDescription || 'Описание пока не добавлено.'}
+                      </Typography>
                     </>
                   )}
                 </Stack>
               </Stack>
 
-              <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignItems="center">
-                <Box
-                  sx={{
-                    display: isOwnProfile ? { xs: 'none', md: 'inline-flex' } : 'none',
-                    alignItems: 'center',
-                    gap: 0.55,
-                    px: 0.9,
-                    py: 0.42,
-                    borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
-                    fontSize: '0.84rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  <Typography component="span" sx={{ fontSize: '0.8rem', color: 'var(--morius-text-secondary)' }}>
-                    Уровень
-                  </Typography>
-                  <Box
-                    component="span"
-                    sx={{
-                      minWidth: 26,
-                      height: 22,
-                      px: 0.6,
-                      borderRadius: '999px',
-                      display: 'grid',
-                      placeItems: 'center',
-                      backgroundColor: 'var(--morius-button-active)',
-                      color: 'var(--morius-text-primary)',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    {userLevel}
-                  </Box>
-                </Box>
-
-                <Box
-                  sx={{
-                    display: { xs: 'none', md: 'inline-flex' },
-                    alignItems: 'center',
-                    gap: 0.55,
-                    px: 0.9,
-                    py: 0.42,
-                    borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
-                    fontSize: '0.84rem',
-                    fontWeight: 700,
-                  }}
-                >
-                  <Typography component="span" sx={{ fontSize: '0.8rem', color: 'var(--morius-text-secondary)' }}>
-                    Подписчики
-                  </Typography>
-                  <Box
-                    component="span"
-                    sx={{
-                      minWidth: 26,
-                      height: 22,
-                      px: 0.6,
-                      borderRadius: '999px',
-                      display: 'grid',
-                      placeItems: 'center',
-                      backgroundColor: 'var(--morius-button-active)',
-                      color: 'var(--morius-text-primary)',
-                      fontSize: '0.8rem',
-                      fontWeight: 800,
-                    }}
-                  >
-                    {followersCount}
-                  </Box>
-                </Box>
+              <Stack direction="row" spacing={0.7} useFlexGap flexWrap="wrap" alignItems="center" sx={{ display: { xs: 'none', md: 'flex' } }}>
 
                 {!isOwnProfile ? (
                   <Button
@@ -2118,6 +2095,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               display: 'grid',
               gap: 1.2,
               gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 250px' },
+              minWidth: 0,
             }}
           >
             <Box
@@ -2126,40 +2104,51 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 borderRadius: { xs: '14px', md: 'var(--morius-radius)' },
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 background: 'var(--morius-card-bg)',
+                minWidth: 0,
               }}
             >
-              <Box sx={{ display: { xs: 'block', lg: 'none' }, mb: 1 }}>
+              <Box sx={{ display: { xs: 'block', lg: 'none' }, mb: 1, minWidth: 0 }}>
                 {/* Mobile primary tabs: Контент / Лайки / Подписки */}
                 <Box
                   sx={{
-                    display: 'grid',
-                    gridTemplateColumns: `repeat(${mobilePrimaryTabs.length}, 1fr)`,
-                    borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    display: 'flex',
+                    gap: 'clamp(4px, 1.7vw, 8px)',
                     mb: 0.8,
+                    width: '100%',
+                    minWidth: 0,
                   }}
                 >
                   {mobilePrimaryTabs.map((item) => (
-                    <Button
+                    <ButtonBase
                       key={`mobile-primary-tab-${item.id}`}
                       onClick={() => handleMobilePrimaryTabChange(item.id)}
+                      aria-pressed={mobilePrimaryTab === item.id}
                       sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flex: '1 1 0%',
                         minWidth: 0,
-                        width: '100%',
-                        minHeight: 40,
-                        borderRadius: 0,
-                        textTransform: 'none',
-                        fontSize: '0.82rem',
+                        height: 'clamp(34px, 9.2vw, 39px)',
+                        px: 'clamp(5px, 1.9vw, 8px)',
+                        borderRadius: 'clamp(10px, 3vw, 12px)',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        boxSizing: 'border-box',
+                        fontSize: 'clamp(0.71rem, 2.35vw, 0.79rem)',
                         fontWeight: 700,
                         color: mobilePrimaryTab === item.id ? 'var(--morius-text-primary)' : 'var(--morius-text-secondary)',
-                        boxShadow: mobilePrimaryTab === item.id
-                          ? 'inset 0 -2px 0 var(--morius-text-primary)'
-                          : 'none',
-                        backgroundColor: 'transparent',
-                        '&:hover': { backgroundColor: 'rgba(255,255,255,0.04)' },
+                        lineHeight: 1,
+                        letterSpacing: 0,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        backgroundColor: mobilePrimaryTab === item.id ? 'var(--morius-button-active)' : 'transparent',
+                        transition: 'background-color 180ms ease',
+                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
                       }}
                     >
                       {item.label}
-                    </Button>
+                    </ButtonBase>
                   ))}
                 </Box>
 
@@ -2170,6 +2159,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       display: 'flex',
                       gap: 0.55,
                       mb: 0.8,
+                      width: '100%',
+                      minWidth: 0,
+                      maxWidth: '100%',
                       overflowX: 'auto',
                       scrollbarWidth: 'none',
                       '&::-webkit-scrollbar': { display: 'none' },
@@ -2201,15 +2193,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   </Box>
                 ) : null}
 
-                <Stack direction="row" spacing={0.6} sx={{ pt: 0.8 }}>
+                <Stack direction="row" spacing={0.6} sx={{ pt: 0.8, minWidth: 0 }}>
                   <TextField
                     size="small"
                     value={contentSearchQuery}
                     onChange={(event) => setContentSearchQuery(event.target.value.slice(0, PROFILE_CONTENT_SEARCH_MAX))}
                     placeholder="Поиск"
                     inputProps={{ maxLength: PROFILE_CONTENT_SEARCH_MAX }}
-                    helperText={<TextLimitIndicator currentLength={contentSearchQuery.length} maxLength={PROFILE_CONTENT_SEARCH_MAX} />}
-                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                     sx={{
                       flex: 1,
                       '& .MuiInputBase-root': {
@@ -2232,7 +2222,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       },
                     }}
                   >
-                    <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 18, height: 18, opacity: 0.9 }} />
+                    <Box component="img" src={icons.profileSearchFilter} alt="" sx={{ width: 18, height: 10, opacity: 0.95 }} />
                   </IconButton>
                 </Stack>
               </Box>
@@ -2434,6 +2424,82 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={mobileProfileMenuAnchorEl}
+        open={Boolean(mobileProfileMenuAnchorEl)}
+        onClose={handleCloseMobileProfileMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 0.45,
+            borderRadius: '12px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            minWidth: 188,
+          },
+        }}
+      >
+        {!isOwnProfile ? (
+          <MenuItem
+            onClick={() => {
+              handleCloseMobileProfileMenu()
+              void handleToggleFollow()
+            }}
+            disabled={isFollowSaving || !profileView}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            {isFollowSaving ? 'Обновление...' : profileView?.is_following ? 'Отписаться' : 'Подписаться'}
+          </MenuItem>
+        ) : (
+          <MenuItem
+            onClick={() => {
+              setIsEditing((previous) => !previous)
+              handleCloseMobileProfileMenu()
+            }}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            {isEditing ? 'Свернуть редактор' : 'Редактировать профиль'}
+          </MenuItem>
+        )}
+
+        {isOwnProfile ? (
+          <MenuItem
+            onClick={() => {
+              handleCloseMobileProfileMenu()
+              handleOpenPrivacyDialog()
+            }}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            Приватность
+          </MenuItem>
+        ) : null}
+
+        {resolvedCanOpenAdmin ? (
+          <MenuItem
+            onClick={() => {
+              setAdminOpen(true)
+              handleCloseMobileProfileMenu()
+            }}
+            sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+          >
+            Админка
+          </MenuItem>
+        ) : null}
+
+        {isOwnProfile ? (
+          <MenuItem
+            onClick={() => {
+              setLogoutOpen(true)
+              handleCloseMobileProfileMenu()
+            }}
+            sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+          >
+            Выйти
+          </MenuItem>
+        ) : null}
+      </Menu>
 
       <Menu
         anchorEl={contentCardMenuAnchorEl}

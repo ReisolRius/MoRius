@@ -69,6 +69,8 @@ from app.services.story_games import (
     normalize_story_game_visibility,
     normalize_story_llm_model,
     normalize_story_memory_optimization_enabled,
+    normalize_story_show_gg_thoughts,
+    normalize_story_show_npc_thoughts,
     normalize_story_top_k,
     normalize_story_top_r,
     serialize_story_game_genres,
@@ -253,6 +255,8 @@ def list_story_games(
                 StoryGame.memory_optimization_enabled,
                 StoryGame.story_top_k,
                 StoryGame.story_top_r,
+                StoryGame.show_gg_thoughts,
+                StoryGame.show_npc_thoughts,
                 StoryGame.ambient_enabled,
                 StoryGame.last_activity_at,
                 StoryGame.created_at,
@@ -454,6 +458,8 @@ def launch_story_community_world(
         memory_optimization_enabled=bool(getattr(world, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
+        show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(world, "show_gg_thoughts", None)),
+        show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(world, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
         ambient_profile=str(getattr(world, "ambient_profile", "") or ""),
         last_activity_at=_utcnow(),
@@ -783,6 +789,8 @@ def create_story_game(
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
     story_top_k = normalize_story_top_k(payload.story_top_k)
     story_top_r = normalize_story_top_r(payload.story_top_r)
+    show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
+    show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
 
     game = StoryGame(
@@ -811,6 +819,8 @@ def create_story_game(
         memory_optimization_enabled=memory_optimization_enabled,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
         ambient_enabled=ambient_enabled,
         ambient_profile="",
         last_activity_at=_utcnow(),
@@ -859,6 +869,8 @@ def clone_story_game(
         memory_optimization_enabled=bool(getattr(source_game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(source_game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(source_game, "story_top_r", None)),
+        show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
+        show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
         ambient_profile=str(getattr(source_game, "ambient_profile", "") or ""),
         last_activity_at=_utcnow(),
@@ -922,6 +934,10 @@ def update_story_game_settings(
         game.story_top_k = normalize_story_top_k(payload.story_top_k)
     if payload.story_top_r is not None:
         game.story_top_r = normalize_story_top_r(payload.story_top_r)
+    if payload.show_gg_thoughts is not None:
+        game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
+    if payload.show_npc_thoughts is not None:
+        game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     if payload.ambient_enabled is not None:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     touch_story_game(game)

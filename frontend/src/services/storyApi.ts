@@ -66,6 +66,8 @@ export type StoryGenerationStreamOptions = {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  showGgThoughts?: boolean
+  showNpcThoughts?: boolean
   ambientEnabled?: boolean
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
@@ -658,6 +660,8 @@ export async function createStoryGame(payload: {
   cover_scale?: number
   cover_position_x?: number
   cover_position_y?: number
+  show_gg_thoughts?: boolean
+  show_npc_thoughts?: boolean
   ambient_enabled?: boolean
 }): Promise<StoryGameSummary> {
   return request<StoryGameSummary>('/api/story/games', {
@@ -676,6 +680,8 @@ export async function createStoryGame(payload: {
       cover_scale: payload.cover_scale ?? null,
       cover_position_x: payload.cover_position_x ?? null,
       cover_position_y: payload.cover_position_y ?? null,
+      show_gg_thoughts: payload.show_gg_thoughts ?? null,
+      show_npc_thoughts: payload.show_npc_thoughts ?? null,
       ambient_enabled: payload.ambient_enabled ?? null,
     }),
   })
@@ -730,6 +736,8 @@ export async function updateStoryGameSettings(payload: {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  showGgThoughts?: boolean
+  showNpcThoughts?: boolean
   ambientEnabled?: boolean
 }): Promise<StoryGameSummary> {
   const requestPayload: Record<string, unknown> = {}
@@ -759,6 +767,12 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.storyTopR === 'number') {
     requestPayload.story_top_r = payload.storyTopR
+  }
+  if (typeof payload.showGgThoughts === 'boolean') {
+    requestPayload.show_gg_thoughts = payload.showGgThoughts
+  }
+  if (typeof payload.showNpcThoughts === 'boolean') {
+    requestPayload.show_npc_thoughts = payload.showNpcThoughts
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
@@ -857,6 +871,12 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.storyTopR === 'number') {
     requestPayload.story_top_r = options.storyTopR
+  }
+  if (typeof options.showGgThoughts === 'boolean') {
+    requestPayload.show_gg_thoughts = options.showGgThoughts
+  }
+  if (typeof options.showNpcThoughts === 'boolean') {
+    requestPayload.show_npc_thoughts = options.showNpcThoughts
   }
   if (typeof options.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = options.ambientEnabled
@@ -1108,16 +1128,23 @@ export async function createStoryPlotCard(payload: {
   gameId: number
   title: string
   content: string
+  triggers?: string[]
+  memory_turns?: number | null
 }): Promise<StoryPlotCard> {
+  const body: Record<string, unknown> = {
+    title: payload.title,
+    content: payload.content,
+    triggers: payload.triggers ?? [],
+  }
+  if (payload.memory_turns !== undefined) {
+    body.memory_turns = payload.memory_turns
+  }
   return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      title: payload.title,
-      content: payload.content,
-    }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -1127,15 +1154,56 @@ export async function updateStoryPlotCard(payload: {
   cardId: number
   title: string
   content: string
+  triggers?: string[]
+  memory_turns?: number | null
 }): Promise<StoryPlotCard> {
+  const body: Record<string, unknown> = {
+    title: payload.title,
+    content: payload.content,
+    triggers: payload.triggers ?? [],
+  }
+  if (payload.memory_turns !== undefined) {
+    body.memory_turns = payload.memory_turns
+  }
   return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateStoryPlotCardAiEdit(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  ai_edit_enabled: boolean
+}): Promise<StoryPlotCard> {
+  return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}/ai-edit`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
     body: JSON.stringify({
-      title: payload.title,
-      content: payload.content,
+      ai_edit_enabled: payload.ai_edit_enabled,
+    }),
+  })
+}
+
+export async function updateStoryPlotCardEnabled(payload: {
+  token: string
+  gameId: number
+  cardId: number
+  is_enabled: boolean
+}): Promise<StoryPlotCard> {
+  return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}/enabled`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      is_enabled: payload.is_enabled,
     }),
   })
 }

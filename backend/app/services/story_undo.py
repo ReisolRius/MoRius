@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     StoryGame,
+    StoryMemoryBlock,
     StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -18,9 +19,12 @@ from app.models import (
 )
 from app.services.media import normalize_avatar_value
 from app.services.story_cards import (
+    normalize_story_plot_card_memory_turns_for_storage,
     normalize_story_plot_card_content,
     normalize_story_plot_card_source,
+    normalize_story_plot_card_triggers,
     normalize_story_plot_card_title,
+    serialize_story_plot_card_triggers,
 )
 from app.services.story_characters import (
     normalize_story_avatar_scale,
@@ -341,7 +345,43 @@ def restore_story_plot_card_from_snapshot(
     if not title or not content:
         return None
 
+    raw_triggers = snapshot.get("triggers")
+    trigger_values: list[str] = []
+    if isinstance(raw_triggers, list):
+        trigger_values = [value for value in raw_triggers if isinstance(value, str)]
+    elif isinstance(snapshot.get("tags"), list):
+        trigger_values = [value for value in snapshot.get("tags", []) if isinstance(value, str)]
+    triggers = normalize_story_plot_card_triggers(trigger_values, fallback_title=title)
+
     source = normalize_story_plot_card_source(str(snapshot.get("source", "")))
+    has_ai_edit_enabled = "ai_edit_enabled" in snapshot
+    raw_ai_edit_enabled = snapshot.get("ai_edit_enabled")
+    if isinstance(raw_ai_edit_enabled, bool):
+        ai_edit_enabled = raw_ai_edit_enabled
+    elif isinstance(raw_ai_edit_enabled, (int, float)):
+        ai_edit_enabled = bool(raw_ai_edit_enabled)
+    elif isinstance(raw_ai_edit_enabled, str):
+        ai_edit_enabled = raw_ai_edit_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        ai_edit_enabled = True
+
+    has_is_enabled = "is_enabled" in snapshot
+    raw_is_enabled = snapshot.get("is_enabled")
+    if isinstance(raw_is_enabled, bool):
+        is_enabled = raw_is_enabled
+    elif isinstance(raw_is_enabled, (int, float)):
+        is_enabled = bool(raw_is_enabled)
+    elif isinstance(raw_is_enabled, str):
+        is_enabled = raw_is_enabled.strip().lower() in {"1", "true", "yes", "y", "on"}
+    else:
+        is_enabled = True
+
+    has_memory_turns = "memory_turns" in snapshot
+    memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+        snapshot.get("memory_turns"),
+        explicit=has_memory_turns,
+        current_value=None,
+    )
 
     card_id: int | None = None
     raw_card_id = snapshot.get("id")
@@ -362,6 +402,10 @@ def restore_story_plot_card_from_snapshot(
             game_id=game_id,
             title=normalize_story_plot_card_title(title),
             content=normalize_story_plot_card_content(content),
+            triggers=serialize_story_plot_card_triggers(triggers),
+            memory_turns=memory_turns,
+            ai_edit_enabled=ai_edit_enabled,
+            is_enabled=is_enabled,
             source=source,
         )
         db.add(plot_card)
@@ -370,6 +414,23 @@ def restore_story_plot_card_from_snapshot(
 
     plot_card.title = normalize_story_plot_card_title(title)
     plot_card.content = normalize_story_plot_card_content(content)
+    plot_card.triggers = serialize_story_plot_card_triggers(triggers)
+    if has_memory_turns:
+        plot_card.memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+            snapshot.get("memory_turns"),
+            explicit=True,
+            current_value=plot_card.memory_turns,
+        )
+    else:
+        plot_card.memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+            plot_card.memory_turns,
+            explicit=False,
+            current_value=plot_card.memory_turns,
+        )
+    if has_ai_edit_enabled:
+        plot_card.ai_edit_enabled = ai_edit_enabled
+    if has_is_enabled:
+        plot_card.is_enabled = is_enabled
     plot_card.source = source
     db.flush()
     return plot_card
@@ -511,6 +572,7 @@ def rollback_story_card_events_for_assistant_message(
     commit: bool = True,
     purge_events: bool = True,
 ) -> None:
+    now = _utcnow()
     world_events = list_story_world_card_events(
         db,
         game.id,
@@ -529,6 +591,19 @@ def rollback_story_card_events_for_assistant_message(
     for event in reversed(plot_events):
         undo_story_plot_card_change_event(db, game, event, commit=False)
 
+    memory_blocks = db.scalars(
+        select(StoryMemoryBlock).where(
+            StoryMemoryBlock.game_id == game.id,
+            StoryMemoryBlock.assistant_message_id == assistant_message_id,
+        )
+    ).all()
+    if purge_events:
+        for block in memory_blocks:
+            db.delete(block)
+    else:
+        for block in memory_blocks:
+            block.undone_at = now
+
     if purge_events:
         for event in list_story_world_card_events(
             db,
@@ -544,6 +619,13 @@ def rollback_story_card_events_for_assistant_message(
             include_undone=True,
         ):
             db.delete(event)
+        for block in db.scalars(
+            select(StoryMemoryBlock).where(
+                StoryMemoryBlock.game_id == game.id,
+                StoryMemoryBlock.assistant_message_id == assistant_message_id,
+            )
+        ).all():
+            db.delete(block)
 
     touch_story_game(game)
     if commit:
@@ -584,6 +666,15 @@ def reapply_story_card_events_for_assistant_message(
     ]
     for event in plot_events:
         redo_story_plot_card_change_event(db, game, event, commit=False)
+
+    for block in db.scalars(
+        select(StoryMemoryBlock).where(
+            StoryMemoryBlock.game_id == game.id,
+            StoryMemoryBlock.assistant_message_id == assistant_message_id,
+            StoryMemoryBlock.undone_at.is_not(None),
+        )
+    ).all():
+        block.undone_at = None
 
     touch_story_game(game)
     if commit:

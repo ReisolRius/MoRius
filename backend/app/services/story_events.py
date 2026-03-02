@@ -8,7 +8,10 @@ from app.services.media import normalize_avatar_value
 from app.services.story_cards import (
     STORY_PLOT_CARD_MAX_CONTENT_LENGTH,
     STORY_PLOT_CARD_MAX_TITLE_LENGTH,
+    normalize_story_plot_card_memory_turns_for_storage,
     normalize_story_plot_card_source,
+    normalize_story_plot_card_triggers,
+    serialize_story_plot_card_memory_turns,
 )
 from app.services.story_characters import normalize_story_avatar_scale
 from app.services.story_world_cards import (
@@ -155,6 +158,15 @@ def deserialize_story_plot_card_snapshot(raw_value: str | None) -> dict[str, obj
         return None
 
     source_value = normalize_story_plot_card_source(str(parsed.get("source", "")))
+    ai_edit_enabled_value = _coerce_bool(parsed.get("ai_edit_enabled"), default=True)
+    is_enabled_value = _coerce_bool(parsed.get("is_enabled"), default=True)
+    raw_triggers = parsed.get("triggers")
+    trigger_values: list[str] = []
+    if isinstance(raw_triggers, list):
+        trigger_values = [item for item in raw_triggers if isinstance(item, str)]
+    elif isinstance(parsed.get("tags"), list):
+        trigger_values = [item for item in parsed.get("tags", []) if isinstance(item, str)]
+    triggers_value = normalize_story_plot_card_triggers(trigger_values, fallback_title=title_value)
 
     card_id: int | None = None
     raw_id = parsed.get("id")
@@ -165,10 +177,20 @@ def deserialize_story_plot_card_snapshot(raw_value: str | None) -> dict[str, obj
         if parsed_id > 0:
             card_id = parsed_id
 
+    memory_turns_value = normalize_story_plot_card_memory_turns_for_storage(
+        parsed.get("memory_turns"),
+        explicit="memory_turns" in parsed,
+        current_value=None,
+    )
+
     return {
         "id": card_id,
         "title": title_value,
         "content": content_value,
+        "triggers": triggers_value,
+        "memory_turns": serialize_story_plot_card_memory_turns(memory_turns_value),
+        "ai_edit_enabled": ai_edit_enabled_value,
+        "is_enabled": is_enabled_value,
         "source": source_value,
     }
 

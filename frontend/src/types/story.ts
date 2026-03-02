@@ -4,8 +4,11 @@ export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
 export type StoryNarratorModelId =
   | 'z-ai/glm-5'
+  | 'z-ai/glm-4.7'
+  | 'deepseek/deepseek-v3.2'
+  | 'x-ai/grok-4.1-fast'
   | 'arcee-ai/trinity-large-preview:free'
-  | 'moonshotai/kimi-k2-0905'
+  | 'google/gemini-3-flash-preview'
 export type StoryImageModelId =
   | 'black-forest-labs/flux.2-pro'
   | 'bytedance-seed/seedream-4.5'
@@ -39,6 +42,8 @@ export type StoryGameSummary = {
   memory_optimization_enabled: boolean
   story_top_k: number
   story_top_r: number
+  show_gg_thoughts: boolean
+  show_npc_thoughts: boolean
   ambient_enabled: boolean
   ambient_profile: StoryAmbientProfile | null
   last_activity_at: string
@@ -85,6 +90,10 @@ export type StoryPlotCard = {
   game_id: number
   title: string
   content: string
+  triggers: string[]
+  memory_turns: number | null
+  ai_edit_enabled: boolean
+  is_enabled: boolean
   source: StoryPlotCardSource
   created_at: string
   updated_at: string
@@ -96,6 +105,10 @@ export type StoryPlotCardSnapshot = {
   id: number | null
   title: string
   content: string
+  triggers: string[]
+  memory_turns: number | null
+  ai_edit_enabled: boolean
+  is_enabled: boolean
   source: StoryPlotCardSource
 }
 
@@ -110,6 +123,20 @@ export type StoryPlotCardEvent = {
   before_snapshot: StoryPlotCardSnapshot | null
   after_snapshot: StoryPlotCardSnapshot | null
   created_at: string
+}
+
+export type StoryMemoryLayer = 'raw' | 'compressed' | 'super' | 'key'
+
+export type StoryMemoryBlock = {
+  id: number
+  game_id: number
+  assistant_message_id: number | null
+  layer: StoryMemoryLayer
+  title: string
+  content: string
+  token_count: number
+  created_at: string
+  updated_at: string
 }
 
 export type StoryWorldCardSource = 'user' | 'ai'
@@ -229,6 +256,7 @@ export type StoryGamePayload = {
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
   plot_card_events: StoryPlotCardEvent[]
+  memory_blocks?: StoryMemoryBlock[]
   world_cards: StoryWorldCard[]
   world_card_events: StoryWorldCardEvent[]
   can_redo_assistant_step: boolean
@@ -307,6 +335,7 @@ export type StoryStreamDonePayload = {
   world_card_events?: StoryWorldCardEvent[]
   plot_card_events?: StoryPlotCardEvent[]
   plot_cards?: StoryPlotCard[]
+  ai_memory_blocks?: StoryMemoryBlock[]
   world_cards?: StoryWorldCard[]
   plot_card_created?: boolean
   ambient?: StoryAmbientProfile
@@ -317,6 +346,7 @@ export type StoryStreamPlotMemoryPayload = {
   assistant_message_id: number
   plot_card_events?: StoryPlotCardEvent[]
   plot_cards?: StoryPlotCard[]
+  ai_memory_blocks?: StoryMemoryBlock[]
   plot_card_created?: boolean
 }
 

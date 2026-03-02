@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.config import OPENROUTER_TRINITY_FREE_MODEL, settings
 from app.models import (
     StoryGame,
+    StoryMemoryBlock,
     StoryMessage,
     StoryTurnImage,
     StoryPlotCard,
@@ -80,9 +81,12 @@ from app.services.story_cards import (
     STORY_PLOT_CARD_MAX_TITLE_LENGTH,
     STORY_PLOT_CARD_SOURCE_AI,
     STORY_PLOT_CARD_SOURCE_USER,
+    deserialize_story_plot_card_triggers as _deserialize_story_plot_card_triggers,
     normalize_story_plot_card_content as _normalize_story_plot_card_content,
     normalize_story_plot_card_source as _normalize_story_plot_card_source,
+    normalize_story_plot_card_triggers as _normalize_story_plot_card_triggers,
     normalize_story_plot_card_title as _normalize_story_plot_card_title,
+    serialize_story_plot_card_memory_turns as _serialize_story_plot_card_memory_turns,
     story_plot_card_to_out as _story_plot_card_to_out,
 )
 from app.services.story_events import (
@@ -91,10 +95,21 @@ from app.services.story_events import (
 )
 from app.services.story_queries import (
     get_user_story_game_or_404 as _get_user_story_game_or_404,
+    list_story_memory_blocks as _list_story_memory_blocks,
     list_story_messages as _list_story_messages,
     list_story_plot_cards as _list_story_plot_cards,
     list_story_world_cards as _list_story_world_cards,
     touch_story_game as _touch_story_game,
+)
+from app.services.story_memory import (
+    STORY_MEMORY_LAYER_COMPRESSED,
+    STORY_MEMORY_LAYER_KEY,
+    STORY_MEMORY_LAYER_RAW,
+    STORY_MEMORY_LAYER_SUPER,
+    normalize_story_memory_block_content as _normalize_story_memory_block_content,
+    normalize_story_memory_block_title as _normalize_story_memory_block_title,
+    normalize_story_memory_layer as _normalize_story_memory_layer,
+    story_memory_block_to_out as _story_memory_block_to_out,
 )
 from app.services.story_text import normalize_story_text as _normalize_story_text
 from app.services.story_undo import (
@@ -137,7 +152,7 @@ STORY_GAME_VISIBILITY_VALUES = {
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 4_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 10_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -154,7 +169,23 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
-STORY_PLOT_CARD_MEMORY_FREE_MODEL = OPENROUTER_TRINITY_FREE_MODEL
+STORY_PLOT_CARD_MEMORY_MODEL = "x-ai/grok-4.1-fast"
+STORY_OUTPUT_TRANSLATION_MODEL = "x-ai/grok-4.1-fast"
+STORY_MEMORY_LAYER_RAW_BUDGET_SHARE = 0.50
+STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE = 0.30
+STORY_MEMORY_LAYER_SUPER_BUDGET_SHARE = 0.20
+STORY_MEMORY_KEY_BUDGET_SHARE = 0.20
+STORY_MEMORY_COMPRESSION_REQUEST_MAX_TOKENS = 700
+STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS = 500
+STORY_MEMORY_COMPRESSED_MAX_LINES = 8
+STORY_MEMORY_SUPER_MAX_LINES = 4
+STORY_MEMORY_SUPER_MAX_CHARS = 520
+STORY_MEMORY_RAW_USER_MAX_LINES = 2
+STORY_MEMORY_RAW_USER_MAX_CHARS = 420
+STORY_MEMORY_RAW_ASSISTANT_MAX_LINES = 8
+STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS = 2_600
+STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 85
+STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY = 0.72
 STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
 STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
@@ -349,6 +380,7 @@ STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
 STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {5, 10, 15}
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_PROMPT_MAX_CARDS = 10
+STORY_PLOT_CARD_PROMPT_MAX_CARDS = 20
 STORY_WORLD_CARD_LOW_IMPORTANCE = {"low", "minor", "trivial"}
 STORY_WORLD_CARD_NON_SIGNIFICANT_KINDS = {
     "food",
@@ -647,18 +679,27 @@ STORY_STREAM_PERSIST_MIN_CHARS = 900
 STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
 STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
     "arcee-ai/trinity-large-preview:free",
-    "moonshotai/kimi-k2-0905",
-}
-STORY_KIMI_K2_MODEL_HINTS = {
-    "moonshotai/kimi-k2-0905",
 }
 STORY_NON_SAMPLING_MODEL_HINTS = {
     "meta-llama/llama-3.3-70b-instruct:free",
 }
+STORY_OPENROUTER_PROVIDER_TOGETHER = "together"
+STORY_OPENROUTER_PROVIDER_NOVITA_FP8 = "novita/fp8"
+STORY_OPENROUTER_PROVIDER_XAI = "xai"
+STORY_OPENROUTER_PROVIDER_GOOGLE_AI_STUDIO = "google-ai-studio"
+STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL = {
+    "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_TOGETHER,
+    "deepseek/deepseek-v3.2": STORY_OPENROUTER_PROVIDER_NOVITA_FP8,
+    "x-ai/grok-4.1-fast": STORY_OPENROUTER_PROVIDER_XAI,
+    "google/gemini-3-flash-preview": STORY_OPENROUTER_PROVIDER_GOOGLE_AI_STUDIO,
+}
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
+    "z-ai/glm-4.7",
+    "deepseek/deepseek-v3.2",
+    "x-ai/grok-4.1-fast",
+    "google/gemini-3-flash-preview",
     "arcee-ai/trinity",
-    "moonshotai/kimi-k2",
 }
 STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR = 0.75
 STORY_PAID_MODEL_CONTEXT_LIMIT_MIN = 1_200
@@ -768,7 +809,7 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
 )
 STORY_SYSTEM_PROMPT = (
     "Ты ведущий интерактивной текстовой RPG и пишешь как рассказчик. "
-    "Отвечай только на русском языке. "
+    "Always answer in English only, even when player inputs are in Russian. "
     "Продолжай сцену строго по действию игрока, без советов и объяснения правил. "
     "Пиши художественно от второго лица с учетом контекста и карточек. "
     "Не выходи из роли, не упоминай ИИ и не добавляй мета-комментарии. "
@@ -792,25 +833,6 @@ STORY_DIALOGUE_FORMAT_RULES = (
     "Если говорящий есть в карточке мира или героя, используй точный title карточки.",
     "Без JSON, markdown, списков и код-блоков.",
 )
-
-STORY_KIMI_K2_EXTRA_RULES = (
-    "ИНСТРУКЦИИ ИЗ КАРТОЧЕК ИГРОКА - ЭТО ОСНОВА ВСЕГО.",
-    "Ты обязан строго следовать всем инструкциям из карточек и воспринимать их как прямые правила поведения мира и персонажей.",
-    "Критически важно: не игнорируй ни одну инструкцию, не ослабляй их и не интерпретируй творчески.",
-    "Если инструкция говорит X - ты делаешь ровно X.",
-    "При любом сомнении выбирай вариант, который буквально соответствует карточкам.",
-    "Если ответ отклоняется от карточек - он считается неправильным.",
-    "Ты не создаешь правила, ты подчиняешься карточкам.",
-    "Фокус сцены: социальное взаимодействие между персонажами.",
-    "Каждый ответ должен развивать диалог, показывать эмоции через речь и действия, отражать отношение персонажей друг к другу.",
-    "Приоритеты: 1) Диалог 2) Эмоции 3) Реакции 4) Внутреннее напряжение.",
-    "Не делай: сухие описания без общения, длинные нейтральные нарративы, пересказ вместо сцены.",
-    "Делай: живые реплики, паузы, реакции, жесты, подтекст в диалогах.",
-    "Диалоги должны быть естественными, различимыми по голосу персонажей, без шаблонной и пафосной речи.",
-    "Каждая реплика должна иметь цель (убеждение, реакция, давление и т.д.) и отражать эмоцию.",
-    "Избегай одинаковых голосов персонажей, книжной речи и клише.",
-)
-
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
@@ -2572,10 +2594,18 @@ def _serialize_story_world_card_snapshot(value: dict[str, Any] | None) -> str | 
 
 
 def _story_plot_card_snapshot_from_card(card: StoryPlotCard) -> dict[str, Any]:
+    triggers = _normalize_story_plot_card_triggers(
+        _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+        fallback_title=card.title,
+    )
     return {
         "id": card.id,
         "title": card.title,
         "content": card.content,
+        "triggers": triggers,
+        "memory_turns": _serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None)),
+        "ai_edit_enabled": bool(card.ai_edit_enabled),
+        "is_enabled": bool(getattr(card, "is_enabled", True)),
         "source": _normalize_story_plot_card_source(card.source),
     }
 
@@ -2890,6 +2920,70 @@ def _select_story_world_cards_for_prompt(
     return [payload for _, payload in ranked_cards[:STORY_WORLD_CARD_PROMPT_MAX_CARDS]]
 
 
+def _select_story_plot_cards_for_prompt(
+    context_messages: list[StoryMessage],
+    plot_cards: list[StoryPlotCard],
+) -> list[dict[str, str]]:
+    turn_token_entries: list[tuple[int, list[str]]] = []
+    current_turn_index = 0
+    for message in context_messages:
+        if message.role == STORY_USER_ROLE:
+            current_turn_index += 1
+        if message.role not in {STORY_USER_ROLE, STORY_ASSISTANT_ROLE}:
+            continue
+        if current_turn_index <= 0:
+            continue
+        message_tokens = _normalize_story_match_tokens(message.content)
+        if not message_tokens:
+            continue
+        turn_token_entries.append((current_turn_index, message_tokens))
+
+    if current_turn_index <= 0:
+        return []
+
+    ranked_cards: list[tuple[tuple[int, int, int], dict[str, str]]] = []
+    for card in plot_cards:
+        if not bool(getattr(card, "is_enabled", True)):
+            continue
+
+        title = " ".join(card.title.split()).strip()
+        content = card.content.replace("\r\n", "\n").strip()
+        if not title or not content:
+            continue
+
+        triggers = _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or ""))
+        if not triggers:
+            triggers = _normalize_story_plot_card_triggers([], fallback_title=title)
+        if not triggers:
+            continue
+
+        memory_turns = _serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None))
+        if memory_turns is None:
+            continue
+
+        last_trigger_turn = 0
+        for turn_index, prompt_tokens in turn_token_entries:
+            if any(_is_story_trigger_match(trigger, prompt_tokens) for trigger in triggers):
+                last_trigger_turn = turn_index
+
+        if last_trigger_turn <= 0:
+            continue
+
+        turns_since_trigger = current_turn_index - last_trigger_turn
+        if turns_since_trigger > memory_turns:
+            continue
+
+        rank_key = (
+            0 if turns_since_trigger == 0 else 1,
+            turns_since_trigger,
+            card.id,
+        )
+        ranked_cards.append((rank_key, {"title": title, "content": content}))
+
+    ranked_cards.sort(key=lambda item: item[0])
+    return [payload for _, payload in ranked_cards[:STORY_PLOT_CARD_PROMPT_MAX_CARDS]]
+
+
 def _select_story_world_cards_triggered_by_text(
     text_value: str,
     world_cards: list[StoryWorldCard],
@@ -2991,6 +3085,8 @@ def _build_story_system_prompt(
     *,
     model_name: str | None = None,
     response_max_tokens: int | None = None,
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ) -> str:
     # Story cards must be passed in full for all text models.
     compact_mode = False
@@ -3044,16 +3140,6 @@ def _build_story_system_prompt(
             if not title or not content:
                 continue
             lines.append(f"{index}. {title}: {content}")
-
-    if _is_story_kimi_k2_model(model_name):
-        lines.extend(
-            [
-                "",
-                "Дополнительные правила только для Kimi K2:",
-                *STORY_KIMI_K2_EXTRA_RULES,
-            ]
-        )
-
     if plot_cards_for_prompt:
         lines.extend(["", "Карточки памяти сюжета:"])
         for index, card in enumerate(plot_cards_for_prompt, start=1):
@@ -3113,6 +3199,30 @@ def _build_story_system_prompt(
                 lines.append(f"Тип: {kind_label}")
 
     lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES])
+    if not show_npc_thoughts:
+        lines.extend(
+            [
+                "",
+                "ОГРАНИЧЕНИЕ ФОРМАТА: мысли NPC отключены в настройках игрока.",
+                "Запрещено использовать [[NPC_THOUGHT:...]], [[THOUGHT:...]], [[THINK:...]] и любые внутренние мысли NPC.",
+            ]
+        )
+    if not show_gg_thoughts:
+        lines.extend(
+            [
+                "",
+                "ОГРАНИЧЕНИЕ ФОРМАТА: мысли ГГ отключены в настройках игрока.",
+                "Запрещено использовать [[GG_THOUGHT:...]] и любые внутренние мысли ГГ.",
+            ]
+        )
+    if not show_gg_thoughts and not show_npc_thoughts:
+        lines.extend(
+            [
+                "",
+                "ОГРАНИЧЕНИЕ ФОРМАТА: внутренние мысли отключены полностью.",
+                "Используй только [[NARRATOR]], [[NPC:...]], [[GG:...]].",
+            ]
+        )
     if response_max_tokens is not None:
         normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
         target_tokens = max(
@@ -3536,10 +3646,56 @@ def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
     return normalized_text
 
 
+def _resolve_story_thought_owner(marker_key: str) -> str | None:
+    compact_key = marker_key.replace("_", "")
+    if compact_key in {"ggthought", "ggthink"}:
+        return "gg"
+    if compact_key in {"npcthought", "npcthink", "thought", "think"}:
+        return "npc"
+    return None
+
+
+def _filter_story_disabled_thought_paragraphs(
+    text_value: str,
+    *,
+    show_gg_thoughts: bool,
+    show_npc_thoughts: bool,
+) -> str:
+    if show_gg_thoughts and show_npc_thoughts:
+        return text_value
+
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    filtered_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        marker_match = STORY_MARKUP_PARAGRAPH_PATTERN.match(paragraph)
+        if marker_match is None:
+            filtered_paragraphs.append(paragraph)
+            continue
+
+        marker_key = _normalize_story_markup_key(marker_match.group(1))
+        thought_owner = _resolve_story_thought_owner(marker_key)
+        if thought_owner == "gg" and not show_gg_thoughts:
+            continue
+        if thought_owner == "npc" and not show_npc_thoughts:
+            continue
+        filtered_paragraphs.append(paragraph)
+
+    return "\n\n".join(filtered_paragraphs).strip()
+
+
 def _normalize_generated_story_output(
     *,
     text_value: str,
     world_cards: list[dict[str, Any]],
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ) -> str:
     normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
     if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
@@ -3560,7 +3716,12 @@ def _normalize_generated_story_output(
     if not normalized_text:
         return normalized_text
     if _is_story_strict_markup_output(normalized_text):
-        return _enforce_story_output_language(normalized_text)
+        strict_output = _enforce_story_output_language(normalized_text)
+        return _filter_story_disabled_thought_paragraphs(
+            strict_output,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
 
     repaired_text = ""
     if settings.openrouter_api_key:
@@ -3586,9 +3747,19 @@ def _normalize_generated_story_output(
     repaired_normalized = _trim_story_trailing_incomplete_fragment(repaired_normalized)
 
     if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
-        return _enforce_story_output_language(repaired_normalized)
+        repaired_output = _enforce_story_output_language(repaired_normalized)
+        return _filter_story_disabled_thought_paragraphs(
+            repaired_output,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
 
-    return _enforce_story_output_language(_prefix_story_narrator_markup(normalized_text))
+    fallback_output = _enforce_story_output_language(_prefix_story_narrator_markup(normalized_text))
+    return _filter_story_disabled_thought_paragraphs(
+        fallback_output,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
 
 
 def _effective_story_llm_provider() -> str:
@@ -3679,9 +3850,8 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
 
 def _is_story_translation_enabled() -> bool:
     provider = _effective_story_llm_provider()
-    # For Russian UI + OpenRouter we keep native generation in Russian:
-    # this avoids extra translation latency and prevents English fallbacks
-    # when translation model is unavailable.
+    # For Russian UI + OpenRouter we keep user input as-is and rely on
+    # post-translation for the model output.
     if provider == "openrouter" and settings.story_user_language == "ru":
         return False
 
@@ -3693,19 +3863,41 @@ def _is_story_translation_enabled() -> bool:
     )
 
 
+def _story_output_translation_model_name() -> str:
+    preferred_model = STORY_OUTPUT_TRANSLATION_MODEL.strip()
+    if preferred_model:
+        return preferred_model
+    return settings.openrouter_translation_model.strip()
+
+
 def _can_force_story_output_translation() -> bool:
     return (
         bool(settings.openrouter_api_key)
-        and bool(settings.openrouter_translation_model)
+        and bool(_story_output_translation_model_name())
         and bool(settings.story_user_language)
     )
 
 
 def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
-    # Emergency safeguard: forced post-translation makes generation fully non-streaming
-    # for some models and may trigger upstream/proxy chunk interruptions.
-    # Keep direct model output streaming until provider-side stability is confirmed.
-    return False
+    _ = model_name
+    if settings.story_user_language != "ru":
+        return False
+    return _can_force_story_output_translation()
+
+
+def _build_openrouter_provider_payload(model_name: str | None) -> dict[str, Any] | None:
+    normalized_model = (model_name or "").strip().lower()
+    if not normalized_model:
+        return None
+
+    pinned_provider = STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
+    if not pinned_provider:
+        return None
+
+    return {
+        "order": [pinned_provider],
+        "allow_fallbacks": False,
+    }
 
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
@@ -3720,13 +3912,6 @@ def _is_story_paid_model(model_name: str | None) -> bool:
     if not normalized_model:
         return False
     return any(model_hint in normalized_model for model_hint in STORY_PAID_MODEL_HINTS)
-
-
-def _is_story_kimi_k2_model(model_name: str | None) -> bool:
-    normalized_model = (model_name or "").strip().lower()
-    if not normalized_model:
-        return False
-    return any(model_hint in normalized_model for model_hint in STORY_KIMI_K2_MODEL_HINTS)
 
 
 def _normalize_story_prompt_text(value: str, *, max_chars: int) -> str:
@@ -3795,9 +3980,13 @@ def _translate_text_batch_with_openrouter(
     *,
     source_language: str,
     target_language: str,
+    translation_model_name: str | None = None,
 ) -> list[str]:
     if not texts:
         return []
+    selected_translation_model = (translation_model_name or settings.openrouter_translation_model).strip()
+    if not selected_translation_model:
+        raise RuntimeError("OpenRouter translation model is not configured")
 
     translation_messages = [
         {
@@ -3825,7 +4014,7 @@ def _translate_text_batch_with_openrouter(
     ]
     raw_response = _request_openrouter_story_text(
         translation_messages,
-        model_name=settings.openrouter_translation_model,
+        model_name=selected_translation_model,
         allow_free_fallback=False,
         temperature=0,
     )
@@ -3952,6 +4141,7 @@ def _force_translate_story_model_output_to_user(text_value: str) -> str:
         [text_value],
         source_language="auto",
         target_language=settings.story_user_language,
+        translation_model_name=_story_output_translation_model_name(),
     )
     return translated[0] if translated else text_value
 
@@ -4084,6 +4274,8 @@ def _build_story_provider_messages(
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
     model_name: str | None = None,
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ) -> list[dict[str, str]]:
     full_history = [
         {"role": message.role, "content": message.content.strip()}
@@ -4116,6 +4308,8 @@ def _build_story_provider_messages(
         world_cards,
         model_name=model_name,
         response_max_tokens=response_max_tokens,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
     )
     system_prompt_tokens = _estimate_story_tokens(system_prompt)
     history_budget_tokens = max(effective_context_limit_tokens - system_prompt_tokens, 0)
@@ -5213,29 +5407,41 @@ def _build_story_plot_card_memory_messages(
     current_assistant_text = _normalize_story_prompt_text(current_assistant_text, max_chars=assistant_max_chars)
     _ = latest_turn_memory_delta
 
+    if should_generate_title:
+        output_format_hint = (
+            "Верни строго JSON без markdown: {\"title\": string, \"content\": string}. "
+            "title обязателен (3-7 слов, без шаблонов). content обязателен. "
+            "И title, и content должны быть только на русском языке."
+        )
+        existing_memory_block = ""
+        task_hint = "Сформируй новый компактный блок карточки памяти по текущему ходу."
+    else:
+        output_format_hint = (
+            "Верни только один НОВЫЙ компактный блок по текущему ходу "
+            "(обычный текст, без JSON, без markdown, без заголовка). "
+            "Не переписывай и не повторяй существующую карточку памяти. "
+            "Блок должен быть только на русском языке."
+        )
+        existing_memory_block = ""
+        task_hint = "Сожми только текущий ход в новый блок."
+
     return [
         {
             "role": "system",
             "content": (
-                "Ты редактор памяти RPG. "
-                "Сожми текущий ход (действие игрока + ответ мастера) без потери смысла и важных деталей. "
-                "Не выдумывай факты и не теряй важные детали."
+                "Ты сжимаешь память RPG. Сохраняй ключевые факты, убирай воду и повторы, не выдумывай факты. "
+                "Если карточка уже существует, возвращай только НОВЫЙ сжатый блок текущего хода. "
+                "Пиши только на русском языке."
             ),
         },
         {
             "role": "user",
             "content": (
-                (
-                    (
-                        "Верни строго JSON без markdown: {\"title\": string, \"content\": string}. "
-                        "title обязателен (3-7 слов, без шаблонов). content обязателен.\n\n"
-                    )
-                    if should_generate_title
-                    else "Верни только сжатый текст (без JSON, без markdown, без заголовка).\n\n"
-                )
+                f"{output_format_hint}\n\n"
+                + existing_memory_block
                 + f"Ход игрока:\n{current_prompt or 'нет'}\n\n"
                 + f"Ответ мастера:\n{current_assistant_text or 'нет'}\n\n"
-                + "Сожми этот ход без потери смысла и важных деталей."
+                + task_hint
             ),
         },
     ]
@@ -5244,28 +5450,32 @@ def _build_story_plot_card_memory_messages(
 def _resolve_story_plot_memory_model_name() -> str:
     configured_model = str(settings.openrouter_plot_card_model or "").strip()
     if configured_model:
-        if configured_model.casefold().endswith(":free"):
-            return configured_model
-        logger.warning(
-            "Ignoring non-free plot memory model: %s",
-            configured_model,
-        )
+        if configured_model.casefold() == OPENROUTER_TRINITY_FREE_MODEL.casefold():
+            logger.info(
+                "Replacing Trinity with Grok 4.1 Fast for memory pipeline",
+            )
+            return STORY_PLOT_CARD_MEMORY_MODEL
+        return configured_model
 
-    return STORY_PLOT_CARD_MEMORY_FREE_MODEL
+    return STORY_PLOT_CARD_MEMORY_MODEL
 
 
 def _resolve_story_plot_memory_fallback_models(primary_model: str) -> list[str]:
     fallback_models: list[str] = []
 
     configured_model = str(settings.openrouter_plot_card_model or "").strip()
-    if configured_model and configured_model.casefold().endswith(":free"):
+    resolved_configured_model = configured_model
+    if resolved_configured_model and resolved_configured_model.casefold() == OPENROUTER_TRINITY_FREE_MODEL.casefold():
+        resolved_configured_model = STORY_PLOT_CARD_MEMORY_MODEL
+
+    if resolved_configured_model:
         candidate_models = (
-            configured_model,
-            OPENROUTER_TRINITY_FREE_MODEL,
+            resolved_configured_model,
+            STORY_PLOT_CARD_MEMORY_MODEL,
         )
     else:
         candidate_models = (
-            OPENROUTER_TRINITY_FREE_MODEL,
+            STORY_PLOT_CARD_MEMORY_MODEL,
         )
 
     for candidate in candidate_models:
@@ -5465,6 +5675,7 @@ def _normalize_story_plot_card_ai_payload(
         title = _derive_story_plot_card_title_from_content(content, preferred_lines=raw_points)
     if _is_story_plot_card_default_title(title):
         title = ""
+    content = _compress_story_plot_memory_content(content, preferred_lines=raw_points)
     if not content:
         return None
 
@@ -5516,6 +5727,7 @@ def _normalize_story_plot_card_ai_response(
             title = _derive_story_plot_card_title_from_content(content)
 
     content = content.strip()
+    content = _compress_story_plot_memory_content(content)
     if not content:
         return None
     return (title, content)
@@ -5594,7 +5806,22 @@ def _merge_story_plot_memory_content(existing_content: str, new_content: str) ->
         return existing_normalized
     if existing_normalized.casefold() == new_normalized.casefold():
         return existing_normalized
-    return f"{existing_normalized}\n\n{new_normalized}".strip()
+
+    merged_raw = _append_story_plot_memory_content_raw(existing_normalized, new_normalized)
+    merged_lines: list[str] = []
+    seen_keys: set[str] = set()
+    for raw_line in merged_raw.split("\n"):
+        normalized_line = _normalize_story_plot_memory_line(raw_line)
+        if not normalized_line:
+            continue
+        normalized_key = normalized_line.casefold()
+        if normalized_key in seen_keys:
+            continue
+        seen_keys.add(normalized_key)
+        merged_lines.append(normalized_line)
+    if not merged_lines:
+        return merged_raw.strip()
+    return "\n".join(merged_lines).strip()
 
 
 def _append_story_plot_memory_content_raw(existing_content: str, new_content: str) -> str:
@@ -5604,7 +5831,9 @@ def _append_story_plot_memory_content_raw(existing_content: str, new_content: st
         return new_normalized
     if not new_normalized:
         return existing_normalized
-    return f"{existing_normalized}\n{new_normalized}"
+    if existing_normalized.casefold() == new_normalized.casefold():
+        return existing_normalized
+    return f"{existing_normalized}\n\n{new_normalized}"
 
 
 def _trim_story_plot_card_content_for_context(
@@ -5743,6 +5972,697 @@ def _resolve_story_plot_card_title(
     return ""
 
 
+def _build_story_memory_layer_budgets(context_limit_tokens: int) -> dict[str, int]:
+    total_limit = max(_normalize_story_context_limit_chars(context_limit_tokens), 1)
+    key_budget = max(int(total_limit * STORY_MEMORY_KEY_BUDGET_SHARE), 1)
+    non_key_budget = max(total_limit - key_budget, 1)
+    raw_budget = max(int(non_key_budget * STORY_MEMORY_LAYER_RAW_BUDGET_SHARE), 1)
+    compressed_budget = max(int(non_key_budget * STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE), 1)
+    super_budget = max(non_key_budget - raw_budget - compressed_budget, 1)
+    return {
+        STORY_MEMORY_LAYER_KEY: key_budget,
+        STORY_MEMORY_LAYER_RAW: raw_budget,
+        STORY_MEMORY_LAYER_COMPRESSED: compressed_budget,
+        STORY_MEMORY_LAYER_SUPER: super_budget,
+    }
+
+
+def _estimate_story_memory_block_tokens(block: StoryMemoryBlock) -> int:
+    if isinstance(block.token_count, int) and block.token_count > 0:
+        return block.token_count
+    return max(_estimate_story_tokens(block.content), 1)
+
+
+def _build_story_raw_memory_block_content(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> str:
+    def _collect_compact_lines(raw_content: str, *, max_lines: int, max_chars: int) -> str:
+        normalized_content = raw_content.replace("\r\n", "\n").strip()
+        if not normalized_content:
+            return ""
+
+        # Mild compression for the 50% memory layer:
+        # keep complete sentences and drop less relevant fragments;
+        # never cut selected text in the middle.
+        candidate_lines: list[str] = []
+        for raw_line in normalized_content.split("\n"):
+            compact_line = re.sub(r"\s+", " ", raw_line.strip(" -•\t")).strip()
+            if not compact_line:
+                continue
+            sentence_parts = re.split(r"(?<=[.!?…])\s+", compact_line)
+            for sentence in sentence_parts:
+                normalized_sentence = re.sub(r"\s+", " ", sentence.strip(" -•\t")).strip()
+                if normalized_sentence:
+                    candidate_lines.append(normalized_sentence)
+
+        if not candidate_lines:
+            return ""
+
+        unique_candidates: list[tuple[int, str, int]] = []
+        seen_candidates: set[str] = set()
+        for index, line in enumerate(candidate_lines):
+            line_key = line.casefold()
+            if line_key in seen_candidates:
+                continue
+            seen_candidates.add(line_key)
+            unique_candidates.append((index, line, _score_story_plot_memory_line(line)))
+
+        ranked_candidates = sorted(
+            unique_candidates,
+            key=lambda item: (-item[2], item[0]),
+        )
+        selected = sorted(ranked_candidates[: max(max_lines, 1)], key=lambda item: item[0])
+        if not selected:
+            return ""
+
+        selected_lines = [line for _, line, _ in selected]
+        while len(selected_lines) > 1:
+            compact_text = "\n".join(f"- {line}" for line in selected_lines).strip()
+            if len(compact_text) <= max_chars:
+                return compact_text
+            selected_lines.pop()
+
+        # Keep at least one full sentence, even if it's longer than max_chars.
+        return f"- {selected_lines[0]}".strip()
+
+    normalized_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
+    normalized_assistant = latest_assistant_text.replace("\r\n", "\n").strip()
+    if not normalized_prompt and not normalized_assistant:
+        return ""
+    parts: list[str] = []
+    if normalized_prompt:
+        compressed_prompt = _collect_compact_lines(
+            normalized_prompt,
+            max_lines=STORY_MEMORY_RAW_USER_MAX_LINES,
+            max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS,
+        )
+        parts.append(
+            "Ход игрока (сухие факты):\n"
+            + (
+                compressed_prompt
+                if compressed_prompt
+                else _normalize_story_prompt_text(
+                    normalized_prompt,
+                    max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS,
+                )
+            )
+        )
+    if normalized_assistant:
+        compressed_assistant = _collect_compact_lines(
+            normalized_assistant,
+            max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES,
+            max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS,
+        )
+        parts.append(
+            "Ответ мастера (краткий пересказ):\n"
+            + (
+                compressed_assistant
+                if compressed_assistant
+                else _normalize_story_prompt_text(
+                    normalized_assistant,
+                    max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS,
+                )
+            )
+        )
+    return "\n\n".join(parts).strip()
+
+
+def _build_story_memory_block_title(content: str, *, fallback_prefix: str) -> str:
+    derived_title = _derive_story_plot_card_title_from_content(content)
+    if not derived_title or _is_story_plot_card_default_title(derived_title):
+        derived_title = fallback_prefix
+    return _normalize_story_memory_block_title(
+        derived_title,
+        fallback=fallback_prefix,
+    )
+
+
+def _create_story_memory_block(
+    *,
+    db: Session,
+    game_id: int,
+    assistant_message_id: int | None,
+    layer: str,
+    title: str,
+    content: str,
+) -> StoryMemoryBlock:
+    normalized_layer = _normalize_story_memory_layer(layer)
+    normalized_content = _normalize_story_memory_block_content(content)
+    normalized_title = _normalize_story_memory_block_title(
+        title,
+        fallback="Блок памяти",
+    )
+    block = StoryMemoryBlock(
+        game_id=game_id,
+        assistant_message_id=assistant_message_id,
+        layer=normalized_layer,
+        title=normalized_title,
+        content=normalized_content,
+        token_count=max(_estimate_story_tokens(normalized_content), 1),
+    )
+    db.add(block)
+    db.flush()
+    return block
+
+
+def _extract_story_memory_sentences(raw_content: str) -> list[str]:
+    normalized = raw_content.replace("\r\n", "\n").strip()
+    if not normalized:
+        return []
+    extracted: list[str] = []
+    for raw_line in normalized.split("\n"):
+        compact_line = re.sub(r"^\s*[-•]\s*", "", raw_line).strip()
+        if not compact_line:
+            continue
+        sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", compact_line))
+        for sentence in sentence_candidates:
+            compact_sentence = re.sub(r"\s+", " ", sentence).strip(" -•\t")
+            if compact_sentence:
+                extracted.append(compact_sentence)
+    return extracted
+
+
+def _build_story_memory_summary_without_truncation(
+    raw_content: str,
+    *,
+    super_mode: bool,
+) -> str:
+    sentences = _extract_story_memory_sentences(raw_content)
+    if not sentences:
+        return raw_content.replace("\r\n", "\n").strip()
+
+    unique_entries: list[tuple[int, str, int]] = []
+    seen_sentences: set[str] = set()
+    for index, sentence in enumerate(sentences):
+        sentence_key = sentence.casefold()
+        if sentence_key in seen_sentences:
+            continue
+        seen_sentences.add(sentence_key)
+        score = _score_story_plot_memory_line(sentence)
+        if super_mode:
+            # Super-compressed layer keeps dry facts; penalize emotional/dialogue-heavy fragments.
+            if re.search(r"[!?]", sentence):
+                score -= 2
+            if any(token in sentence for token in ('"', "«", "»")):
+                score -= 1
+        unique_entries.append((index, sentence, score))
+
+    if not unique_entries:
+        return raw_content.replace("\r\n", "\n").strip()
+
+    max_lines = STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
+    candidate_entries = unique_entries
+    if super_mode:
+        factual_entries = [
+            entry
+            for entry in unique_entries
+            if not re.search(r"[!?]", entry[1])
+            and not any(token in entry[1] for token in ('"', "«", "»", "—"))
+        ]
+        if factual_entries:
+            candidate_entries = factual_entries
+
+    ranked_entries = sorted(
+        candidate_entries,
+        key=lambda item: (-item[2], item[0]),
+    )
+    selected_entries = ranked_entries[: max(max_lines, 1)]
+
+    # Keep recency signal for compressed layer, but never trim selected sentences.
+    if not super_mode and unique_entries:
+        latest_index, latest_sentence, _ = unique_entries[-1]
+        if all(latest_index != index for index, _, _ in selected_entries):
+            if selected_entries:
+                selected_entries.sort(key=lambda item: (item[2], -item[0]))
+                selected_entries[0] = (
+                    latest_index,
+                    latest_sentence,
+                    _score_story_plot_memory_line(latest_sentence),
+                )
+            else:
+                selected_entries = [(latest_index, latest_sentence, _score_story_plot_memory_line(latest_sentence))]
+
+    ordered_sentences = [sentence for _, sentence, _ in sorted(selected_entries, key=lambda item: item[0])]
+    return "\n".join(f"- {sentence}" for sentence in ordered_sentences).strip()
+
+
+def _compress_story_memory_block_locally(
+    raw_content: str,
+    *,
+    super_mode: bool,
+) -> tuple[str, str]:
+    compressed = _build_story_memory_summary_without_truncation(
+        raw_content,
+        super_mode=super_mode,
+    )
+    if not compressed:
+        compressed = raw_content.replace("\r\n", "\n").strip()
+    fallback_prefix = "Суперсжатая память" if super_mode else "Сжатая память"
+    title = _build_story_memory_block_title(compressed, fallback_prefix=fallback_prefix)
+    return (title, compressed)
+
+
+def _compress_story_memory_block_with_model(
+    *,
+    raw_content: str,
+    model_name: str,
+    fallback_model_names: list[str],
+    super_mode: bool,
+) -> tuple[str, str]:
+    if not settings.openrouter_api_key:
+        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+
+    normalized_content = _normalize_story_prompt_text(raw_content, max_chars=9_000)
+    if not normalized_content:
+        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+
+    task_hint = (
+        "Сожми максимально агрессивно: только сухие факты, имена, цели, незакрытые конфликты и критические последствия."
+        if super_mode
+        else "Сожми умеренно: убери воду и повторы, сохрани контекст, причинно-следственные связи и важные детали."
+    )
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Ты модуль рекурсивной памяти RPG. Не выдумывай факты. "
+                "Верни строго JSON без markdown: {\"title\": string, \"content\": string}. "
+                "Пиши только на русском. "
+                "Нельзя обрезать слова или предложения. "
+                "Если нужно сократить текст, удаляй целые пункты, но не делай обрывов и многоточий от усечения."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"{task_hint}\n\n"
+                f"Исходный блок:\n{normalized_content}\n\n"
+                "Сохрани факты и контекст. Верни только JSON."
+            ),
+        },
+    ]
+    try:
+        raw_response = _request_openrouter_story_text(
+            messages_payload,
+            model_name=model_name,
+            allow_free_fallback=False,
+            fallback_model_names=fallback_model_names,
+            temperature=0.0,
+            max_tokens=STORY_MEMORY_COMPRESSION_REQUEST_MAX_TOKENS,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
+        )
+        parsed_payload = _extract_json_object_from_text(raw_response)
+        raw_title = ""
+        raw_content_candidate = ""
+        if isinstance(parsed_payload, dict):
+            parsed_title = (
+                parsed_payload.get("title")
+                or parsed_payload.get("name")
+                or parsed_payload.get("heading")
+                or parsed_payload.get("заголовок")
+            )
+            if isinstance(parsed_title, str):
+                raw_title = " ".join(parsed_title.split()).strip()
+            parsed_content = (
+                parsed_payload.get("content")
+                or parsed_payload.get("summary")
+                or parsed_payload.get("text")
+                or parsed_payload.get("текст")
+            )
+            if isinstance(parsed_content, str):
+                raw_content_candidate = parsed_content.replace("\r\n", "\n").strip()
+            elif not raw_content_candidate:
+                parsed_points = _extract_story_plot_memory_points(parsed_payload)
+                if parsed_points:
+                    raw_content_candidate = "\n".join(point for point in parsed_points if point.strip()).strip()
+            if not raw_content_candidate and isinstance(parsed_payload.get("card"), dict):
+                nested_payload = parsed_payload.get("card")
+                nested_content = (
+                    nested_payload.get("content")
+                    or nested_payload.get("summary")
+                    or nested_payload.get("text")
+                    or nested_payload.get("текст")
+                )
+                if isinstance(nested_content, str):
+                    raw_content_candidate = nested_content.replace("\r\n", "\n").strip()
+
+        if not raw_content_candidate:
+            raw_content_candidate = str(raw_response or "").replace("\r\n", "\n").strip()
+        raw_content_candidate = re.sub(r"(?im)^\s*```(?:json)?\s*$", "", raw_content_candidate).strip()
+        raw_content_candidate = re.sub(r"(?im)^\s*```\s*$", "", raw_content_candidate).strip()
+        if not raw_content_candidate:
+            return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+
+        content = _build_story_memory_summary_without_truncation(
+            raw_content_candidate,
+            super_mode=super_mode,
+        )
+        if not content:
+            return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+
+        title = raw_title
+        if not title:
+            title = _build_story_memory_block_title(
+                content,
+                fallback_prefix="Суперсжатая память" if super_mode else "Сжатая память",
+            )
+        normalized_title = _normalize_story_memory_block_title(
+            title,
+            fallback="Суперсжатая память" if super_mode else "Сжатая память",
+        )
+        normalized_content = _normalize_story_memory_block_content(content)
+        return (normalized_title, normalized_content)
+    except Exception as exc:
+        logger.warning("Story memory block compression failed; fallback to local compression: %s", exc)
+        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+
+
+def _rebalance_story_memory_layers(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> None:
+    budgets = _build_story_memory_layer_budgets(game.context_limit_chars)
+    model_name = _resolve_story_plot_memory_model_name()
+    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+    context_limit_tokens = _normalize_story_context_limit_chars(game.context_limit_chars)
+
+    def _layer_blocks(layer: str) -> list[StoryMemoryBlock]:
+        normalized_layer = _normalize_story_memory_layer(layer)
+        return [
+            block
+            for block in _list_story_memory_blocks(db, game.id)
+            if _normalize_story_memory_layer(block.layer) == normalized_layer
+        ]
+
+    def _layer_tokens(layer: str) -> int:
+        return sum(_estimate_story_memory_block_tokens(block) for block in _layer_blocks(layer))
+
+    while _layer_tokens(STORY_MEMORY_LAYER_RAW) > budgets[STORY_MEMORY_LAYER_RAW]:
+        raw_blocks = _layer_blocks(STORY_MEMORY_LAYER_RAW)
+        if not raw_blocks:
+            break
+        source_block = raw_blocks[0]
+        compressed_title, compressed_content = _compress_story_memory_block_with_model(
+            raw_content=source_block.content,
+            model_name=model_name,
+            fallback_model_names=fallback_model_names,
+            super_mode=False,
+        )
+        _create_story_memory_block(
+            db=db,
+            game_id=game.id,
+            assistant_message_id=source_block.assistant_message_id,
+            layer=STORY_MEMORY_LAYER_COMPRESSED,
+            title=compressed_title,
+            content=compressed_content,
+        )
+        db.delete(source_block)
+        db.flush()
+
+    while _layer_tokens(STORY_MEMORY_LAYER_COMPRESSED) > budgets[STORY_MEMORY_LAYER_COMPRESSED]:
+        compressed_blocks = _layer_blocks(STORY_MEMORY_LAYER_COMPRESSED)
+        if not compressed_blocks:
+            break
+        source_block = compressed_blocks[0]
+        super_title, super_content = _compress_story_memory_block_with_model(
+            raw_content=source_block.content,
+            model_name=model_name,
+            fallback_model_names=fallback_model_names,
+            super_mode=True,
+        )
+        _create_story_memory_block(
+            db=db,
+            game_id=game.id,
+            assistant_message_id=source_block.assistant_message_id,
+            layer=STORY_MEMORY_LAYER_SUPER,
+            title=super_title,
+            content=super_content,
+        )
+        db.delete(source_block)
+        db.flush()
+
+    while _layer_tokens(STORY_MEMORY_LAYER_SUPER) > budgets[STORY_MEMORY_LAYER_SUPER]:
+        super_blocks = _layer_blocks(STORY_MEMORY_LAYER_SUPER)
+        if not super_blocks:
+            break
+        db.delete(super_blocks[0])
+        db.flush()
+
+    while _layer_tokens(STORY_MEMORY_LAYER_KEY) > budgets[STORY_MEMORY_LAYER_KEY]:
+        key_blocks = _layer_blocks(STORY_MEMORY_LAYER_KEY)
+        if not key_blocks:
+            break
+        db.delete(key_blocks[0])
+        db.flush()
+
+    while (
+        sum(_estimate_story_memory_block_tokens(block) for block in _list_story_memory_blocks(db, game.id))
+        > context_limit_tokens
+    ):
+        all_blocks = _list_story_memory_blocks(db, game.id)
+        if not all_blocks:
+            break
+        removal_candidate = None
+        removal_order = (
+            STORY_MEMORY_LAYER_SUPER,
+            STORY_MEMORY_LAYER_COMPRESSED,
+            STORY_MEMORY_LAYER_RAW,
+            STORY_MEMORY_LAYER_KEY,
+        )
+        for layer in removal_order:
+            removal_candidate = next(
+                (
+                    block
+                    for block in all_blocks
+                    if _normalize_story_memory_layer(block.layer) == layer
+                ),
+                None,
+            )
+            if removal_candidate is not None:
+                break
+        if removal_candidate is None:
+            removal_candidate = all_blocks[0]
+        db.delete(removal_candidate)
+        db.flush()
+
+
+def _extract_story_important_plot_card_payload(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> tuple[str, str] | None:
+    if not settings.openrouter_api_key:
+        return None
+
+    model_name = _resolve_story_plot_memory_model_name()
+    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+    normalized_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=2_800)
+    normalized_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=6_500)
+    if not normalized_prompt and not normalized_assistant:
+        return None
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Ты анализируешь ход RPG и выделяешь только действительно ключевые события сюжета. "
+                "Высокий порог важности: не отмечай обычные шаги, мелкие действия, рутину и локальные реплики. "
+                "Возвращай строго JSON без markdown. Формат: "
+                "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
+                "importance_score: 0..100. "
+                "is_important=true только для событий с долгосрочными или необратимыми последствиями: "
+                "новая цель/квест, раскрытая критичная информация, крупное поражение/победа, смерть, предательство, "
+                "смена статуса отношений, потеря ключевого ресурса, смена стратегического положения. "
+                "title: 3-7 слов. content: сухие факты и последствия. Только русский."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Ход игрока:\n{normalized_prompt or 'нет'}\n\n"
+                f"Ответ мастера:\n{normalized_assistant or 'нет'}\n\n"
+                "Если событие не тянет на действительно важный сюжетный поворот, "
+                "верни is_important=false и importance_score<85."
+            ),
+        },
+    ]
+    raw_response = _request_openrouter_story_text(
+        messages_payload,
+        model_name=model_name,
+        allow_free_fallback=False,
+        fallback_model_names=fallback_model_names,
+        temperature=0.0,
+        max_tokens=STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS,
+        request_timeout=(
+            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+        ),
+    )
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    if not isinstance(parsed_payload, dict):
+        return None
+
+    raw_is_important = parsed_payload.get("is_important")
+    is_important = False
+    if isinstance(raw_is_important, bool):
+        is_important = raw_is_important
+    elif isinstance(raw_is_important, (int, float)):
+        is_important = bool(raw_is_important)
+    elif isinstance(raw_is_important, str):
+        is_important = raw_is_important.strip().lower() in {"1", "true", "yes", "да"}
+    if not is_important:
+        return None
+
+    raw_importance_score = parsed_payload.get("importance_score")
+    importance_score = 0
+    if isinstance(raw_importance_score, bool):
+        importance_score = 100 if raw_importance_score else 0
+    elif isinstance(raw_importance_score, (int, float)):
+        importance_score = int(raw_importance_score)
+    elif isinstance(raw_importance_score, str):
+        score_match = re.search(r"-?\d+", raw_importance_score.strip())
+        if score_match is not None:
+            try:
+                importance_score = int(score_match.group(0))
+            except Exception:
+                importance_score = 0
+    importance_score = max(min(importance_score, 100), 0)
+    if importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
+        return None
+
+    raw_title = str(parsed_payload.get("title") or parsed_payload.get("name") or "").strip()
+    raw_content = str(parsed_payload.get("content") or parsed_payload.get("summary") or "").strip()
+    if not raw_content:
+        return None
+    content = _build_story_memory_summary_without_truncation(
+        raw_content,
+        super_mode=False,
+    )
+    if not content:
+        return None
+    title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
+    title = _normalize_story_memory_block_title(title, fallback="Важный момент")
+    content = _normalize_story_memory_block_content(content)
+    return (title, content)
+
+
+def _estimate_story_memory_similarity(left_value: str, right_value: str) -> float:
+    left_tokens = set(_normalize_story_match_tokens(left_value))
+    right_tokens = set(_normalize_story_match_tokens(right_value))
+    if not left_tokens or not right_tokens:
+        return 0.0
+    overlap_size = len(left_tokens.intersection(right_tokens))
+    baseline = max(min(len(left_tokens), len(right_tokens)), 1)
+    return overlap_size / baseline
+
+
+def _create_story_key_memory_block(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    title: str,
+    content: str,
+) -> bool:
+    normalized_title = _normalize_story_memory_block_title(title, fallback="Важный момент")
+    normalized_content = _normalize_story_memory_block_content(content)
+    existing_blocks = [
+        block
+        for block in _list_story_memory_blocks(db, game.id)
+        if _normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_KEY
+    ]
+    for block in reversed(existing_blocks[-40:]):
+        existing_title = block.title.replace("\r\n", " ").strip()
+        existing_content = block.content.replace("\r\n", "\n").strip()
+        if (
+            existing_title.casefold() == normalized_title.casefold()
+            and existing_content.casefold() == normalized_content.casefold()
+        ):
+            return False
+        if (
+            _estimate_story_memory_similarity(existing_content, normalized_content)
+            >= STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY
+        ):
+            return False
+
+    _create_story_memory_block(
+        db=db,
+        game_id=game.id,
+        assistant_message_id=assistant_message.id,
+        layer=STORY_MEMORY_LAYER_KEY,
+        title=normalized_title,
+        content=normalized_content,
+    )
+    return True
+
+
+def _list_story_prompt_memory_cards(
+    db: Session,
+    game: StoryGame,
+    memory_optimization_enabled: bool,
+    context_messages: list[StoryMessage] | None = None,
+) -> list[dict[str, str]]:
+    if not memory_optimization_enabled:
+        return []
+
+    all_plot_cards = _list_story_plot_cards(db, game.id)
+    if context_messages is None:
+        active_plot_cards = [
+            {
+                "title": card.title.replace("\r\n", " ").strip(),
+                "content": card.content.replace("\r\n", "\n").strip(),
+            }
+            for card in all_plot_cards
+            if bool(getattr(card, "is_enabled", True)) and card.title.strip() and card.content.strip()
+        ]
+    else:
+        active_plot_cards = _select_story_plot_cards_for_prompt(context_messages, all_plot_cards)
+
+    combined_cards: list[dict[str, str]] = []
+    memory_blocks = _list_story_memory_blocks(db, game.id)
+    if memory_blocks:
+        layer_order = {
+            STORY_MEMORY_LAYER_KEY: 0,
+            STORY_MEMORY_LAYER_SUPER: 1,
+            STORY_MEMORY_LAYER_COMPRESSED: 2,
+            STORY_MEMORY_LAYER_RAW: 3,
+        }
+        layer_label = {
+            STORY_MEMORY_LAYER_KEY: "Важный момент",
+            STORY_MEMORY_LAYER_SUPER: "Суперсжатая память",
+            STORY_MEMORY_LAYER_COMPRESSED: "Сжатая память",
+            STORY_MEMORY_LAYER_RAW: "Свежая память",
+        }
+        ordered_blocks = sorted(
+            memory_blocks,
+            key=lambda block: (layer_order.get(_normalize_story_memory_layer(block.layer), 99), block.id),
+        )
+        for block in ordered_blocks:
+            content = block.content.replace("\r\n", "\n").strip()
+            title = " ".join(block.title.replace("\r\n", " ").split()).strip()
+            if not content:
+                continue
+            layer = _normalize_story_memory_layer(block.layer)
+            title_prefix = layer_label.get(layer, "Память")
+            full_title = " ".join(f"{title_prefix}: {title or 'Блок'}".split()).strip()
+            if len(full_title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+                full_title = full_title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+            combined_cards.append({"title": full_title, "content": content})
+
+    combined_cards.extend(active_plot_cards)
+    return [
+        card
+        for card in combined_cards
+        if card.get("title", "").strip() and card.get("content", "").strip()
+    ]
+
+
 def _upsert_story_plot_memory_card(
     *,
     db: Session,
@@ -5753,11 +6673,7 @@ def _upsert_story_plot_memory_card(
 ) -> tuple[bool, list[StoryPlotCardChangeEvent]]:
     if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
         return (False, [])
-    logger.info(
-        "Plot memory upsert started: game_id=%s assistant_message_id=%s",
-        game.id,
-        assistant_message.id,
-    )
+
     assistant_text_source = (
         latest_assistant_text_override
         if isinstance(latest_assistant_text_override, str)
@@ -5769,9 +6685,7 @@ def _upsert_story_plot_memory_card(
     if not latest_assistant_text:
         latest_assistant_text = assistant_text_source.replace("\r\n", "\n").strip()
     if not latest_assistant_text:
-        raise RuntimeError(
-            "Plot memory generation failed: assistant text is empty after normalization"
-        )
+        return (False, [])
 
     if isinstance(latest_user_prompt_override, str):
         latest_user_prompt = latest_user_prompt_override.replace("\r\n", "\n").strip()
@@ -5792,195 +6706,45 @@ def _upsert_story_plot_memory_card(
             if isinstance(latest_user_message, StoryMessage)
             else ""
         )
-    latest_turn_memory_delta = _build_story_plot_turn_memory_delta(
+
+    raw_block_content = _build_story_raw_memory_block_content(
         latest_user_prompt=latest_user_prompt,
         latest_assistant_text=latest_assistant_text,
     )
-
-    existing_cards = _list_story_plot_cards(db, game.id)
-    ai_card = next(
-        (
-            card
-            for card in existing_cards
-            if _normalize_story_plot_card_source(card.source) == STORY_PLOT_CARD_SOURCE_AI
-        ),
-        None,
-    )
-    target_card = ai_card or (existing_cards[0] if existing_cards else None)
-    target_is_user_source = (
-        target_card is not None
-        and _normalize_story_plot_card_source(target_card.source) == STORY_PLOT_CARD_SOURCE_USER
-    )
-
-    if not settings.openrouter_api_key:
-        raise RuntimeError("Plot memory generation failed: OPENROUTER_API_KEY is missing")
-
-    model_name = _resolve_story_plot_memory_model_name()
-    if not model_name:
-        raise RuntimeError("Plot memory generation failed: memory model is not configured")
-    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
-
-    messages_payload = _build_story_plot_card_memory_messages(
-        existing_card=target_card,
-        latest_assistant_text=latest_assistant_text,
-        latest_user_prompt=latest_user_prompt,
-        latest_turn_memory_delta=latest_turn_memory_delta,
-        model_name=model_name,
-    )
-
-    logger.info(
-        "Plot memory input prepared: game_id=%s assistant_message_id=%s user_chars=%s assistant_chars=%s",
-        game.id,
-        assistant_message.id,
-        len(latest_user_prompt),
-        len(latest_assistant_text),
-    )
-    logger.info(
-        "Plot memory model request started: game_id=%s assistant_message_id=%s model=%s fallbacks=%s",
-        game.id,
-        assistant_message.id,
-        model_name,
-        fallback_model_names,
-    )
-    raw_response = _request_openrouter_story_text(
-        messages_payload,
-        model_name=model_name,
-        allow_free_fallback=False,
-        fallback_model_names=fallback_model_names,
-        temperature=0.0,
-        max_tokens=STORY_PLOT_CARD_REQUEST_MAX_TOKENS,
-        request_timeout=(
-            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
-        ),
-    )
-    logger.info(
-        "Plot memory model response received: game_id=%s assistant_message_id=%s chars=%s",
-        game.id,
-        assistant_message.id,
-        len(raw_response),
-    )
-    normalized_payload = _normalize_story_plot_card_ai_response(
-        raw_response=raw_response,
-        existing_card=target_card,
-        should_generate_title=target_card is None,
-    )
-    if normalized_payload is None:
-        raise RuntimeError(
-            "Plot memory generation failed: memory model returned empty or invalid payload"
-        )
-
-    suggested_title, delta_content = normalized_payload
-    delta_content = delta_content.replace("\r\n", "\n").strip()
-    if not delta_content:
-        raise RuntimeError(
-            "Plot memory generation failed: memory model returned empty compressed text"
-        )
-
-    if target_card is None:
-        resolved_title = _resolve_story_plot_card_title_locally(
-            existing_title="",
-            suggested_title=suggested_title,
-            compressed_content=delta_content,
-            latest_user_prompt=latest_user_prompt,
-        )
-        title = _normalize_story_plot_card_title(resolved_title)
-        content = _normalize_story_plot_card_content(delta_content, preserve_tail=True)
-        trimmed_content = _trim_story_plot_card_content_for_context(
-            content,
-            context_limit_tokens=game.context_limit_chars,
-        )
-        if trimmed_content.strip():
-            content = _normalize_story_plot_card_content(trimmed_content, preserve_tail=True)
-        new_card = StoryPlotCard(
+    if raw_block_content:
+        _create_story_memory_block(
+            db=db,
             game_id=game.id,
+            assistant_message_id=assistant_message.id,
+            layer=STORY_MEMORY_LAYER_RAW,
+            title=_build_story_memory_block_title(raw_block_content, fallback_prefix="Свежая память"),
+            content=raw_block_content,
+        )
+        _rebalance_story_memory_layers(db=db, game=game)
+
+    try:
+        important_payload = _extract_story_important_plot_card_payload(
+            latest_user_prompt=latest_user_prompt,
+            latest_assistant_text=latest_assistant_text,
+        )
+    except Exception as exc:
+        logger.warning("Important plot event extraction failed: %s", exc)
+        important_payload = None
+
+    if important_payload is not None:
+        title, content = important_payload
+        _create_story_key_memory_block(
+            db=db,
+            game=game,
+            assistant_message=assistant_message,
             title=title,
             content=content,
-            source=STORY_PLOT_CARD_SOURCE_AI,
         )
-        db.add(new_card)
-        db.flush()
-        after_snapshot = _story_plot_card_snapshot_from_card(new_card)
-        changed_text_fallback = _derive_story_changed_text_from_snapshots(
-            action=STORY_WORLD_CARD_EVENT_ADDED,
-            before_snapshot=None,
-            after_snapshot=after_snapshot,
-        )
-        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
-        event = StoryPlotCardChangeEvent(
-            game_id=game.id,
-            assistant_message_id=assistant_message.id,
-            plot_card_id=new_card.id,
-            action=STORY_WORLD_CARD_EVENT_ADDED,
-            title=new_card.title,
-            changed_text=changed_text,
-            before_snapshot=None,
-            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
-        )
-        db.add(event)
-        _touch_story_game(game)
-        db.commit()
-        db.refresh(event)
-        logger.info(
-            "Plot memory created: game_id=%s assistant_message_id=%s plot_card_id=%s",
-            game.id,
-            assistant_message.id,
-            new_card.id,
-        )
-        return (True, [event])
-    else:
-        merged_content_raw = _merge_story_plot_memory_content(target_card.content, delta_content)
-        if not merged_content_raw:
-            return (False, [])
-        content = _normalize_story_plot_card_content(merged_content_raw, preserve_tail=True)
-        content = _trim_story_plot_card_content_for_context(
-            content,
-            context_limit_tokens=game.context_limit_chars,
-        )
-        content = _normalize_story_plot_card_content(content, preserve_tail=True)
-        resolved_title = _resolve_story_plot_card_title_locally(
-            existing_title=target_card.title,
-            suggested_title=suggested_title,
-            compressed_content=delta_content,
-            latest_user_prompt=latest_user_prompt,
-        )
-        title = _normalize_story_plot_card_title(resolved_title)
-        if target_card.title == title and target_card.content == content:
-            return (False, [])
+        _rebalance_story_memory_layers(db=db, game=game)
 
-        before_snapshot = _story_plot_card_snapshot_from_card(target_card)
-        target_card.title = title
-        target_card.content = content
-        target_card.source = STORY_PLOT_CARD_SOURCE_USER if target_is_user_source else STORY_PLOT_CARD_SOURCE_AI
-        db.flush()
-        after_snapshot = _story_plot_card_snapshot_from_card(target_card)
-        changed_text_fallback = _derive_story_changed_text_from_snapshots(
-            action=STORY_WORLD_CARD_EVENT_UPDATED,
-            before_snapshot=before_snapshot,
-            after_snapshot=after_snapshot,
-        )
-        changed_text = _normalize_story_plot_card_changed_text("", fallback=changed_text_fallback)
-        event = StoryPlotCardChangeEvent(
-            game_id=game.id,
-            assistant_message_id=assistant_message.id,
-            plot_card_id=target_card.id,
-            action=STORY_WORLD_CARD_EVENT_UPDATED,
-            title=target_card.title,
-            changed_text=changed_text,
-            before_snapshot=_serialize_story_plot_card_snapshot(before_snapshot),
-            after_snapshot=_serialize_story_plot_card_snapshot(after_snapshot),
-        )
-        db.add(event)
-        _touch_story_game(game)
-        db.commit()
-        db.refresh(event)
-        logger.info(
-            "Plot memory updated: game_id=%s assistant_message_id=%s plot_card_id=%s",
-            game.id,
-            assistant_message.id,
-            target_card.id,
-        )
-        return (False, [event])
+    _touch_story_game(game)
+    db.commit()
+    return (False, [])
 
 
 def _normalize_basic_auth_header(raw_value: str) -> str:
@@ -6064,6 +6828,8 @@ def _iter_gigachat_story_stream_chunks(
     use_plot_memory: bool = False,
     context_limit_chars: int,
     response_max_tokens: int | None = None,
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ):
     access_token = _get_gigachat_access_token()
     messages_payload = _build_story_provider_messages(
@@ -6074,6 +6840,8 @@ def _iter_gigachat_story_stream_chunks(
         use_plot_memory=use_plot_memory,
         context_limit_tokens=context_limit_chars,
         response_max_tokens=response_max_tokens,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to GigaChat")
@@ -6176,6 +6944,8 @@ def _iter_openrouter_story_stream_chunks(
     top_k: int | None = None,
     top_p: float | None = None,
     max_tokens: int | None = None,
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ):
     messages_payload = _build_story_provider_messages(
         context_messages,
@@ -6186,6 +6956,8 @@ def _iter_openrouter_story_stream_chunks(
         context_limit_tokens=context_limit_chars,
         response_max_tokens=max_tokens,
         model_name=model_name,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
     )
     if len(messages_payload) <= 1:
         raise RuntimeError("No messages to send to OpenRouter")
@@ -6216,6 +6988,9 @@ def _iter_openrouter_story_stream_chunks(
             "messages": messages_payload,
             "stream": True,
         }
+        provider_payload = _build_openrouter_provider_payload(model_name)
+        if provider_payload is not None:
+            payload["provider"] = provider_payload
         if top_k is not None:
             payload["top_k"] = top_k
         if top_p is not None:
@@ -6463,6 +7238,9 @@ def _request_openrouter_story_text(
             "messages": messages_payload,
             "stream": False,
         }
+        provider_payload = _build_openrouter_provider_payload(candidate_model)
+        if provider_payload is not None:
+            payload["provider"] = provider_payload
         if temperature is not None:
             payload["temperature"] = temperature
         if top_k is not None:
@@ -7709,6 +8487,8 @@ def _iter_story_provider_stream_chunks(
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
     use_plot_memory: bool = False,
+    show_gg_thoughts: bool = True,
+    show_npc_thoughts: bool = True,
 ):
     provider = _effective_story_llm_provider()
 
@@ -7727,6 +8507,8 @@ def _iter_story_provider_stream_chunks(
                 context_limit_tokens=context_limit_chars,
                 response_max_tokens=effective_response_max_tokens,
                 translate_for_model=True,
+                show_gg_thoughts=show_gg_thoughts,
+                show_npc_thoughts=show_npc_thoughts,
             )
             generated_text = _request_gigachat_story_text(
                 payload,
@@ -7749,6 +8531,8 @@ def _iter_story_provider_stream_chunks(
             use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             response_max_tokens=effective_response_max_tokens,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
         )
         return
 
@@ -7776,6 +8560,8 @@ def _iter_story_provider_stream_chunks(
                 response_max_tokens=effective_response_max_tokens,
                 translate_for_model=translation_enabled,
                 model_name=selected_model_name,
+                show_gg_thoughts=show_gg_thoughts,
+                show_npc_thoughts=show_npc_thoughts,
             )
             generated_text = _request_openrouter_story_text(
                 payload,
@@ -7807,6 +8593,8 @@ def _iter_story_provider_stream_chunks(
             top_k=top_k_value,
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
         )
         return
 
@@ -7836,6 +8624,9 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         normalize_generated_story_output=_normalize_generated_story_output,
         persist_generated_world_cards=_persist_generated_story_world_cards,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
+        list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
+        list_story_memory_blocks=_list_story_memory_blocks,
+        memory_block_to_out=_story_memory_block_to_out,
         plot_card_to_out=_story_plot_card_to_out,
         world_card_to_out=_story_world_card_to_out,
         world_card_event_to_out=_story_world_card_change_event_to_out,
@@ -8057,3 +8848,5 @@ def generate_story_turn_image_impl(
         image_data_url=persisted_turn_image.image_data_url,
         user=UserOut.model_validate(user),
     )
+
+

@@ -10,6 +10,7 @@ VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 OPENROUTER_GEMMA_FREE_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
 OPENROUTER_GLM_AIR_FREE_MODEL = "mistralai/mistral-small-3.1-24b-instruct:free"
 OPENROUTER_TRINITY_FREE_MODEL = "arcee-ai/trinity-large-preview:free"
+OPENROUTER_GROK_41_FAST_MODEL = "x-ai/grok-4.1-fast"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -263,7 +264,7 @@ settings = Settings(
     ).strip(),
     openrouter_plot_card_model=os.getenv(
         "OPENROUTER_PLOT_CARD_MODEL",
-        OPENROUTER_TRINITY_FREE_MODEL,
+        OPENROUTER_GROK_41_FAST_MODEL,
     ).strip(),
     openrouter_image_url=os.getenv(
         "OPENROUTER_IMAGE_URL",
@@ -281,5 +282,5 @@ settings = Settings(
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
     story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=False),
     story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
-    story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "ru").strip().lower() or "ru",
+    story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
 )

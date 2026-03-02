@@ -11,16 +11,21 @@ from app.schemas import (
     StoryInstructionCardCreateRequest,
     StoryInstructionCardOut,
     StoryInstructionCardUpdateRequest,
+    StoryPlotCardAiEditUpdateRequest,
     StoryPlotCardCreateRequest,
+    StoryPlotCardEnabledUpdateRequest,
     StoryPlotCardOut,
     StoryPlotCardUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
 from app.services.story_cards import (
     STORY_PLOT_CARD_SOURCE_USER,
+    normalize_story_plot_card_memory_turns_for_storage,
+    normalize_story_plot_card_triggers,
     normalize_story_instruction_content,
     normalize_story_instruction_title,
     normalize_story_plot_card_content,
+    serialize_story_plot_card_triggers,
     normalize_story_plot_card_title,
     story_plot_card_to_out,
 )
@@ -139,10 +144,25 @@ def create_story_plot_card(
 ) -> StoryPlotCardOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    normalized_title = normalize_story_plot_card_title(payload.title)
+    normalized_content = normalize_story_plot_card_content(payload.content)
+    normalized_triggers = normalize_story_plot_card_triggers(
+        payload.triggers,
+        fallback_title=normalized_title,
+    )
+    normalized_memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+        payload.memory_turns,
+        explicit="memory_turns" in payload.model_fields_set,
+        current_value=None,
+    )
     plot_card = StoryPlotCard(
         game_id=game.id,
-        title=normalize_story_plot_card_title(payload.title),
-        content=normalize_story_plot_card_content(payload.content),
+        title=normalized_title,
+        content=normalized_content,
+        triggers=serialize_story_plot_card_triggers(normalized_triggers),
+        memory_turns=normalized_memory_turns,
+        ai_edit_enabled=True,
+        is_enabled=True,
         source=STORY_PLOT_CARD_SOURCE_USER,
     )
     db.add(plot_card)
@@ -171,8 +191,81 @@ def update_story_plot_card(
     if plot_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
 
-    plot_card.title = normalize_story_plot_card_title(payload.title)
-    plot_card.content = normalize_story_plot_card_content(payload.content)
+    normalized_title = normalize_story_plot_card_title(payload.title)
+    normalized_content = normalize_story_plot_card_content(payload.content)
+    normalized_triggers = normalize_story_plot_card_triggers(
+        payload.triggers,
+        fallback_title=normalized_title,
+    )
+    if "memory_turns" in payload.model_fields_set:
+        normalized_memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+            payload.memory_turns,
+            explicit=True,
+            current_value=plot_card.memory_turns,
+        )
+    else:
+        normalized_memory_turns = normalize_story_plot_card_memory_turns_for_storage(
+            plot_card.memory_turns,
+            explicit=False,
+            current_value=plot_card.memory_turns,
+        )
+
+    plot_card.title = normalized_title
+    plot_card.content = normalized_content
+    plot_card.triggers = serialize_story_plot_card_triggers(normalized_triggers)
+    plot_card.memory_turns = normalized_memory_turns
+    touch_story_game(game)
+    db.commit()
+    db.refresh(plot_card)
+    return story_plot_card_to_out(plot_card)
+
+
+@router.patch("/api/story/games/{game_id}/plot-cards/{card_id}/ai-edit", response_model=StoryPlotCardOut)
+def update_story_plot_card_ai_edit(
+    game_id: int,
+    card_id: int,
+    payload: StoryPlotCardAiEditUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryPlotCardOut:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+    plot_card = db.scalar(
+        select(StoryPlotCard).where(
+            StoryPlotCard.id == card_id,
+            StoryPlotCard.game_id == game.id,
+        )
+    )
+    if plot_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
+
+    plot_card.ai_edit_enabled = bool(payload.ai_edit_enabled)
+    touch_story_game(game)
+    db.commit()
+    db.refresh(plot_card)
+    return story_plot_card_to_out(plot_card)
+
+
+@router.patch("/api/story/games/{game_id}/plot-cards/{card_id}/enabled", response_model=StoryPlotCardOut)
+def update_story_plot_card_enabled(
+    game_id: int,
+    card_id: int,
+    payload: StoryPlotCardEnabledUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryPlotCardOut:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+    plot_card = db.scalar(
+        select(StoryPlotCard).where(
+            StoryPlotCard.id == card_id,
+            StoryPlotCard.game_id == game.id,
+        )
+    )
+    if plot_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
+
+    plot_card.is_enabled = bool(payload.is_enabled)
     touch_story_game(game)
     db.commit()
     db.refresh(plot_card)

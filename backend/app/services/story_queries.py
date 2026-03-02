@@ -11,6 +11,7 @@ from app.models import (
     StoryGame,
     StoryInstructionCard,
     StoryInstructionTemplate,
+    StoryMemoryBlock,
     StoryMessage,
     StoryTurnImage,
     StoryPlotCard,
@@ -143,6 +144,22 @@ def list_story_plot_cards(db: Session, game_id: int) -> list[StoryPlotCard]:
         .where(StoryPlotCard.game_id == game_id)
         .order_by(StoryPlotCard.id.asc())
     ).all()
+
+
+def list_story_memory_blocks(
+    db: Session,
+    game_id: int,
+    *,
+    assistant_message_id: int | None = None,
+    include_undone: bool = False,
+) -> list[StoryMemoryBlock]:
+    query = select(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id)
+    if assistant_message_id is not None:
+        query = query.where(StoryMemoryBlock.assistant_message_id == assistant_message_id)
+    if not include_undone:
+        query = query.where(StoryMemoryBlock.undone_at.is_(None))
+    query = query.order_by(StoryMemoryBlock.id.asc())
+    return db.scalars(query).all()
 
 
 def list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:

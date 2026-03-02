@@ -194,7 +194,7 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=10_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -203,6 +203,8 @@ class StoryGameCreateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    show_gg_thoughts: bool | None = None
+    show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
 
 
@@ -215,7 +217,7 @@ class StoryGameCloneRequest(BaseModel):
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=500, le=4_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=10_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -224,6 +226,8 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    show_gg_thoughts: bool | None = None
+    show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
 
 
@@ -246,7 +250,7 @@ class StoryInstructionCardInput(BaseModel):
 
 
 class StoryGenerateRequest(BaseModel):
-    prompt: str | None = Field(default=None, min_length=1, max_length=8_000)
+    prompt: str | None = Field(default=None, min_length=1, max_length=4_000)
     reroll_last_response: bool = False
     discard_last_assistant_steps: int = Field(default=0, ge=0, le=50)
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
@@ -255,6 +259,8 @@ class StoryGenerateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    show_gg_thoughts: bool | None = None
+    show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
 
 
@@ -322,6 +328,14 @@ class StoryWorldCardAiEditUpdateRequest(BaseModel):
     ai_edit_enabled: bool
 
 
+class StoryPlotCardAiEditUpdateRequest(BaseModel):
+    ai_edit_enabled: bool
+
+
+class StoryPlotCardEnabledUpdateRequest(BaseModel):
+    is_enabled: bool
+
+
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=6_000)
@@ -346,12 +360,16 @@ class StoryCharacterAssignRequest(BaseModel):
 
 class StoryPlotCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=16_000)
+    content: str = Field(min_length=1, max_length=32_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    memory_turns: int | None = Field(default=None)
 
 
 class StoryPlotCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=16_000)
+    content: str = Field(min_length=1, max_length=32_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    memory_turns: int | None = Field(default=None)
 
 
 class StoryMessageUpdateRequest(BaseModel):
@@ -470,6 +488,10 @@ class StoryPlotCardOut(BaseModel):
     game_id: int
     title: str
     content: str
+    triggers: list[str]
+    memory_turns: int | None
+    ai_edit_enabled: bool
+    is_enabled: bool
     source: str
     created_at: datetime
     updated_at: datetime
@@ -479,6 +501,10 @@ class StoryPlotCardSnapshotOut(BaseModel):
     id: int | None
     title: str
     content: str
+    triggers: list[str]
+    memory_turns: int | None
+    ai_edit_enabled: bool
+    is_enabled: bool
     source: str
 
 
@@ -493,6 +519,18 @@ class StoryPlotCardChangeEventOut(BaseModel):
     before_snapshot: StoryPlotCardSnapshotOut | None
     after_snapshot: StoryPlotCardSnapshotOut | None
     created_at: datetime
+
+
+class StoryMemoryBlockOut(BaseModel):
+    id: int
+    game_id: int
+    assistant_message_id: int | None
+    layer: Literal["raw", "compressed", "super", "key"]
+    title: str
+    content: str
+    token_count: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class StoryWorldCardSnapshotOut(BaseModel):
@@ -550,6 +588,8 @@ class StoryGameSummaryOut(BaseModel):
     memory_optimization_enabled: bool
     story_top_k: int
     story_top_r: float
+    show_gg_thoughts: bool
+    show_npc_thoughts: bool
     ambient_enabled: bool
     ambient_profile: dict[str, Any] | None
     last_activity_at: datetime
@@ -648,6 +688,7 @@ class StoryGameOut(BaseModel):
     instruction_cards: list[StoryInstructionCardOut]
     plot_cards: list[StoryPlotCardOut]
     plot_card_events: list[StoryPlotCardChangeEventOut]
+    memory_blocks: list[StoryMemoryBlockOut] = Field(default_factory=list)
     world_cards: list[StoryWorldCardOut]
     world_card_events: list[StoryWorldCardChangeEventOut]
     can_redo_assistant_step: bool = False

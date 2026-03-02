@@ -24,6 +24,7 @@ from app.models import (
     StoryGame,
     StoryInstructionCard,
     StoryInstructionTemplate,
+    StoryMemoryBlock,
     StoryMessage,
     StoryTurnImage,
     StoryPlotCard,
@@ -258,6 +259,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN story_top_r FLOAT NOT NULL DEFAULT 1.0"
         )
+    if "show_gg_thoughts" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN show_gg_thoughts INTEGER NOT NULL DEFAULT 1"
+        )
+    if "show_npc_thoughts" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN show_npc_thoughts INTEGER NOT NULL DEFAULT 1"
+        )
     if "ambient_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -369,6 +380,43 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
                     f"WHERE kind = '{defaults.main_hero_kind}'"
                 )
             )
+
+
+def _ensure_story_plot_card_extended_columns_exist() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryPlotCard.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryPlotCard.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "ai_edit_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryPlotCard.__tablename__} "
+            "ADD COLUMN ai_edit_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    if "is_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryPlotCard.__tablename__} "
+            "ADD COLUMN is_enabled INTEGER NOT NULL DEFAULT 1"
+        )
+    if "triggers" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryPlotCard.__tablename__} "
+            "ADD COLUMN triggers TEXT NOT NULL DEFAULT '[]'"
+        )
+    if "memory_turns" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryPlotCard.__tablename__} "
+            "ADD COLUMN memory_turns INTEGER NOT NULL DEFAULT 10"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
 
 
 def _ensure_story_character_avatar_scale_column_exists() -> None:
@@ -626,6 +674,16 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryInstructionTemplate.__tablename__} (source_template_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_plot_cards_game_id_id "
         f"ON {StoryPlotCard.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_plot_cards_game_enabled_id "
+        f"ON {StoryPlotCard.__tablename__} (game_id, is_enabled, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_memory_blocks_game_id_id "
+        f"ON {StoryMemoryBlock.__tablename__} (game_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_memory_blocks_game_layer_id "
+        f"ON {StoryMemoryBlock.__tablename__} (game_id, layer, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_memory_blocks_game_undone_id "
+        f"ON {StoryMemoryBlock.__tablename__} (game_id, undone_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_memory_blocks_assistant_id "
+        f"ON {StoryMemoryBlock.__tablename__} (assistant_message_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_id_id "
         f"ON {StoryWorldCard.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_cards_game_kind_id "
@@ -718,6 +776,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
         defaults.response_max_tokens,
     )
     _ensure_story_world_card_extended_columns_exist(defaults)
+    _ensure_story_plot_card_extended_columns_exist()
     _ensure_story_character_avatar_scale_column_exists()
     _ensure_story_character_community_columns_exist(defaults.private_visibility)
     _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)

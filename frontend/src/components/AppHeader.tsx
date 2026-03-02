@@ -36,6 +36,7 @@ const HEADER_BUTTON_SIZE = moriusThemeTokens.layout.headerButtonSize
 const MENU_COLLAPSED_WIDTH = 64
 const MENU_EXPANDED_WIDTH = 244
 const MENU_PANEL_TOP_OFFSET = HEADER_BUTTON_SIZE + 12
+const LOGO_WIDTH = 86
 
 const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
@@ -84,11 +85,13 @@ const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = fal
 })
 
 const sidebarIconWrapSx = (isActive: boolean, isExpanded: boolean) => ({
-  width: isExpanded ? 36 : 42,
+  width: isExpanded ? 40 : 42,
   height: isExpanded ? 36 : 42,
   borderRadius: '12px',
-  display: 'grid',
-  placeItems: 'center',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: isExpanded ? 'flex-start' : 'center',
+  pl: isExpanded ? 1 : 0,
   flexShrink: 0,
   color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
   backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-button-hover) 92%, var(--morius-app-surface))' : 'transparent',
@@ -106,7 +109,7 @@ const sidebarLabelSx = (isExpanded: boolean) => ({
 
 function SidebarHomeIcon() {
   return (
-    <SvgIcon viewBox="0 0 20 19" sx={{ width: 20, height: 19 }}>
+    <SvgIcon viewBox="0 0 20 19" sx={{ width: 20, height: 20 }}>
       <path
         d="M11.2281 0.421388C10.877 0.148279 10.4449 0 10.0001 0C9.5553 0 9.12319 0.148279 8.7721 0.421388L0.388104 6.94139C-0.363896 7.52839 0.0501037 8.73339 1.0031 8.73339H2.0001V16.7334C2.0001 17.2638 2.21082 17.7725 2.58589 18.1476C2.96096 18.5227 3.46967 18.7334 4.0001 18.7334H8.0001V12.7334C8.0001 12.203 8.21082 11.6942 8.58589 11.3192C8.96096 10.9441 9.46967 10.7334 10.0001 10.7334C10.5305 10.7334 11.0392 10.9441 11.4143 11.3192C11.7894 11.6942 12.0001 12.203 12.0001 12.7334V18.7334H16.0001C16.5305 18.7334 17.0392 18.5227 17.4143 18.1476C17.7894 17.7725 18.0001 17.2638 18.0001 16.7334V8.73339H18.9971C19.9491 8.73339 20.3651 7.52839 19.6121 6.94239L11.2281 0.421388Z"
         fill="currentColor"
@@ -117,7 +120,7 @@ function SidebarHomeIcon() {
 
 function SidebarCommunityIcon() {
   return (
-    <SvgIcon viewBox="0 0 29 20" sx={{ width: 24, height: 18 }}>
+    <SvgIcon viewBox="0 0 29 20" sx={{ width: 20, height: 20 }}>
       <path
         d="M14.2857 0C13.1491 0 12.059 0.451529 11.2553 1.25526C10.4515 2.05898 10 3.14907 10 4.28571C10 5.42236 10.4515 6.51245 11.2553 7.31617C12.059 8.1199 13.1491 8.57143 14.2857 8.57143C15.4224 8.57143 16.5124 8.1199 17.3162 7.31617C18.1199 6.51245 18.5714 5.42236 18.5714 4.28571C18.5714 3.14907 18.1199 2.05898 17.3162 1.25526C16.5124 0.451529 15.4224 0 14.2857 0ZM15.7143 10H12.8571C8.91429 10 5.71429 13.2 5.71429 17.1429V17.8571C5.71429 19.0429 6.67143 20 7.85714 20H20.7143C21.9 20 22.8571 19.0429 22.8571 17.8571V17.1429C22.8571 13.2 19.6571 10 15.7143 10ZM6.42857 8.57143C7.1 8.57143 7.71429 8.4 8.24286 8.1C7.64371 7.14606 7.27724 6.06462 7.17301 4.94296C7.06879 3.82131 7.22973 2.69086 7.64286 1.64286C7.27143 1.51429 6.85714 1.42857 6.42857 1.42857C4.37143 1.42857 2.85714 2.94286 2.85714 5C2.85714 7.05714 4.37143 8.57143 6.42857 8.57143ZM5.87143 10H5C2.24286 10 0 12.2429 0 15V16.4286C0 16.8286 0.314286 17.1429 0.714286 17.1429H2.85714C2.85714 14.3429 4.01429 11.8143 5.87143 10ZM22.1429 8.57143C24.2 8.57143 25.7143 7.05714 25.7143 5C25.7143 2.94286 24.2 1.42857 22.1429 1.42857C21.7 1.42857 21.3 1.51429 20.9286 1.64286C21.3417 2.69086 21.5026 3.82131 21.3984 4.94296C21.2942 6.06462 20.9277 7.14606 20.3286 8.1C20.8571 8.4 21.4571 8.57143 22.1429 8.57143ZM23.5714 10H22.7C23.6545 10.9285 24.4131 12.0391 24.9309 13.266C25.4486 14.4929 25.715 15.8112 25.7143 17.1429H27.8571C28.2571 17.1429 28.5714 16.8286 28.5714 16.4286V15C28.5714 12.2429 26.3286 10 23.5714 10Z"
         fill="currentColor"
@@ -128,7 +131,7 @@ function SidebarCommunityIcon() {
 
 function SidebarLibraryIcon() {
   return (
-    <SvgIcon viewBox="0 0 18 20" sx={{ width: 18, height: 20 }}>
+    <SvgIcon viewBox="0 0 18 20" sx={{ width: 20, height: 20 }}>
       <path d="M17 0H3C1.35 0 0 1.35 0 3V17C0 18.65 1.35 20 3 20H18V18H3C2.45 18 2 17.55 2 17C2 16.45 2.45 16 3 16H17C17.55 16 18 15.55 18 15V1C18 0.45 17.55 0 17 0ZM14 6H5V4H14V6Z" fill="currentColor" />
     </SvgIcon>
   )
@@ -184,13 +187,13 @@ function AppHeader({
       key: 'theme-settings',
       label: 'Темы',
       onClick: handleOpenThemeDialog,
-      icon: <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />,
+      icon: <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
     },
     {
       key: 'support',
       label: 'Поддержка',
       onClick: handleOpenSupportDialog,
-      icon: <Box component="img" src={icons.help} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />,
+      icon: <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
     },
     ...(onOpenTopUpDialog
       ? [
@@ -198,7 +201,7 @@ function AppHeader({
             key: 'top-up',
             label: 'Пополнить',
             onClick: handleOpenTopUpDialog,
-            icon: <Box component="img" src={icons.menuShop} alt="" sx={{ width: 18, height: 18, opacity: 0.92 }} />,
+            icon: <Box component="img" src={icons.menuShop} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
           },
         ]
       : []),
@@ -231,6 +234,7 @@ function AppHeader({
           top: 'var(--morius-header-top-offset)',
           left: 'var(--morius-header-side-offset)',
           zIndex: 37,
+          width: isPageMenuOpen ? sidebarWidth : 'auto',
           display: 'flex',
           alignItems: 'center',
           gap: 0.8,
@@ -246,11 +250,15 @@ function AppHeader({
         </IconButton>
         <Box
           sx={{
+            position: isPageMenuOpen ? 'absolute' : 'relative',
+            left: isPageMenuOpen ? '50%' : 'auto',
+            transform: isPageMenuOpen ? 'translateX(-50%)' : 'none',
             flexShrink: 0,
-            width: showLogo ? 86 : 0,
+            width: showLogo ? LOGO_WIDTH : 0,
             opacity: showLogo ? 1 : 0,
             overflow: 'hidden',
-            transition: 'width 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
+            pointerEvents: 'none',
+            transition: 'width 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 220ms ease',
           }}
         >
           <Box
@@ -258,7 +266,7 @@ function AppHeader({
             src={brandLogo}
             alt="Morius"
             sx={{
-              width: 86,
+              width: LOGO_WIDTH,
               height: 'auto',
               display: 'block',
               opacity: 0.96,
@@ -298,6 +306,7 @@ function AppHeader({
                 sx={{
                   width: isPageMenuOpen ? '100%' : 'fit-content',
                   minWidth: 0,
+                  pt: 1,
                   maxHeight: showPrimaryItems ? 320 : 0,
                   opacity: showPrimaryItems ? 1 : 0,
                   overflow: 'hidden',

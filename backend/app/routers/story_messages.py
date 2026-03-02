@@ -11,8 +11,6 @@ from app.services.auth_identity import get_current_user
 from app.services.story_queries import get_user_story_game_or_404, touch_story_game
 from app.services.story_text import normalize_story_text
 
-STORY_ASSISTANT_ROLE = "assistant"
-
 router = APIRouter()
 
 
@@ -35,9 +33,6 @@ def update_story_message(
     )
     if message is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
-    if message.role != STORY_ASSISTANT_ROLE:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only AI messages can be edited")
-
     message.content = normalize_story_text(payload.content)
     touch_story_game(game)
     db.commit()

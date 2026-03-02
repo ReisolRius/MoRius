@@ -4,12 +4,15 @@ import {
   Box,
   Button,
   CircularProgress,
-  Divider,
+  IconButton,
+  InputAdornment,
+  MenuItem,
   Slider,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
+import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
@@ -82,6 +85,7 @@ const CHARACTER_AVATAR_MAX_BYTES = 260 * 1024
 const CARD_WIDTH = 286
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
+const OPENING_SCENE_MAX_LENGTH = 4_000
 const WORLD_GENRE_OPTIONS = [
   'Фэнтези',
   'Фантастика (Научная фантастика)',
@@ -137,59 +141,6 @@ function normalizeCharacterIdentity(value: string): string {
     .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-}
-
-function buildDefaultCoverDataUrl(): string {
-  if (typeof document === 'undefined') {
-    return ''
-  }
-
-  const canvas = document.createElement('canvas')
-  canvas.width = 1280
-  canvas.height = 720
-  const context = canvas.getContext('2d')
-  if (!context) {
-    return ''
-  }
-
-  const seed = Math.floor(Math.random() * 1_000_000)
-  const waveOffset = 18 + (seed % 9)
-  const glowX = 0.4 + ((seed % 31) / 100)
-  const glowY = 0.08 + ((seed % 17) / 220)
-
-  const baseGradient = context.createLinearGradient(0, 0, canvas.width, canvas.height)
-  baseGradient.addColorStop(0, '#0f141b')
-  baseGradient.addColorStop(0.55, '#121926')
-  baseGradient.addColorStop(1, '#0f1012')
-  context.fillStyle = baseGradient
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  const ambientGlow = context.createRadialGradient(
-    canvas.width * glowX,
-    canvas.height * glowY,
-    0,
-    canvas.width * glowX,
-    canvas.height * glowY,
-    canvas.width * 0.85,
-  )
-  ambientGlow.addColorStop(0, 'rgba(78, 110, 145, 0.38)')
-  ambientGlow.addColorStop(0.48, 'rgba(46, 70, 101, 0.24)')
-  ambientGlow.addColorStop(1, 'rgba(17, 17, 17, 0)')
-  context.fillStyle = ambientGlow
-  context.fillRect(0, 0, canvas.width, canvas.height)
-
-  context.strokeStyle = 'rgba(150, 182, 219, 0.14)'
-  context.lineWidth = 2
-  for (let index = 0; index < 34; index += 1) {
-    context.beginPath()
-    context.arc(-canvas.width * 0.08, canvas.height * 0.26, 120 + index * waveOffset, 0, Math.PI * 2)
-    context.stroke()
-  }
-
-  context.fillStyle = 'rgba(17, 17, 17, 0.44)'
-  context.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3)
-
-  return canvas.toDataURL('image/jpeg', 0.9)
 }
 
 function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCharacterCard {
@@ -250,6 +201,87 @@ function CompactCard({ title, content, badge, avatar, actions }: { title: string
   )
 }
 
+type EmptyAddAction = {
+  label: string
+  onClick: () => void
+}
+
+function EmptyAddCard({ onClick, label, actions = [] }: { onClick: () => void; label: string; actions?: EmptyAddAction[] }) {
+  return (
+    <Box
+      sx={{
+        width: { xs: '100%', sm: 380 },
+        minHeight: 186,
+        borderRadius: '12px',
+        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 78%, rgba(174, 201, 231, 0.34))',
+        background:
+          'linear-gradient(120deg, color-mix(in srgb, var(--morius-elevated-bg) 84%, #1a2634) 0%, color-mix(in srgb, var(--morius-card-bg) 82%, #2c3646) 100%)',
+        color: APP_TEXT_PRIMARY,
+        px: 1.15,
+        py: 1.2,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        gap: 1,
+      }}
+    >
+      <Button
+        onClick={onClick}
+        sx={{
+          width: '100%',
+          minHeight: 110,
+          borderRadius: '10px',
+          textTransform: 'none',
+          backgroundColor: 'transparent',
+          '&:hover': {
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 66%, transparent)',
+          },
+        }}
+      >
+        <Stack alignItems="center" spacing={0.9}>
+          <Box
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: '50%',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-text-primary) 60%, transparent)',
+              display: 'grid',
+              placeItems: 'center',
+              color: 'color-mix(in srgb, var(--morius-text-primary) 82%, #d9ecff)',
+              fontSize: '2rem',
+              lineHeight: 1,
+            }}
+          >
+            +
+          </Box>
+          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.84rem', fontWeight: 600 }}>{label}</Typography>
+        </Stack>
+      </Button>
+      {actions.length > 0 ? (
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} sx={{ width: '100%' }}>
+          {actions.slice(0, 2).map((action) => (
+            <Button
+              key={action.label}
+              onClick={action.onClick}
+              sx={{
+                minHeight: 34,
+                flex: 1,
+                borderRadius: '999px',
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                textTransform: 'none',
+                fontSize: '0.83rem',
+                backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, transparent)',
+              }}
+            >
+              {action.label}
+            </Button>
+          ))}
+        </Stack>
+      ) : null}
+    </Box>
+  )
+}
+
 function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: WorldCreatePageProps) {
   const isEditMode = editingGameId !== null
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
@@ -264,6 +296,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
   const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
   const [genres, setGenres] = useState<string[]>([])
+  const [genreSearch, setGenreSearch] = useState('')
   const [coverImageUrl, setCoverImageUrl] = useState<string | null>(null)
   const [coverScale, setCoverScale] = useState(1)
   const [coverPositionX, setCoverPositionX] = useState(50)
@@ -296,13 +329,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
-  const hasInitializedDefaultCoverRef = useRef(false)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
   const selectedInstructionTemplateSignatures = useMemo(
     () => instructionCards.map((card) => createInstructionTemplateSignature(card.title, card.content)),
     [instructionCards],
   )
-  const openingSceneTagCharacters = useMemo(() => sortedCharacters.slice(0, 8), [sortedCharacters])
   const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHero?.name ?? ''), [mainHero?.name])
   const npcCharacterIds = useMemo(() => new Set(npcs.map((npc) => npc.character_id).filter((id): id is number => Boolean(id))), [npcs])
   const npcNames = useMemo(() => {
@@ -319,6 +350,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     () => !isSubmitting && !isLoading && Boolean(title.trim()),
     [isLoading, isSubmitting, title],
   )
+  const visibleGenres = useMemo(() => {
+    const query = genreSearch.trim().toLowerCase()
+    if (!query) {
+      return WORLD_GENRE_OPTIONS
+    }
+    return WORLD_GENRE_OPTIONS.filter((genre) => genre.toLowerCase().includes(query))
+  }, [genreSearch])
 
   const toggleGenre = useCallback((genre: string) => {
     setGenres((previous) => {
@@ -336,31 +374,6 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     const next = setStoryTitle(loadStoryTitleMap(), gameId, nextTitle)
     persistStoryTitleMap(next)
   }, [])
-
-  const appendOpeningSceneTemplate = useCallback((template: string) => {
-    setOpeningScene((previousValue) => {
-      const trimmed = previousValue.trimEnd()
-      if (!trimmed) {
-        return template
-      }
-      return `${trimmed}\n${template}`
-    })
-  }, [])
-
-  useEffect(() => {
-    if (isEditMode || hasInitializedDefaultCoverRef.current) {
-      return
-    }
-    hasInitializedDefaultCoverRef.current = true
-    const generatedCover = buildDefaultCoverDataUrl()
-    if (!generatedCover) {
-      return
-    }
-    setCoverImageUrl(generatedCover)
-    setCoverScale(1)
-    setCoverPositionX(50)
-    setCoverPositionY(50)
-  }, [isEditMode])
 
   const getTemplateDisabledReason = useCallback(
     (character: StoryCharacter, target: 'main_hero' | 'npc'): string | null => {
@@ -725,8 +738,6 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
   )
 
-  const heroTitle = title.trim() ? title.trim() : isEditMode ? 'Редактирование мира' : 'Создание мира'
-
   return (
     <Box sx={{ minHeight: '100svh', color: APP_TEXT_PRIMARY, background: APP_PAGE_BACKGROUND }}>
       <AppHeader
@@ -751,102 +762,207 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: 4 }}>
         <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
-          {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={1.5}>
-            <Stack spacing={0.35}><Typography sx={{ fontSize: { xs: '1.65rem', md: '1.9rem' }, fontWeight: 800 }}>{heroTitle}</Typography><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Заполните мир и добавьте карточки. После создания он сразу откроется в игре.</Typography></Stack>
-            <TextField
-              label="Название мира"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              fullWidth
-              inputProps={{ maxLength: 140 }}
-              helperText={<TextLimitIndicator currentLength={title.length} maxLength={140} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            <TextField
-              label="Краткое описание"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              fullWidth
-              multiline
-              minRows={3}
-              maxRows={8}
-              inputProps={{ maxLength: 1000 }}
-              helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            {!isEditMode ? <>
-            <TextField
-              label="Вступительная сцена"
-              value={openingScene}
-              onChange={(e) => setOpeningScene(e.target.value)}
-              fullWidth
-              multiline
-              minRows={3}
-              maxRows={8}
-              inputProps={{ maxLength: 4000 }}
-              helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={4000} />}
-              FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-            />
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.45, whiteSpace: 'pre-wrap' }}>
-              Разметка для вступления: {'\n'}
-              {'<narrative>Ночь была неспокойной...</narrative>'}{'\n'}
-              {'<gg-replick:Алекс>Ты в порядке?</gg-replick>'}{'\n'}
-              {'<npc-replick:Стражник>Стой. Назовись.</npc-replick>'}{'\n'}
-              {'<gg-thought:Алекс>Лучше не спорить...</gg-thought>'}{'\n'}
-              {'<npc-thought:Стражник>Он что-то скрывает.</npc-thought>'}{'\n\n'}
-              Чтобы взять имя и аватар из «Мои персонажи», используйте @Имя:{'\n'}
-              {'<gg-replick:@Алекс Уейт>...</gg-replick>'}{'\n'}
-              {'<npc-replick:@Аками Наито>...</npc-replick>'}
-            </Typography>
-            {openingSceneTagCharacters.length > 0 ? (
-              <Stack spacing={0.55}>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>Быстрые теги из «Мои персонажи»:</Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.55 }}>
-                  {openingSceneTagCharacters.map((character) => (
-                    <Button
-                      key={`opening-scene-character-${character.id}`}
-                      onClick={() => appendOpeningSceneTemplate(`<npc-replick:@${character.name}>...</npc-replick>`)}
-                      sx={{
-                        minHeight: 30,
-                        px: 0.95,
-                        borderRadius: '999px',
-                        textTransform: 'none',
-                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                        backgroundColor: APP_CARD_BACKGROUND,
-                        color: APP_TEXT_PRIMARY,
-                        fontSize: '0.82rem',
-                      }}
-                    >
-                      {character.name}
-                    </Button>
-                  ))}
-                </Box>
-              </Stack>
-            ) : null}
-            </> : null}
-            <Stack spacing={0.75}>
-              <Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Возрастное ограничение</Typography>
-              <Stack direction="row" spacing={0.8} flexWrap="wrap">
-                {AGE_RATING_OPTIONS.map((option) => (
-                  <Button
-                    key={option}
-                    onClick={() => setAgeRating(option)}
+          {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={2.2}>
+            <Stack spacing={0.95}>
+              <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
+              <Box
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  '&:hover .morius-cover-delete': {
+                    opacity: 1,
+                    transform: 'translateY(0)',
+                  },
+                  '&:hover .morius-cover-shade': {
+                    opacity: 1,
+                  },
+                }}
+              >
+                <Button
+                  onClick={() => {
+                    if (coverImageUrl) {
+                      openCoverCropEditor()
+                      return
+                    }
+                    coverInputRef.current?.click()
+                  }}
+                  sx={{
+                    p: 0,
+                    width: '100%',
+                    borderRadius: '12px',
+                    border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 72%, rgba(183, 205, 233, 0.45))',
+                    overflow: 'hidden',
+                    textTransform: 'none',
+                  }}
+                >
+                  <Box
                     sx={{
-                      minHeight: 38,
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: ageRating === option ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
-                      color: APP_TEXT_PRIMARY,
+                      width: '100%',
+                      aspectRatio: '3 / 2',
+                      position: 'relative',
+                      background: coverImageUrl
+                        ? 'transparent'
+                        : 'linear-gradient(110deg, color-mix(in srgb, var(--morius-card-bg) 86%, #111925) 0%, color-mix(in srgb, var(--morius-elevated-bg) 74%, #404a5a) 100%)',
                     }}
                   >
-                    {option}
-                  </Button>
-                ))}
-              </Stack>
+                    {coverImageUrl ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundImage: `url(${coverImageUrl})`,
+                          backgroundSize: `${coverScale * 100}%`,
+                          backgroundPosition: `${coverPositionX}% ${coverPositionY}%`,
+                        }}
+                      />
+                    ) : null}
+                    {coverImageUrl ? (
+                      <Box
+                        className="morius-cover-shade"
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          backgroundColor: 'rgba(8, 11, 16, 0.35)',
+                          opacity: 0,
+                          transition: 'opacity 170ms ease',
+                        }}
+                      />
+                    ) : null}
+                    <Stack sx={{ position: 'absolute', inset: 0 }} alignItems="center" justifyContent="center">
+                      <Box
+                        sx={{
+                          width: 82,
+                          height: 82,
+                          borderRadius: '50%',
+                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-text-primary) 62%, transparent)',
+                          background: 'color-mix(in srgb, var(--morius-card-bg) 60%, transparent)',
+                          display: 'grid',
+                          placeItems: 'center',
+                          color: 'color-mix(in srgb, var(--morius-text-primary) 84%, #d8ebff)',
+                          lineHeight: 1,
+                        }}
+                      >
+                        {coverImageUrl ? (
+                          <Box
+                            component="img"
+                            src={icons.communityEdit}
+                            alt=""
+                            aria-hidden
+                            sx={{ width: 25, height: 25, filter: 'brightness(0) invert(1)', opacity: 0.93 }}
+                          />
+                        ) : (
+                          <Typography component="span" sx={{ fontSize: '2.4rem', lineHeight: 1 }}>
+                            +
+                          </Typography>
+                        )}
+                      </Box>
+                    </Stack>
+                  </Box>
+                </Button>
+                {coverImageUrl ? (
+                  <IconButton
+                    className="morius-cover-delete"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setCoverImageUrl(null)
+                    }}
+                    sx={{
+                      position: 'absolute',
+                      top: 10,
+                      right: 10,
+                      width: 36,
+                      height: 36,
+                      border: 'var(--morius-border-width) solid rgba(166, 183, 203, 0.4)',
+                      backgroundColor: 'rgba(6, 10, 14, 0.72)',
+                      color: 'rgba(246, 138, 138, 0.96)',
+                      opacity: 0,
+                      transform: 'translateY(-3px)',
+                      transition: 'opacity 170ms ease, transform 170ms ease',
+                      '&:hover': {
+                        backgroundColor: 'rgba(9, 13, 19, 0.92)',
+                      },
+                    }}
+                  >
+                    <Box component="svg" viewBox="0 0 24 24" sx={{ width: 18, height: 18, fill: 'currentColor' }}>
+                      <path d="M9 3h6l1 2h5v2H3V5h5l1-2Zm0 6h10l-1 11H10L9 9Z" />
+                      <path d="M11 11h2v7h-2v-7Zm4 0h2v7h-2v-7Z" />
+                    </Box>
+                  </IconButton>
+                ) : null}
+              </Box>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
+                Не больше 360кб (изображение будет автоматически сжато для экономии)
+              </Typography>
             </Stack>
-            <Stack spacing={0.75}>
-              <Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Жанры (до 3)</Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.7 }}>
-                {WORLD_GENRE_OPTIONS.map((genre) => {
+
+            <Stack spacing={1.05}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>О мире</Typography>
+              <TextField
+                label={<><Box component="span">Название мира</Box><Box component="span" sx={{ color: '#f05454' }}>*</Box></>}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                fullWidth
+                inputProps={{ maxLength: 140 }}
+                helperText={<TextLimitIndicator currentLength={title.length} maxLength={140} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+              <TextField
+                label="Описание мира"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                fullWidth
+                multiline
+                minRows={3}
+                maxRows={8}
+                inputProps={{ maxLength: 1000 }}
+                helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+              {!isEditMode ? (
+                <TextField
+                  label="Вступительная сцена"
+                  value={openingScene}
+                  onChange={(e) => setOpeningScene(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  maxRows={8}
+                  inputProps={{ maxLength: OPENING_SCENE_MAX_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={OPENING_SCENE_MAX_LENGTH} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+              ) : null}
+            </Stack>
+
+            <Stack spacing={1}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Дополнительно</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7}>
+                <TextField
+                  value={genreSearch}
+                  onChange={(e) => setGenreSearch(e.target.value)}
+                  placeholder="Начните вводить теги"
+                  fullWidth
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1 }}>⌕</Typography>
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+                <TextField
+                  select
+                  value={ageRating}
+                  onChange={(event) => setAgeRating(event.target.value as StoryAgeRating)}
+                  sx={{ width: { xs: '100%', sm: 92 }, '& .MuiInputBase-root': { height: 46 } }}
+                >
+                  {AGE_RATING_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.65 }}>
+                {visibleGenres.map((genre) => {
                   const isSelected = genres.includes(genre)
                   const isLimitReached = !isSelected && genres.length >= MAX_WORLD_GENRES
                   return (
@@ -855,13 +971,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                       onClick={() => toggleGenre(genre)}
                       disabled={isLimitReached}
                       sx={{
-                        minHeight: 34,
-                        px: 1.1,
+                        minHeight: 32,
+                        px: 1.04,
                         borderRadius: '999px',
                         textTransform: 'none',
                         border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         backgroundColor: isSelected ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                         color: APP_TEXT_PRIMARY,
+                        fontSize: '0.84rem',
                         '&:disabled': {
                           color: APP_TEXT_SECONDARY,
                           borderColor: APP_BORDER_COLOR,
@@ -877,24 +994,175 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                 Выбрано: {genres.length}/{MAX_WORLD_GENRES}
               </Typography>
             </Stack>
-            <Divider />
-            <Stack spacing={0.95}>
-              <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Обложка мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => coverInputRef.current?.click()} sx={{ minHeight: 36 }}>{coverImageUrl ? 'Изменить' : 'Загрузить'}</Button><Button onClick={openCoverCropEditor} disabled={!coverImageUrl} sx={{ minHeight: 36 }}>Настроить кадр</Button><Button onClick={() => setCoverImageUrl(null)} disabled={!coverImageUrl} sx={{ minHeight: 36, color: APP_TEXT_SECONDARY }}>Удалить</Button></Stack></Stack>
-              <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
-              <Box sx={{ minHeight: 208, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundImage: coverImageUrl ? `url(${coverImageUrl})` : 'none', backgroundColor: coverImageUrl ? 'transparent' : 'var(--morius-elevated-bg)', backgroundSize: coverImageUrl ? `${coverScale * 100}%` : 'cover', backgroundPosition: `${coverPositionX}% ${coverPositionY}%` }} />
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem' }}>Лимит файла: 360 KB. Изображение автоматически сжимается перед сохранением.</Typography>
+
+            <Stack spacing={0.85}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Инструкции</Typography>
+              {instructionCards.length === 0 ? (
+                <EmptyAddCard
+                  onClick={() => openCardDialog('instruction')}
+                  label="Добавить инструкцию"
+                  actions={[
+                    { label: 'Новая', onClick: () => openCardDialog('instruction') },
+                    { label: 'Из шаблона', onClick: () => setInstructionTemplateDialogOpen(true) },
+                  ]}
+                />
+              ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {instructionCards.map((card) => (
+                    <CompactCard
+                      key={card.localId}
+                      title={card.title}
+                      content={card.content}
+                      badge="активна"
+                      actions={
+                        <>
+                          <Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                          <Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                        </>
+                      }
+                    />
+                  ))}
+                </Box>
+              )}
+              {instructionCards.length > 0 ? (
+                <Stack direction="row" spacing={0.7}>
+                  <Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 34 }}>Добавить</Button>
+                  <Button onClick={() => setInstructionTemplateDialogOpen(true)} sx={{ minHeight: 34 }}>Из шаблона</Button>
+                </Stack>
+              ) : null}
             </Stack>
-            <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки инструкций</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 36 }}>Добавить</Button><Button onClick={() => setInstructionTemplateDialogOpen(true)} sx={{ minHeight: 36 }}>Из шаблона</Button></Stack></Stack>{instructionCards.length === 0 ? helpEmpty('Добавьте первую инструкцию. Например: стиль повествования, ограничения или тон диалогов.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{instructionCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
-            <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Карточки сюжета</Typography><Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 36 }}>Добавить</Button></Stack>{plotCards.length === 0 ? helpEmpty('Сюжетные карточки помогут быстро держать контекст истории и ключевые события.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{plotCards.map((card) => <CompactCard key={card.localId} title={card.title} content={card.content} badge="активна" actions={<><Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
-            <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Главный герой (необязательно)</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('main_hero', mainHero ?? undefined)} sx={{ minHeight: 36 }}>{mainHero ? 'Редактировать вручную' : 'Создать вручную'}</Button></Stack></Stack>{mainHero ? <CompactCard title={mainHero.name} content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`} badge="гг" avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('main_hero', mainHero)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button></>} /> : helpEmpty('Главного героя можно добавить позже. Для сохранения мира достаточно названия.')}</Stack>
-            <Divider />
-            <Stack spacing={0.75}><Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap"><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>NPC</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 36 }}>Из «Мои персонажи»</Button><Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 36 }}>Добавить вручную</Button></Stack></Stack>{npcs.length === 0 ? helpEmpty('Пока NPC не добавлены. Можно начать игру без NPC и добавить их позже.') : <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>{npcs.map((npc) => <CompactCard key={npc.localId} title={npc.name} content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`} badge="npc" avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />} actions={<><Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button><Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button></>} />)}</Box>}</Stack>
-            <Divider />
-            <Stack spacing={0.75}><Typography sx={{ fontWeight: 800, fontSize: '1.04rem' }}>Видимость мира</Typography><Stack direction="row" spacing={0.8}><Button onClick={() => setVisibility('private')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Приватный</Button><Button onClick={() => setVisibility('public')} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND }}>Публичный</Button></Stack></Stack>
-            <Stack direction="row" spacing={0.8} justifyContent="flex-end"><Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button><Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button></Stack>
+
+            <Stack spacing={0.85}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Сюжет</Typography>
+              {plotCards.length === 0 ? (
+                <EmptyAddCard onClick={() => openCardDialog('plot')} label="Добавить карточку" />
+              ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {plotCards.map((card) => (
+                    <CompactCard
+                      key={card.localId}
+                      title={card.title}
+                      content={card.content}
+                      badge="активна"
+                      actions={
+                        <>
+                          <Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                          <Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                        </>
+                      }
+                    />
+                  ))}
+                </Box>
+              )}
+              {plotCards.length > 0 ? <Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 34, width: 'fit-content' }}>Добавить</Button> : null}
+            </Stack>
+
+            <Stack spacing={0.9}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
+              <Stack spacing={0.7}>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
+                {mainHero ? (
+                  <CompactCard
+                    title={mainHero.name}
+                    content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
+                    badge="гг"
+                    avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
+                    actions={
+                      <>
+                        <Button onClick={() => openCharacterDialog('main_hero', mainHero)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                        <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
+                      </>
+                    }
+                  />
+                ) : (
+                  <EmptyAddCard
+                    onClick={() => openCharacterDialog('main_hero')}
+                    label="Добавить героя"
+                    actions={[
+                      { label: 'Новый герой', onClick: () => openCharacterDialog('main_hero') },
+                      { label: 'Из «Мои персонажи»', onClick: () => setCharacterPickerTarget('main_hero') },
+                    ]}
+                  />
+                )}
+                {mainHero ? (
+                  <Stack direction="row" spacing={0.7}>
+                    <Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 34 }}>Из «Мои персонажи»</Button>
+                    <Button onClick={() => openCharacterDialog('main_hero', mainHero ?? undefined)} sx={{ minHeight: 34 }}>Редактировать вручную</Button>
+                  </Stack>
+                ) : null}
+              </Stack>
+
+              <Stack spacing={0.7}>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>
+                {npcs.length === 0 ? (
+                  <EmptyAddCard
+                    onClick={() => openCharacterDialog('npc')}
+                    label="Добавить NPC"
+                    actions={[
+                      { label: 'Новый NPC', onClick: () => openCharacterDialog('npc') },
+                      { label: 'Из «Мои персонажи»', onClick: () => setCharacterPickerTarget('npc') },
+                    ]}
+                  />
+                ) : (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {npcs.map((npc) => (
+                      <CompactCard
+                        key={npc.localId}
+                        title={npc.name}
+                        content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`}
+                        badge="npc"
+                        avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />}
+                        actions={
+                          <>
+                            <Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                            <Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                          </>
+                        }
+                      />
+                    ))}
+                  </Box>
+                )}
+                {npcs.length > 0 ? (
+                  <Stack direction="row" spacing={0.7}>
+                    <Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 34 }}>Из «Мои персонажи»</Button>
+                    <Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 34 }}>Добавить вручную</Button>
+                  </Stack>
+                ) : null}
+              </Stack>
+            </Stack>
+
+            <Stack spacing={0.9}>
+              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                <Button
+                  onClick={() => setVisibility('private')}
+                  sx={{
+                    minHeight: 44,
+                    flex: 1,
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                  }}
+                >
+                  Частный
+                </Button>
+                <Button
+                  onClick={() => setVisibility('public')}
+                  sx={{
+                    minHeight: 44,
+                    flex: 1,
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                  }}
+                >
+                  Публичный
+                </Button>
+              </Stack>
+            </Stack>
+
+            <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.6 }}>
+              <Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button>
+              <Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button>
+            </Stack>
           </Stack>}
         </Box>
       </Box>
@@ -1187,7 +1455,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       {coverCropSource ? (
         <ImageCropper
           imageSrc={coverCropSource}
-          aspect={16 / 9}
+          aspect={3 / 2}
           frameRadius={12}
           title="Настройка обложки"
           onCancel={handleCancelCoverCrop}

@@ -13,7 +13,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
-from app.models import StoryGame, StoryMessage, StoryPlotCardChangeEvent, StoryTurnImage, StoryWorldCardChangeEvent
+from app.models import (
+    StoryGame,
+    StoryMemoryBlock,
+    StoryMessage,
+    StoryPlotCardChangeEvent,
+    StoryTurnImage,
+    StoryWorldCardChangeEvent,
+)
 from app.schemas import StoryGenerateRequest, UserOut
 from app.services.story_games import (
     coerce_story_llm_model,
@@ -50,6 +57,9 @@ class StoryRuntimeDeps:
     normalize_generated_story_output: Callable[..., str]
     persist_generated_world_cards: Callable[..., list[Any]]
     upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
+    list_story_prompt_memory_cards: Callable[[Session, StoryGame, bool, list[StoryMessage] | None], list[dict[str, str]]]
+    list_story_memory_blocks: Callable[[Session, int], list[Any]]
+    memory_block_to_out: Callable[[Any], Any]
     plot_card_to_out: Callable[[Any], Any]
     world_card_to_out: Callable[[Any], Any]
     world_card_event_to_out: Callable[[Any], Any]
@@ -225,6 +235,8 @@ def _stream_story_response(
     story_top_k: int,
     story_top_r: float,
     memory_optimization_enabled: bool,
+    show_gg_thoughts: bool,
+    show_npc_thoughts: bool,
 ):
     assistant_message: StoryMessage | None = None
     try:
@@ -270,6 +282,8 @@ def _stream_story_response(
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=memory_optimization_enabled,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
         ):
             produced += chunk
             current_time = time.monotonic()
@@ -301,6 +315,8 @@ def _stream_story_response(
             normalized_output = deps.normalize_generated_story_output(
                 text_value=produced,
                 world_cards=world_cards,
+                show_gg_thoughts=show_gg_thoughts,
+                show_npc_thoughts=show_npc_thoughts,
             )
         except Exception:
             logger.exception("Failed to normalize generated story output")
@@ -388,6 +404,9 @@ def _stream_story_response(
                     "plot_cards": _safe_dump_stream_items(
                         [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
                     ),
+                    "ai_memory_blocks": _safe_dump_stream_items(
+                        [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
+                    ),
                     "plot_card_created": plot_card_created,
                 }
                 yield _sse_event("plot_memory", plot_memory_payload)
@@ -429,6 +448,9 @@ def _stream_story_response(
             "plot_cards": _safe_dump_stream_items(
                 [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
             ),
+            "ai_memory_blocks": _safe_dump_stream_items(
+                [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
+            ),
             "world_cards": _safe_dump_stream_items(
                 [deps.world_card_to_out(card) for card in deps.list_story_world_cards(db, game.id)]
             ),
@@ -460,6 +482,9 @@ def _stream_story_response(
         "turn_cost_tokens": turn_cost_tokens,
         "plot_cards": _safe_dump_stream_items(
             [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
+        ),
+        "ai_memory_blocks": _safe_dump_stream_items(
+            [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
         ),
         "world_cards": _safe_dump_stream_items(
             [deps.world_card_to_out(card) for card in deps.list_story_world_cards(db, game.id)]
@@ -512,6 +537,14 @@ def generate_story_response(
     story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
     if payload.story_top_r is not None:
         story_top_r = normalize_story_top_r(payload.story_top_r)
+    raw_show_gg_thoughts = getattr(game, "show_gg_thoughts", None)
+    show_gg_thoughts = True if raw_show_gg_thoughts is None else bool(raw_show_gg_thoughts)
+    if payload.show_gg_thoughts is not None:
+        show_gg_thoughts = bool(payload.show_gg_thoughts)
+    raw_show_npc_thoughts = getattr(game, "show_npc_thoughts", None)
+    show_npc_thoughts = True if raw_show_npc_thoughts is None else bool(raw_show_npc_thoughts)
+    if payload.show_npc_thoughts is not None:
+        show_npc_thoughts = bool(payload.show_npc_thoughts)
     story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
         getattr(game, "response_max_tokens_enabled", None)
     )
@@ -529,23 +562,16 @@ def generate_story_response(
     source_user_message: StoryMessage | None = None
 
     def _calculate_turn_cost_tokens(context_messages_for_cost: list[StoryMessage]) -> int:
-        plot_cards_for_cost = deps.list_story_plot_cards(db, game.id)
         world_cards_for_cost = deps.list_story_world_cards(db, game.id)
         active_world_cards_for_cost = deps.select_story_world_cards_for_prompt(
             context_messages_for_cost,
             world_cards_for_cost,
         )
-        active_plot_cards_for_cost = (
-            [
-                {
-                    "title": card.title.replace("\r\n", " ").strip(),
-                    "content": card.content.replace("\r\n", "\n").strip(),
-                }
-                for card in plot_cards_for_cost
-                if card.title.strip() and card.content.strip()
-            ]
-            if memory_optimization_enabled
-            else []
+        active_plot_cards_for_cost = deps.list_story_prompt_memory_cards(
+            db,
+            game,
+            memory_optimization_enabled,
+            context_messages_for_cost,
         )
         context_usage_tokens = _estimate_story_context_usage_tokens(
             context_messages=context_messages_for_cost,
@@ -604,6 +630,11 @@ def generate_story_response(
                         StoryTurnImage.assistant_message_id == last_message.id,
                     )
                 )
+                db.execute(
+                    sa_delete(StoryMemoryBlock).where(
+                        StoryMemoryBlock.assistant_message_id == last_message.id,
+                    )
+                )
                 db.delete(last_message)
                 if delete_source_user:
                     db.delete(source_user_message_for_step)
@@ -652,6 +683,11 @@ def generate_story_response(
                         StoryPlotCardChangeEvent.assistant_message_id.in_(undone_message_ids),
                     )
                 )
+                db.execute(
+                    sa_delete(StoryMemoryBlock).where(
+                        StoryMemoryBlock.assistant_message_id.in_(undone_message_ids),
+                    )
+                )
             db.execute(
                 sa_delete(StoryTurnImage).where(
                     StoryTurnImage.game_id == game.id,
@@ -668,6 +704,12 @@ def generate_story_response(
                 sa_delete(StoryPlotCardChangeEvent).where(
                     StoryPlotCardChangeEvent.game_id == game.id,
                     StoryPlotCardChangeEvent.undone_at.is_not(None),
+                )
+            )
+            db.execute(
+                sa_delete(StoryMemoryBlock).where(
+                    StoryMemoryBlock.game_id == game.id,
+                    StoryMemoryBlock.undone_at.is_not(None),
                 )
             )
             db.execute(
@@ -756,7 +798,6 @@ def generate_story_response(
         db.refresh(source_user_message)
         db.refresh(user)
 
-    plot_cards = deps.list_story_plot_cards(db, game.id)
     world_cards = deps.list_story_world_cards(db, game.id)
     context_messages = deps.list_story_messages(db, game.id)
     active_world_cards = deps.select_story_world_cards_for_prompt(context_messages, world_cards)
@@ -770,14 +811,12 @@ def generate_story_response(
         early_triggered_world_cards,
         active_world_cards,
     )
-    active_plot_cards = [
-        {
-            "title": card.title.replace("\r\n", " ").strip(),
-            "content": card.content.replace("\r\n", "\n").strip(),
-        }
-        for card in plot_cards
-        if card.title.strip() and card.content.strip()
-    ] if memory_optimization_enabled else []
+    active_plot_cards = deps.list_story_prompt_memory_cards(
+        db,
+        game,
+        memory_optimization_enabled,
+        context_messages,
+    )
     assistant_turn_index = (
         len([message for message in context_messages if message.role == deps.story_assistant_role]) + 1
     )
@@ -801,6 +840,8 @@ def generate_story_response(
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
     )
 
     def _safe_stream():

@@ -29,6 +29,7 @@ import undoIcon from './icons/undo.svg'
 import worldIcon from './icons/world.svg'
 import menuSettingsIcon from './icons/menu-settings.svg'
 import menuShopIcon from './icons/menu-shop.svg'
+import profileSearchFilterIcon from './icons/profile-search-filter.svg'
 import tavernBackground from './images/tavern-bg.png'
 import heroCloudsImage from './images/hero-clouds.svg'
 
@@ -64,6 +65,7 @@ export const icons = {
   settings: settingsIcon,
   menuSettings: menuSettingsIcon,
   menuShop: menuShopIcon,
+  profileSearchFilter: profileSearchFilterIcon,
   tabcoin: tabcoinIcon,
   theme: themeIcon,
   undo: undoIcon,

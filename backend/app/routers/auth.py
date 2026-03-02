@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0
+NEW_USER_STARTER_COINS = 20
 
 
 def _utcnow() -> datetime:
@@ -263,6 +264,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
             password_hash=verification.password_hash,
             display_name=build_user_name(normalized_email),
             auth_provider="email",
+            coins=NEW_USER_STARTER_COINS,
         )
         db.add(user)
 
@@ -404,6 +406,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             avatar_url=avatar_url,
             google_sub=google_sub,
             auth_provider="google",
+            coins=NEW_USER_STARTER_COINS,
         )
         db.add(user)
     else:

@@ -132,6 +132,18 @@ class StoryGame(Base):
         default=1.0,
         server_default="1.0",
     )
+    show_gg_thoughts: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    show_npc_thoughts: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
     ambient_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -488,7 +500,30 @@ class StoryPlotCard(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryMemoryBlock(Base):
+    __tablename__ = "story_memory_blocks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    assistant_message_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    layer: Mapped[str] = mapped_column(String(16), nullable=False, default="raw", server_default="raw")
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
