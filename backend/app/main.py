@@ -3624,8 +3624,8 @@ def _repair_story_markup_with_openrouter(
     text_value: str,
     world_cards: list[dict[str, Any]],
 ) -> str:
-    # Keep story generation within a strict 2-request budget:
-    # narrator call + one post-processing call.
+    # Do not spend an extra LLM request on markup repair.
+    # Reply text is already visible to the player by this stage.
     _ = (text_value, world_cards)
     return ""
 
@@ -6392,6 +6392,84 @@ def _extract_story_important_plot_card_payload(
         ]
         if part
     )
+    if settings.openrouter_api_key:
+        model_name = _resolve_story_plot_memory_model_name()
+        fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+        messages_payload = [
+            {
+                "role": "system",
+                "content": (
+                    "You analyze one RPG turn and extract only truly important long-term events. "
+                    "Return strict JSON only: "
+                    "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
+                    "importance_score must be in range 0..100. "
+                    "Use is_important=true only for major turning points with lasting consequences."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"User turn:\n{normalized_prompt or 'none'}\n\n"
+                    f"Narrator reply:\n{normalized_assistant or 'none'}\n\n"
+                    "If there is no major event, return is_important=false and importance_score<85."
+                ),
+            },
+        ]
+        try:
+            raw_response = _request_openrouter_story_text(
+                messages_payload,
+                model_name=model_name,
+                allow_free_fallback=False,
+                fallback_model_names=fallback_model_names,
+                temperature=0.0,
+                max_tokens=STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS,
+                request_timeout=(
+                    STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+                ),
+            )
+            parsed_payload = _extract_json_object_from_text(raw_response)
+            if isinstance(parsed_payload, dict):
+                raw_is_important = parsed_payload.get("is_important")
+                is_important = False
+                if isinstance(raw_is_important, bool):
+                    is_important = raw_is_important
+                elif isinstance(raw_is_important, (int, float)):
+                    is_important = bool(raw_is_important)
+                elif isinstance(raw_is_important, str):
+                    is_important = raw_is_important.strip().lower() in {"1", "true", "yes"}
+
+                raw_importance_score = parsed_payload.get("importance_score")
+                importance_score = 0
+                if isinstance(raw_importance_score, bool):
+                    importance_score = 100 if raw_importance_score else 0
+                elif isinstance(raw_importance_score, (int, float)):
+                    importance_score = int(raw_importance_score)
+                elif isinstance(raw_importance_score, str):
+                    score_match = re.search(r"-?\d+", raw_importance_score.strip())
+                    if score_match is not None:
+                        try:
+                            importance_score = int(score_match.group(0))
+                        except Exception:
+                            importance_score = 0
+                importance_score = max(min(importance_score, 100), 0)
+
+                if is_important and importance_score >= STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
+                    raw_title = str(parsed_payload.get("title") or parsed_payload.get("name") or "").strip()
+                    raw_content = str(parsed_payload.get("content") or parsed_payload.get("summary") or "").strip()
+                    if raw_content:
+                        content = _build_story_memory_summary_without_truncation(
+                            raw_content,
+                            super_mode=False,
+                        )
+                        if content:
+                            title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
+                            title = _normalize_story_memory_block_title(title, fallback="Important event")
+                            content = _normalize_story_memory_block_content(content)
+                            return (title, content)
+        except Exception as exc:
+            logger.warning("Important plot event extraction failed, fallback to local scoring: %s", exc)
+
     sentences = _extract_story_memory_sentences(combined_text)
     if not sentences:
         return None
