@@ -440,6 +440,7 @@ const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
 const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
+const STRUCTURED_MARKER_INLINE_SPLIT_PATTERN = /\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]/giu
 const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>$/iu
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
@@ -633,6 +634,56 @@ function splitAssistantParagraphs(content: string): string[] {
     .map((value) => value.trim())
     .filter(Boolean)
   return paragraphs.length > 0 ? paragraphs : ['']
+}
+
+function splitAssistantParagraphByInlineMarkers(paragraph: string): string[] {
+  const normalized = paragraph.replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+
+  const matches = [...normalized.matchAll(STRUCTURED_MARKER_INLINE_SPLIT_PATTERN)]
+  if (matches.length === 0) {
+    return [normalized]
+  }
+
+  const chunks: string[] = []
+  const firstMatchIndex = matches[0]?.index ?? -1
+  if (firstMatchIndex < 0) {
+    return [normalized]
+  }
+
+  const leadingText = normalized.slice(0, firstMatchIndex).trim()
+  if (leadingText) {
+    chunks.push(leadingText)
+  }
+
+  for (let index = 0; index < matches.length; index += 1) {
+    const currentMatch = matches[index]
+    const markerToken = (currentMatch?.[0] ?? '').trim()
+    if (!markerToken) {
+      continue
+    }
+    const markerEnd = (currentMatch?.index ?? 0) + markerToken.length
+    const nextMatchStart = matches[index + 1]?.index ?? normalized.length
+    const segmentText = normalized.slice(markerEnd, nextMatchStart).trim()
+    if (segmentText) {
+      chunks.push(`${markerToken} ${segmentText}`.trim())
+      continue
+    }
+    chunks.push(markerToken)
+  }
+
+  return chunks.length > 0 ? chunks : [normalized]
+}
+
+function normalizeAssistantStructuredParagraphs(content: string): string {
+  const baseParagraphs = splitAssistantParagraphs(content)
+  const normalizedParagraphs: string[] = []
+  baseParagraphs.forEach((paragraph) => {
+    normalizedParagraphs.push(...splitAssistantParagraphByInlineMarkers(paragraph))
+  })
+  return normalizedParagraphs.join('\n\n').trim()
 }
 
 function estimateDataUrlBytes(dataUrl: string): number {
@@ -882,7 +933,7 @@ function parseTaggedAssistantContent(content: string): AssistantMessageBlock[] |
 }
 
 function parseAssistantMessageBlocks(content: string): AssistantMessageBlock[] {
-  const normalized = content.replace(/\r\n/g, '\n').trim()
+  const normalized = normalizeAssistantStructuredParagraphs(content)
   if (!normalized) {
     return []
   }

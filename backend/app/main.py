@@ -626,6 +626,7 @@ STORY_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+")
 STORY_BULLET_PREFIX_PATTERN = re.compile(r"^\s*[-•*]+\s*")
 STORY_CYRILLIC_TOKEN_PATTERN = re.compile(r"^[а-яё]+$", re.IGNORECASE)
 STORY_MARKUP_MARKER_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
+STORY_MARKUP_INLINE_SPLIT_PATTERN = re.compile(r"\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]")
 STORY_CJK_CHARACTER_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 STORY_LATIN_LETTER_PATTERN = re.compile(r"[A-Za-z]")
 STORY_CYRILLIC_LETTER_PATTERN = re.compile(r"[А-Яа-яЁё]")
@@ -3235,6 +3236,17 @@ def _build_story_system_prompt(
                 lines.append(f"Тип: {kind_label}")
 
     lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES])
+    normalized_model_name = (model_name or "").strip().lower()
+    if "deepseek/" in normalized_model_name:
+        lines.extend(
+            [
+                "",
+                "CRITICAL FORMAT MODE (DeepSeek):",
+                "Каждый абзац должен содержать ровно один маркер в самом начале.",
+                "Никогда не вставляй новый [[...]] маркер в середину уже начатого абзаца.",
+                "Между абзацами оставляй пустую строку.",
+            ]
+        )
     if not show_npc_thoughts:
         lines.extend(
             [
@@ -3370,8 +3382,50 @@ def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
     return f"[[{marker_token}:{speaker_name}]] {text_value}"
 
 
+def _split_story_paragraph_by_inline_markup(paragraph: str) -> list[str]:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return []
+
+    matches = list(STORY_MARKUP_INLINE_SPLIT_PATTERN.finditer(paragraph_value))
+    if not matches:
+        return [paragraph_value]
+
+    chunks: list[str] = []
+    leading_text = paragraph_value[: matches[0].start()].strip()
+    if leading_text:
+        chunks.append(leading_text)
+
+    for index, match in enumerate(matches):
+        marker_token = match.group(0).strip()
+        segment_start = match.end()
+        segment_end = matches[index + 1].start() if index + 1 < len(matches) else len(paragraph_value)
+        segment_text = paragraph_value[segment_start:segment_end].strip()
+        if segment_text:
+            chunks.append(f"{marker_token} {segment_text}".strip())
+            continue
+        chunks.append(marker_token)
+
+    return chunks
+
+
+def _split_story_inline_markup_paragraphs(text_value: str) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    normalized_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        normalized_paragraphs.extend(_split_story_paragraph_by_inline_markup(paragraph))
+    return "\n\n".join(paragraph for paragraph in normalized_paragraphs if paragraph.strip())
+
+
 def _is_story_strict_markup_output(text_value: str) -> bool:
-    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
+    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     if not normalized_text:
         return True
 
@@ -3423,7 +3477,7 @@ def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
 
 
 def _prefix_story_narrator_markup(text_value: str) -> str:
-    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
+    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     if not normalized_text:
         return normalized_text
 
@@ -3445,7 +3499,7 @@ def _prefix_story_narrator_markup(text_value: str) -> str:
 
 
 def _strip_story_markup_for_memory_text(text_value: str) -> str:
-    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
+    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     if not normalized_text:
         return normalized_text
 
@@ -3726,7 +3780,7 @@ def _normalize_generated_story_output(
     show_gg_thoughts: bool = True,
     show_npc_thoughts: bool = True,
 ) -> str:
-    normalized_text = _merge_story_orphan_markup_paragraphs(text_value)
+    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:
@@ -3759,7 +3813,7 @@ def _normalize_generated_story_output(
         except Exception as exc:
             logger.warning("Story markup normalization failed: %s", exc)
 
-    repaired_normalized = repaired_text.replace("\r\n", "\n").strip()
+    repaired_normalized = _split_story_inline_markup_paragraphs(repaired_text.replace("\r\n", "\n").strip())
     if repaired_normalized and repaired_normalized[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:
