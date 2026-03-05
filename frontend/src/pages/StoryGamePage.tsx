@@ -9076,7 +9076,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <Stack spacing={0.14}>
                               <Stack direction="row" spacing={0.42} alignItems="center">
                                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 700 }}>
-                                  спользование контекста
+                                  Использование контекста
                                 </Typography>
                                 <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextUsage} />
                               </Stack>
@@ -9142,7 +9142,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <>
                               <Stack spacing={0.56} sx={{ mt: 0.85 }}>
                                 <Stack direction="row" justifyContent="space-between" alignItems="center">
-                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>нструкции</Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>Инструкции</Typography>
                                   <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
                                     {formatContextChars(instructionContextTokensUsed)}
                                   </Typography>
@@ -9205,7 +9205,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                                Ответ  в токенах
+                                Ответ ИИ в токенах
                               </Typography>
                               <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
                             </Stack>
@@ -13641,4 +13641,3 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
-
