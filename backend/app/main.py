@@ -696,22 +696,22 @@ STORY_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+")
 STORY_BULLET_PREFIX_PATTERN = re.compile(r"^\s*[-•*]+\s*")
 STORY_CYRILLIC_TOKEN_PATTERN = re.compile(r"^[а-яё]+$", re.IGNORECASE)
 STORY_MARKUP_MARKER_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
-STORY_MARKUP_INLINE_SPLIT_PATTERN = re.compile(r"\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]")
+STORY_MARKUP_INLINE_SPLIT_PATTERN = re.compile(r"\[\[\s*[A-Za-z\u0400-\u04FF_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]")
 STORY_CJK_CHARACTER_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
 STORY_LATIN_LETTER_PATTERN = re.compile(r"[A-Za-z]")
 STORY_CYRILLIC_LETTER_PATTERN = re.compile(r"[А-Яа-яЁё]")
 STORY_LATIN_WORD_PATTERN = re.compile(r"\b[A-Za-z]{3,}\b")
 STORY_CYRILLIC_WORD_PATTERN = re.compile(r"\b[А-Яа-яЁё]{3,}\b")
 STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
-    r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
+    r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
 STORY_MARKUP_STANDALONE_PATTERN = re.compile(
-    r"^\[\[\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*$",
+    r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*$",
     re.IGNORECASE,
 )
 STORY_MARKUP_MALFORMED_PATTERN = re.compile(
-    r"^(?:\[\[|\[)?\s*([a-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
+    r"^(?:\[\[|\[)?\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
 STORY_NARRATION_MARKER_KEYS = {"narrator", "narration", "narrative"}
@@ -732,6 +732,36 @@ STORY_THOUGHT_MARKER_TO_CANONICAL = {
     "gg_thought": "GG_THOUGHT",
     "thought": "NPC_THOUGHT",
     "think": "NPC_THOUGHT",
+}
+STORY_MARKUP_KEY_ALIAS_BY_COMPACT = {
+    "narrator": "narrator",
+    "narration": "narration",
+    "narrative": "narrative",
+    "\u0440\u0430\u0441\u0441\u043a\u0430\u0437\u0447\u0438\u043a": "narrator",
+    "\u043d\u0430\u0440\u0440\u0430\u0442\u043e\u0440": "narrator",
+    "\u043f\u043e\u0432\u0435\u0441\u0442\u0432\u043e\u0432\u0430\u043d\u0438\u0435": "narration",
+    "npc": "npc",
+    "\u043d\u043f\u0441": "npc",
+    "\u043d\u043f\u043a": "npc",
+    "gg": "gg",
+    "\u0433\u0433": "gg",
+    "mc": "mc",
+    "mainhero": "mainhero",
+    "maincharacter": "mainhero",
+    "say": "say",
+    "speech": "speech",
+    "npcthought": "npc_thought",
+    "npcthink": "npc_thought",
+    "ggthought": "gg_thought",
+    "ggthink": "gg_thought",
+    "thought": "thought",
+    "think": "think",
+    "\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u044c": "npc_thought",
+    "\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u0438": "npc_thought",
+    "\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u044c": "npc_thought",
+    "\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u0438": "npc_thought",
+    "\u0433\u0433\u043c\u044b\u0441\u043b\u044c": "gg_thought",
+    "\u0433\u0433\u043c\u044b\u0441\u043b\u0438": "gg_thought",
 }
 STORY_NPC_DIALOGUE_MARKER_PATTERN = re.compile(
     r"\[\[NPC(?:_THOUGHT)?\s*:\s*([^\]]+)\]\]\s*([\s\S]*?)\s*$",
@@ -3583,7 +3613,12 @@ def _build_story_system_prompt(
 
 
 def _normalize_story_markup_key(raw_value: str) -> str:
-    return re.sub(r"[\s-]+", "_", raw_value.strip().casefold())
+    normalized_key = re.sub(r"[\s-]+", "_", raw_value.strip().casefold()).replace("ё", "е")
+    compact_key = normalized_key.replace("_", "")
+    alias_key = STORY_MARKUP_KEY_ALIAS_BY_COMPACT.get(compact_key)
+    if alias_key:
+        return alias_key
+    return normalized_key
 
 
 def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
@@ -3672,6 +3707,26 @@ def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
     if not speaker_name:
         return None
     return f"[[{marker_token}:{speaker_name}]] {text_value}"
+
+
+def _canonicalize_story_markup_markers(text_value: str) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    canonical_paragraphs: list[str] = []
+    for paragraph in paragraphs:
+        coerced_paragraph = _coerce_story_markup_paragraph(paragraph)
+        if coerced_paragraph is not None and _parse_story_markup_paragraph(coerced_paragraph) is not None:
+            canonical_paragraphs.append(coerced_paragraph)
+            continue
+        canonical_paragraphs.append(paragraph)
+
+    return "\n\n".join(canonical_paragraphs).strip()
 
 
 def _split_story_paragraph_by_inline_markup(paragraph: str) -> list[str]:
@@ -4115,6 +4170,7 @@ def _normalize_generated_story_output(
     show_npc_thoughts: bool = True,
 ) -> str:
     normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
+    normalized_text = _canonicalize_story_markup_markers(normalized_text)
     if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:

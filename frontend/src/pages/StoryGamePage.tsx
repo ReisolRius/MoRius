@@ -594,9 +594,9 @@ const RIGHT_PANEL_WIDTH_DEFAULT = 332
 const RIGHT_PANEL_CARD_HEIGHT = 198
 const ASSISTANT_DIALOGUE_AVATAR_SIZE = 30
 const ASSISTANT_DIALOGUE_AVATAR_GAP = 0.9
-const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
-const STRUCTURED_MARKER_INLINE_SPLIT_PATTERN = /\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]/giu
-const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>$/iu
+const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]*)$/iu
+const STRUCTURED_MARKER_INLINE_SPLIT_PATTERN = /\[\[\s*[A-Za-z\u0400-\u04FF_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]/giu
+const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z\u0400-\u04FF_ -]+)\s*>$/iu
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const MAIN_HERO_SPEAKER_ALIASES = ['ГГ', 'Главный герой', 'Main hero', 'Main character', 'MC', 'Hero'] as const
 const MAIN_HERO_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
@@ -865,7 +865,39 @@ function estimateDataUrlBytes(dataUrl: string): number {
 }
 
 function normalizeAssistantMarkerKey(value: string): string {
-  return value.toLowerCase().replace(/[\s-]+/g, '_').trim()
+  const normalizedKey = value.toLowerCase().replace(/[\s-]+/g, '_').replace(/ё/g, 'е').trim()
+  const compactKey = normalizedKey.replace(/_/g, '')
+  const aliasKeyByCompact: Record<string, string> = {
+    narrator: 'narrator',
+    narration: 'narration',
+    narrative: 'narrative',
+    рассказчик: 'narrator',
+    нарратор: 'narrator',
+    повествование: 'narration',
+    npc: 'npc',
+    нпс: 'npc',
+    нпк: 'npc',
+    gg: 'gg',
+    гг: 'gg',
+    mc: 'mc',
+    mainhero: 'mainhero',
+    maincharacter: 'mainhero',
+    say: 'say',
+    speech: 'speech',
+    npcthought: 'npc_thought',
+    npcthink: 'npc_thought',
+    ggthought: 'gg_thought',
+    ggthink: 'gg_thought',
+    thought: 'thought',
+    think: 'think',
+    нпсмысль: 'npc_thought',
+    нпсмысли: 'npc_thought',
+    нпкмысль: 'npc_thought',
+    нпкмысли: 'npc_thought',
+    ггмысль: 'gg_thought',
+    ггмысли: 'gg_thought',
+  }
+  return aliasKeyByCompact[compactKey] ?? normalizedKey
 }
 
 function resolveMainHeroDisplayName(rawMainHeroName: string | null | undefined): string {
@@ -8578,7 +8610,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         justifyContent: 'space-between',
                         textTransform: 'none',
                         color: 'var(--morius-title-text)',
-                        '&:hover': { backgroundColor: 'transparent' },
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                        '&:active': { backgroundColor: 'transparent' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent' },
                       }}
                     >
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Рассказчик</Typography>
@@ -8683,7 +8720,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         justifyContent: 'space-between',
                         textTransform: 'none',
                         color: 'var(--morius-title-text)',
-                        '&:hover': { backgroundColor: 'transparent' },
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                        '&:active': { backgroundColor: 'transparent' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent' },
                       }}
                     >
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Визуализация</Typography>
@@ -8833,7 +8875,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         justifyContent: 'space-between',
                         textTransform: 'none',
                         color: 'var(--morius-title-text)',
-                        '&:hover': { backgroundColor: 'transparent' },
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                        '&:active': { backgroundColor: 'transparent' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent' },
                       }}
                     >
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Дополнительно</Typography>
@@ -8963,7 +9010,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         justifyContent: 'space-between',
                         textTransform: 'none',
                         color: 'var(--morius-title-text)',
-                        '&:hover': { backgroundColor: 'transparent' },
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        boxShadow: 'none',
+                        '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                        '&:active': { backgroundColor: 'transparent' },
+                        '&.Mui-focusVisible': { backgroundColor: 'transparent' },
                       }}
                     >
                       <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Тонкая настройка</Typography>
