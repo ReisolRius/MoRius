@@ -22,6 +22,7 @@ import {
   dismissCharacterReportsAsAdmin,
   dismissInstructionTemplateReportsAsAdmin,
   dismissWorldReportsAsAdmin,
+  listBugReportsForAdmin,
   listOpenReportsForAdmin,
   removeCharacterFromCommunityAsAdmin,
   removeInstructionTemplateFromCommunityAsAdmin,
@@ -30,6 +31,7 @@ import {
   unbanUserAsAdmin,
   updateUserTokensAsAdmin,
   type AdminManagedUser,
+  type AdminBugReportSummary,
   type AdminReport,
   type AdminReportReason,
   type AdminReportTargetType,
@@ -51,12 +53,13 @@ const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
 
-type AdminPanelTab = 'users' | 'reports'
+type AdminPanelTab = 'users' | 'reports' | 'bug_reports'
 
 type AdminPanelDialogProps = {
   open: boolean
   authToken: string
   currentUserEmail: string
+  onNavigate: (path: string) => void
   onClose: () => void
 }
 
@@ -129,6 +132,17 @@ function getReportDescriptionPreview(value: string): string {
   return `${normalized.slice(0, 107)}...`
 }
 
+function getBugReportDescriptionPreview(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (!normalized) {
+    return 'Без описания'
+  }
+  if (normalized.length <= 140) {
+    return normalized
+  }
+  return `${normalized.slice(0, 137)}...`
+}
+
 function buildReportKey(report: AdminReport): string {
   return `${report.target_type}:${report.target_id}`
 }
@@ -141,7 +155,7 @@ function getAvatarFallbackLabel(value: string): string {
   return normalized.charAt(0).toUpperCase()
 }
 
-function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminPanelDialogProps) {
+function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClose }: AdminPanelDialogProps) {
   const [activeTab, setActiveTab] = useState<AdminPanelTab>('users')
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminManagedUser[]>([])
@@ -163,6 +177,10 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
   const [selectedReportInstructionPayload, setSelectedReportInstructionPayload] =
     useState<StoryCommunityInstructionTemplateSummary | null>(null)
   const [isLoadingReportTarget, setIsLoadingReportTarget] = useState(false)
+  const [bugReports, setBugReports] = useState<AdminBugReportSummary[]>([])
+  const [selectedBugReportId, setSelectedBugReportId] = useState<number | null>(null)
+  const [isLoadingBugReports, setIsLoadingBugReports] = useState(false)
+  const [isBugReportDialogOpen, setIsBugReportDialogOpen] = useState(false)
 
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -180,6 +198,11 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
   const selectedReport = useMemo(
     () => reports.find((report) => buildReportKey(report) === selectedReportKey) ?? null,
     [reports, selectedReportKey],
+  )
+
+  const selectedBugReport = useMemo(
+    () => bugReports.find((report) => report.id === selectedBugReportId) ?? null,
+    [bugReports, selectedBugReportId],
   )
 
   const resetSelectedReportTargetPayloads = useCallback(() => {
@@ -263,6 +286,37 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
     }
   }, [authToken, canUseAdminPanel, open, resetSelectedReportTargetPayloads])
 
+  const loadBugReports = useCallback(async () => {
+    if (!open || !canUseAdminPanel) {
+      return
+    }
+    setIsLoadingBugReports(true)
+    setErrorMessage('')
+    try {
+      const response = await listBugReportsForAdmin({
+        token: authToken,
+      })
+      setBugReports(response)
+      setSelectedBugReportId((previous) => {
+        if (previous && response.some((report) => report.id === previous)) {
+          return previous
+        }
+        return response[0]?.id ?? null
+      })
+      if (response.length === 0) {
+        setIsBugReportDialogOpen(false)
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить баг-репорты'
+      setErrorMessage(detail)
+      setBugReports([])
+      setSelectedBugReportId(null)
+      setIsBugReportDialogOpen(false)
+    } finally {
+      setIsLoadingBugReports(false)
+    }
+  }, [authToken, canUseAdminPanel, open])
+
   useEffect(() => {
     if (!open) {
       return
@@ -273,8 +327,12 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
       void loadUsers(query)
       return
     }
-    void loadReports()
-  }, [activeTab, loadReports, loadUsers, open, query])
+    if (activeTab === 'reports') {
+      void loadReports()
+      return
+    }
+    void loadBugReports()
+  }, [activeTab, loadBugReports, loadReports, loadUsers, open, query])
 
   useEffect(() => {
     if (!open) {
@@ -291,6 +349,9 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
     setReports([])
     setSelectedReportKey(null)
     resetSelectedReportTargetPayloads()
+    setBugReports([])
+    setSelectedBugReportId(null)
+    setIsBugReportDialogOpen(false)
     setErrorMessage('')
     setSuccessMessage('')
   }, [open, resetSelectedReportTargetPayloads])
@@ -501,6 +562,24 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
     resetSelectedReportTargetPayloads()
   }, [isApplyingReportAction, isLoadingReportTarget, resetSelectedReportTargetPayloads])
 
+  const handleOpenBugReportDialog = useCallback((reportId: number) => {
+    setSelectedBugReportId(reportId)
+    setIsBugReportDialogOpen(true)
+  }, [])
+
+  const handleCloseBugReportDialog = useCallback(() => {
+    setIsBugReportDialogOpen(false)
+  }, [])
+
+  const handleGoToBugReportSnapshot = useCallback(() => {
+    if (!selectedBugReport) {
+      return
+    }
+    setIsBugReportDialogOpen(false)
+    onClose()
+    onNavigate(`/home/reports/${selectedBugReport.id}`)
+  }, [onClose, onNavigate, selectedBugReport])
+
   const isWorldReportDialogOpen = Boolean(
     selectedReport?.target_type === 'world' && (selectedReportWorldPayload || isLoadingReportTarget),
   )
@@ -596,6 +675,18 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                 }}
               >
                 Жалобы
+              </Button>
+              <Button
+                variant={activeTab === 'bug_reports' ? 'contained' : 'outlined'}
+                onClick={() => setActiveTab('bug_reports')}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: 'var(--morius-radius)',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                }}
+              >
+                Reports
               </Button>
             </Stack>
 
@@ -765,7 +856,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                   </Button>
                 </Stack>
               </Stack>
-            ) : (
+            ) : activeTab === 'reports' ? (
               <Stack spacing={1.2}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>Открытые жалобы</Typography>
@@ -847,12 +938,162 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onClose }: AdminP
                   )}
                 </Box>
               </Stack>
+            ) : (
+              <Stack spacing={1.2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>Open bug reports</Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void loadBugReports()}
+                    disabled={!canUseAdminPanel || isLoadingBugReports || isApplyingReportAction}
+                    sx={{
+                      minHeight: 32,
+                      textTransform: 'none',
+                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      color: 'var(--morius-text-primary)',
+                    }}
+                  >
+                    Refresh
+                  </Button>
+                </Stack>
+
+                <Box
+                  className="morius-scrollbar"
+                  sx={{
+                    borderRadius: '12px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-card-bg)',
+                    maxHeight: 280,
+                    overflowY: 'auto',
+                    p: 0.8,
+                  }}
+                >
+                  {isLoadingBugReports ? (
+                    <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
+                      <CircularProgress size={24} />
+                    </Stack>
+                  ) : bugReports.length === 0 ? (
+                    <Typography sx={{ color: 'text.secondary', px: 0.8, py: 1 }}>No open bug reports</Typography>
+                  ) : (
+                    <Stack spacing={0.8}>
+                      {bugReports.map((report) => {
+                        const isSelected = report.id === selectedBugReportId
+                        return (
+                          <Button
+                            key={report.id}
+                            onClick={() => handleOpenBugReportDialog(report.id)}
+                            sx={{
+                              justifyContent: 'space-between',
+                              textTransform: 'none',
+                              borderRadius: '10px',
+                              border: 'var(--morius-border-width) solid',
+                              borderColor: isSelected ? 'rgba(219, 230, 245, 0.52)' : 'rgba(184, 199, 214, 0.2)',
+                              backgroundColor: isSelected ? 'rgba(37, 52, 70, 0.4)' : 'rgba(22, 30, 40, 0.34)',
+                              color: 'var(--morius-text-primary)',
+                              px: 1.2,
+                              py: 1,
+                              '&:hover': {
+                                backgroundColor: 'rgba(46, 62, 82, 0.42)',
+                              },
+                            }}
+                          >
+                            <Stack spacing={0.2} sx={{ minWidth: 0, alignItems: 'flex-start' }}>
+                              <Typography sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>
+                                {report.title}
+                              </Typography>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                                Game #{report.source_game_id}: {report.source_game_title}
+                              </Typography>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                                {report.reporter_name} - {formatReportDate(report.created_at)}
+                              </Typography>
+                              <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                                {getBugReportDescriptionPreview(report.description)}
+                              </Typography>
+                            </Stack>
+                            <Typography sx={{ color: 'text.secondary', ml: 1.2, fontSize: '0.82rem' }}>#{report.id}</Typography>
+                          </Button>
+                        )
+                      })}
+                    </Stack>
+                  )}
+                </Box>
+              </Stack>
             )}
           </Stack>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.5 }}>
           <Button onClick={onClose} sx={{ color: 'text.secondary' }}>
             Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={open && isBugReportDialogOpen && Boolean(selectedBugReport)}
+        onClose={handleCloseBugReportDialog}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            color: 'var(--morius-text-primary)',
+            boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
+          },
+        }}
+        BackdropProps={{
+          sx: {
+            backgroundColor: 'rgba(2, 4, 8, 0.8)',
+            backdropFilter: 'blur(5px)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ pb: 0.9 }}>{selectedBugReport?.title || 'Bug report'}</DialogTitle>
+        <DialogContent sx={{ pt: 0.4 }}>
+          {selectedBugReport ? (
+            <Stack spacing={1.15}>
+              <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>
+                Game #{selectedBugReport.source_game_id}: {selectedBugReport.source_game_title}
+              </Typography>
+              <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>
+                Reporter: {selectedBugReport.reporter_name} - {formatReportDate(selectedBugReport.created_at)}
+              </Typography>
+              <Box
+                sx={{
+                  borderRadius: '10px',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                  backgroundColor: 'rgba(22, 30, 40, 0.34)',
+                  p: 1.1,
+                }}
+              >
+                <Typography sx={{ fontWeight: 700, mb: 0.35 }}>Description</Typography>
+                <Typography sx={{ color: 'text.secondary', fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>
+                  {selectedBugReport.description || 'No description'}
+                </Typography>
+              </Box>
+            </Stack>
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.6 }}>
+          <Button onClick={handleCloseBugReportDialog} sx={{ color: 'text.secondary' }}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleGoToBugReportSnapshot}
+            variant="contained"
+            sx={{
+              borderRadius: 'var(--morius-radius)',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              color: 'var(--morius-text-primary)',
+              backgroundColor: 'var(--morius-button-active)',
+              '&:hover': {
+                backgroundColor: 'var(--morius-button-hover)',
+              },
+            }}
+          >
+            Open snapshot
           </Button>
         </DialogActions>
       </Dialog>

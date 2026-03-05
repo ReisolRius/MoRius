@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
+    StoryBugReport,
     StoryCommunityWorldComment,
     StoryCharacter,
     StoryCommunityCharacterAddition,
@@ -24,6 +26,7 @@ from app.models import (
     StoryGame,
     StoryInstructionCard,
     StoryInstructionTemplate,
+    StoryMemoryBlock,
     StoryMessage,
     StoryPlotCard,
     StoryPlotCardChangeEvent,
@@ -33,6 +36,9 @@ from app.models import (
     User,
 )
 from app.schemas import (
+    AdminBugReportDetailOut,
+    AdminBugReportListResponse,
+    AdminBugReportSummaryOut,
     AdminReportListResponse,
     AdminReportOut,
     AdminUserBanRequest,
@@ -58,6 +64,7 @@ MAX_SEARCH_LIMIT = 100
 SEARCH_QUERY_MAX_LENGTH = 120
 STORY_REPORT_STATUS_OPEN = "open"
 STORY_REPORT_STATUS_DISMISSED = "dismissed"
+STORY_BUG_REPORT_STATUS_OPEN = "open"
 
 
 def _get_admin_user(
@@ -262,6 +269,61 @@ def _list_open_reports(db: Session) -> list[AdminReportOut]:
     return sorted(reports, key=lambda item: item.latest_created_at, reverse=True)
 
 
+def _list_open_bug_reports(db: Session) -> list[AdminBugReportSummaryOut]:
+    rows = db.scalars(
+        select(StoryBugReport)
+        .where(StoryBugReport.status == STORY_BUG_REPORT_STATUS_OPEN)
+        .order_by(StoryBugReport.created_at.desc(), StoryBugReport.id.desc())
+    ).all()
+    if not rows:
+        return []
+
+    result: list[AdminBugReportSummaryOut] = []
+    for row in rows:
+        source_game_id = max(int(getattr(row, "source_game_id", 0) or 0), 0)
+        source_game_title = str(getattr(row, "source_game_title", "") or "").strip() or f"Game #{source_game_id}"
+        reporter_name = str(getattr(row, "reporter_display_name", "") or "").strip() or "Unknown"
+        title = str(getattr(row, "title", "") or "").strip() or f"Bug report #{int(row.id)}"
+        description = str(getattr(row, "description", "") or "").strip()
+        result.append(
+            AdminBugReportSummaryOut(
+                id=int(row.id),
+                source_game_id=source_game_id,
+                source_game_title=source_game_title,
+                reporter_user_id=int(row.reporter_user_id),
+                reporter_name=reporter_name,
+                title=title,
+                description=description,
+                created_at=row.created_at,
+            )
+        )
+    return result
+
+
+def _get_open_bug_report_or_404(db: Session, *, report_id: int) -> StoryBugReport:
+    report = db.scalar(
+        select(StoryBugReport).where(
+            StoryBugReport.id == report_id,
+            StoryBugReport.status == STORY_BUG_REPORT_STATUS_OPEN,
+        )
+    )
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Open bug report not found")
+    return report
+
+
+def _parse_bug_report_snapshot_payload(raw_payload: str | None) -> dict[str, object]:
+    if not raw_payload:
+        return {}
+    try:
+        parsed = json.loads(raw_payload)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return parsed
+
+
 def _close_world_reports(
     *,
     db: Session,
@@ -341,6 +403,7 @@ def _delete_world_with_relations(db: Session, *, world: StoryGame) -> None:
     db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == world.id))
     db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == world.id))
     db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == world.id))
+    db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == world.id))
     db.execute(sa_delete(StoryMessage).where(StoryMessage.game_id == world.id))
     db.execute(sa_delete(StoryInstructionCard).where(StoryInstructionCard.game_id == world.id))
     db.execute(sa_delete(StoryPlotCard).where(StoryPlotCard.game_id == world.id))
@@ -494,6 +557,57 @@ def list_reports(
 ) -> AdminReportListResponse:
     _get_admin_user(db=db, authorization=authorization)
     return AdminReportListResponse(reports=_list_open_reports(db))
+
+
+@router.get("/api/auth/admin/bug-reports", response_model=AdminBugReportListResponse)
+def list_bug_reports(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminBugReportListResponse:
+    _get_admin_user(db=db, authorization=authorization)
+    return AdminBugReportListResponse(reports=_list_open_bug_reports(db))
+
+
+@router.get("/api/auth/admin/bug-reports/{report_id}", response_model=AdminBugReportDetailOut)
+def get_bug_report(
+    report_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminBugReportDetailOut:
+    _get_admin_user(db=db, authorization=authorization)
+    report = _get_open_bug_report_or_404(db, report_id=report_id)
+    snapshot = _parse_bug_report_snapshot_payload(getattr(report, "snapshot_payload", None))
+    source_game_id = max(int(getattr(report, "source_game_id", 0) or 0), 0)
+    source_game_title = str(getattr(report, "source_game_title", "") or "").strip() or f"Game #{source_game_id}"
+    reporter_name = str(getattr(report, "reporter_display_name", "") or "").strip() or "Unknown"
+    title = str(getattr(report, "title", "") or "").strip() or f"Bug report #{int(report.id)}"
+    description = str(getattr(report, "description", "") or "").strip()
+    return AdminBugReportDetailOut(
+        id=int(report.id),
+        source_game_id=source_game_id,
+        source_game_title=source_game_title,
+        reporter_user_id=int(report.reporter_user_id),
+        reporter_name=reporter_name,
+        title=title,
+        description=description,
+        created_at=report.created_at,
+        snapshot=snapshot,
+    )
+
+
+@router.delete("/api/auth/admin/bug-reports/{report_id}", response_model=MessageResponse)
+def close_bug_report(
+    report_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    admin_user = _get_admin_user(db=db, authorization=authorization)
+    report = _get_open_bug_report_or_404(db, report_id=report_id)
+    report.status = "closed"
+    report.closed_by_user_id = int(admin_user.id)
+    report.closed_at = datetime.now(timezone.utc)
+    db.commit()
+    return MessageResponse(message="Bug report closed")
 
 
 @router.post("/api/auth/admin/reports/worlds/{world_id}/dismiss", response_model=MessageResponse)

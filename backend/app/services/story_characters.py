@@ -14,7 +14,8 @@ from app.services.media import normalize_avatar_value, normalize_media_scale, va
 STORY_CHARACTER_SOURCE_USER = "user"
 STORY_CHARACTER_SOURCE_AI = "ai"
 STORY_CHARACTER_MAX_NAME_LENGTH = 120
-STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 6_000
+STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 2_500
+STORY_CHARACTER_MAX_NOTE_LENGTH = 20
 STORY_CHARACTER_MAX_TRIGGERS = 40
 STORY_CHARACTER_TRIGGER_MAX_LENGTH = 80
 STORY_CHARACTER_VISIBILITY_PRIVATE = "private"
@@ -116,6 +117,13 @@ def normalize_story_character_description(value: str) -> str:
     return normalized
 
 
+def normalize_story_character_note(value: str | None) -> str:
+    normalized = " ".join((value or "").replace("\r\n", " ").split()).strip()
+    if len(normalized) > STORY_CHARACTER_MAX_NOTE_LENGTH:
+        normalized = normalized[:STORY_CHARACTER_MAX_NOTE_LENGTH].rstrip()
+    return normalized
+
+
 def normalize_story_character_avatar_url(raw_value: str | None) -> str | None:
     normalized = normalize_avatar_value(raw_value)
     if normalized is None:
@@ -168,6 +176,7 @@ def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
         user_id=character.user_id,
         name=character.name,
         description=character.description,
+        note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
         avatar_url=character.avatar_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),

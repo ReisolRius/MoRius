@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 import json
 import logging
 import math
@@ -42,11 +43,14 @@ from app.routers.story_generate import router as story_generate_router
 from app.routers.story_games import router as story_games_router
 from app.routers.story_instruction_templates import router as story_instruction_templates_router
 from app.routers.story_messages import router as story_messages_router
+from app.routers.story_memory import router as story_memory_router
 from app.routers.story_read import router as story_read_router
 from app.routers.story_turn_image import router as story_turn_image_router
 from app.routers.story_undo import router as story_undo_router
 from app.routers.story_world_cards import router as story_world_cards_router
 from app.schemas import (
+    StoryCharacterAvatarGenerateOut,
+    StoryCharacterAvatarGenerateRequest,
     StoryGenerateRequest,
     StoryInstructionCardInput,
     StoryPlotCardChangeEventOut,
@@ -118,6 +122,7 @@ from app.services.story_undo import (
 from app.services.story_games import (
     coerce_story_image_model as _coerce_story_image_model,
     get_story_turn_cost_tokens as _get_story_turn_cost_tokens,
+    serialize_story_ambient_profile as _serialize_story_ambient_profile,
 )
 from app.services.story_world_cards import (
     story_world_card_to_out as _story_world_card_to_out,
@@ -177,6 +182,19 @@ STORY_MEMORY_LAYER_SUPER_BUDGET_SHARE = 0.20
 STORY_MEMORY_KEY_BUDGET_SHARE = 0.20
 STORY_MEMORY_COMPRESSION_REQUEST_MAX_TOKENS = 700
 STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS = 500
+STORY_AMBIENT_PROFILE_MODEL = "x-ai/grok-4.1-fast"
+STORY_AMBIENT_PROFILE_REQUEST_MAX_TOKENS = 220
+STORY_AMBIENT_HEX_COLOR_PATTERN = re.compile(r"^#?(?:[0-9a-f]{3}|[0-9a-f]{6})$", re.IGNORECASE)
+STORY_AMBIENT_DEFAULT_PROFILE: dict[str, Any] = {
+    "scene": "unknown",
+    "lighting": "dim",
+    "primary_color": "#101826",
+    "secondary_color": "#1a2436",
+    "highlight_color": "#324865",
+    "glow_strength": 0.2,
+    "background_mix": 0.18,
+    "vignette_strength": 0.34,
+}
 STORY_MEMORY_COMPRESSED_MAX_LINES = 8
 STORY_MEMORY_SUPER_MAX_LINES = 4
 STORY_MEMORY_SUPER_MAX_CHARS = 520
@@ -184,7 +202,8 @@ STORY_MEMORY_RAW_USER_MAX_LINES = 2
 STORY_MEMORY_RAW_USER_MAX_CHARS = 420
 STORY_MEMORY_RAW_ASSISTANT_MAX_LINES = 8
 STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS = 2_600
-STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 85
+STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS = 2
+STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 78
 STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY = 0.72
 STORY_MEMORY_KEY_EVENT_STRONG_TOKENS = (
     "квест",
@@ -222,6 +241,54 @@ STORY_MEMORY_KEY_EVENT_STRONG_TOKENS = (
     "ritual",
     "war",
 )
+STORY_MEMORY_RAW_MIN_SIGNAL_SCORE = 6
+STORY_MEMORY_RAW_MIN_IMPORTANT_HITS = 1
+STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE = 7
+STORY_MEMORY_LOW_SIGNAL_TOKENS = (
+    "привет",
+    "здравствуй",
+    "добро пожаловать",
+    "hello",
+    "hi",
+    "thanks",
+    "thank you",
+    "улыбнулся",
+    "кивнул",
+    "коротко ответил",
+)
+STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS = (
+    "ход игрока",
+    "ответ мастера",
+    "сухие факты",
+    "краткий пересказ",
+    "свежая память",
+    "сжатая память",
+    "суперсжатая память",
+    "dev память",
+    "user turn",
+    "narrator reply",
+    "dry facts",
+    "short retelling",
+    "fresh memory",
+    "compressed memory",
+    "super-compressed",
+    "dev memory",
+)
+STORY_MEMORY_NOISE_PREFIXES = (
+    "ход игрока",
+    "ответ мастера",
+    "сухие факты",
+    "краткий пересказ",
+    "user turn",
+    "player turn",
+    "narrator reply",
+    "assistant reply",
+    "dry facts",
+    "short retelling",
+)
+STORY_MEMORY_RUSSIAN_MIN_CYRILLIC_LETTERS = 6
+STORY_MEMORY_MAX_LATIN_RATIO = 0.24
+STORY_MEMORY_MAX_LATIN_WORDS = 1
 STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS = 460
 STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS = 1_600
 STORY_TURN_IMAGE_PROMPT_MAX_WORLD_CARDS = 5
@@ -239,16 +306,19 @@ STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
+STORY_TURN_IMAGE_MODEL_GROK = "grok-imagine-image-pro"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX: 3,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 30,
+    STORY_TURN_IMAGE_MODEL_GROK: 30,
 }
 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 45
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
+    STORY_TURN_IMAGE_MODEL_GROK: 180,
 }
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 2_600
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
@@ -398,7 +468,7 @@ STORY_COVER_SCALE_DEFAULT = 1.0
 STORY_IMAGE_POSITION_MIN = 0.0
 STORY_IMAGE_POSITION_MAX = 100.0
 STORY_IMAGE_POSITION_DEFAULT = 50.0
-STORY_COVER_MAX_BYTES = 500 * 1024
+STORY_COVER_MAX_BYTES = 1 * 1024 * 1024
 STORY_WORLD_CARD_EVENT_ADDED = "added"
 STORY_WORLD_CARD_EVENT_UPDATED = "updated"
 STORY_WORLD_CARD_EVENT_DELETED = "deleted"
@@ -714,8 +784,14 @@ HTTP_SESSION.mount("https://", HTTP_ADAPTER)
 HTTP_SESSION.mount("http://", HTTP_ADAPTER)
 STORY_STREAM_PERSIST_MIN_CHARS = 900
 STORY_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.2
-STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS = {
-    "arcee-ai/trinity-large-preview:free",
+STORY_STREAM_HTTP_CHUNK_SIZE_BYTES = 256
+STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS = 0.0
+STORY_STREAM_TRANSLATION_MIN_CHARS = 24
+STORY_STREAM_TRANSLATION_MAX_CHARS = 180
+STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = set()
+STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {}
+STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
+    "deepseek/deepseek-v3.2",
 }
 STORY_NON_SAMPLING_MODEL_HINTS = {
     "meta-llama/llama-3.3-70b-instruct:free",
@@ -723,19 +799,16 @@ STORY_NON_SAMPLING_MODEL_HINTS = {
 STORY_OPENROUTER_PROVIDER_TOGETHER = "together"
 STORY_OPENROUTER_PROVIDER_NOVITA_FP8 = "novita/fp8"
 STORY_OPENROUTER_PROVIDER_XAI = "xai"
-STORY_OPENROUTER_PROVIDER_GOOGLE_AI_STUDIO = "google-ai-studio"
 STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_TOGETHER,
     "deepseek/deepseek-v3.2": STORY_OPENROUTER_PROVIDER_NOVITA_FP8,
     "x-ai/grok-4.1-fast": STORY_OPENROUTER_PROVIDER_XAI,
-    "google/gemini-3-flash-preview": STORY_OPENROUTER_PROVIDER_GOOGLE_AI_STUDIO,
 }
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
     "x-ai/grok-4.1-fast",
-    "google/gemini-3-flash-preview",
     "arcee-ai/trinity",
 }
 STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR = 0.75
@@ -832,6 +905,47 @@ STORY_LATIN_TO_CYRILLIC_LOOKALIKE_TABLE = str.maketrans(
         "y": "у",
     }
 )
+STORY_LATIN_TO_CYRILLIC_NAME_DIGRAPHS: tuple[tuple[str, str], ...] = (
+    ("shch", "щ"),
+    ("sch", "щ"),
+    ("yo", "ё"),
+    ("yu", "ю"),
+    ("ya", "я"),
+    ("zh", "ж"),
+    ("kh", "х"),
+    ("ts", "ц"),
+    ("ch", "ч"),
+    ("sh", "ш"),
+    ("ye", "е"),
+)
+STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP = {
+    "a": "а",
+    "b": "б",
+    "c": "к",
+    "d": "д",
+    "e": "е",
+    "f": "ф",
+    "g": "г",
+    "h": "х",
+    "i": "и",
+    "j": "й",
+    "k": "к",
+    "l": "л",
+    "m": "м",
+    "n": "н",
+    "o": "о",
+    "p": "п",
+    "q": "к",
+    "r": "р",
+    "s": "с",
+    "t": "т",
+    "u": "у",
+    "v": "в",
+    "w": "в",
+    "x": "кс",
+    "y": "и",
+    "z": "з",
+}
 STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.85
 STORY_RESPONSE_MIN_TARGET_TOKENS = 120
 STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
@@ -846,11 +960,26 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
 )
 STORY_SYSTEM_PROMPT = (
     "Ты ведущий интерактивной текстовой RPG и пишешь как рассказчик. "
-    "Always answer in English only, even when player inputs are in Russian. "
+    "Follow LANGUAGE CONTRACT below for output language. "
     "Продолжай сцену строго по действию игрока, без советов и объяснения правил. "
     "Пиши художественно от второго лица с учетом контекста и карточек. "
     "Не выходи из роли, не упоминай ИИ и не добавляй мета-комментарии. "
     "Формат ответа: 2-5 абзацев. Протокол маркеров обязателен."
+)
+STORY_STRICT_ENGLISH_OUTPUT_RULES = (
+    "CRITICAL LANGUAGE CONTRACT:",
+    "1) All narrative, dialogue, and thought text outside [[...]] markers MUST be English.",
+    "2) Never output Cyrillic outside marker labels and character names.",
+    "3) Character names may remain as they are in world cards, including Cyrillic spellings.",
+    "4) Before finalizing, rewrite any accidental non-English sentence into English.",
+)
+STORY_STRICT_RUSSIAN_OUTPUT_RULES = (
+    "CRITICAL LANGUAGE CONTRACT:",
+    "1) All narrative, dialogue, and thought text outside [[...]] markers MUST be Russian.",
+    "2) English words are forbidden unless this is a fixed proper noun or a world-defined name.",
+    "3) Keep marker labels and character names unchanged.",
+    "4) Chinese/Japanese/Korean characters are forbidden in output.",
+    "5) Before finalizing, rewrite accidental non-Russian fragments into natural Russian.",
 )
 STORY_DIALOGUE_FORMAT_RULES = (
     "Следуй карточкам инструкций и мира молча, не перечисляй их.",
@@ -900,6 +1029,7 @@ app.include_router(story_turn_image_router)
 app.include_router(story_games_router)
 app.include_router(story_instruction_templates_router)
 app.include_router(story_messages_router)
+app.include_router(story_memory_router)
 app.include_router(story_read_router)
 app.include_router(story_undo_router)
 app.include_router(story_world_cards_router)
@@ -2672,6 +2802,155 @@ def _normalize_story_match_token_script(token: str) -> str:
     return normalized
 
 
+def _contains_story_latin_letters(value: str) -> bool:
+    return STORY_LATIN_LETTER_PATTERN.search(value) is not None
+
+
+def _contains_story_cyrillic_letters(value: str) -> bool:
+    return STORY_CYRILLIC_LETTER_PATTERN.search(value) is not None
+
+
+def _transliterate_story_latin_name_to_cyrillic(value: str) -> str:
+    normalized = re.sub(r"[^a-z\s-]", " ", value.strip().lower())
+    if not normalized:
+        return ""
+
+    converted = normalized
+    for latin, cyrillic in STORY_LATIN_TO_CYRILLIC_NAME_DIGRAPHS:
+        converted = converted.replace(latin, cyrillic)
+
+    converted_chars: list[str] = []
+    for char in converted:
+        if "a" <= char <= "z":
+            converted_chars.append(STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP.get(char, char))
+        else:
+            converted_chars.append(char)
+
+    return re.sub(r"\s+", " ", "".join(converted_chars)).strip(" -")
+
+
+def _resolve_story_speaker_name_to_world_title(
+    speaker_name: str,
+    world_cards: list[dict[str, Any]],
+) -> str | None:
+    normalized_speaker = " ".join(speaker_name.split()).strip()
+    if not normalized_speaker:
+        return None
+
+    speaker_tokens = [token for token in _normalize_story_match_tokens(normalized_speaker) if token]
+    speaker_translit = ""
+    if _contains_story_latin_letters(normalized_speaker) and not _contains_story_cyrillic_letters(normalized_speaker):
+        speaker_translit = _transliterate_story_latin_name_to_cyrillic(normalized_speaker)
+        if speaker_translit:
+            speaker_tokens.extend(token for token in _normalize_story_match_tokens(speaker_translit) if token)
+
+    if not speaker_tokens:
+        return None
+
+    speaker_key = normalized_speaker.casefold()
+    best_title = ""
+    best_score = 0
+    translit_tokens = [token for token in _normalize_story_match_tokens(speaker_translit) if token]
+    speaker_has_latin_only = _contains_story_latin_letters(normalized_speaker) and not _contains_story_cyrillic_letters(
+        normalized_speaker
+    )
+
+    for card in world_cards:
+        if not isinstance(card, dict):
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+            continue
+
+        title = " ".join(str(card.get("title", "")).split()).strip()
+        if not title:
+            continue
+        if title.casefold() == speaker_key:
+            return title
+
+        title_tokens = [token for token in _normalize_story_match_tokens(title) if token]
+        score = 0
+        if title_tokens:
+            overlap = 0
+            for token in speaker_tokens:
+                if any(_is_story_token_match(token, title_token) for title_token in title_tokens):
+                    overlap += 1
+            if overlap > 0:
+                score = max(score, overlap * 3)
+
+            if translit_tokens and any(
+                _is_story_token_match(translit_token, title_token)
+                for translit_token in translit_tokens
+                for title_token in title_tokens
+            ):
+                score = max(score, 6)
+
+        raw_triggers = card.get("triggers")
+        triggers = [title]
+        if isinstance(raw_triggers, list):
+            triggers.extend(trigger for trigger in raw_triggers if isinstance(trigger, str))
+        for trigger in triggers:
+            if _is_story_trigger_match(trigger, speaker_tokens):
+                score = max(score, 5)
+                break
+
+        if speaker_has_latin_only and _contains_story_cyrillic_letters(title):
+            score += 1
+
+        if score > best_score:
+            best_score = score
+            best_title = title
+
+    if best_title and best_score >= 5:
+        return best_title
+    return None
+
+
+def _align_story_markup_speaker_names_to_world_cards(
+    text_value: str,
+    world_cards: list[dict[str, Any]],
+) -> str:
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text or not world_cards:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    aligned_paragraphs: list[str] = []
+    changed = False
+    for paragraph in paragraphs:
+        marker_match = STORY_MARKUP_PARAGRAPH_PATTERN.match(paragraph)
+        parsed = _parse_story_markup_paragraph(paragraph)
+        if marker_match is None or parsed is None or parsed.get("kind") == "narration":
+            aligned_paragraphs.append(paragraph)
+            continue
+
+        raw_speaker = str(parsed.get("speaker", "")).strip()
+        if not raw_speaker:
+            aligned_paragraphs.append(paragraph)
+            continue
+
+        resolved_speaker = _resolve_story_speaker_name_to_world_title(raw_speaker, world_cards)
+        if not resolved_speaker or resolved_speaker.casefold() == raw_speaker.casefold():
+            aligned_paragraphs.append(paragraph)
+            continue
+
+        marker_token = marker_match.group(1).strip()
+        paragraph_text = str(parsed.get("text", "")).strip()
+        if not marker_token or not paragraph_text:
+            aligned_paragraphs.append(paragraph)
+            continue
+
+        aligned_paragraphs.append(f"[[{marker_token}:{resolved_speaker}]] {paragraph_text}")
+        changed = True
+
+    if not changed:
+        return normalized_text
+    return "\n\n".join(aligned_paragraphs).strip()
+
+
 def _get_story_morph_analyzer() -> Any | None:
     global STORY_MORPH_ANALYZER
     if pymorphy3 is None:
@@ -3235,8 +3514,13 @@ def _build_story_system_prompt(
                 lines.append(f"Триггеры: {trigger_line or 'нет'}")
                 lines.append(f"Тип: {kind_label}")
 
-    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES])
-    normalized_model_name = (model_name or "").strip().lower()
+    normalized_model_name = _normalize_story_model_id(model_name)
+    language_contract_rules = (
+        STORY_STRICT_ENGLISH_OUTPUT_RULES
+        if _is_story_output_translation_model(normalized_model_name)
+        else STORY_STRICT_RUSSIAN_OUTPUT_RULES
+    )
+    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES, "", *language_contract_rules])
     if "deepseek/" in normalized_model_name:
         lines.extend(
             [
@@ -3245,6 +3529,9 @@ def _build_story_system_prompt(
                 "Каждый абзац должен содержать ровно один маркер в самом начале.",
                 "Никогда не вставляй новый [[...]] маркер в середину уже начатого абзаца.",
                 "Между абзацами оставляй пустую строку.",
+                "АБСОЛЮТНЫЙ ЗАПРЕТ: не используй [[GG:...]] и [[GG_THOUGHT:...]].",
+                "Никогда не придумывай за ГГ новые реплики, мысли или действия, которых игрок не писал.",
+                "Описывай только реакцию мира и NPC на уже совершенное действие игрока.",
             ]
         )
     if not show_npc_thoughts:
@@ -3264,11 +3551,16 @@ def _build_story_system_prompt(
             ]
         )
     if not show_gg_thoughts and not show_npc_thoughts:
+        allowed_markers_line = (
+            "Используй только [[NARRATOR]], [[NPC:...]]."
+            if _is_story_no_gg_roleplay_model(normalized_model_name)
+            else "Используй только [[NARRATOR]], [[NPC:...]], [[GG:...]]."
+        )
         lines.extend(
             [
                 "",
                 "ОГРАНИЧЕНИЕ ФОРМАТА: внутренние мысли отключены полностью.",
-                "Используй только [[NARRATOR]], [[NPC:...]], [[GG:...]].",
+                allowed_markers_line,
             ]
         )
     if response_max_tokens is not None:
@@ -3773,10 +4065,52 @@ def _filter_story_disabled_thought_paragraphs(
     return "\n\n".join(filtered_paragraphs).strip()
 
 
+def _is_story_no_gg_roleplay_model(model_name: str | None) -> bool:
+    normalized_model_name = _normalize_story_model_id(model_name)
+    return bool(normalized_model_name and normalized_model_name in STORY_NO_GG_ROLEPLAY_MODEL_IDS)
+
+
+def _filter_story_gg_roleplay_paragraphs(
+    text_value: str,
+    *,
+    model_name: str | None,
+) -> str:
+    if not _is_story_no_gg_roleplay_model(model_name):
+        return text_value
+
+    normalized_text = text_value.replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return normalized_text
+
+    paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
+    if not paragraphs:
+        return normalized_text
+
+    filtered_paragraphs: list[str] = []
+    forbidden_marker_keys = {"gg", "mc", "player", "mainhero", "maincharacter", "ggthought", "ggthink"}
+    for paragraph in paragraphs:
+        marker_match = STORY_MARKUP_PARAGRAPH_PATTERN.match(paragraph)
+        if marker_match is None:
+            filtered_paragraphs.append(paragraph)
+            continue
+
+        marker_key = _normalize_story_markup_key(marker_match.group(1))
+        compact_key = marker_key.replace("_", "")
+        if compact_key in forbidden_marker_keys:
+            continue
+        filtered_paragraphs.append(paragraph)
+
+    filtered_text = "\n\n".join(filtered_paragraphs).strip()
+    if filtered_text:
+        return filtered_text
+    return "[[NARRATOR]] Мир замирает в напряжении и ждет твоего следующего хода."
+
+
 def _normalize_generated_story_output(
     *,
     text_value: str,
     world_cards: list[dict[str, Any]],
+    model_name: str | None = None,
     show_gg_thoughts: bool = True,
     show_npc_thoughts: bool = True,
 ) -> str:
@@ -3799,7 +4133,9 @@ def _normalize_generated_story_output(
     if not normalized_text:
         return normalized_text
     if _is_story_strict_markup_output(normalized_text):
-        strict_output = _enforce_story_output_language(normalized_text)
+        strict_output = _enforce_story_output_language(normalized_text, model_name=model_name)
+        strict_output = _align_story_markup_speaker_names_to_world_cards(strict_output, world_cards)
+        strict_output = _filter_story_gg_roleplay_paragraphs(strict_output, model_name=model_name)
         return _filter_story_disabled_thought_paragraphs(
             strict_output,
             show_gg_thoughts=show_gg_thoughts,
@@ -3830,14 +4166,21 @@ def _normalize_generated_story_output(
     repaired_normalized = _trim_story_trailing_incomplete_fragment(repaired_normalized)
 
     if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
-        repaired_output = _enforce_story_output_language(repaired_normalized)
+        repaired_output = _enforce_story_output_language(repaired_normalized, model_name=model_name)
+        repaired_output = _align_story_markup_speaker_names_to_world_cards(repaired_output, world_cards)
+        repaired_output = _filter_story_gg_roleplay_paragraphs(repaired_output, model_name=model_name)
         return _filter_story_disabled_thought_paragraphs(
             repaired_output,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
 
-    fallback_output = _enforce_story_output_language(_prefix_story_narrator_markup(normalized_text))
+    fallback_output = _enforce_story_output_language(
+        _prefix_story_narrator_markup(normalized_text),
+        model_name=model_name,
+    )
+    fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
+    fallback_output = _filter_story_gg_roleplay_paragraphs(fallback_output, model_name=model_name)
     return _filter_story_disabled_thought_paragraphs(
         fallback_output,
         show_gg_thoughts=show_gg_thoughts,
@@ -3931,41 +4274,88 @@ def _iter_story_stream_chunks(text_value: str, chunk_size: int = 24) -> list[str
     return [text_value[index : index + chunk_size] for index in range(0, len(text_value), chunk_size)]
 
 
+def _yield_story_stream_chunks_with_pacing(text_value: str, chunk_size: int = 24):
+    chunks = _iter_story_stream_chunks(text_value, chunk_size=chunk_size)
+    if not chunks:
+        return
+    delay_seconds = max(float(STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS), 0.0)
+    has_multiple_chunks = len(chunks) > 1
+    for index, chunk in enumerate(chunks):
+        yield chunk
+        if delay_seconds > 0 and has_multiple_chunks and index < len(chunks) - 1:
+            time.sleep(delay_seconds)
+
+
+def _normalize_story_language_code(value: str | None, *, fallback: str = "") -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return fallback
+    normalized = normalized.replace(" ", "")
+    normalized = normalized.split("-", 1)[0]
+    normalized = normalized.split("_", 1)[0]
+    return normalized or fallback
+
+
+def _story_user_language_code() -> str:
+    return _normalize_story_language_code(settings.story_user_language, fallback="ru")
+
+
+def _story_model_language_code() -> str:
+    return _normalize_story_language_code(settings.story_model_language, fallback="en")
+
+
 def _is_story_translation_enabled() -> bool:
     provider = _effective_story_llm_provider()
+    user_language = _story_user_language_code()
+    model_language = _story_model_language_code()
     # For Russian UI + OpenRouter we keep user input as-is and rely on
     # post-translation for the model output.
-    if provider == "openrouter" and settings.story_user_language == "ru":
+    if provider == "openrouter" and user_language == "ru":
         return False
 
     return (
         settings.story_translation_enabled
         and bool(settings.openrouter_api_key)
-        and bool(settings.openrouter_translation_model)
-        and settings.story_user_language != settings.story_model_language
+        and bool(_story_output_translation_model_name())
+        and user_language != model_language
     )
 
 
-def _story_output_translation_model_name() -> str:
+def _story_output_translation_model_name(model_name: str | None = None) -> str:
+    normalized_story_model = _normalize_story_model_id(model_name)
+    forced_translation_model = STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL.get(normalized_story_model)
+    if forced_translation_model:
+        return forced_translation_model
+
     preferred_model = STORY_OUTPUT_TRANSLATION_MODEL.strip()
     if preferred_model:
         return preferred_model
     return settings.openrouter_translation_model.strip()
 
 
-def _can_force_story_output_translation() -> bool:
+def _normalize_story_model_id(value: str | None) -> str:
+    return (value or "").strip().lower()
+
+
+def _is_story_output_translation_model(model_name: str | None) -> bool:
+    normalized_model = _normalize_story_model_id(model_name)
+    return bool(normalized_model and normalized_model in STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS)
+
+
+def _can_force_story_output_translation(model_name: str | None = None) -> bool:
     return (
         bool(settings.openrouter_api_key)
-        and bool(_story_output_translation_model_name())
-        and bool(settings.story_user_language)
+        and bool(_story_output_translation_model_name(model_name))
+        and bool(_story_user_language_code())
     )
 
 
 def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
-    _ = model_name
-    if settings.story_user_language != "ru":
+    if not _is_story_output_translation_model(model_name):
         return False
-    return _can_force_story_output_translation()
+    if _story_user_language_code() != "ru":
+        return False
+    return _can_force_story_output_translation(model_name)
 
 
 def _build_openrouter_provider_payload(model_name: str | None) -> dict[str, Any] | None:
@@ -4045,6 +4435,19 @@ def _select_story_sampling_values(
     return (top_k_value, top_p_value)
 
 
+def _select_story_temperature_value(
+    *,
+    model_name: str | None,
+    story_temperature: float,
+) -> float | None:
+    if not _can_apply_story_sampling_to_model(model_name):
+        return None
+    if not math.isfinite(story_temperature):
+        return None
+    clamped_value = max(0.0, min(2.0, float(story_temperature)))
+    return round(clamped_value, 2)
+
+
 def _extract_story_markup_tokens(text_value: str) -> list[str]:
     tokens = STORY_MARKUP_MARKER_PATTERN.findall(text_value)
     return [re.sub(r"\s+", "", token).casefold() for token in tokens if token.strip()]
@@ -4067,7 +4470,7 @@ def _translate_text_batch_with_openrouter(
 ) -> list[str]:
     if not texts:
         return []
-    selected_translation_model = (translation_model_name or settings.openrouter_translation_model).strip()
+    selected_translation_model = (translation_model_name or _story_output_translation_model_name()).strip()
     if not selected_translation_model:
         raise RuntimeError("OpenRouter translation model is not configured")
 
@@ -4095,11 +4498,18 @@ def _translate_text_batch_with_openrouter(
             ),
         },
     ]
+    source_tokens_estimate = sum(max(_estimate_story_tokens(text_value), 1) for text_value in texts)
+    translation_max_tokens = max(256, min(source_tokens_estimate * 2 + 256, 3_200))
     raw_response = _request_openrouter_story_text(
         translation_messages,
         model_name=selected_translation_model,
         allow_free_fallback=False,
         temperature=0,
+        max_tokens=translation_max_tokens,
+        request_timeout=(
+            STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS,
+            max(STORY_POSTPROCESS_READ_TIMEOUT_SECONDS, 30),
+        ),
     )
     parsed_payload = _extract_json_array_from_text(raw_response)
     if not isinstance(parsed_payload, list):
@@ -4186,8 +4596,8 @@ def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) 
     if not _is_story_translation_enabled():
         return messages_payload
 
-    source_language = settings.story_user_language
-    target_language = settings.story_model_language
+    source_language = _story_user_language_code()
+    target_language = _story_model_language_code()
     raw_texts = [message.get("content", "") for message in messages_payload]
     translated_texts = _translate_texts_with_openrouter(
         raw_texts,
@@ -4205,8 +4615,8 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
         return text_value
     if not _is_story_translation_enabled():
         return text_value
-    source_language = settings.story_model_language
-    target_language = settings.story_user_language
+    source_language = _story_model_language_code()
+    target_language = _story_user_language_code()
     translated = _translate_texts_with_openrouter(
         [text_value],
         source_language=source_language,
@@ -4215,18 +4625,135 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
     return translated[0] if translated else text_value
 
 
-def _force_translate_story_model_output_to_user(text_value: str) -> str:
+def _force_translate_story_model_output_to_user(
+    text_value: str,
+    *,
+    source_model_name: str | None = None,
+) -> str:
     if not text_value.strip():
         return text_value
-    if not _can_force_story_output_translation():
+    if not _can_force_story_output_translation(source_model_name):
         return text_value
     translated = _translate_text_batch_with_openrouter(
         [text_value],
         source_language="auto",
-        target_language=settings.story_user_language,
-        translation_model_name=_story_output_translation_model_name(),
+        target_language=_story_user_language_code(),
+        translation_model_name=_story_output_translation_model_name(source_model_name),
     )
     return translated[0] if translated else text_value
+
+
+def _split_story_translation_stream_buffer(
+    buffer: str,
+    *,
+    force: bool = False,
+) -> tuple[str, str]:
+    if not buffer:
+        return ("", "")
+
+    min_chars = max(int(STORY_STREAM_TRANSLATION_MIN_CHARS), 1)
+    max_chars = max(int(STORY_STREAM_TRANSLATION_MAX_CHARS), min_chars)
+    if not force and len(buffer) < min_chars:
+        return ("", buffer)
+
+    search_limit = min(len(buffer), max_chars)
+    cut_index = -1
+    for index in range(search_limit - 1, -1, -1):
+        if buffer[index] in {".", "!", "?", "…", "\n"}:
+            cut_index = index + 1
+            break
+
+    if cut_index < min_chars:
+        if not force and len(buffer) <= max_chars:
+            return ("", buffer)
+        cut_index = search_limit
+        if cut_index < len(buffer):
+            whitespace_index = buffer.rfind(" ", min_chars, cut_index)
+            if whitespace_index >= min_chars:
+                cut_index = whitespace_index + 1
+
+    if cut_index <= 0:
+        return ("", buffer)
+
+    return (buffer[:cut_index], buffer[cut_index:])
+
+
+def _translate_story_stream_output_chunk(
+    text_value: str,
+    *,
+    source_model_name: str | None = None,
+    force_output_translation: bool = False,
+) -> str:
+    if not text_value:
+        return text_value
+    try:
+        if force_output_translation and not _is_story_translation_enabled():
+            return _force_translate_story_model_output_to_user(
+                text_value,
+                source_model_name=source_model_name,
+            )
+        return _translate_story_model_output_to_user(text_value)
+    except Exception as exc:
+        logger.warning("Story output streaming translation failed: %s", exc)
+        return text_value
+
+
+def _yield_story_translated_stream_chunks(
+    raw_chunks: Any,
+    *,
+    source_model_name: str | None = None,
+    force_output_translation: bool = False,
+    raw_output_collector: dict[str, str] | None = None,
+):
+    raw_chunks_collected: list[str] = []
+    pending_buffer = ""
+
+    for raw_chunk in raw_chunks:
+        if not isinstance(raw_chunk, str):
+            continue
+        raw_chunks_collected.append(raw_chunk)
+        if not raw_chunk:
+            continue
+
+        pending_buffer += raw_chunk
+        while pending_buffer:
+            segment, remainder = _split_story_translation_stream_buffer(
+                pending_buffer,
+                force=False,
+            )
+            if not segment:
+                break
+            pending_buffer = remainder
+            translated_segment = _translate_story_stream_output_chunk(
+                segment,
+                source_model_name=source_model_name,
+                force_output_translation=force_output_translation,
+            )
+            if not translated_segment:
+                continue
+            for chunk in _yield_story_stream_chunks_with_pacing(translated_segment):
+                yield chunk
+
+    while pending_buffer:
+        segment, remainder = _split_story_translation_stream_buffer(
+            pending_buffer,
+            force=True,
+        )
+        if not segment:
+            segment, remainder = pending_buffer, ""
+        pending_buffer = remainder
+        translated_segment = _translate_story_stream_output_chunk(
+            segment,
+            source_model_name=source_model_name,
+            force_output_translation=force_output_translation,
+        )
+        if not translated_segment:
+            continue
+        for chunk in _yield_story_stream_chunks_with_pacing(translated_segment):
+            yield chunk
+
+    if raw_output_collector is not None:
+        raw_output_collector["raw_output"] = "".join(raw_chunks_collected)
 
 
 def _strip_story_markup_for_language_detection(text_value: str) -> str:
@@ -4234,10 +4761,12 @@ def _strip_story_markup_for_language_detection(text_value: str) -> str:
     return STORY_MARKUP_MARKER_PATTERN.sub(" ", normalized)
 
 
-def _should_force_story_output_to_russian(text_value: str) -> bool:
-    if settings.story_user_language != "ru":
+def _should_force_story_output_to_russian(text_value: str, *, model_name: str | None = None) -> bool:
+    if not _is_story_output_translation_model(model_name):
         return False
-    if not _can_force_story_output_translation():
+    if _story_user_language_code() != "ru":
+        return False
+    if not _can_force_story_output_translation(model_name):
         return False
 
     stripped = _strip_story_markup_for_language_detection(text_value).strip()
@@ -4260,15 +4789,71 @@ def _should_force_story_output_to_russian(text_value: str) -> bool:
     return False
 
 
-def _enforce_story_output_language(text_value: str) -> str:
+def _sanitize_story_russian_output_segment(text_value: str) -> str:
+    normalized = text_value.replace("\r\n", "\n")
+    if not normalized:
+        return normalized
+
+    cleaned = STORY_CJK_CHARACTER_PATTERN.sub(" ", normalized)
+    cleaned = cleaned.translate(STORY_LATIN_TO_CYRILLIC_LOOKALIKE_TABLE)
+
+    def transliterate_latin_word(match: re.Match[str]) -> str:
+        token = match.group(0)
+        transliterated = _transliterate_story_latin_name_to_cyrillic(token)
+        if not transliterated:
+            return ""
+        if token[:1].isupper():
+            return transliterated[:1].upper() + transliterated[1:]
+        return transliterated
+
+    cleaned = re.sub(r"\b[A-Za-z][A-Za-z'-]{1,32}\b", transliterate_latin_word, cleaned)
+    cleaned = re.sub(r"[A-Za-z]{2,}", "", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _sanitize_story_russian_output_contract(text_value: str) -> str:
     normalized = text_value.replace("\r\n", "\n").strip()
     if not normalized:
         return normalized
-    if not _should_force_story_output_to_russian(normalized):
+
+    fragments: list[str] = []
+    cursor = 0
+    for marker_match in STORY_MARKUP_MARKER_PATTERN.finditer(normalized):
+        marker_start, marker_end = marker_match.span()
+        if marker_start > cursor:
+            fragments.append(_sanitize_story_russian_output_segment(normalized[cursor:marker_start]))
+        fragments.append(marker_match.group(0))
+        cursor = marker_end
+
+    if cursor < len(normalized):
+        fragments.append(_sanitize_story_russian_output_segment(normalized[cursor:]))
+
+    sanitized = "".join(fragments).strip()
+    if not sanitized:
+        return normalized
+    sanitized = re.sub(r"[ \t]+\n", "\n", sanitized)
+    sanitized = re.sub(r"\n{3,}", "\n\n", sanitized)
+    return sanitized.strip()
+
+
+def _enforce_story_output_language(text_value: str, *, model_name: str | None = None) -> str:
+    normalized = text_value.replace("\r\n", "\n").strip()
+    if not normalized:
+        return normalized
+
+    if _story_user_language_code() == "ru":
+        normalized = _sanitize_story_russian_output_contract(normalized)
+        if not normalized:
+            return normalized
+
+    if not _should_force_story_output_to_russian(normalized, model_name=model_name):
         return normalized
 
     try:
-        translated = _force_translate_story_model_output_to_user(normalized)
+        translated = _force_translate_story_model_output_to_user(normalized, source_model_name=model_name)
     except Exception as exc:
         logger.warning("Forced story output translation failed: %s", exc)
         return normalized
@@ -4276,6 +4861,10 @@ def _enforce_story_output_language(text_value: str) -> str:
     translated_normalized = translated.replace("\r\n", "\n").strip()
     if not translated_normalized:
         return normalized
+    if _story_user_language_code() == "ru":
+        translated_normalized = _sanitize_story_russian_output_contract(translated_normalized)
+        if not translated_normalized:
+            return normalized
     return translated_normalized
 
 
@@ -4536,6 +5125,258 @@ def _extract_json_object_from_text(raw_value: str) -> Any:
             return parsed
 
     return {}
+
+
+def _clamp_story_ambient_value(
+    raw_value: Any,
+    *,
+    minimum: float,
+    maximum: float,
+    fallback: float,
+) -> float:
+    try:
+        numeric_value = float(raw_value)
+    except (TypeError, ValueError):
+        return fallback
+    if not math.isfinite(numeric_value):
+        return fallback
+    return max(minimum, min(maximum, numeric_value))
+
+
+def _normalize_story_ambient_hex_color(raw_value: Any, *, fallback: str) -> str:
+    if not isinstance(raw_value, str):
+        return fallback
+    normalized = raw_value.strip().lower()
+    if not normalized or not STORY_AMBIENT_HEX_COLOR_PATTERN.fullmatch(normalized):
+        return fallback
+    color_value = normalized[1:] if normalized.startswith("#") else normalized
+    if len(color_value) == 3:
+        color_value = "".join(char * 2 for char in color_value)
+    return f"#{color_value}"
+
+
+def _normalize_story_ambient_profile_payload(
+    raw_payload: dict[str, Any] | None,
+    *,
+    fallback_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    default_profile = fallback_profile if isinstance(fallback_profile, dict) else STORY_AMBIENT_DEFAULT_PROFILE
+
+    scene_value = ""
+    lighting_value = ""
+    if isinstance(raw_payload, dict):
+        scene_value = str(raw_payload.get("scene") or "").replace("\r\n", " ").strip()
+        lighting_value = str(raw_payload.get("lighting") or "").replace("\r\n", " ").strip()
+
+    scene = re.sub(r"\s+", " ", scene_value)[:80] or str(default_profile.get("scene", "unknown"))
+    lighting = re.sub(r"\s+", " ", lighting_value)[:80] or str(default_profile.get("lighting", "dim"))
+
+    fallback_primary = str(default_profile.get("primary_color", STORY_AMBIENT_DEFAULT_PROFILE["primary_color"]))
+    fallback_secondary = str(default_profile.get("secondary_color", STORY_AMBIENT_DEFAULT_PROFILE["secondary_color"]))
+    fallback_highlight = str(default_profile.get("highlight_color", STORY_AMBIENT_DEFAULT_PROFILE["highlight_color"]))
+    fallback_glow = float(default_profile.get("glow_strength", STORY_AMBIENT_DEFAULT_PROFILE["glow_strength"]))
+    fallback_mix = float(default_profile.get("background_mix", STORY_AMBIENT_DEFAULT_PROFILE["background_mix"]))
+    fallback_vignette = float(default_profile.get("vignette_strength", STORY_AMBIENT_DEFAULT_PROFILE["vignette_strength"]))
+
+    primary_color = _normalize_story_ambient_hex_color(
+        raw_payload.get("primary_color") if isinstance(raw_payload, dict) else None,
+        fallback=fallback_primary,
+    )
+    secondary_color = _normalize_story_ambient_hex_color(
+        raw_payload.get("secondary_color") if isinstance(raw_payload, dict) else None,
+        fallback=fallback_secondary,
+    )
+    highlight_color = _normalize_story_ambient_hex_color(
+        raw_payload.get("highlight_color") if isinstance(raw_payload, dict) else None,
+        fallback=fallback_highlight,
+    )
+    glow_strength = _clamp_story_ambient_value(
+        raw_payload.get("glow_strength") if isinstance(raw_payload, dict) else None,
+        minimum=0.0,
+        maximum=1.0,
+        fallback=fallback_glow,
+    )
+    background_mix = _clamp_story_ambient_value(
+        raw_payload.get("background_mix") if isinstance(raw_payload, dict) else None,
+        minimum=0.0,
+        maximum=1.0,
+        fallback=fallback_mix,
+    )
+    vignette_strength = _clamp_story_ambient_value(
+        raw_payload.get("vignette_strength") if isinstance(raw_payload, dict) else None,
+        minimum=0.0,
+        maximum=1.0,
+        fallback=fallback_vignette,
+    )
+
+    return {
+        "scene": scene,
+        "lighting": lighting,
+        "primary_color": primary_color,
+        "secondary_color": secondary_color,
+        "highlight_color": highlight_color,
+        "glow_strength": round(glow_strength, 3),
+        "background_mix": round(background_mix, 3),
+        "vignette_strength": round(vignette_strength, 3),
+    }
+
+
+def _infer_story_ambient_profile_from_text(
+    *,
+    latest_assistant_text: str,
+) -> dict[str, Any]:
+    combined = latest_assistant_text.strip().casefold() if isinstance(latest_assistant_text, str) else ""
+    if not combined:
+        return dict(STORY_AMBIENT_DEFAULT_PROFILE)
+
+    is_forest = any(token in combined for token in ("forest", "jungle", "\u043b\u0435\u0441", "\u0442\u0430\u0439\u0433"))
+    is_night = any(token in combined for token in ("night", "moon", "\u043d\u043e\u0447", "\u043b\u0443\u043d"))
+    is_sunset = any(
+        token in combined
+        for token in ("sunset", "dusk", "twilight", "golden hour", "\u0437\u0430\u043a\u0430\u0442", "\u0441\u0443\u043c\u0435\u0440")
+    )
+    is_cave = any(
+        token in combined
+        for token in ("cave", "underground", "dungeon", "\u043f\u0435\u0449\u0435\u0440", "\u043f\u043e\u0434\u0437\u0435\u043c")
+    )
+    is_fire = any(
+        token in combined
+        for token in ("fire", "flame", "lava", "ember", "\u043a\u043e\u0441\u0442\u0435\u0440", "\u043e\u0433\u043e\u043d", "\u043b\u0430\u0432")
+    )
+
+    if is_forest and is_night:
+        return {
+            "scene": "night forest",
+            "lighting": "low moonlight",
+            "primary_color": "#11291c",
+            "secondary_color": "#0b1b14",
+            "highlight_color": "#2f6f4a",
+            "glow_strength": 0.24,
+            "background_mix": 0.2,
+            "vignette_strength": 0.44,
+        }
+    if is_sunset:
+        return {
+            "scene": "sunset",
+            "lighting": "warm dusk",
+            "primary_color": "#40221a",
+            "secondary_color": "#2b1712",
+            "highlight_color": "#e57a2c",
+            "glow_strength": 0.28,
+            "background_mix": 0.24,
+            "vignette_strength": 0.36,
+        }
+    if is_fire:
+        return {
+            "scene": "firelight",
+            "lighting": "hot contrast",
+            "primary_color": "#3b1a14",
+            "secondary_color": "#25110f",
+            "highlight_color": "#ff6b2f",
+            "glow_strength": 0.32,
+            "background_mix": 0.24,
+            "vignette_strength": 0.38,
+        }
+    if is_cave:
+        return {
+            "scene": "cave",
+            "lighting": "low",
+            "primary_color": "#1a212d",
+            "secondary_color": "#101722",
+            "highlight_color": "#4f6a91",
+            "glow_strength": 0.19,
+            "background_mix": 0.16,
+            "vignette_strength": 0.46,
+        }
+    if is_forest:
+        return {
+            "scene": "forest",
+            "lighting": "natural",
+            "primary_color": "#1b3524",
+            "secondary_color": "#12251a",
+            "highlight_color": "#4f9962",
+            "glow_strength": 0.23,
+            "background_mix": 0.21,
+            "vignette_strength": 0.33,
+        }
+    if is_night:
+        return {
+            "scene": "night",
+            "lighting": "dim",
+            "primary_color": "#101a2b",
+            "secondary_color": "#0a111d",
+            "highlight_color": "#3b5c8c",
+            "glow_strength": 0.2,
+            "background_mix": 0.18,
+            "vignette_strength": 0.42,
+        }
+    return dict(STORY_AMBIENT_DEFAULT_PROFILE)
+
+
+def _resolve_story_ambient_profile(
+    *,
+    latest_assistant_text: str,
+) -> dict[str, Any]:
+    fallback_profile = _normalize_story_ambient_profile_payload(
+        _infer_story_ambient_profile_from_text(
+            latest_assistant_text=latest_assistant_text,
+        )
+    )
+    if not settings.openrouter_api_key:
+        return fallback_profile
+
+    assistant_preview = _normalize_story_prompt_text(latest_assistant_text, max_chars=2_200)
+    if not assistant_preview:
+        return fallback_profile
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "You are an ambient color director for an interactive RPG UI. "
+                "Return strict JSON only, no markdown: "
+                "{\"scene\": string, \"lighting\": string, \"primary_color\": \"#RRGGBB\", "
+                "\"secondary_color\": \"#RRGGBB\", \"highlight_color\": \"#RRGGBB\", "
+                "\"glow_strength\": number, \"background_mix\": number, \"vignette_strength\": number}. "
+                "Pick 2-3 harmonious colors from environment and surroundings only. "
+                "Ignore character appearance, clothing, skin, and eye colors. "
+                "Focus on background scene lighting: sky, weather, terrain, interior, effects. "
+                "Do not use a generic blue palette unless the environment is actually cold/blue. "
+                "Examples: forest -> green shades, night forest -> dark green with moon tint, sunset -> red/amber/yellow. "
+                "All numbers must be in range 0..1."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Narrator reply:\n{assistant_preview or 'none'}\n\n"
+                "Extract the ambient palette from the described environment only.\n"
+                "Return JSON only."
+            ),
+        },
+    ]
+
+    try:
+        raw_response = _request_openrouter_story_text(
+            messages_payload,
+            model_name=STORY_AMBIENT_PROFILE_MODEL,
+            allow_free_fallback=False,
+            fallback_model_names=[],
+            temperature=0.0,
+            max_tokens=STORY_AMBIENT_PROFILE_REQUEST_MAX_TOKENS,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Ambient profile extraction failed, using fallback palette: %s", exc)
+        return fallback_profile
+
+    raw_payload = _extract_json_object_from_text(raw_response)
+    if not isinstance(raw_payload, dict):
+        return fallback_profile
+    return _normalize_story_ambient_profile_payload(raw_payload, fallback_profile=fallback_profile)
 
 
 def _build_story_world_card_extraction_messages(
@@ -6047,10 +6888,69 @@ def _estimate_story_memory_block_tokens(block: StoryMemoryBlock) -> int:
     return max(_estimate_story_tokens(block.content), 1)
 
 
+def _is_story_memory_line_russian(value: str) -> bool:
+    stripped = STORY_MARKUP_MARKER_PATTERN.sub(" ", value).strip()
+    if not stripped:
+        return False
+    if STORY_CJK_CHARACTER_PATTERN.search(stripped):
+        return False
+
+    cyrillic_letters = len(STORY_CYRILLIC_LETTER_PATTERN.findall(stripped))
+    latin_letters = len(STORY_LATIN_LETTER_PATTERN.findall(stripped))
+    latin_words = len(STORY_LATIN_WORD_PATTERN.findall(stripped))
+
+    if cyrillic_letters < STORY_MEMORY_RUSSIAN_MIN_CYRILLIC_LETTERS:
+        return False
+    if latin_letters == 0:
+        return True
+    if latin_words > STORY_MEMORY_MAX_LATIN_WORDS:
+        return False
+    return latin_letters <= max(int(cyrillic_letters * STORY_MEMORY_MAX_LATIN_RATIO), 1)
+
+
+def _normalize_story_memory_sentence_candidate(raw_value: str) -> str:
+    compact = re.sub(r"\s+", " ", raw_value.strip(" -•\t\"'«»")).strip()
+    if not compact:
+        return ""
+
+    compact = STORY_MARKUP_MARKER_PATTERN.sub(" ", compact)
+    compact = re.sub(r"\s+", " ", compact).strip()
+    compact = re.sub(
+        r"^(?:user turn|player turn|narrator reply|assistant reply|ход игрока|ответ мастера)\s*:\s*",
+        "",
+        compact,
+        flags=re.IGNORECASE,
+    ).strip()
+    compact = re.sub(r"^[,.;:()\[\]\-–—]+\s*", "", compact).strip()
+    if not compact:
+        return ""
+
+    compact_lower = compact.casefold()
+    if any(token in compact_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
+        return ""
+    if any(compact_lower.startswith(prefix) for prefix in STORY_MEMORY_NOISE_PREFIXES):
+        return ""
+
+    compact = re.sub(r"\b[A-Za-z][A-Za-z'-]{1,32}\b", " ", compact)
+    compact = re.sub(r"[A-Za-z]{2,}", " ", compact)
+    compact = re.sub(r"\s+", " ", compact).strip(" ,;:-")
+    if not compact:
+        return ""
+    if not _is_story_memory_line_russian(compact):
+        return ""
+    if len(compact) < 18:
+        return ""
+
+    if compact[-1] not in ".!?…":
+        compact = f"{compact}."
+    return compact[:1].upper() + compact[1:]
+
+
 def _build_story_raw_memory_block_content(
     *,
     latest_user_prompt: str,
     latest_assistant_text: str,
+    preserve_assistant_text: bool = False,
 ) -> str:
     def _collect_compact_lines(raw_content: str, *, max_lines: int, max_chars: int) -> str:
         normalized_content = raw_content.replace("\r\n", "\n").strip()
@@ -6067,7 +6967,7 @@ def _build_story_raw_memory_block_content(
                 continue
             sentence_parts = re.split(r"(?<=[.!?…])\s+", compact_line)
             for sentence in sentence_parts:
-                normalized_sentence = re.sub(r"\s+", " ", sentence.strip(" -•\t")).strip()
+                normalized_sentence = _normalize_story_memory_sentence_candidate(sentence)
                 if normalized_sentence:
                     candidate_lines.append(normalized_sentence)
 
@@ -6112,34 +7012,24 @@ def _build_story_raw_memory_block_content(
             max_lines=STORY_MEMORY_RAW_USER_MAX_LINES,
             max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS,
         )
-        parts.append(
-            "Ход игрока (сухие факты):\n"
-            + (
-                compressed_prompt
-                if compressed_prompt
-                else _normalize_story_prompt_text(
-                    normalized_prompt,
-                    max_chars=STORY_MEMORY_RAW_USER_MAX_CHARS,
-                )
-            )
-        )
+        fallback_prompt = _normalize_story_memory_sentence_candidate(normalized_prompt)
+        prompt_payload = compressed_prompt or (f"- {fallback_prompt}" if fallback_prompt else "- Существенных фактов не выделено.")
+        parts.append("Ход игрока (сухие факты):\n" + prompt_payload)
     if normalized_assistant:
-        compressed_assistant = _collect_compact_lines(
-            normalized_assistant,
-            max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES,
-            max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS,
-        )
-        parts.append(
-            "Ответ мастера (краткий пересказ):\n"
-            + (
-                compressed_assistant
-                if compressed_assistant
-                else _normalize_story_prompt_text(
-                    normalized_assistant,
-                    max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS,
-                )
+        if preserve_assistant_text:
+            assistant_payload = normalized_assistant
+            parts.append("Ответ мастера (полный текст):\n" + assistant_payload)
+        else:
+            compressed_assistant = _collect_compact_lines(
+                normalized_assistant,
+                max_lines=STORY_MEMORY_RAW_ASSISTANT_MAX_LINES,
+                max_chars=STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS,
             )
-        )
+            fallback_assistant = _normalize_story_memory_sentence_candidate(normalized_assistant)
+            assistant_payload = (
+                compressed_assistant or (f"- {fallback_assistant}" if fallback_assistant else "- Существенных фактов не выделено.")
+            )
+            parts.append("Ответ мастера (краткий пересказ):\n" + assistant_payload)
     return "\n\n".join(parts).strip()
 
 
@@ -6161,11 +7051,31 @@ def _create_story_memory_block(
     layer: str,
     title: str,
     content: str,
+    preserve_content: bool = False,
 ) -> StoryMemoryBlock:
     normalized_layer = _normalize_story_memory_layer(layer)
-    normalized_content = _normalize_story_memory_block_content(content)
+    normalized_raw_content = content.replace("\r\n", "\n").strip()
+    if preserve_content:
+        content_for_storage = normalized_raw_content
+    else:
+        extracted_sentences = _extract_story_memory_sentences(normalized_raw_content)
+        if extracted_sentences:
+            if normalized_layer == STORY_MEMORY_LAYER_KEY:
+                content_for_storage = "\n".join(extracted_sentences).strip()
+            else:
+                content_for_storage = "\n".join(f"- {line}" for line in extracted_sentences).strip()
+        else:
+            fallback_sentence = _normalize_story_memory_sentence_candidate(normalized_raw_content)
+            if fallback_sentence:
+                content_for_storage = fallback_sentence if normalized_layer == STORY_MEMORY_LAYER_KEY else f"- {fallback_sentence}"
+            else:
+                content_for_storage = "Существенных фактов не выделено."
+    normalized_content = _normalize_story_memory_block_content(content_for_storage)
+    normalized_raw_title = title.replace("\r\n", " ").strip()
+    title_candidate = _normalize_story_memory_sentence_candidate(normalized_raw_title).rstrip(".!?…").strip()
+    title_for_storage = title_candidate or normalized_raw_title
     normalized_title = _normalize_story_memory_block_title(
-        title,
+        title_for_storage,
         fallback="Блок памяти",
     )
     block = StoryMemoryBlock(
@@ -6181,20 +7091,50 @@ def _create_story_memory_block(
     return block
 
 
+def _list_story_latest_assistant_message_ids(
+    db: Session,
+    game_id: int,
+    *,
+    limit: int,
+) -> list[int]:
+    normalized_limit = max(int(limit), 0)
+    if normalized_limit <= 0:
+        return []
+    return [
+        int(message_id)
+        for message_id in db.scalars(
+            select(StoryMessage.id)
+            .where(
+                StoryMessage.game_id == game_id,
+                StoryMessage.role == STORY_ASSISTANT_ROLE,
+                StoryMessage.undone_at.is_(None),
+            )
+            .order_by(StoryMessage.id.desc())
+            .limit(normalized_limit)
+        ).all()
+    ]
+
+
 def _extract_story_memory_sentences(raw_content: str) -> list[str]:
     normalized = raw_content.replace("\r\n", "\n").strip()
     if not normalized:
         return []
     extracted: list[str] = []
+    seen_sentences: set[str] = set()
     for raw_line in normalized.split("\n"):
         compact_line = re.sub(r"^\s*[-•]\s*", "", raw_line).strip()
         if not compact_line:
             continue
         sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", compact_line))
         for sentence in sentence_candidates:
-            compact_sentence = re.sub(r"\s+", " ", sentence).strip(" -•\t")
-            if compact_sentence:
-                extracted.append(compact_sentence)
+            compact_sentence = _normalize_story_memory_sentence_candidate(sentence)
+            if not compact_sentence:
+                continue
+            sentence_key = compact_sentence.casefold()
+            if sentence_key in seen_sentences:
+                continue
+            seen_sentences.add(sentence_key)
+            extracted.append(compact_sentence)
     return extracted
 
 
@@ -6205,7 +7145,7 @@ def _build_story_memory_summary_without_truncation(
 ) -> str:
     sentences = _extract_story_memory_sentences(raw_content)
     if not sentences:
-        return raw_content.replace("\r\n", "\n").strip()
+        return ""
 
     unique_entries: list[tuple[int, str, int]] = []
     seen_sentences: set[str] = set()
@@ -6224,7 +7164,7 @@ def _build_story_memory_summary_without_truncation(
         unique_entries.append((index, sentence, score))
 
     if not unique_entries:
-        return raw_content.replace("\r\n", "\n").strip()
+        return ""
 
     max_lines = STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
     candidate_entries = unique_entries
@@ -6262,6 +7202,172 @@ def _build_story_memory_summary_without_truncation(
     return "\n".join(f"- {sentence}" for sentence in ordered_sentences).strip()
 
 
+def _evaluate_story_turn_memory_signal(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> dict[str, int]:
+    normalized_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=2_800)
+    normalized_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=6_500)
+    combined_text = "\n".join(part for part in (normalized_prompt, normalized_assistant) if part).strip()
+    sentences = _extract_story_memory_sentences(combined_text)
+    if not sentences:
+        return {
+            "sentence_count": 0,
+            "top_score": 0,
+            "important_hits": 0,
+            "strong_hits": 0,
+            "low_signal_hits": 0,
+            "has_numeric": 0,
+            "prompt_len": len(normalized_prompt),
+            "assistant_len": len(normalized_assistant),
+        }
+
+    top_score = max(_score_story_plot_memory_line(sentence) for sentence in sentences)
+    combined_lower = combined_text.casefold()
+    important_hits = sum(1 for token in STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS if token in combined_lower)
+    strong_hits = sum(1 for token in STORY_MEMORY_KEY_EVENT_STRONG_TOKENS if token in combined_lower)
+    low_signal_hits = sum(1 for token in STORY_MEMORY_LOW_SIGNAL_TOKENS if token in combined_lower)
+    has_numeric = 1 if re.search(r"\d", combined_text) else 0
+
+    return {
+        "sentence_count": len(sentences),
+        "top_score": max(top_score, 0),
+        "important_hits": max(important_hits, 0),
+        "strong_hits": max(strong_hits, 0),
+        "low_signal_hits": max(low_signal_hits, 0),
+        "has_numeric": has_numeric,
+        "prompt_len": len(normalized_prompt),
+        "assistant_len": len(normalized_assistant),
+    }
+
+
+def _should_store_story_raw_memory_turn(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> bool:
+    signal = _evaluate_story_turn_memory_signal(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+    )
+    sentence_count = int(signal.get("sentence_count", 0))
+    if sentence_count <= 0:
+        return False
+
+    top_score = int(signal.get("top_score", 0))
+    important_hits = int(signal.get("important_hits", 0))
+    strong_hits = int(signal.get("strong_hits", 0))
+    low_signal_hits = int(signal.get("low_signal_hits", 0))
+    has_numeric = int(signal.get("has_numeric", 0)) > 0
+    prompt_len = int(signal.get("prompt_len", 0))
+    assistant_len = int(signal.get("assistant_len", 0))
+
+    if strong_hits > 0:
+        return True
+    if important_hits >= STORY_MEMORY_RAW_MIN_IMPORTANT_HITS:
+        return True
+    if top_score >= STORY_MEMORY_RAW_MIN_SIGNAL_SCORE:
+        return True
+    if has_numeric and top_score >= STORY_MEMORY_RAW_MIN_SIGNAL_SCORE - 2:
+        return True
+
+    long_or_dense_turn = assistant_len >= 520 or prompt_len >= 320 or sentence_count >= 5
+    if long_or_dense_turn and top_score >= STORY_MEMORY_RAW_MIN_SIGNAL_SCORE - 3:
+        return True
+    if sentence_count >= 3 and top_score >= 4:
+        return True
+
+    short_turn = assistant_len < 260 and prompt_len < 180
+    if short_turn and low_signal_hits > 0:
+        return False
+    return False
+
+
+def _sanitize_story_key_memory_content(raw_content: str) -> str:
+    normalized = raw_content.replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+
+    sentence_candidates = _extract_story_memory_sentences(normalized)
+    if not sentence_candidates:
+        sentence_candidates = [line for line in normalized.split("\n") if line.strip()]
+
+    cleaned_lines: list[str] = []
+    seen_lines: set[str] = set()
+    for line in sentence_candidates:
+        compact = re.sub(r"\s+", " ", line.strip(" -•\t\"'«»")).strip()
+        if not compact:
+            continue
+        compact = re.sub(
+            r"^(?:user turn|player turn|narrator reply|assistant reply|ход игрока|ответ рассказчика)\s*:\s*",
+            "",
+            compact,
+            flags=re.IGNORECASE,
+        ).strip()
+        compact = re.sub(r"^[,.;:()\[\]\-–—]+\s*", "", compact).strip()
+        if not compact:
+            continue
+        if STORY_CJK_CHARACTER_PATTERN.search(compact):
+            continue
+        if len(STORY_CYRILLIC_LETTER_PATTERN.findall(compact)) < 6:
+            continue
+        compact_lower = compact.casefold()
+        if any(token in compact_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
+            continue
+        if len(compact) < 18:
+            continue
+        if compact[-1] not in ".!?…":
+            compact = f"{compact}."
+        compact = compact[:1].upper() + compact[1:]
+        compact_key = compact.casefold()
+        if compact_key in seen_lines:
+            continue
+        seen_lines.add(compact_key)
+        cleaned_lines.append(compact)
+        if len(cleaned_lines) >= 2:
+            break
+
+    if not cleaned_lines:
+        return ""
+
+    normalized_content = "\n".join(cleaned_lines).strip()
+    normalized_lower = normalized_content.casefold()
+    if any(token in normalized_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
+        return ""
+
+    try:
+        normalized_summary = _normalize_story_memory_block_content(normalized_content)
+    except HTTPException:
+        return ""
+    return normalized_summary
+
+
+def _is_story_key_memory_content_valid(content: str) -> bool:
+    normalized = content.replace("\r\n", "\n").strip()
+    if not normalized:
+        return False
+    normalized_lower = normalized.casefold()
+    if any(token in normalized_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
+        return False
+    if STORY_CJK_CHARACTER_PATTERN.search(normalized):
+        return False
+
+    lines = _extract_story_memory_sentences(normalized)
+    if not lines:
+        return False
+    if max(len(line) for line in lines) < 18:
+        return False
+
+    top_score = max(_score_story_plot_memory_line(line) for line in lines)
+    strong_hits = sum(1 for token in STORY_MEMORY_KEY_EVENT_STRONG_TOKENS if token in normalized_lower)
+    if strong_hits > 0:
+        return True
+    if top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 2, 6):
+        return True
+    return len(STORY_CYRILLIC_LETTER_PATTERN.findall(normalized)) >= 10
+
+
 def _compress_story_memory_block_locally(
     raw_content: str,
     *,
@@ -6272,7 +7378,12 @@ def _compress_story_memory_block_locally(
         super_mode=super_mode,
     )
     if not compressed:
-        compressed = raw_content.replace("\r\n", "\n").strip()
+        fallback_sentences = _extract_story_memory_sentences(raw_content)
+        if fallback_sentences:
+            max_lines = STORY_MEMORY_SUPER_MAX_LINES if super_mode else STORY_MEMORY_COMPRESSED_MAX_LINES
+            compressed = "\n".join(f"- {line}" for line in fallback_sentences[: max(max_lines, 1)]).strip()
+        else:
+            compressed = "- Существенных фактов не выделено."
     fallback_prefix = "Суперсжатая память" if super_mode else "Сжатая память"
     title = _build_story_memory_block_title(compressed, fallback_prefix=fallback_prefix)
     return (title, compressed)
@@ -6298,6 +7409,13 @@ def _rebalance_story_memory_layers(
     model_name = _resolve_story_plot_memory_model_name()
     fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
     context_limit_tokens = _normalize_story_context_limit_chars(game.context_limit_chars)
+    protected_raw_assistant_ids = set(
+        _list_story_latest_assistant_message_ids(
+            db,
+            game.id,
+            limit=STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS,
+        )
+    )
 
     def _layer_blocks(layer: str) -> list[StoryMemoryBlock]:
         normalized_layer = _normalize_story_memory_layer(layer)
@@ -6307,11 +7425,21 @@ def _rebalance_story_memory_layers(
             if _normalize_story_memory_layer(block.layer) == normalized_layer
         ]
 
+    def _is_protected_raw_block(block: StoryMemoryBlock) -> bool:
+        return (
+            _normalize_story_memory_layer(block.layer) == STORY_MEMORY_LAYER_RAW
+            and block.assistant_message_id in protected_raw_assistant_ids
+        )
+
     def _layer_tokens(layer: str) -> int:
         return sum(_estimate_story_memory_block_tokens(block) for block in _layer_blocks(layer))
 
     while _layer_tokens(STORY_MEMORY_LAYER_RAW) > budgets[STORY_MEMORY_LAYER_RAW]:
-        raw_blocks = _layer_blocks(STORY_MEMORY_LAYER_RAW)
+        raw_blocks = [
+            block
+            for block in _layer_blocks(STORY_MEMORY_LAYER_RAW)
+            if not _is_protected_raw_block(block)
+        ]
         if not raw_blocks:
             break
         source_block = raw_blocks[0]
@@ -6388,13 +7516,16 @@ def _rebalance_story_memory_layers(
                     block
                     for block in all_blocks
                     if _normalize_story_memory_layer(block.layer) == layer
+                    and not _is_protected_raw_block(block)
                 ),
                 None,
             )
             if removal_candidate is not None:
                 break
         if removal_candidate is None:
-            removal_candidate = all_blocks[0]
+            removal_candidate = next((block for block in all_blocks if not _is_protected_raw_block(block)), None)
+        if removal_candidate is None:
+            break
         db.delete(removal_candidate)
         db.flush()
 
@@ -6409,139 +7540,98 @@ def _extract_story_important_plot_card_payload(
     if not normalized_prompt and not normalized_assistant:
         return None
 
-    combined_text = "\n".join(
-        part
-        for part in [
-            f"Ход игрока: {normalized_prompt}" if normalized_prompt else "",
-            f"Ответ мастера: {normalized_assistant}" if normalized_assistant else "",
-        ]
-        if part
-    )
-    if settings.openrouter_api_key:
-        model_name = _resolve_story_plot_memory_model_name()
-        fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
-        messages_payload = [
-            {
-                "role": "system",
-                "content": (
-                    "You analyze one RPG turn and extract only truly important long-term events. "
-                    "Return strict JSON only: "
-                    "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
-                    "importance_score must be in range 0..100. "
-                    "Use is_important=true only for major turning points with lasting consequences."
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"User turn:\n{normalized_prompt or 'none'}\n\n"
-                    f"Narrator reply:\n{normalized_assistant or 'none'}\n\n"
-                    "If there is no major event, return is_important=false and importance_score<85."
-                ),
-            },
-        ]
-        try:
-            raw_response = _request_openrouter_story_text(
-                messages_payload,
-                model_name=model_name,
-                allow_free_fallback=False,
-                fallback_model_names=fallback_model_names,
-                temperature=0.0,
-                max_tokens=STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS,
-                request_timeout=(
-                    STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                    STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
-                ),
-            )
-            parsed_payload = _extract_json_object_from_text(raw_response)
-            if isinstance(parsed_payload, dict):
-                raw_is_important = parsed_payload.get("is_important")
-                is_important = False
-                if isinstance(raw_is_important, bool):
-                    is_important = raw_is_important
-                elif isinstance(raw_is_important, (int, float)):
-                    is_important = bool(raw_is_important)
-                elif isinstance(raw_is_important, str):
-                    is_important = raw_is_important.strip().lower() in {"1", "true", "yes"}
+    if not settings.openrouter_api_key:
+        return None
 
-                raw_importance_score = parsed_payload.get("importance_score")
+    model_name = _resolve_story_plot_memory_model_name()
+    fallback_model_names = _resolve_story_plot_memory_fallback_models(model_name)
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Analyze exactly one RPG turn and decide whether there is an important long-term plot event. "
+                "Return strict JSON only, without markdown: "
+                "{\"is_important\": boolean, \"importance_score\": number, \"title\": string, \"content\": string}. "
+                "importance_score must be in range 0..100. "
+                "Set is_important=true for meaningful events with likely consequences in future turns. "
+                "Do not mark routine actions, atmosphere, small emotions, ordinary dialogue, or cosmetic details. "
+                "content must be 1-2 short factual Russian sentences in past tense, "
+                "with concrete actor+event wording and no bullet list."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Player turn:\n{normalized_prompt or 'none'}\n\n"
+                f"Narrator reply:\n{normalized_assistant or 'none'}\n\n"
+                "Treat as important events like: major irreversible outcomes, a decisive choice or commitment, "
+                "new long-term goal/obligation, key secret revealed, critical alliance/trust shift, "
+                "high-impact gain/loss of resource/artifact/ability, or a new constraint that changes next turns. "
+                "If there is no such event, return is_important=false, importance_score<=55, title=\"\", content=\"\"."
+            ),
+        },
+    ]
+    try:
+        raw_response = _request_openrouter_story_text(
+            messages_payload,
+            model_name=model_name,
+            allow_free_fallback=False,
+            fallback_model_names=fallback_model_names,
+            temperature=0.0,
+            max_tokens=STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Important plot event extraction failed: %s", exc)
+        return None
+
+    parsed_payload = _extract_json_object_from_text(raw_response)
+    if not isinstance(parsed_payload, dict):
+        return None
+
+    raw_is_important = parsed_payload.get("is_important")
+    is_important = False
+    if isinstance(raw_is_important, bool):
+        is_important = raw_is_important
+    elif isinstance(raw_is_important, (int, float)):
+        is_important = bool(raw_is_important)
+    elif isinstance(raw_is_important, str):
+        is_important = raw_is_important.strip().lower() in {"1", "true", "yes"}
+
+    raw_importance_score = parsed_payload.get("importance_score")
+    importance_score = 0
+    if isinstance(raw_importance_score, bool):
+        importance_score = 100 if raw_importance_score else 0
+    elif isinstance(raw_importance_score, (int, float)):
+        importance_score = int(raw_importance_score)
+    elif isinstance(raw_importance_score, str):
+        score_match = re.search(r"-?\d+", raw_importance_score.strip())
+        if score_match is not None:
+            try:
+                importance_score = int(score_match.group(0))
+            except Exception:
                 importance_score = 0
-                if isinstance(raw_importance_score, bool):
-                    importance_score = 100 if raw_importance_score else 0
-                elif isinstance(raw_importance_score, (int, float)):
-                    importance_score = int(raw_importance_score)
-                elif isinstance(raw_importance_score, str):
-                    score_match = re.search(r"-?\d+", raw_importance_score.strip())
-                    if score_match is not None:
-                        try:
-                            importance_score = int(score_match.group(0))
-                        except Exception:
-                            importance_score = 0
-                importance_score = max(min(importance_score, 100), 0)
+    importance_score = max(min(importance_score, 100), 0)
 
-                if is_important and importance_score >= STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
-                    raw_title = str(parsed_payload.get("title") or parsed_payload.get("name") or "").strip()
-                    raw_content = str(parsed_payload.get("content") or parsed_payload.get("summary") or "").strip()
-                    if raw_content:
-                        content = _build_story_memory_summary_without_truncation(
-                            raw_content,
-                            super_mode=False,
-                        )
-                        if content:
-                            title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
-                            title = _normalize_story_memory_block_title(title, fallback="Important event")
-                            content = _normalize_story_memory_block_content(content)
-                            return (title, content)
-        except Exception as exc:
-            logger.warning("Important plot event extraction failed, fallback to local scoring: %s", exc)
-
-    sentences = _extract_story_memory_sentences(combined_text)
-    if not sentences:
+    if not is_important or importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
         return None
 
-    ranked_sentences: list[tuple[int, int, str, int, int]] = []
-    strong_hits_total = 0
-    weak_hits_total = 0
-    for index, sentence in enumerate(sentences):
-        normalized_sentence = sentence.casefold()
-        strong_hits = sum(1 for token in STORY_MEMORY_KEY_EVENT_STRONG_TOKENS if token in normalized_sentence)
-        weak_hits = sum(1 for token in STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS if token in normalized_sentence)
-        score = _score_story_plot_memory_line(sentence) + strong_hits * 3 + weak_hits
-        if re.search(r"\d", sentence):
-            score += 1
-        if len(sentence) < 18:
-            score -= 1
-        ranked_sentences.append((score, index, sentence, strong_hits, weak_hits))
-        strong_hits_total += strong_hits
-        weak_hits_total += weak_hits
-
-    if not ranked_sentences:
+    raw_title = str(parsed_payload.get("title") or parsed_payload.get("name") or "").strip()
+    raw_content = str(parsed_payload.get("content") or parsed_payload.get("summary") or "").strip()
+    if not raw_content:
         return None
 
-    ranked_sentences.sort(key=lambda item: (-item[0], item[1]))
-    top_score = ranked_sentences[0][0]
-    importance_score = min(
-        100,
-        max(
-            0,
-            35 + top_score * 6 + strong_hits_total * 9 + min(weak_hits_total, 6) * 3,
-        ),
-    )
-    if strong_hits_total == 0 and top_score < 12:
+    content = _sanitize_story_key_memory_content(raw_content)
+    if not content or not _is_story_key_memory_content_valid(content):
         return None
-    if importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
+    if len(content) < 30:
         return None
 
-    selected_sentences = sorted(ranked_sentences[:3], key=lambda item: item[1])
-    selected_lines = [sentence for _, _, sentence, _, _ in selected_sentences]
-    summary_source = "\n".join(f"- {line}" for line in selected_lines)
-    content = _build_story_memory_summary_without_truncation(summary_source, super_mode=False)
-    if not content:
-        return None
-
-    title = _derive_story_plot_card_title_from_content(content, preferred_lines=selected_lines)
+    title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
     title = _normalize_story_memory_block_title(title, fallback="Важный момент")
-    content = _normalize_story_memory_block_content(content)
     return (title, content)
 
 
@@ -6564,7 +7654,10 @@ def _create_story_key_memory_block(
     content: str,
 ) -> bool:
     normalized_title = _normalize_story_memory_block_title(title, fallback="Важный момент")
-    normalized_content = _normalize_story_memory_block_content(content)
+    sanitized_content = _sanitize_story_key_memory_content(content)
+    if not sanitized_content or not _is_story_key_memory_content_valid(sanitized_content):
+        return False
+    normalized_content = _normalize_story_memory_block_content(sanitized_content)
     existing_blocks = [
         block
         for block in _list_story_memory_blocks(db, game.id)
@@ -6699,10 +7792,25 @@ def _upsert_story_plot_memory_card(
             if isinstance(latest_user_message, StoryMessage)
             else ""
         )
+    latest_assistant_message_ids = _list_story_latest_assistant_message_ids(
+        db,
+        game.id,
+        limit=STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS,
+    )
+    preserve_assistant_text_for_raw_block = assistant_message.id in latest_assistant_message_ids
 
-    raw_block_content = _build_story_raw_memory_block_content(
+    should_store_raw_block = _should_store_story_raw_memory_turn(
         latest_user_prompt=latest_user_prompt,
         latest_assistant_text=latest_assistant_text,
+    )
+    raw_block_content = (
+        _build_story_raw_memory_block_content(
+            latest_user_prompt=latest_user_prompt,
+            latest_assistant_text=latest_assistant_text,
+            preserve_assistant_text=preserve_assistant_text_for_raw_block,
+        )
+        if should_store_raw_block
+        else ""
     )
     if raw_block_content:
         _create_story_memory_block(
@@ -6712,17 +7820,32 @@ def _upsert_story_plot_memory_card(
             layer=STORY_MEMORY_LAYER_RAW,
             title=_build_story_memory_block_title(raw_block_content, fallback_prefix="Свежая память"),
             content=raw_block_content,
+            preserve_content=preserve_assistant_text_for_raw_block,
         )
         _rebalance_story_memory_layers(db=db, game=game)
 
-    try:
-        important_payload = _extract_story_important_plot_card_payload(
+    should_extract_important_payload = should_store_raw_block
+    if not should_extract_important_payload:
+        turn_signal = _evaluate_story_turn_memory_signal(
             latest_user_prompt=latest_user_prompt,
             latest_assistant_text=latest_assistant_text,
         )
-    except Exception as exc:
-        logger.warning("Important plot event extraction failed: %s", exc)
-        important_payload = None
+        should_extract_important_payload = (
+            int(turn_signal.get("strong_hits", 0)) > 0
+            or int(turn_signal.get("important_hits", 0)) > 0
+            or int(turn_signal.get("top_score", 0)) >= max(STORY_MEMORY_RAW_MIN_SIGNAL_SCORE - 1, 5)
+        )
+
+    important_payload = None
+    if should_extract_important_payload:
+        try:
+            important_payload = _extract_story_important_plot_card_payload(
+                latest_user_prompt=latest_user_prompt,
+                latest_assistant_text=latest_assistant_text,
+            )
+        except Exception as exc:
+            logger.warning("Important plot event extraction failed: %s", exc)
+            important_payload = None
 
     if important_payload is not None:
         title, content = important_payload
@@ -6821,10 +7944,12 @@ def _iter_gigachat_story_stream_chunks(
     use_plot_memory: bool = False,
     context_limit_chars: int,
     response_max_tokens: int | None = None,
+    translate_for_model: bool = False,
     show_gg_thoughts: bool = True,
     show_npc_thoughts: bool = True,
 ):
     access_token = _get_gigachat_access_token()
+    request_started_at = time.monotonic()
     messages_payload = _build_story_provider_messages(
         context_messages,
         instruction_cards,
@@ -6833,6 +7958,8 @@ def _iter_gigachat_story_stream_chunks(
         use_plot_memory=use_plot_memory,
         context_limit_tokens=context_limit_chars,
         response_max_tokens=response_max_tokens,
+        translate_for_model=translate_for_model,
+        model_name=settings.gigachat_model,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -6882,7 +8009,11 @@ def _iter_gigachat_story_stream_chunks(
         # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
         response.encoding = "utf-8"
         emitted_delta = False
-        for raw_line in response.iter_lines(decode_unicode=True):
+        first_content_emitted_at: float | None = None
+        for raw_line in response.iter_lines(
+            chunk_size=STORY_STREAM_HTTP_CHUNK_SIZE_BYTES,
+            decode_unicode=True,
+        ):
             if raw_line is None:
                 continue
             line = raw_line.strip()
@@ -6908,7 +8039,14 @@ def _iter_gigachat_story_stream_chunks(
                 content_delta = delta_value.get("content")
                 if isinstance(content_delta, str) and content_delta:
                     emitted_delta = True
-                    yield content_delta
+                    if first_content_emitted_at is None:
+                        first_content_emitted_at = time.monotonic()
+                        logger.info(
+                            "GigaChat stream first token latency: %.3fs",
+                            first_content_emitted_at - request_started_at,
+                        )
+                    for chunk in _yield_story_stream_chunks_with_pacing(content_delta):
+                        yield chunk
                     continue
 
             if emitted_delta:
@@ -6918,7 +8056,13 @@ def _iter_gigachat_story_stream_chunks(
             if isinstance(message_value, dict):
                 content_value = message_value.get("content")
                 if isinstance(content_value, str) and content_value:
-                    for chunk in _iter_story_stream_chunks(content_value):
+                    if first_content_emitted_at is None:
+                        first_content_emitted_at = time.monotonic()
+                        logger.info(
+                            "GigaChat stream first token latency (message payload): %.3fs",
+                            first_content_emitted_at - request_started_at,
+                        )
+                    for chunk in _yield_story_stream_chunks_with_pacing(content_value):
                         yield chunk
                     break
     finally:
@@ -6934,12 +8078,15 @@ def _iter_openrouter_story_stream_chunks(
     use_plot_memory: bool = False,
     context_limit_chars: int,
     model_name: str | None = None,
+    temperature: float | None = None,
     top_k: int | None = None,
     top_p: float | None = None,
     max_tokens: int | None = None,
+    translate_for_model: bool = False,
     show_gg_thoughts: bool = True,
     show_npc_thoughts: bool = True,
 ):
+    request_started_at = time.monotonic()
     messages_payload = _build_story_provider_messages(
         context_messages,
         instruction_cards,
@@ -6948,6 +8095,7 @@ def _iter_openrouter_story_stream_chunks(
         use_plot_memory=use_plot_memory,
         context_limit_tokens=context_limit_chars,
         response_max_tokens=max_tokens,
+        translate_for_model=translate_for_model,
         model_name=model_name,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
@@ -6984,6 +8132,8 @@ def _iter_openrouter_story_stream_chunks(
         provider_payload = _build_openrouter_provider_payload(model_name)
         if provider_payload is not None:
             payload["provider"] = provider_payload
+        if temperature is not None:
+            payload["temperature"] = temperature
         if top_k is not None:
             payload["top_k"] = top_k
         if top_p is not None:
@@ -7043,8 +8193,12 @@ def _iter_openrouter_story_stream_chunks(
                 # SSE stream text is UTF-8; requests may default text/* to latin-1 without charset.
                 response.encoding = "utf-8"
                 emitted_delta = False
+                first_content_emitted_at: float | None = None
                 last_keepalive_at = time.monotonic()
-                for raw_line in response.iter_lines(decode_unicode=True):
+                for raw_line in response.iter_lines(
+                    chunk_size=STORY_STREAM_HTTP_CHUNK_SIZE_BYTES,
+                    decode_unicode=True,
+                ):
                     if raw_line is None:
                         continue
                     line = raw_line.strip()
@@ -7077,7 +8231,15 @@ def _iter_openrouter_story_stream_chunks(
                         content_delta = _extract_text_from_model_content(delta_value.get("content"))
                         if content_delta:
                             emitted_delta = True
-                            yield content_delta
+                            if first_content_emitted_at is None:
+                                first_content_emitted_at = time.monotonic()
+                                logger.info(
+                                    "OpenRouter stream first token latency: %.3fs model=%s",
+                                    first_content_emitted_at - request_started_at,
+                                    model_name,
+                                )
+                            for chunk in _yield_story_stream_chunks_with_pacing(content_delta):
+                                yield chunk
                             continue
                         # Keep downstream SSE alive while model emits non-content deltas.
                         if not emitted_delta and time.monotonic() - last_keepalive_at >= 8.0:
@@ -7092,7 +8254,14 @@ def _iter_openrouter_story_stream_chunks(
                         content_value = _extract_text_from_model_content(message_value.get("content"))
                         if content_value:
                             emitted_delta = True
-                            for chunk in _iter_story_stream_chunks(content_value):
+                            if first_content_emitted_at is None:
+                                first_content_emitted_at = time.monotonic()
+                                logger.info(
+                                    "OpenRouter stream first token latency (message payload): %.3fs model=%s",
+                                    first_content_emitted_at - request_started_at,
+                                    model_name,
+                                )
+                            for chunk in _yield_story_stream_chunks_with_pacing(content_value):
                                 yield chunk
                             break
 
@@ -7104,12 +8273,13 @@ def _iter_openrouter_story_stream_chunks(
                     messages_payload,
                     model_name=model_name,
                     allow_free_fallback=False,
+                    temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
                     max_tokens=max_tokens,
                 )
                 if fallback_text:
-                    for chunk in _iter_story_stream_chunks(fallback_text):
+                    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
                         yield chunk
                 return
             finally:
@@ -7319,7 +8489,24 @@ def _request_openrouter_story_text(
     return ""
 
 
-def _validate_story_turn_image_provider_config() -> None:
+def _is_story_turn_image_xai_model(model_name: str | None) -> bool:
+    return str(model_name or "").strip() == STORY_TURN_IMAGE_MODEL_GROK
+
+
+def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
+    if _is_story_turn_image_xai_model(model_name):
+        if not settings.xai_image_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="xAI image provider is not configured: set XAI_IMAGE_API_KEY",
+            )
+        if not settings.xai_image_url:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="xAI image endpoint is not configured: set XAI_IMAGE_URL",
+            )
+        return
+
     if not settings.openrouter_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -7952,14 +9139,16 @@ def _build_story_turn_image_prompt(
     model_name: str | None = None,
 ) -> str:
     prompt_max_chars = max(_get_story_turn_image_request_prompt_max_chars(model_name), 1)
-    normalized_user_prompt = _normalize_story_prompt_text(
-        _normalize_story_markup_to_plain_text(user_prompt),
-        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_USER_CHARS,
-    )
-    normalized_assistant_text = _normalize_story_prompt_text(
-        _normalize_story_markup_to_plain_text(assistant_text),
-        max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
-    )
+    normalized_user_prompt = re.sub(
+        r"\s+",
+        " ",
+        _normalize_story_markup_to_plain_text(user_prompt).replace("\r\n", "\n"),
+    ).strip()
+    normalized_assistant_text = re.sub(
+        r"\s+",
+        " ",
+        _normalize_story_markup_to_plain_text(assistant_text).replace("\r\n", "\n"),
+    ).strip()
     normalized_image_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
     effective_character_world_cards = character_world_cards if character_world_cards is not None else world_cards
 
@@ -8007,11 +9196,9 @@ def _build_story_turn_image_prompt(
         assistant_text,
         max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
     )
-    if not scene_focus_text and normalized_assistant_text:
-        scene_focus_text = _trim_story_turn_image_prompt_tail_text(
-            normalized_assistant_text,
-            max_chars=STORY_TURN_IMAGE_PROMPT_MAX_ASSISTANT_CHARS,
-        )
+    assistant_context_text = normalized_assistant_text
+    if not assistant_context_text and scene_focus_text:
+        assistant_context_text = scene_focus_text
 
     mandatory_prompt_parts = [
         "Single cinematic frame from one interactive RPG scene.",
@@ -8059,7 +9246,7 @@ def _build_story_turn_image_prompt(
     _append_story_turn_image_optional_context_part(
         prompt_parts,
         part_prefix="Latest AI response: ",
-        part_body=scene_focus_text,
+        part_body=assistant_context_text,
         part_suffix=".",
         prompt_max_chars=prompt_max_chars,
         prefer_fresh_tail=True,
@@ -8156,11 +9343,18 @@ def _extract_openrouter_error_detail(response: requests.Response) -> str:
     if not detail:
         raw_text = str(response.text or "").strip()
         if raw_text:
-            detail = raw_text[:500]
+            lowered_raw_text = raw_text.lower()
+            if "<!doctype" in lowered_raw_text or "<html" in lowered_raw_text:
+                if "not available in your region" in lowered_raw_text:
+                    detail = "This service is not available in your region."
+            else:
+                detail = raw_text[:500]
     if not detail:
         reason = str(getattr(response, "reason", "") or "").strip()
         if reason:
             detail = reason
+    if detail:
+        detail = re.sub(r"\s+", " ", detail).strip()
     return detail
 
 
@@ -8466,6 +9660,176 @@ def _request_openrouter_story_turn_image(
     raise RuntimeError("OpenRouter image endpoint is unavailable")
 
 
+def _request_xai_story_turn_image(
+    *,
+    prompt: str,
+    model_name: str | None = None,
+) -> dict[str, str | None]:
+    selected_model = (model_name or STORY_TURN_IMAGE_MODEL_GROK).strip()
+    if not selected_model:
+        raise RuntimeError("xAI image model is not configured")
+
+    endpoint_url = str(settings.xai_image_url or "").strip()
+    if not endpoint_url:
+        raise RuntimeError("xAI image endpoint is not configured")
+
+    headers = {
+        "Authorization": f"Bearer {settings.xai_image_api_key}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    request_payload: dict[str, Any] = {
+        "model": selected_model,
+        "prompt": prompt,
+        "n": 1,
+    }
+    image_size = str(settings.openrouter_image_size or "").strip()
+    if image_size:
+        request_payload["size"] = image_size
+
+    read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
+    try:
+        response = HTTP_SESSION.post(
+            endpoint_url,
+            headers=headers,
+            json=request_payload,
+            timeout=(
+                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                read_timeout_seconds,
+            ),
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach xAI image endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = _extract_openrouter_error_detail(response)
+        detail_lower = detail.lower()
+        if response.status_code == status.HTTP_403_FORBIDDEN and "not available in your region" in detail_lower:
+            raise RuntimeError(
+                "Сервис генерации xAI недоступен в текущем регионе сервера. "
+                "Выберите другую модель изображения или разверните backend в регионе, поддерживаемом xAI."
+            )
+        error_text = f"xAI image error ({response.status_code})"
+        if detail:
+            error_text = f"{error_text}: {detail}"
+        raise RuntimeError(error_text)
+
+    try:
+        payload_value = response.json()
+    except ValueError as exc:
+        raise RuntimeError("xAI image endpoint returned invalid payload") from exc
+
+    return _parse_openrouter_story_turn_image_payload(
+        payload_value,
+        selected_model=selected_model,
+    )
+
+
+def _request_story_turn_image(
+    *,
+    prompt: str,
+    model_name: str | None = None,
+) -> dict[str, str | None]:
+    if _is_story_turn_image_xai_model(model_name):
+        return _request_xai_story_turn_image(
+            prompt=prompt,
+            model_name=model_name,
+        )
+    return _request_openrouter_story_turn_image(
+        prompt=prompt,
+        model_name=model_name,
+    )
+
+
+def _compact_story_character_avatar_prompt_text(value: str | None, *, max_chars: int) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    return normalized[:max_chars].rstrip()
+
+
+def _normalize_story_character_avatar_prompt_triggers(values: list[str] | None) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    normalized_values: list[str] = []
+    seen: set[str] = set()
+    for raw_value in values:
+        if not isinstance(raw_value, str):
+            continue
+        trigger_value = _compact_story_character_avatar_prompt_text(raw_value, max_chars=120)
+        if not trigger_value:
+            continue
+        key = trigger_value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_values.append(trigger_value)
+        if len(normalized_values) >= 12:
+            break
+    return normalized_values
+
+
+def _build_story_character_avatar_prompt(
+    *,
+    name: str | None,
+    description: str | None,
+    style_prompt: str | None,
+    triggers: list[str] | None,
+) -> str:
+    normalized_description = _compact_story_character_avatar_prompt_text(description, max_chars=1600)
+    normalized_style_prompt = _compact_story_character_avatar_prompt_text(style_prompt, max_chars=320)
+    if not normalized_description:
+        return ""
+
+    prompt_lines = [
+        "Create a character reference illustration.",
+        "Single character only.",
+        "Full-body framing: show the character from head to toe in a standing pose.",
+        "Keep the character centered with clean margins around the silhouette.",
+        "No extra people, no text, no logos, no watermark, no frame.",
+        "Use high-detail stylized game art lighting and readable facial features.",
+        "Use only the player's character appearance description below as the source of visual details.",
+        f"Character appearance description: {normalized_description}.",
+    ]
+    if normalized_style_prompt:
+        prompt_lines.append(f"Preferred visual style: {normalized_style_prompt}.")
+
+    return "\n".join(prompt_lines).strip()
+
+
+def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | None:
+    normalized_url = str(image_url or "").strip()
+    if not normalized_url:
+        return None
+    if normalized_url.lower().startswith("data:image/"):
+        return normalized_url
+    if not normalized_url.lower().startswith(("https://", "http://")):
+        return None
+
+    try:
+        response = HTTP_SESSION.get(
+            normalized_url,
+            timeout=(
+                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                45,
+            ),
+        )
+    except requests.RequestException:
+        return None
+
+    if response.status_code >= 400:
+        return None
+    payload = response.content
+    if not payload:
+        return None
+
+    content_type = str(response.headers.get("Content-Type") or "").split(";", maxsplit=1)[0].strip().lower()
+    if not content_type.startswith("image/"):
+        content_type = "image/png"
+    encoded_payload = base64.b64encode(payload).decode("ascii")
+    return f"data:{content_type};base64,{encoded_payload}"
+
+
 def _iter_story_provider_stream_chunks(
     *,
     prompt: str,
@@ -8476,12 +9840,14 @@ def _iter_story_provider_stream_chunks(
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
     story_model_name: str | None = None,
+    story_temperature: float = 1.0,
     story_top_k: int = 0,
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
     use_plot_memory: bool = False,
     show_gg_thoughts: bool = True,
     show_npc_thoughts: bool = True,
+    raw_output_collector: dict[str, str] | None = None,
 ):
     provider = _effective_story_llm_provider()
 
@@ -8490,33 +9856,8 @@ def _iter_story_provider_stream_chunks(
             story_response_max_tokens,
             model_name=settings.gigachat_model,
         )
-        if _is_story_translation_enabled():
-            payload = _build_story_provider_messages(
-                context_messages,
-                instruction_cards,
-                plot_cards,
-                world_cards,
-                use_plot_memory=use_plot_memory,
-                context_limit_tokens=context_limit_chars,
-                response_max_tokens=effective_response_max_tokens,
-                translate_for_model=True,
-                show_gg_thoughts=show_gg_thoughts,
-                show_npc_thoughts=show_npc_thoughts,
-            )
-            generated_text = _request_gigachat_story_text(
-                payload,
-                max_tokens=effective_response_max_tokens,
-            )
-            try:
-                translated_text = _translate_story_model_output_to_user(generated_text)
-            except Exception as exc:
-                logger.warning("Story output translation failed: %s", exc)
-                translated_text = generated_text
-            for chunk in _iter_story_stream_chunks(translated_text):
-                yield chunk
-            return
-
-        yield from _iter_gigachat_story_stream_chunks(
+        translation_enabled = _is_story_translation_enabled()
+        raw_chunk_stream = _iter_gigachat_story_stream_chunks(
             context_messages,
             instruction_cards,
             plot_cards,
@@ -8524,9 +9865,25 @@ def _iter_story_provider_stream_chunks(
             use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             response_max_tokens=effective_response_max_tokens,
+            translate_for_model=translation_enabled,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
+        if translation_enabled:
+            yield from _yield_story_translated_stream_chunks(
+                raw_chunk_stream,
+                source_model_name=settings.gigachat_model,
+                force_output_translation=False,
+                raw_output_collector=raw_output_collector,
+            )
+            return
+
+        raw_chunks: list[str] = []
+        for chunk in raw_chunk_stream:
+            raw_chunks.append(chunk)
+            yield chunk
+        if raw_output_collector is not None:
+            raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
     if provider == "openrouter":
@@ -8540,42 +9897,39 @@ def _iter_story_provider_stream_chunks(
             story_top_k=story_top_k,
             story_top_r=story_top_r,
         )
+        temperature_value = _select_story_temperature_value(
+            model_name=selected_model_name,
+            story_temperature=story_temperature,
+        )
         translation_enabled = _is_story_translation_enabled()
         force_output_translation = _should_force_openrouter_story_output_translation(selected_model_name)
         if translation_enabled or force_output_translation:
-            payload = _build_story_provider_messages(
+            raw_chunk_stream = _iter_openrouter_story_stream_chunks(
                 context_messages,
                 instruction_cards,
                 plot_cards,
                 world_cards,
                 use_plot_memory=use_plot_memory,
-                context_limit_tokens=context_limit_chars,
-                response_max_tokens=effective_response_max_tokens,
-                translate_for_model=translation_enabled,
+                context_limit_chars=context_limit_chars,
                 model_name=selected_model_name,
-                show_gg_thoughts=show_gg_thoughts,
-                show_npc_thoughts=show_npc_thoughts,
-            )
-            generated_text = _request_openrouter_story_text(
-                payload,
-                model_name=selected_model_name,
+                temperature=temperature_value,
                 top_k=top_k_value,
                 top_p=top_p_value,
                 max_tokens=effective_response_max_tokens,
+                translate_for_model=translation_enabled,
+                show_gg_thoughts=show_gg_thoughts,
+                show_npc_thoughts=show_npc_thoughts,
             )
-            try:
-                if force_output_translation and not translation_enabled:
-                    translated_text = _force_translate_story_model_output_to_user(generated_text)
-                else:
-                    translated_text = _translate_story_model_output_to_user(generated_text)
-            except Exception as exc:
-                logger.warning("Story output translation failed: %s", exc)
-                translated_text = generated_text
-            for chunk in _iter_story_stream_chunks(translated_text):
-                yield chunk
+            yield from _yield_story_translated_stream_chunks(
+                raw_chunk_stream,
+                source_model_name=selected_model_name,
+                force_output_translation=force_output_translation and not translation_enabled,
+                raw_output_collector=raw_output_collector,
+            )
             return
 
-        yield from _iter_openrouter_story_stream_chunks(
+        raw_chunks: list[str] = []
+        for chunk in _iter_openrouter_story_stream_chunks(
             context_messages,
             instruction_cards,
             plot_cards,
@@ -8583,12 +9937,18 @@ def _iter_story_provider_stream_chunks(
             use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             model_name=selected_model_name,
+            temperature=temperature_value,
             top_k=top_k_value,
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
+            translate_for_model=False,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
-        )
+        ):
+            raw_chunks.append(chunk)
+            yield chunk
+        if raw_output_collector is not None:
+            raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
     raise RuntimeError("Story provider is not configured: expected openrouter or gigachat")
@@ -8624,6 +9984,8 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         world_card_to_out=_story_world_card_to_out,
         world_card_event_to_out=_story_world_card_change_event_to_out,
         plot_card_event_to_out=_story_plot_card_change_event_to_out,
+        resolve_story_ambient_profile=_resolve_story_ambient_profile,
+        serialize_story_ambient_profile=_serialize_story_ambient_profile,
         story_default_title=STORY_DEFAULT_TITLE,
         story_user_role=STORY_USER_ROLE,
         story_assistant_role=STORY_ASSISTANT_ROLE,
@@ -8647,13 +10009,96 @@ def generate_story_response_impl(
     )
 
 
+def generate_story_character_avatar_impl(
+    payload: StoryCharacterAvatarGenerateRequest,
+    authorization: str | None,
+    db: Session,
+) -> StoryCharacterAvatarGenerateOut:
+    selected_image_model = _coerce_story_image_model(getattr(payload, "image_model", None))
+    _validate_story_turn_image_provider_config(selected_image_model)
+    user = _get_current_user(db, authorization)
+
+    visual_prompt = _build_story_character_avatar_prompt(
+        name=getattr(payload, "name", None),
+        description=getattr(payload, "description", None),
+        style_prompt=getattr(payload, "style_prompt", None),
+        triggers=getattr(payload, "triggers", None),
+    )
+    visual_prompt = _limit_story_turn_image_request_prompt(
+        visual_prompt,
+        model_name=selected_image_model,
+    )
+    if not visual_prompt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Character description is required for avatar generation",
+        )
+
+    image_generation_cost = _get_story_turn_image_cost_tokens(selected_image_model)
+    if not _spend_user_tokens_if_sufficient(db, int(user.id), image_generation_cost):
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Not enough sols to generate image",
+        )
+    db.commit()
+    db.refresh(user)
+
+    try:
+        generation_payload = _request_story_turn_image(
+            prompt=visual_prompt,
+            model_name=selected_image_model,
+        )
+    except Exception as exc:
+        try:
+            _add_user_tokens(db, int(user.id), image_generation_cost)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
+            logger.exception("Story character avatar token refund failed after generation error: user_id=%s", user.id)
+        detail = str(exc).strip() or "Image generation failed"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail[:500]) from exc
+
+    resolved_model = str(generation_payload.get("model") or selected_image_model).strip() or selected_image_model
+    resolved_revised_prompt = str(generation_payload.get("revised_prompt") or "").strip() or None
+    resolved_image_url = str(generation_payload.get("image_url") or "").strip() or None
+    resolved_image_data_url = str(generation_payload.get("image_data_url") or "").strip() or None
+    if resolved_image_data_url is None and resolved_image_url is not None:
+        resolved_image_data_url = _try_fetch_story_character_avatar_data_url(resolved_image_url)
+
+    if resolved_image_url is None and resolved_image_data_url is None:
+        try:
+            _add_user_tokens(db, int(user.id), image_generation_cost)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
+            logger.exception(
+                "Story character avatar token refund failed after empty payload: user_id=%s",
+                user.id,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Image generation returned no image payload",
+        )
+
+    return StoryCharacterAvatarGenerateOut(
+        model=resolved_model,
+        prompt=visual_prompt,
+        revised_prompt=resolved_revised_prompt,
+        image_url=resolved_image_url,
+        image_data_url=resolved_image_data_url,
+        user=UserOut.model_validate(user),
+    )
+
+
 def generate_story_turn_image_impl(
     game_id: int,
     payload: StoryTurnImageGenerateRequest,
     authorization: str | None,
     db: Session,
 ) -> StoryTurnImageGenerateOut:
-    _validate_story_turn_image_provider_config()
     user = _get_current_user(db, authorization)
     game = _get_user_story_game_or_404(db, user.id, game_id)
 
@@ -8723,6 +10168,7 @@ def generate_story_turn_image_impl(
     _validate_story_turn_image_character_card_lock_budget(full_character_card_locks)
 
     selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
+    _validate_story_turn_image_provider_config(selected_image_model)
     visual_prompt = _build_story_turn_image_prompt(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
@@ -8760,7 +10206,7 @@ def generate_story_turn_image_impl(
         image_generation_cost,
     )
     try:
-        generation_payload = _request_openrouter_story_turn_image(
+        generation_payload = _request_story_turn_image(
             prompt=visual_prompt,
             model_name=selected_image_model,
         )
@@ -8795,6 +10241,18 @@ def generate_story_turn_image_impl(
     resolved_image_data_url = str(generation_payload.get("image_data_url") or "").strip() or None
 
     try:
+        active_turn_images = db.scalars(
+            select(StoryTurnImage).where(
+                StoryTurnImage.game_id == game.id,
+                StoryTurnImage.assistant_message_id == assistant_message.id,
+                StoryTurnImage.undone_at.is_(None),
+            )
+        ).all()
+        if active_turn_images:
+            replaced_at = _utcnow()
+            for previous_turn_image in active_turn_images:
+                previous_turn_image.undone_at = replaced_at
+
         persisted_turn_image = StoryTurnImage(
             game_id=game.id,
             assistant_message_id=assistant_message.id,
@@ -8841,5 +10299,7 @@ def generate_story_turn_image_impl(
         image_data_url=persisted_turn_image.image_data_url,
         user=UserOut.model_validate(user),
     )
+
+
 
 

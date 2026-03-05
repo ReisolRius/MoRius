@@ -43,7 +43,7 @@ import {
   updateCurrentUserProfile,
   type CoinTopUpPlan,
 } from '../services/authApi'
-import { cloneStoryGame, deleteStoryGame, listCommunityWorlds, listStoryGames, rateCommunityWorld } from '../services/storyApi'
+import { cloneStoryGame, deleteStoryGame, getCommunityWorld, listStoryGames, rateCommunityWorld } from '../services/storyApi'
 import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStoryTitle, type StoryTitleMap } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
@@ -77,9 +77,10 @@ const TOP_FILTER_CONTROL_RADIUS = '12px'
 const TOP_FILTER_TEXT_PADDING_X = '14px'
 const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
+const CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const MY_GAMES_SEARCH_QUERY_MAX_LENGTH = 120
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const AVATAR_MAX_BYTES = 1 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
@@ -274,10 +275,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setErrorMessage('')
     setIsLoadingGames(true)
     try {
-      const [loadedGames, communityWorlds] = await Promise.all([
-        listStoryGames(authToken, { compact: true }),
-        listCommunityWorlds(authToken).catch(() => null),
-      ])
+      const loadedGames = await listStoryGames(authToken, { compact: true })
       const sortedGames = sortGamesByActivity(loadedGames)
       setGames(sortedGames)
       setCustomTitleMap((previousMap) => {
@@ -302,17 +300,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           sortedGames.map((game) => [game.id, normalizeGamePreview(game.latest_message_preview)]),
         ),
       )
-      setCommunityWorldById(
-        communityWorlds
-          ? Object.fromEntries(communityWorlds.map((world) => [world.id, world]))
-          : {},
-      )
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
       setErrorMessage(detail)
       setGames([])
       setGamePreviews({})
-      setCommunityWorldById({})
     } finally {
       setIsLoadingGames(false)
     }
@@ -321,6 +313,55 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   useEffect(() => {
     void loadGames()
   }, [loadGames])
+
+  useEffect(() => {
+    const missingSourceWorldIds = Array.from(
+      new Set(
+        games
+          .map((game) => game.source_world_id)
+          .filter((worldId): worldId is number => typeof worldId === 'number' && worldId > 0)
+          .filter((worldId) => !communityWorldById[worldId]),
+      ),
+    )
+    if (missingSourceWorldIds.length === 0) {
+      return
+    }
+
+    let cancelled = false
+    void (async () => {
+      const loadedEntries = await Promise.allSettled(
+        missingSourceWorldIds.map(async (worldId) => {
+          const payload = await getCommunityWorld({
+            token: authToken,
+            worldId,
+          })
+          return payload.world
+        }),
+      )
+      if (cancelled) {
+        return
+      }
+
+      const loadedWorldById: Record<number, StoryCommunityWorldSummary> = {}
+      loadedEntries.forEach((entry) => {
+        if (entry.status !== 'fulfilled') {
+          return
+        }
+        loadedWorldById[entry.value.id] = entry.value
+      })
+      if (Object.keys(loadedWorldById).length === 0) {
+        return
+      }
+      setCommunityWorldById((previous) => ({
+        ...previous,
+        ...loadedWorldById,
+      }))
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authToken, communityWorldById, games])
 
   const handleOpenWorldCreator = useCallback(() => {
     onNavigate('/worlds/new')
@@ -502,7 +543,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
       return
     }
 
@@ -626,17 +667,37 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   }
 
   const handleOpenRatingDialog = useCallback(
-    (game: StoryGameSummary) => {
+    async (game: StoryGameSummary) => {
       if (!game.source_world_id) {
         return
       }
 
-      const currentRating = communityWorldById[game.source_world_id]?.user_rating ?? 0
+      const sourceWorldId = game.source_world_id
+      const currentRating = communityWorldById[sourceWorldId]?.user_rating ?? 0
       setRatingDraft(currentRating)
       setRatingDialogGame(game)
       setErrorMessage('')
+
+      if (communityWorldById[sourceWorldId]) {
+        return
+      }
+
+      try {
+        const payload = await getCommunityWorld({
+          token: authToken,
+          worldId: sourceWorldId,
+        })
+        const loadedWorld = payload.world
+        setCommunityWorldById((previous) => ({
+          ...previous,
+          [loadedWorld.id]: loadedWorld,
+        }))
+        setRatingDraft(loadedWorld.user_rating ?? 0)
+      } catch {
+        // Rating dialog stays usable even when source world details are unavailable.
+      }
     },
-    [communityWorldById],
+    [authToken, communityWorldById],
   )
 
   const handleSubmitRating = useCallback(async () => {
@@ -950,7 +1011,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 textTransform: 'none',
                 color: APP_TEXT_PRIMARY,
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_BUTTON_ACTIVE,
+                backgroundColor: APP_CARD_BACKGROUND,
                 fontWeight: 700,
                 '&:hover': {
                   backgroundColor: APP_BUTTON_HOVER,
@@ -966,11 +1027,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               sx={{
                 display: 'grid',
                 gap: 1.4,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(3, minmax(0, 1fr))',
-                },
+                gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {MY_GAMES_SKELETON_CARD_KEYS.map((cardKey) => (
@@ -997,11 +1054,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               sx={{
                 display: 'grid',
                 gap: 1.4,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(3, minmax(0, 1fr))',
-                },
+                gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {visibleGames.map((game) => {
@@ -1020,9 +1073,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         id: game.id,
                         title: resolveDisplayTitle(game.id),
                         description: cardDescription || 'Описание пока не указано.',
-                        author_id: user.id,
-                        author_name: profileName,
-                        author_avatar_url: user.avatar_url ?? null,
+                        author_id: sourceWorld?.author_id ?? (game.source_world_id ? 0 : user.id),
+                        author_name: sourceWorld?.author_name ?? (game.source_world_id ? 'Автор сообщества' : profileName),
+                        author_avatar_url: sourceWorld?.author_avatar_url ?? (game.source_world_id ? null : user.avatar_url ?? null),
                         age_rating: game.age_rating,
                         genres: game.genres,
                         cover_image_url: hasCover ? game.cover_image_url : null,
@@ -1039,7 +1092,11 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         created_at: game.created_at,
                         updated_at: game.updated_at,
                       }}
-                      onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                      onAuthorClick={(authorId) => {
+                        if (authorId > 0) {
+                          onNavigate(`/profile/${authorId}`)
+                        }
+                      }}
                       onClick={() => onNavigate(`/home/${game.id}`)}
                     />
 
@@ -1099,7 +1156,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         {gameMenuTarget?.source_world_id ? (
           <MenuItem
             onClick={() => {
-              handleOpenRatingDialog(gameMenuTarget)
+              void handleOpenRatingDialog(gameMenuTarget)
               handleCloseGameMenu()
             }}
           >
@@ -1269,6 +1326,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         open={profileDialogOpen}
         user={user}
         authToken={authToken}
+        onNavigate={onNavigate}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}

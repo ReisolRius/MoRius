@@ -9,6 +9,7 @@ from app.database import Base, engine
 from app.models import (
     CoinPurchase,
     StoryCharacter,
+    StoryBugReport,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
     StoryCommunityCharacterRating,
@@ -222,7 +223,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "story_llm_model" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'z-ai/glm-5'"
+            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'deepseek/deepseek-v3.2'"
         )
     if "image_model" not in existing_columns:
         alter_statements.append(
@@ -259,6 +260,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN story_top_r FLOAT NOT NULL DEFAULT 1.0"
         )
+    if "story_temperature" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN story_temperature FLOAT NOT NULL DEFAULT 1.0"
+        )
     if "show_gg_thoughts" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -283,6 +289,21 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN source_world_id INTEGER"
+        )
+    if "published_instruction_cards_snapshot" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN published_instruction_cards_snapshot TEXT"
+        )
+    if "published_plot_cards_snapshot" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN published_plot_cards_snapshot TEXT"
+        )
+    if "published_world_cards_snapshot" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN published_world_cards_snapshot TEXT"
         )
     if "community_views" not in existing_columns:
         alter_statements.append(
@@ -444,6 +465,11 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
     existing_columns = {column["name"] for column in inspector.get_columns(StoryCharacter.__tablename__)}
     alter_statements: list[str] = []
 
+    if "note" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN note VARCHAR(20) NOT NULL DEFAULT ''"
+        )
     if "visibility" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryCharacter.__tablename__} "
@@ -748,6 +774,12 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCommunityInstructionTemplateReport.__tablename__} (reporter_user_id, template_id)",
         "CREATE INDEX IF NOT EXISTS ix_story_community_instruction_template_reports_status_created_id "
         f"ON {StoryCommunityInstructionTemplateReport.__tablename__} (status, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_bug_reports_status_created_id "
+        f"ON {StoryBugReport.__tablename__} (status, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_bug_reports_source_game_status_id "
+        f"ON {StoryBugReport.__tablename__} (source_game_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_bug_reports_reporter_status_id "
+        f"ON {StoryBugReport.__tablename__} (reporter_user_id, status, id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
         "CREATE INDEX IF NOT EXISTS ix_user_follows_follower_following_id "

@@ -11,7 +11,20 @@ import {
   type SxProps,
   type Theme,
 } from '@mui/material'
+import type { SystemStyleObject } from '@mui/system'
 import { brandLogo, heroBackground, heroClouds, icons } from '../assets'
+import advantageTemplatesIcon from '../assets/icons/advantages/templates.svg'
+import advantageAvatarsIcon from '../assets/icons/advantages/avatars.svg'
+import advantageStorytellersIcon from '../assets/icons/advantages/storytellers.svg'
+import advantageImagesIcon from '../assets/icons/advantages/images.svg'
+import advantageCommunityIcon from '../assets/icons/advantages/community.svg'
+import advantageMemoryIcon from '../assets/icons/advantages/memory.svg'
+import advantageTemplatesPreview from '../assets/images/advantages/templates-preview.png'
+import advantageAvatarsPreview from '../assets/images/advantages/avatars-preview.png'
+import advantageStorytellersPreview from '../assets/images/advantages/storytellers-preview.png'
+import advantageImagesPreview from '../assets/images/advantages/images-preview.png'
+import advantageCommunityPreview from '../assets/images/advantages/community-preview.png'
+import advantageMemoryPreview from '../assets/images/advantages/memory-preview.png'
 import AuthDialog, { type AuthMode } from '../components/AuthDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import type { AuthResponse } from '../types/auth'
@@ -45,6 +58,13 @@ const featureCards = [
 
 const tariffPlans = [
   {
+    id: 'starter',
+    title: 'Старт',
+    price: '0 ₽',
+    coins: '20 солов',
+    isHighlighted: true,
+  },
+  {
     id: 'standard',
     title: 'Путник',
     price: '399 ₽',
@@ -61,6 +81,109 @@ const tariffPlans = [
     title: 'Хронист',
     price: '2890 ₽',
     coins: '2500 солов',
+  },
+]
+
+type AdvantageCard = {
+  id: string
+  title: string
+  description: string
+  icon: string
+  preview: string
+  rowMinHeight: number
+  previewSx: SystemStyleObject<Theme>
+}
+
+const advantageCards: AdvantageCard[] = [
+  {
+    id: 'templates',
+    title: 'Шаблоны карточек',
+    description:
+      'Устали каждый раз заново прописывать персонажей и инструкции? Оставьте это в прошлом. Создавайте свои карточки персонажей и инструкций и используйте их в любой игре в два клика.',
+    icon: advantageTemplatesIcon,
+    preview: advantageStorytellersPreview,
+    rowMinHeight: 228,
+    previewSx: {
+      width: { sm: 286, md: 322, lg: 350 },
+      top: { sm: -46, md: -58, lg: -68 },
+      right: { sm: -16, md: -24, lg: -34 },
+      transform: 'rotate(9deg)',
+    },
+  },
+  {
+    id: 'avatars',
+    title: 'Аватарки персонажей',
+    description:
+      'Читать историю интересно, но для более глубокого погружения важно видеть лица героев. Мы сделали отображение диалога так, чтобы вы, почти как в мессенджере, сразу видели аватар и имя собеседника.',
+    icon: advantageAvatarsIcon,
+    preview: advantageAvatarsPreview,
+    rowMinHeight: 226,
+    previewSx: {
+      width: { sm: 320, md: 356, lg: 394 },
+      top: { sm: -32, md: -42, lg: -52 },
+      right: { sm: -12, md: -20, lg: -28 },
+      transform: 'rotate(-4deg)',
+    },
+  },
+  {
+    id: 'storytellers',
+    title: 'Рассказчики',
+    description:
+      'Мы подбираем, тестируем и оставляем только лучших ИИ на роль гейм-мастера. GLM 5.0, DeepSeek V3 и другие уже ждут, чтобы начать ваше приключение. Первые 20 ходов - бесплатно.',
+    icon: advantageStorytellersIcon,
+    preview: advantageTemplatesPreview,
+    rowMinHeight: 228,
+    previewSx: {
+      width: { sm: 302, md: 336, lg: 366 },
+      top: { sm: -50, md: -62, lg: -76 },
+      right: { sm: -12, md: -18, lg: -26 },
+      transform: 'rotate(8deg)',
+    },
+  },
+  {
+    id: 'images',
+    title: 'Генерация картинок',
+    description:
+      'Визуализируйте сцену и переключайтесь между разными художниками: от экономичного Flux до выразительного Nano Banano.',
+    icon: advantageImagesIcon,
+    preview: advantageImagesPreview,
+    rowMinHeight: 228,
+    previewSx: {
+      width: { sm: 252, md: 280, lg: 310 },
+      top: { sm: -58, md: -74, lg: -86 },
+      right: { sm: 0, md: -8, lg: -16 },
+      transform: 'rotate(7deg)',
+    },
+  },
+  {
+    id: 'community',
+    title: 'Сообщество',
+    description:
+      'Не хочется придумывать все с нуля? Делитесь персонажами, мирами и инструкциями, добавляйте к себе карточки других игроков и собирайте свою библиотеку идей.',
+    icon: advantageCommunityIcon,
+    preview: advantageCommunityPreview,
+    rowMinHeight: 228,
+    previewSx: {
+      width: { sm: 336, md: 380, lg: 420 },
+      top: { sm: -40, md: -52, lg: -64 },
+      right: { sm: -14, md: -22, lg: -30 },
+      transform: 'rotate(-4deg)',
+    },
+  },
+  {
+    id: 'memory',
+    title: 'Оптимизация памяти',
+    description:
+      'Надоело, что память забивается за пару ходов, а стоимость каждого шага растет слишком быстро? Мы реализовали механизм оптимизации памяти что поможет вам сохранить солы! Тратьте меньше, помните больше! ИИ самостоятельно работает с текстом и разбивает его так чтобы держать контекст как можно дольше. А самые важные моменты она отдельно выписывает в видимый вам блок памяти и помнит их даже когда забывает совсем уж старые детали!',
+    icon: advantageMemoryIcon,
+    preview: advantageMemoryPreview,
+    rowMinHeight: 252,
+    previewSx: {
+      width: { sm: 260, md: 296, lg: 328 },
+      top: { sm: -52, md: -68, lg: -82 },
+      right: { sm: -4, md: -10, lg: -16 },
+      transform: 'rotate(3deg)',
+    },
   },
 ]
 
@@ -252,6 +375,27 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
         }}
         >
           <Container maxWidth="md" sx={{ position: 'relative', zIndex: 2 }}>
+            <Box
+              sx={{
+                position: 'absolute',
+                top: { xs: 6, sm: 10, md: 14 },
+                right: { xs: 12, sm: 20, md: 28 },
+                px: { xs: 1.2, md: 1.5 },
+                py: { xs: 0.45, md: 0.55 },
+                borderRadius: '999px',
+                border: '1px solid rgba(228, 196, 149, 0.56)',
+                background: 'linear-gradient(135deg, rgba(67, 50, 30, 0.82) 0%, rgba(35, 28, 20, 0.9) 100%)',
+                color: '#f0dbc2',
+                fontWeight: 800,
+                fontSize: { xs: '0.74rem', md: '0.78rem' },
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                boxShadow: '0 10px 24px rgba(0, 0, 0, 0.34)',
+                backdropFilter: 'blur(3px)',
+              }}
+            >
+              Beta
+            </Box>
             <Stack spacing={{ xs: 2.8, md: 3.4 }} alignItems="center">
             <Box
               component="img"
@@ -375,6 +519,185 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
             }}
           />
         </Box>
+      </Box>
+
+      <Box
+        component="section"
+        sx={{
+          position: 'relative',
+          zIndex: 2,
+          py: { xs: 9, md: 11.5 },
+          background:
+            'linear-gradient(180deg, rgba(5, 8, 14, 0.9) 0%, rgba(4, 7, 12, 0.98) 20%, rgba(3, 5, 9, 1) 100%), radial-gradient(circle at 18% 14%, rgba(76, 95, 122, 0.16) 0%, transparent 45%), repeating-linear-gradient(118deg, rgba(166, 186, 209, 0.025) 0, rgba(166, 186, 209, 0.025) 1px, transparent 1px, transparent 36px)',
+        }}
+      >
+        <Container maxWidth="lg" sx={{ width: '100%' }}>
+          <Stack spacing={{ xs: 5.4, md: 6.8 }} alignItems="center">
+            <RevealOnView>
+              <Stack spacing={1.3} alignItems="center" textAlign="center">
+                <Typography variant="h2" sx={{ fontSize: { xs: '1.95rem', md: '2.72rem' }, color: '#d7dce4' }}>
+                  Преимущества и особенности
+                </Typography>
+                <Typography
+                  sx={{
+                    maxWidth: 820,
+                    color: 'rgba(214, 221, 231, 0.62)',
+                    fontSize: { xs: '0.9rem', md: '0.98rem' },
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Ты описываешь свои действия - ИИ ведет твою игру как ГМ
+                </Typography>
+              </Stack>
+            </RevealOnView>
+
+            <Box
+              sx={{
+                width: '100%',
+                position: 'relative',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: { md: 12 },
+                  bottom: { md: 12 },
+                  left: '50%',
+                  width: '1px',
+                  transform: 'translateX(-50%)',
+                  background:
+                    'linear-gradient(180deg, rgba(145, 163, 184, 0) 0%, rgba(145, 163, 184, 0.23) 14%, rgba(145, 163, 184, 0.16) 84%, rgba(145, 163, 184, 0) 100%)',
+                  boxShadow: '0 0 20px rgba(121, 142, 162, 0.2)',
+                  opacity: { xs: 0, md: 1 },
+                  pointerEvents: 'none',
+                },
+                '&::after': {
+                  content: '""',
+                  position: 'absolute',
+                  top: { md: 26 },
+                  bottom: { md: 26 },
+                  left: '50%',
+                  width: 36,
+                  transform: 'translateX(-50%)',
+                  background:
+                    'linear-gradient(180deg, rgba(129, 149, 171, 0) 0%, rgba(129, 149, 171, 0.18) 25%, rgba(129, 149, 171, 0.12) 76%, rgba(129, 149, 171, 0) 100%)',
+                  filter: 'blur(10px)',
+                  opacity: { xs: 0, md: 0.4 },
+                  pointerEvents: 'none',
+                },
+              }}
+            >
+              <Stack spacing={{ xs: 5.5, sm: 7.2, md: 8.2 }} sx={{ position: 'relative', zIndex: 1 }}>
+                {advantageCards.map((card, index) => (
+                  <RevealOnView key={card.id} delay={index * 85} y={34} threshold={0.14}>
+                    <Box
+                      sx={{
+                        position: 'relative',
+                        minHeight: { sm: card.rowMinHeight },
+                        isolation: 'isolate',
+                      }}
+                    >
+                      <Card
+                        sx={{
+                          position: 'relative',
+                          overflow: 'visible',
+                          borderRadius: '14px',
+                          border: '1px solid rgba(170, 187, 210, 0.16)',
+                          background: 'linear-gradient(170deg, rgba(11, 15, 23, 0.96) 0%, rgba(8, 12, 18, 0.94) 100%)',
+                          boxShadow: '0 16px 30px rgba(0, 0, 0, 0.3)',
+                          backdropFilter: 'blur(2px)',
+                        }}
+                      >
+                        <CardContent
+                          sx={{
+                            p: { xs: 2.2, sm: 2.8, md: 3.1 },
+                            pr: { xs: 2.2, sm: '40%', md: '44%', lg: '48%' },
+                            minHeight: { sm: card.rowMinHeight },
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <Stack spacing={{ xs: 1.2, md: 1.65 }}>
+                            <Stack direction="row" spacing={1.15} alignItems="center">
+                              <Typography
+                                variant="h3"
+                                sx={{
+                                  color: '#dce2eb',
+                                  fontSize: { xs: '1.7rem', sm: '2rem', md: '2.22rem' },
+                                  lineHeight: 1.18,
+                                  fontWeight: 700,
+                                  letterSpacing: '-0.01em',
+                                }}
+                              >
+                                {card.title}
+                              </Typography>
+                              <Box
+                                component="img"
+                                src={card.icon}
+                                alt=""
+                                sx={{
+                                  width: { xs: 18, sm: 20 },
+                                  height: { xs: 18, sm: 20 },
+                                  objectFit: 'contain',
+                                  flexShrink: 0,
+                                }}
+                              />
+                            </Stack>
+                            <Typography
+                              sx={{
+                                color: 'rgba(214, 221, 231, 0.82)',
+                                lineHeight: 1.56,
+                                fontSize: { xs: '0.94rem', md: '0.99rem' },
+                                maxWidth: { xs: '100%', sm: 470, md: 520 },
+                              }}
+                            >
+                              {card.description}
+                            </Typography>
+                          </Stack>
+                        </CardContent>
+
+                        <Box
+                          aria-hidden
+                          sx={{
+                            display: { xs: 'none', md: 'block' },
+                            position: 'absolute',
+                            left: '50%',
+                            top: '50%',
+                            width: { md: 88, lg: 108 },
+                            height: 58,
+                            transform: 'translate(0, -50%)',
+                            borderTop: '1px solid rgba(150, 167, 189, 0.16)',
+                            borderRight: '1px solid rgba(150, 167, 189, 0.1)',
+                            borderTopRightRadius: '58px',
+                            opacity: 0.8,
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      </Card>
+
+                      <Box
+                        component="img"
+                        src={card.preview}
+                        alt=""
+                        aria-hidden
+                        sx={[
+                          {
+                            display: { xs: 'none', sm: 'block' },
+                            position: 'absolute',
+                            zIndex: 2,
+                            maxWidth: 'none',
+                            pointerEvents: 'none',
+                            userSelect: 'none',
+                            filter: 'drop-shadow(0 24px 34px rgba(0, 0, 0, 0.62))',
+                          },
+                          card.previewSx,
+                        ]}
+                      />
+                    </Box>
+                  </RevealOnView>
+                ))}
+              </Stack>
+            </Box>
+          </Stack>
+        </Container>
       </Box>
 
       <Box
@@ -640,7 +963,7 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                 gridTemplateColumns: {
                   xs: '1fr',
                   sm: 'repeat(2, minmax(0, 1fr))',
-                  md: 'repeat(3, minmax(0, 1fr))',
+                  lg: 'repeat(4, minmax(0, 1fr))',
                 },
               }}
             >
@@ -648,23 +971,47 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                 <RevealOnView key={plan.id} delay={index * 95 + 180} y={30} threshold={0.18}>
                   <Card
                     sx={{
-                      background: 'linear-gradient(180deg, rgba(18, 22, 30, 0.94) 0%, rgba(14, 18, 25, 0.92) 100%)',
-                      border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.16)',
+                      background: plan.isHighlighted
+                        ? 'linear-gradient(180deg, rgba(39, 49, 62, 0.92) 0%, rgba(28, 35, 46, 0.92) 100%)'
+                        : 'linear-gradient(180deg, rgba(18, 22, 30, 0.94) 0%, rgba(14, 18, 25, 0.92) 100%)',
+                      border: plan.isHighlighted
+                        ? 'var(--morius-border-width) solid rgba(188, 208, 227, 0.42)'
+                        : 'var(--morius-border-width) solid rgba(185, 198, 214, 0.16)',
                       borderRadius: 'var(--morius-radius)',
                       minHeight: { xs: 188, md: 202 },
                       transition:
                         'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), border-color 280ms ease, box-shadow 280ms ease, background-color 280ms ease',
-                      boxShadow: '0 12px 24px rgba(0, 0, 0, 0.2)',
+                      boxShadow: plan.isHighlighted
+                        ? '0 16px 28px rgba(0, 0, 0, 0.28)'
+                        : '0 12px 24px rgba(0, 0, 0, 0.2)',
                       '&:hover': {
                         transform: 'translateY(-7px)',
-                        borderColor: 'rgba(185, 198, 214, 0.34)',
-                        backgroundColor: 'rgba(20, 24, 33, 0.96)',
+                        borderColor: plan.isHighlighted ? 'rgba(188, 208, 227, 0.66)' : 'rgba(185, 198, 214, 0.34)',
+                        backgroundColor: plan.isHighlighted ? 'rgba(35, 44, 56, 0.96)' : 'rgba(20, 24, 33, 0.96)',
                         boxShadow: '0 20px 34px rgba(0, 0, 0, 0.3)',
                       },
                     }}
                   >
                     <CardContent sx={{ p: 3, display: 'flex', flexDirection: 'column', height: '100%' }}>
                       <Stack spacing={1.05} alignItems="flex-start">
+                        {plan.isHighlighted ? (
+                          <Typography
+                            sx={{
+                              borderRadius: '999px',
+                              px: 1.1,
+                              py: 0.32,
+                              color: '#e8f0fa',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              letterSpacing: '0.05em',
+                              textTransform: 'uppercase',
+                              backgroundColor: 'rgba(158, 182, 206, 0.22)',
+                              border: '1px solid rgba(197, 214, 230, 0.34)',
+                            }}
+                          >
+                            Бесплатно
+                          </Typography>
+                        ) : null}
                         <Typography sx={{ color: '#d8dde5', fontSize: '1.35rem', fontWeight: 700 }}>
                           {plan.title}
                         </Typography>

@@ -1,5 +1,6 @@
 ﻿import type {
   StoryCharacter,
+  StoryCharacterAvatarGenerationPayload,
   StoryCommunityCharacterSummary,
   StoryCommunityWorldComment,
   StoryCommunityInstructionTemplateSummary,
@@ -13,6 +14,7 @@
   StoryInstructionCard,
   StoryInstructionTemplate,
   StoryMessage,
+  StoryMemoryBlock,
   StoryPlotCard,
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
@@ -66,6 +68,7 @@ export type StoryGenerationStreamOptions = {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  storyTemperature?: number
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
@@ -92,6 +95,7 @@ export type StoryCommunityWorldReportReason = 'cp' | 'politics' | 'racism' | 'na
 export type StoryCharacterInput = {
   name: string
   description: string
+  note?: string
   triggers: string[]
   avatar_url: string | null
   avatar_scale?: number
@@ -179,6 +183,7 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     user_id: typeof character.user_id === 'number' && Number.isFinite(character.user_id) ? Math.trunc(character.user_id) : 0,
     name: typeof character.name === 'string' ? character.name : '',
     description: typeof character.description === 'string' ? character.description : '',
+    note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
     avatar_scale:
@@ -588,6 +593,46 @@ export async function deleteStoryCharacter(payload: {
   })
 }
 
+function normalizeStoryCharacterAvatarGenerationPayload(
+  rawPayload: StoryCharacterAvatarGenerationPayload,
+): StoryCharacterAvatarGenerationPayload {
+  const payload = rawPayload as Partial<StoryCharacterAvatarGenerationPayload>
+  return {
+    model: typeof payload.model === 'string' ? payload.model : '',
+    prompt: typeof payload.prompt === 'string' ? payload.prompt : '',
+    revised_prompt: typeof payload.revised_prompt === 'string' ? payload.revised_prompt : null,
+    image_url: typeof payload.image_url === 'string' ? payload.image_url : null,
+    image_data_url: typeof payload.image_data_url === 'string' ? payload.image_data_url : null,
+    user: payload.user,
+  }
+}
+
+export async function generateStoryCharacterAvatar(payload: {
+  token: string
+  imageModel?: StoryImageModelId
+  name?: string
+  description?: string
+  triggers?: string[]
+  stylePrompt?: string
+}): Promise<StoryCharacterAvatarGenerationPayload> {
+  const response = await request<StoryCharacterAvatarGenerationPayload>('/api/story/characters/avatar/generate', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      image_model: payload.imageModel ?? null,
+      name: payload.name ?? null,
+      description: payload.description ?? null,
+      style_prompt: payload.stylePrompt ?? null,
+      triggers: Array.isArray(payload.triggers)
+        ? payload.triggers.filter((value): value is string => typeof value === 'string')
+        : [],
+    }),
+  })
+  return normalizeStoryCharacterAvatarGenerationPayload(response)
+}
+
 export async function listStoryInstructionTemplates(token: string): Promise<StoryInstructionTemplate[]> {
   return request<StoryInstructionTemplate[]>('/api/story/instruction-templates', {
     method: 'GET',
@@ -724,6 +769,24 @@ export async function getStoryGame(payload: {
   })
 }
 
+export async function createStoryBugReport(payload: {
+  token: string
+  gameId: number
+  title: string
+  description: string
+}): Promise<void> {
+  return requestNoContent(`/api/story/games/${payload.gameId}/bug-reports`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      description: payload.description,
+    }),
+  })
+}
+
 export async function updateStoryGameSettings(payload: {
   token: string
   gameId: number
@@ -736,6 +799,7 @@ export async function updateStoryGameSettings(payload: {
   memoryOptimizationEnabled?: boolean
   storyTopK?: number
   storyTopR?: number
+  storyTemperature?: number
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
@@ -767,6 +831,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.storyTopR === 'number') {
     requestPayload.story_top_r = payload.storyTopR
+  }
+  if (typeof payload.storyTemperature === 'number') {
+    requestPayload.story_temperature = payload.storyTemperature
   }
   if (typeof payload.showGgThoughts === 'boolean') {
     requestPayload.show_gg_thoughts = payload.showGgThoughts
@@ -871,6 +938,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.storyTopR === 'number') {
     requestPayload.story_top_r = options.storyTopR
+  }
+  if (typeof options.storyTemperature === 'number') {
+    requestPayload.story_temperature = options.storyTemperature
   }
   if (typeof options.showGgThoughts === 'boolean') {
     requestPayload.show_gg_thoughts = options.showGgThoughts
@@ -1214,6 +1284,56 @@ export async function deleteStoryPlotCard(payload: {
   cardId: number
 }): Promise<void> {
   return requestNoContent(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function createStoryMemoryBlock(payload: {
+  token: string
+  gameId: number
+  title: string
+  content: string
+}): Promise<StoryMemoryBlock> {
+  return request<StoryMemoryBlock>(`/api/story/games/${payload.gameId}/memory-blocks`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function updateStoryMemoryBlock(payload: {
+  token: string
+  gameId: number
+  blockId: number
+  title: string
+  content: string
+}): Promise<StoryMemoryBlock> {
+  return request<StoryMemoryBlock>(`/api/story/games/${payload.gameId}/memory-blocks/${payload.blockId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      title: payload.title,
+      content: payload.content,
+    }),
+  })
+}
+
+export async function deleteStoryMemoryBlock(payload: {
+  token: string
+  gameId: number
+  blockId: number
+}): Promise<void> {
+  return requestNoContent(`/api/story/games/${payload.gameId}/memory-blocks/${payload.blockId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,

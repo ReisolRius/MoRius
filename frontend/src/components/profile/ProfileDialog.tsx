@@ -27,6 +27,7 @@ type ProfileDialogProps = {
   open: boolean
   user: AuthUser
   authToken: string
+  onNavigate: (path: string) => void
   profileName: string
   avatarInputRef: RefObject<HTMLInputElement | null>
   avatarError: string
@@ -46,6 +47,7 @@ function ProfileDialog({
   open,
   user,
   authToken,
+  onNavigate,
   profileName,
   avatarInputRef,
   avatarError,
@@ -406,7 +408,7 @@ function ProfileDialog({
             onClick={onOpenCharacterManager}
             sx={{
               minHeight: 42,
-              borderColor: 'rgba(186, 202, 214, 0.38)',
+              borderColor: 'color-mix(in srgb, var(--morius-accent) 38%, transparent)',
               color: 'var(--morius-text-primary)',
               '&:hover': {
                 borderColor: 'rgba(206, 220, 237, 0.54)',
@@ -422,7 +424,7 @@ function ProfileDialog({
             onClick={onOpenInstructionTemplates}
             sx={{
               minHeight: 42,
-              borderColor: 'rgba(186, 202, 214, 0.38)',
+              borderColor: 'color-mix(in srgb, var(--morius-accent) 38%, transparent)',
               color: 'var(--morius-text-primary)',
               '&:hover': {
                 borderColor: 'rgba(206, 220, 237, 0.54)',
@@ -439,7 +441,7 @@ function ProfileDialog({
               onClick={() => setAdminDialogOpen(true)}
               sx={{
                 minHeight: 42,
-                borderColor: 'rgba(186, 202, 214, 0.38)',
+                borderColor: 'color-mix(in srgb, var(--morius-accent) 38%, transparent)',
                 color: 'var(--morius-text-primary)',
                 '&:hover': {
                   borderColor: 'rgba(206, 220, 237, 0.54)',
@@ -484,6 +486,7 @@ function ProfileDialog({
         open={adminDialogOpen}
         authToken={authToken}
         currentUserEmail={user.email}
+        onNavigate={onNavigate}
         onClose={() => setAdminDialogOpen(false)}
       />
     </>
@@ -491,4 +494,5 @@ function ProfileDialog({
 }
 
 export default ProfileDialog
+
 

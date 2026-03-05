@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -11,42 +11,23 @@
   box-sizing: border-box;
 }
 
+@property --morius-scrollbar-thumb-opacity {
+  syntax: '<percentage>';
+  inherits: true;
+  initial-value: 0%;
+}
+
 * {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  --morius-scrollbar-thumb-opacity: 0%;
+  scrollbar-color: color-mix(in srgb, var(--morius-accent) var(--morius-scrollbar-thumb-opacity), transparent) transparent;
+  transition: --morius-scrollbar-thumb-opacity 220ms ease, scrollbar-color 220ms ease;
 }
 
 *:hover,
 *:focus-within,
 .morius-scroll-active {
-  scrollbar-color: color-mix(in srgb, var(--morius-accent) 78%, transparent) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background 220ms ease;
-}
-
-*:hover::-webkit-scrollbar-thumb,
-*:focus-within::-webkit-scrollbar-thumb,
-.morius-scroll-active::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--morius-accent) 78%, transparent);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: var(--morius-accent);
+  --morius-scrollbar-thumb-opacity: 62%;
 }
 
 html,
@@ -107,7 +88,7 @@ body {
 .morius-app-shell .MuiIconButton-root {
   width: var(--morius-action-size) !important;
   height: var(--morius-action-size) !important;
-  color: var(--morius-accent) !important;
+  color: var(--morius-text-secondary) !important;
 }
 
 .morius-app-shell .MuiIconButton-root img,
@@ -143,42 +124,17 @@ body {
 
 .morius-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  --morius-scrollbar-thumb-opacity: 0%;
+  scrollbar-color: color-mix(in srgb, var(--morius-accent) var(--morius-scrollbar-thumb-opacity), transparent) transparent;
   scrollbar-gutter: var(--morius-scrollbar-gutter, stable);
   padding-right: var(--morius-scrollbar-offset);
+  transition: --morius-scrollbar-thumb-opacity 220ms ease, scrollbar-color 220ms ease;
 }
 
 .morius-scrollbar:hover,
 .morius-scrollbar:focus-within,
 .morius-scrollbar.morius-scroll-active {
-  scrollbar-color: color-mix(in srgb, var(--morius-accent) 78%, transparent) transparent;
-}
-
-.morius-scrollbar::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.morius-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.morius-scrollbar::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background 220ms ease;
-}
-
-.morius-scrollbar:hover::-webkit-scrollbar-thumb,
-.morius-scrollbar:focus-within::-webkit-scrollbar-thumb,
-.morius-scrollbar.morius-scroll-active::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--morius-accent) 78%, transparent);
-}
-
-.morius-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--morius-accent);
+  --morius-scrollbar-thumb-opacity: 62%;
 }
 
 @keyframes morius-caret-blink {
@@ -214,15 +170,15 @@ body {
 
 @keyframes morius-stop-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(186, 202, 214, 0.42);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 42%, transparent);
     transform: scale(1);
   }
   70% {
-    box-shadow: 0 0 0 9px rgba(186, 202, 214, 0);
+    box-shadow: 0 0 0 9px color-mix(in srgb, var(--morius-accent) 0%, transparent);
     transform: scale(1.04);
   }
   100% {
-    box-shadow: 0 0 0 0 rgba(186, 202, 214, 0);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 0%, transparent);
     transform: scale(1);
   }
 }
@@ -230,10 +186,10 @@ body {
 @keyframes morius-composer-glow {
   0%,
   100% {
-    box-shadow: inset 0 0 0 0 rgba(186, 202, 214, 0.06);
+    box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--morius-accent) 8%, transparent);
   }
   50% {
-    box-shadow: inset 0 0 0 2px rgba(186, 202, 214, 0.16);
+    box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--morius-card-border) 60%, transparent);
   }
 }
 
@@ -306,3 +262,4 @@ body {
     transform: translateY(0) scale(1);
   }
 }
+

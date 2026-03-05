@@ -1,6 +1,11 @@
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="3.5" y="4.5" width="17" height="15" rx="3" stroke="currentColor" stroke-width="1.6"/>
-  <circle cx="9" cy="9" r="1.4" fill="currentColor"/>
-  <path d="M5.8 17L10.2 12.5C10.8 11.9 11.8 11.9 12.4 12.5L15 15.1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-  <path d="M12.9 14.3L14.2 13C14.8 12.4 15.7 12.4 16.3 13L18.2 14.9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path
+    d="M2.55 15.92L15.91 2.56C16.34 2.13 17.05 2.13 17.48 2.56C17.9 2.99 17.9 3.7 17.48 4.12L4.11 17.49C3.68 17.92 2.98 17.92 2.55 17.49C2.12 17.06 2.12 16.35 2.55 15.92Z"
+    stroke="currentColor"
+    stroke-width="1.9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M12.84 1.14L13.56 3.11L15.52 3.83L13.56 4.55L12.84 6.51L12.12 4.55L10.15 3.83L12.12 3.11L12.84 1.14Z" fill="currentColor"/>
+  <path d="M16.7 6.39L17.09 7.47L18.18 7.87L17.09 8.26L16.7 9.34L16.3 8.26L15.22 7.87L16.3 7.47L16.7 6.39Z" fill="currentColor"/>
 </svg>

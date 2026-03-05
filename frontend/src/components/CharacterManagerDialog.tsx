@@ -10,9 +10,10 @@ import {
   IconButton,
   Menu,
   MenuItem,
-  Slider,
+  SvgIcon,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
 import AvatarCropDialog from './AvatarCropDialog'
@@ -20,11 +21,13 @@ import BaseDialog from './dialogs/BaseDialog'
 import {
   createStoryCharacter,
   deleteStoryCharacter,
+  generateStoryCharacterAvatar,
   listStoryCharacters,
   updateStoryCharacter,
 } from '../services/storyApi'
-import type { StoryCharacter } from '../types/story'
+import type { StoryCharacter, StoryImageModelId } from '../types/story'
 import TextLimitIndicator from './TextLimitIndicator'
+import { compressImageDataUrl } from '../utils/avatar'
 
 type CharacterManagerDialogProps = {
   open: boolean
@@ -36,9 +39,70 @@ type CharacterManagerDialogProps = {
 
 type CharacterDraftMode = 'create' | 'edit'
 
-const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
-const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 1 * 1024 * 1024
 const CHARACTER_TRIGGERS_MAX_LENGTH = 600
+const CHARACTER_NOTE_MAX_LENGTH = 20
+const CHARACTER_EDITOR_AVATAR_SIZE = 248
+const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
+const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image-pro'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
+  id: StoryImageModelId
+  title: string
+  description: string
+  cost: number
+}> = [
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,
+    title: 'Flux',
+    description: 'Быстрая и сбалансированная генерация.',
+    cost: 3,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
+    title: 'Seedream',
+    description: 'Более художественная и мягкая подача.',
+    cost: 5,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
+    title: 'Nano Banano',
+    description: 'Высокая детализация персонажа.',
+    cost: 15,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
+    title: 'Nano Banano 2',
+    description: 'Maximum detail and depth rendering.',
+    cost: 30,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_GROK_ID,
+    title: 'Grok (VPN!)',
+    description: 'Максимальная глубина и качество рендера.',
+    cost: 30,
+  },
+]
+
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Failed to process image'))
+    reader.onload = () => {
+      if (typeof reader.result !== 'string') {
+        reject(new Error('Invalid image format'))
+        return
+      }
+      resolve(reader.result)
+    }
+    reader.readAsDataURL(blob)
+  })
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -90,6 +154,209 @@ function normalizeCharacterTriggersDraft(value: string, fallbackName: string): s
   }
 
   return deduplicated.slice(0, 16)
+}
+
+function normalizeCharacterNoteDraft(value: string): string {
+  return value
+    .replace(/\r\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHARACTER_NOTE_MAX_LENGTH)
+}
+
+function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('Failed to load image'))
+    image.src = dataUrl
+  })
+}
+
+async function resolveImageSourceToDataUrl(source: string): Promise<string> {
+  const normalizedSource = source.trim()
+  if (normalizedSource.startsWith('data:image/')) {
+    return normalizedSource
+  }
+
+  const response = await fetch(normalizedSource, { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error('Failed to fetch generated image')
+  }
+  const blob = await response.blob()
+  if (!blob.type.startsWith('image/')) {
+    throw new Error('AI returned an unsupported image format')
+  }
+  return readBlobAsDataUrl(blob)
+}
+
+type DetectedCharacterFrame = {
+  top: number
+  centerX: number
+}
+
+function detectCharacterFrame(image: HTMLImageElement): DetectedCharacterFrame | null {
+  const naturalWidth = Math.max(1, image.naturalWidth)
+  const naturalHeight = Math.max(1, image.naturalHeight)
+  const probeScale = Math.min(1, 320 / Math.max(naturalWidth, naturalHeight))
+  const probeWidth = Math.max(1, Math.round(naturalWidth * probeScale))
+  const probeHeight = Math.max(1, Math.round(naturalHeight * probeScale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = probeWidth
+  canvas.height = probeHeight
+  const context = canvas.getContext('2d')
+  if (!context) {
+    return null
+  }
+
+  context.drawImage(image, 0, 0, probeWidth, probeHeight)
+  const imageData = context.getImageData(0, 0, probeWidth, probeHeight).data
+  const edgeWidth = Math.max(2, Math.round(probeWidth * 0.08))
+  const centerStart = Math.max(0, Math.floor(probeWidth * 0.34))
+  const centerEnd = Math.min(probeWidth - 1, Math.ceil(probeWidth * 0.66))
+  const rowThreshold = 58
+  const requiredRun = 4
+
+  const averageRowRange = (y: number, fromX: number, toX: number) => {
+    let red = 0
+    let green = 0
+    let blue = 0
+    let count = 0
+    for (let x = fromX; x <= toX; x += 1) {
+      const offset = (y * probeWidth + x) * 4
+      red += imageData[offset]
+      green += imageData[offset + 1]
+      blue += imageData[offset + 2]
+      count += 1
+    }
+    if (count === 0) {
+      return { red: 0, green: 0, blue: 0 }
+    }
+    return {
+      red: red / count,
+      green: green / count,
+      blue: blue / count,
+    }
+  }
+
+  const rowHasCharacter = new Array<boolean>(probeHeight).fill(false)
+  for (let y = 0; y < probeHeight; y += 1) {
+    const leftEdge = averageRowRange(y, 0, edgeWidth - 1)
+    const rightEdge = averageRowRange(y, probeWidth - edgeWidth, probeWidth - 1)
+    const rowBackground = {
+      red: (leftEdge.red + rightEdge.red) / 2,
+      green: (leftEdge.green + rightEdge.green) / 2,
+      blue: (leftEdge.blue + rightEdge.blue) / 2,
+    }
+    const center = averageRowRange(y, centerStart, centerEnd)
+    const delta =
+      Math.abs(center.red - rowBackground.red) +
+      Math.abs(center.green - rowBackground.green) +
+      Math.abs(center.blue - rowBackground.blue)
+    rowHasCharacter[y] = delta > rowThreshold
+  }
+
+  let probeTop = -1
+  for (let y = 0; y <= probeHeight - requiredRun; y += 1) {
+    let match = true
+    for (let runOffset = 0; runOffset < requiredRun; runOffset += 1) {
+      if (!rowHasCharacter[y + runOffset]) {
+        match = false
+        break
+      }
+    }
+    if (match) {
+      probeTop = y
+      break
+    }
+  }
+  if (probeTop < 0) {
+    return null
+  }
+
+  const sampleY = Math.min(probeHeight - 1, Math.max(0, probeTop + Math.round(probeHeight * 0.14)))
+  const leftEdge = averageRowRange(sampleY, 0, edgeWidth - 1)
+  const rightEdge = averageRowRange(sampleY, probeWidth - edgeWidth, probeWidth - 1)
+  const rowBackground = {
+    red: (leftEdge.red + rightEdge.red) / 2,
+    green: (leftEdge.green + rightEdge.green) / 2,
+    blue: (leftEdge.blue + rightEdge.blue) / 2,
+  }
+  const columnThreshold = 56
+  let left = -1
+  let right = -1
+  for (let x = 0; x < probeWidth; x += 1) {
+    const offset = (sampleY * probeWidth + x) * 4
+    const delta =
+      Math.abs(imageData[offset] - rowBackground.red) +
+      Math.abs(imageData[offset + 1] - rowBackground.green) +
+      Math.abs(imageData[offset + 2] - rowBackground.blue)
+    if (delta > columnThreshold) {
+      if (left < 0) {
+        left = x
+      }
+      right = x
+    }
+  }
+
+  const top = probeTop / probeScale
+  const centerX =
+    left >= 0 && right >= 0
+      ? ((left + right) / 2) / probeScale
+      : naturalWidth / 2
+
+  return {
+    top: Math.max(0, Math.min(top, naturalHeight - 1)),
+    centerX: Math.max(0, Math.min(centerX, naturalWidth)),
+  }
+}
+
+async function buildAutoCroppedAvatar(dataUrl: string): Promise<string> {
+  const image = await loadImageFromDataUrl(dataUrl)
+  const naturalWidth = Math.max(1, image.naturalWidth)
+  const naturalHeight = Math.max(1, image.naturalHeight)
+  const isPortrait = naturalHeight >= naturalWidth * 1.15
+  const detectedFrame = detectCharacterFrame(image)
+
+  const shortSide = Math.min(naturalWidth, naturalHeight)
+  const framingScale = isPortrait ? 0.34 : 0.36
+  const sourceSize = Math.min(shortSide, Math.max(150, Math.round(shortSide * framingScale)))
+  const baseCenterX = detectedFrame?.centerX ?? naturalWidth / 2
+  const proposedX = Math.round(baseCenterX - sourceSize / 2)
+  const sourceX = Math.max(0, Math.min(proposedX, naturalWidth - sourceSize))
+
+  const fallbackTop = Math.round(naturalHeight * (isPortrait ? 0.08 : 0.1))
+  const detectedTop = detectedFrame?.top ?? fallbackTop
+  const headroom = Math.round(sourceSize * 0.08)
+  const proposedY = Math.round(detectedTop - headroom)
+  const maxPortraitTop = Math.round(naturalHeight * (isPortrait ? 0.24 : 0.28))
+  const clampedTop = Math.min(proposedY, maxPortraitTop)
+  const sourceY = Math.max(0, Math.min(clampedTop, naturalHeight - sourceSize))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = CHARACTER_AI_AVATAR_OUTPUT_SIZE
+  canvas.height = CHARACTER_AI_AVATAR_OUTPUT_SIZE
+
+  const context = canvas.getContext('2d')
+  if (!context) {
+    throw new Error('Failed to prepare avatar canvas')
+  }
+
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    sourceSize,
+    sourceSize,
+    0,
+    0,
+    CHARACTER_AI_AVATAR_OUTPUT_SIZE,
+    CHARACTER_AI_AVATAR_OUTPUT_SIZE,
+  )
+  return canvas.toDataURL('image/png')
 }
 
 type CharacterAvatarProps = {
@@ -150,6 +417,30 @@ function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 
   )
 }
 
+function SparkleIcon() {
+  return (
+    <SvgIcon sx={{ fontSize: '1.04rem' }} viewBox="0 0 24 24">
+      <path d="M12 2l1.9 4.6L18.5 8l-4.6 1.4L12 14l-1.9-4.6L5.5 8l4.6-1.4L12 2zm7 9l.95 2.05L22 14l-2.05.95L19 17l-.95-2.05L16 14l2.05-.95L19 11zM5 13l1.2 2.8L9 17l-2.8 1.2L5 21l-1.2-2.8L1 17l2.8-1.2L5 13z" />
+    </SvgIcon>
+  )
+}
+
+function RegenerateIcon() {
+  return (
+    <SvgIcon sx={{ fontSize: '1.04rem' }} viewBox="0 0 24 24">
+      <path d="M12 6V3L8 7l4 4V8c2.76 0 5 2.24 5 5 0 1.01-.3 1.95-.82 2.74l1.46 1.46A6.986 6.986 0 0 0 19 13c0-3.87-3.13-7-7-7zm-5.18.26L5.36 4.8A6.986 6.986 0 0 0 5 11c0 3.87 3.13 7 7 7v3l4-4-4-4v3c-2.76 0-5-2.24-5-5 0-1.01.3-1.95.82-2.74z" />
+    </SvgIcon>
+  )
+}
+
+function CropFreeIcon() {
+  return (
+    <SvgIcon sx={{ fontSize: '1.06rem' }} viewBox="0 0 24 24">
+      <path d="M5 9V5h4V3H3v6h2zm0 6H3v6h6v-2H5zm14 4h-4v2h6v-6h-2zm0-16h-6v2h4v4h2z" />
+    </SvgIcon>
+  )
+}
+
 function CharacterManagerDialog({
   open,
   authToken,
@@ -167,11 +458,17 @@ function CharacterManagerDialog({
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null)
   const [nameDraft, setNameDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [noteDraft, setNoteDraft] = useState('')
   const [triggersDraft, setTriggersDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
+  const [avatarSourceDraft, setAvatarSourceDraft] = useState<string | null>(null)
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
   const [visibilityDraft, setVisibilityDraft] = useState<'private' | 'public'>('private')
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
+  const [isAiAvatarDialogOpen, setIsAiAvatarDialogOpen] = useState(false)
+  const [aiAvatarModelDraft, setAiAvatarModelDraft] = useState<StoryImageModelId>(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
+  const [aiAvatarStylePromptDraft, setAiAvatarStylePromptDraft] = useState('')
+  const [isGeneratingAiAvatar, setIsGeneratingAiAvatar] = useState(false)
   const [isEditorOpen, setIsEditorOpen] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
@@ -194,17 +491,43 @@ function CharacterManagerDialog({
         : null,
     [characterMenuCharacterId, characters],
   )
+  const hasAvatarDraft = Boolean((avatarDraft ?? '').trim())
+  const isAvatarActionsLocked = isSavingCharacter || isGeneratingAiAvatar
+  const normalizedDescriptionDraft = useMemo(() => descriptionDraft.replace(/\r\n/g, '\n').trim(), [descriptionDraft])
+  const selectedAiAvatarModelOption = useMemo(
+    () =>
+      CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS.find((option) => option.id === aiAvatarModelDraft) ??
+      CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS[0],
+    [aiAvatarModelDraft],
+  )
+  const normalizedAiAvatarStylePromptDraft = useMemo(
+    () =>
+      aiAvatarStylePromptDraft
+        .replace(/\r\n/g, '\n')
+        .replace(/\s+/g, ' ')
+        .trimStart()
+        .slice(0, CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH),
+    [aiAvatarStylePromptDraft],
+  )
+  const selectedAiAvatarGenerationCost = selectedAiAvatarModelOption?.cost ?? 0
+  const canGenerateAiAvatar = normalizedDescriptionDraft.length > 0
 
   const resetDraft = useCallback(() => {
     setDraftMode('create')
     setEditingCharacterId(null)
     setNameDraft('')
     setDescriptionDraft('')
+    setNoteDraft('')
     setTriggersDraft('')
     setAvatarDraft(null)
+    setAvatarSourceDraft(null)
     setAvatarScaleDraft(1)
     setVisibilityDraft('private')
     setAvatarCropSource(null)
+    setIsAiAvatarDialogOpen(false)
+    setAiAvatarModelDraft(CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID)
+    setAiAvatarStylePromptDraft('')
+    setIsGeneratingAiAvatar(false)
     setAvatarError('')
   }, [])
 
@@ -219,6 +542,7 @@ function CharacterManagerDialog({
           ...item,
           name: typeof item.name === 'string' ? item.name : '',
           description: typeof item.description === 'string' ? item.description : '',
+          note: typeof item.note === 'string' ? item.note : '',
           triggers: Array.isArray(item.triggers) ? item.triggers.filter((value): value is string => typeof value === 'string') : [],
           avatar_url: typeof item.avatar_url === 'string' ? item.avatar_url : null,
           avatar_scale: typeof item.avatar_scale === 'number' ? item.avatar_scale : 1,
@@ -240,6 +564,8 @@ function CharacterManagerDialog({
       setCharacterMenuCharacterId(null)
       setCharacterDeleteTarget(null)
       setAvatarCropSource(null)
+      setIsAiAvatarDialogOpen(false)
+      setIsGeneratingAiAvatar(false)
       setHasAppliedInitialAction(false)
       setHasLoadedCharacters(false)
       return
@@ -255,52 +581,57 @@ function CharacterManagerDialog({
   }, [loadCharacters, open, resetDraft])
 
   const handleCloseDialog = () => {
-    if (isSavingCharacter || deletingCharacterId !== null) {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
       return
     }
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
     setCharacterDeleteTarget(null)
     setAvatarCropSource(null)
+    setIsAiAvatarDialogOpen(false)
     onClose()
   }
 
   const handleStartCreate = useCallback(() => {
-    if (isSavingCharacter || deletingCharacterId !== null) {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
       return
     }
     resetDraft()
     setIsEditorOpen(true)
-  }, [deletingCharacterId, isSavingCharacter, resetDraft])
+  }, [deletingCharacterId, isGeneratingAiAvatar, isSavingCharacter, resetDraft])
 
   const handleStartEdit = useCallback((character: StoryCharacter) => {
-    if (isSavingCharacter || deletingCharacterId !== null) {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
       return
     }
     setDraftMode('edit')
     setEditingCharacterId(character.id)
     setNameDraft(character.name)
     setDescriptionDraft(character.description)
+    setNoteDraft(character.note)
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
+    setAvatarSourceDraft(character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
     setVisibilityDraft(character.visibility === 'public' ? 'public' : 'private')
     setAvatarCropSource(null)
+    setIsAiAvatarDialogOpen(false)
     setAvatarError('')
     setIsEditorOpen(true)
-  }, [deletingCharacterId, isSavingCharacter])
+  }, [deletingCharacterId, isGeneratingAiAvatar, isSavingCharacter])
 
   const handleCancelEdit = () => {
-    if (isSavingCharacter || deletingCharacterId !== null) {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
       return
     }
     setIsEditorOpen(false)
     setAvatarCropSource(null)
+    setIsAiAvatarDialogOpen(false)
     resetDraft()
   }
 
   const handleChooseAvatar = () => {
-    if (isSavingCharacter) {
+    if (isSavingCharacter || isGeneratingAiAvatar) {
       return
     }
     avatarInputRef.current?.click()
@@ -319,13 +650,14 @@ function CharacterManagerDialog({
     }
 
     if (selectedFile.size > CHARACTER_AVATAR_SOURCE_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
       return
     }
 
     setAvatarError('')
     try {
       const dataUrl = await readFileAsDataUrl(selectedFile)
+      setAvatarSourceDraft(dataUrl)
       setAvatarCropSource(dataUrl)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось обработать изображение'
@@ -335,27 +667,126 @@ function CharacterManagerDialog({
 
   const handleSaveCroppedAvatar = useCallback(
     (croppedDataUrl: string) => {
-      if (isSavingCharacter || !croppedDataUrl) {
+      if (isSavingCharacter || isGeneratingAiAvatar || !croppedDataUrl) {
         return
       }
-      if (estimateDataUrlBytes(croppedDataUrl) > CHARACTER_AVATAR_MAX_BYTES) {
-        setAvatarError('Avatar is too large after crop. Maximum is 500 KB.')
-        return
-      }
-      setAvatarDraft(croppedDataUrl)
-      setAvatarScaleDraft(1)
-      setAvatarCropSource(null)
-      setAvatarError('')
+      void (async () => {
+        try {
+          const normalizedAvatar = await compressImageDataUrl(croppedDataUrl, {
+            maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+            maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
+          })
+          if (estimateDataUrlBytes(normalizedAvatar) > CHARACTER_AVATAR_MAX_BYTES) {
+            setAvatarError('Аватар слишком большой после кропа. Максимум 1 МБ.')
+            return
+          }
+          setAvatarDraft(normalizedAvatar)
+          setAvatarScaleDraft(1)
+          setAvatarCropSource(null)
+          setAvatarError('')
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'Не удалось сохранить кроп аватара'
+          setAvatarError(detail)
+        }
+      })()
     },
-    [isSavingCharacter],
+    [isGeneratingAiAvatar, isSavingCharacter],
   )
 
+  const handleOpenAvatarCrop = useCallback(() => {
+    if (isSavingCharacter || isGeneratingAiAvatar || !hasAvatarDraft) {
+      return
+    }
+    const sourceCandidate = (avatarSourceDraft ?? avatarDraft ?? '').trim()
+    if (!sourceCandidate) {
+      return
+    }
+    setAvatarError('')
+    void (async () => {
+      try {
+        const sourceDataUrl = await resolveImageSourceToDataUrl(sourceCandidate)
+        setAvatarSourceDraft(sourceDataUrl)
+        setAvatarCropSource(sourceDataUrl)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось открыть кроп аватара'
+        setAvatarError(detail)
+      }
+    })()
+  }, [avatarDraft, avatarSourceDraft, hasAvatarDraft, isGeneratingAiAvatar, isSavingCharacter])
+
+  const handleOpenAiAvatarDialog = useCallback(() => {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
+      return
+    }
+    setIsAiAvatarDialogOpen(true)
+  }, [deletingCharacterId, isGeneratingAiAvatar, isSavingCharacter])
+
+  const handleCloseAiAvatarDialog = useCallback(() => {
+    if (isGeneratingAiAvatar) {
+      return
+    }
+    setIsAiAvatarDialogOpen(false)
+  }, [isGeneratingAiAvatar])
+
+  const handleGenerateAiAvatar = useCallback(async () => {
+    if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
+      return
+    }
+    if (!normalizedDescriptionDraft) {
+      setAvatarError('Сначала заполните описание персонажа, затем запускайте генерацию аватара.')
+      return
+    }
+
+    setAvatarError('')
+    setIsAiAvatarDialogOpen(false)
+    setIsGeneratingAiAvatar(true)
+    try {
+      const generation = await generateStoryCharacterAvatar({
+        token: authToken,
+        imageModel: aiAvatarModelDraft,
+        description: normalizedDescriptionDraft,
+        stylePrompt: normalizedAiAvatarStylePromptDraft || undefined,
+      })
+      const imageSource = (generation.image_data_url ?? generation.image_url ?? '').trim()
+      if (!imageSource) {
+        throw new Error('ИИ не вернул изображение')
+      }
+      const sourceDataUrl = await resolveImageSourceToDataUrl(imageSource)
+      const autoCroppedAvatar = await buildAutoCroppedAvatar(sourceDataUrl)
+      const normalizedAvatar = await compressImageDataUrl(autoCroppedAvatar, {
+        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
+      })
+      if (estimateDataUrlBytes(normalizedAvatar) > CHARACTER_AVATAR_MAX_BYTES) {
+        throw new Error('Аватар от ИИ слишком большой после обработки')
+      }
+      setAvatarSourceDraft(sourceDataUrl)
+      setAvatarDraft(normalizedAvatar)
+      setAvatarScaleDraft(1)
+      setAvatarError('')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать аватар'
+      setAvatarError(detail)
+    } finally {
+      setIsGeneratingAiAvatar(false)
+    }
+  }, [
+    aiAvatarModelDraft,
+    authToken,
+    deletingCharacterId,
+    isGeneratingAiAvatar,
+    isSavingCharacter,
+    normalizedAiAvatarStylePromptDraft,
+    normalizedDescriptionDraft,
+  ])
+
   const handleSaveCharacter = useCallback(async () => {
-    if (isSavingCharacter) {
+    if (isSavingCharacter || isGeneratingAiAvatar) {
       return
     }
     const normalizedName = nameDraft.replace(/\s+/g, ' ').trim()
     const normalizedDescription = descriptionDraft.replace(/\r\n/g, '\n').trim()
+    const normalizedNote = normalizeCharacterNoteDraft(noteDraft)
 
     if (!normalizedName) {
       setErrorMessage('Имя персонажа не может быть пустым')
@@ -377,6 +808,7 @@ function CharacterManagerDialog({
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
             avatar_scale: avatarScaleDraft,
@@ -390,6 +822,7 @@ function CharacterManagerDialog({
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: avatarDraft,
             avatar_scale: avatarScaleDraft,
@@ -407,11 +840,26 @@ function CharacterManagerDialog({
     } finally {
       setIsSavingCharacter(false)
     }
-  }, [authToken, avatarDraft, avatarScaleDraft, descriptionDraft, draftMode, editingCharacterId, isSavingCharacter, loadCharacters, nameDraft, resetDraft, triggersDraft, visibilityDraft])
+  }, [
+    authToken,
+    avatarDraft,
+    avatarScaleDraft,
+    descriptionDraft,
+    draftMode,
+    editingCharacterId,
+    isGeneratingAiAvatar,
+    isSavingCharacter,
+    loadCharacters,
+    nameDraft,
+    noteDraft,
+    resetDraft,
+    triggersDraft,
+    visibilityDraft,
+  ])
 
   const handleDeleteCharacter = useCallback(
     async (characterId: number) => {
-      if (isSavingCharacter || deletingCharacterId !== null) {
+      if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
         return
       }
 
@@ -434,7 +882,7 @@ function CharacterManagerDialog({
         setDeletingCharacterId(null)
       }
     },
-    [authToken, deletingCharacterId, editingCharacterId, isSavingCharacter, loadCharacters, resetDraft],
+    [authToken, deletingCharacterId, editingCharacterId, isGeneratingAiAvatar, isSavingCharacter, loadCharacters, resetDraft],
   )
 
   const handleOpenCharacterItemMenu = useCallback((event: ReactMouseEvent<HTMLElement>, characterId: number) => {
@@ -457,12 +905,12 @@ function CharacterManagerDialog({
   }, [handleCloseCharacterItemMenu, handleStartEdit, selectedCharacterMenuItem])
 
   const handleRequestDeleteCharacterFromMenu = useCallback(() => {
-    if (!selectedCharacterMenuItem || isSavingCharacter) {
+    if (!selectedCharacterMenuItem || isSavingCharacter || isGeneratingAiAvatar) {
       return
     }
     setCharacterDeleteTarget(selectedCharacterMenuItem)
     handleCloseCharacterItemMenu()
-  }, [handleCloseCharacterItemMenu, isSavingCharacter, selectedCharacterMenuItem])
+  }, [handleCloseCharacterItemMenu, isGeneratingAiAvatar, isSavingCharacter, selectedCharacterMenuItem])
 
   const handleCancelCharacterDeletion = useCallback(() => {
     if (deletingCharacterId !== null) {
@@ -541,7 +989,7 @@ function CharacterManagerDialog({
               }}
             >
               <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center">
+                <Stack spacing={0.7} alignItems="center">
                   <Box
                     role="button"
                     tabIndex={0}
@@ -555,21 +1003,38 @@ function CharacterManagerDialog({
                     }}
                     sx={{
                       position: 'relative',
-                      width: 64,
-                      height: 64,
+                      width: CHARACTER_EDITOR_AVATAR_SIZE,
+                      height: CHARACTER_EDITOR_AVATAR_SIZE,
                       borderRadius: '50%',
                       overflow: 'hidden',
-                      cursor: isSavingCharacter ? 'default' : 'pointer',
+                      cursor: isAvatarActionsLocked ? 'default' : 'pointer',
+                      border: '1px dashed rgba(194, 208, 226, 0.5)',
+                      background: 'linear-gradient(135deg, rgba(30, 33, 39, 0.86), rgba(56, 60, 68, 0.9))',
                       outline: 'none',
                       '&:hover .morius-character-avatar-overlay': {
-                        opacity: isSavingCharacter ? 0 : 1,
+                        opacity: hasAvatarDraft && !isAvatarActionsLocked ? 1 : hasAvatarDraft ? 0 : 1,
                       },
                       '&:focus-visible .morius-character-avatar-overlay': {
-                        opacity: isSavingCharacter ? 0 : 1,
+                        opacity: hasAvatarDraft && !isAvatarActionsLocked ? 1 : hasAvatarDraft ? 0 : 1,
                       },
                     }}
                   >
-                    <CharacterAvatar avatarUrl={avatarDraft} avatarScale={avatarScaleDraft} fallbackLabel={nameDraft || 'Персонаж'} size={64} />
+                    {hasAvatarDraft ? (
+                      <Box
+                        component="img"
+                        src={avatarDraft ?? undefined}
+                        alt={nameDraft || 'Character avatar'}
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          transform: `scale(${Math.max(1, Math.min(3, avatarScaleDraft))})`,
+                          transformOrigin: 'center center',
+                        }}
+                      />
+                    ) : null}
                     <Box
                       className="morius-character-avatar-overlay"
                       sx={{
@@ -578,48 +1043,95 @@ function CharacterManagerDialog({
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        backgroundColor: 'rgba(23, 23, 22, 0.72)',
-                        opacity: 0,
+                        backgroundColor: hasAvatarDraft ? 'rgba(16, 18, 20, 0.58)' : 'transparent',
+                        opacity: hasAvatarDraft ? 0 : 1,
                         transition: 'opacity 180ms ease',
+                        pointerEvents: 'none',
                       }}
                     >
                       <Box
                         sx={{
-                          width: 30,
-                          height: 30,
+                          width: 62,
+                          height: 62,
                           borderRadius: '50%',
-                          border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
-                          backgroundColor: 'var(--morius-elevated-bg)',
+                          border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.68)',
+                          backgroundColor: 'rgba(22, 24, 27, 0.66)',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center',
                           color: 'var(--morius-text-primary)',
-                          fontSize: '1.02rem',
-                          fontWeight: 700,
+                          fontSize: '2rem',
+                          fontWeight: 400,
                         }}
                       >
-                        ✎
+                        +
                       </Box>
                     </Box>
+                    {isGeneratingAiAvatar ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          display: 'grid',
+                          placeItems: 'center',
+                          backgroundColor: 'rgba(14, 16, 20, 0.56)',
+                        }}
+                      >
+                        <CircularProgress size={28} sx={{ color: 'rgba(224, 232, 243, 0.95)' }} />
+                      </Box>
+                    ) : null}
                   </Box>
-                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                    Нажмите на аватар, чтобы заменить изображение
-                  </Typography>
+                  <Stack direction="row" spacing={0.7} alignItems="center" justifyContent="center" sx={{ width: '100%' }}>
+                    <Tooltip title={hasAvatarDraft ? 'Изменить кроп аватара' : 'Сначала добавьте аватар'}>
+                      <span>
+                        <IconButton
+                          onClick={handleOpenAvatarCrop}
+                          disabled={!hasAvatarDraft || isAvatarActionsLocked}
+                          sx={{
+                            width: 36,
+                            height: 36,
+                            border: 'var(--morius-border-width) solid rgba(198, 207, 221, 0.36)',
+                            backgroundColor: 'rgba(20, 22, 25, 0.76)',
+                            color: 'rgba(224, 231, 241, 0.9)',
+                            '&:hover': {
+                              backgroundColor: 'rgba(29, 33, 37, 0.85)',
+                            },
+                          }}
+                        >
+                          <CropFreeIcon />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip
+                      title={
+                        hasAvatarDraft
+                          ? 'Перегенерировать через ИИ'
+                          : canGenerateAiAvatar
+                          ? 'Сгенерировать через ИИ'
+                          : 'Сначала заполните описание персонажа'
+                      }
+                    >
+                      <span>
+                        <IconButton
+                          onClick={handleOpenAiAvatarDialog}
+                          disabled={isAvatarActionsLocked}
+                          sx={{
+                            width: 36,
+                            height: 36,
+                            border: 'var(--morius-border-width) solid rgba(201, 210, 223, 0.36)',
+                            backgroundColor: 'rgba(20, 22, 25, 0.76)',
+                            color: 'rgba(226, 233, 243, 0.95)',
+                            '&:hover': {
+                              backgroundColor: 'rgba(29, 33, 37, 0.86)',
+                            },
+                          }}
+                        >
+                          {hasAvatarDraft ? <RegenerateIcon /> : <SparkleIcon />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Stack>
                 </Stack>
-                <Box>
-                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                    Масштаб аватара: {avatarScaleDraft.toFixed(2)}x
-                  </Typography>
-                  <Slider
-                    min={1}
-                    max={3}
-                    step={0.05}
-                    value={avatarScaleDraft}
-                    onChange={(_, value) => setAvatarScaleDraft(value as number)}
-                    disabled={isSavingCharacter}
-                  />
-                </Box>
-
                 <input
                   ref={avatarInputRef}
                   type="file"
@@ -633,7 +1145,7 @@ function CharacterManagerDialog({
                   value={nameDraft}
                   onChange={(event) => setNameDraft(event.target.value)}
                   fullWidth
-                  disabled={isSavingCharacter}
+                  disabled={isAvatarActionsLocked}
                   inputProps={{ maxLength: 120 }}
                   helperText={<TextLimitIndicator currentLength={nameDraft.length} maxLength={120} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
@@ -646,9 +1158,9 @@ function CharacterManagerDialog({
                   multiline
                   minRows={4}
                   maxRows={8}
-                  disabled={isSavingCharacter}
-                  inputProps={{ maxLength: 6000 }}
-                  helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={6000} />}
+                  disabled={isAvatarActionsLocked}
+                  inputProps={{ maxLength: 2500 }}
+                  helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={2500} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <TextField
@@ -659,10 +1171,21 @@ function CharacterManagerDialog({
                   multiline
                   minRows={2}
                   maxRows={5}
-                  disabled={isSavingCharacter}
+                  disabled={isAvatarActionsLocked}
                   placeholder="через запятую"
                   inputProps={{ maxLength: CHARACTER_TRIGGERS_MAX_LENGTH }}
                   helperText={<TextLimitIndicator currentLength={triggersDraft.length} maxLength={CHARACTER_TRIGGERS_MAX_LENGTH} />}
+                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+                <TextField
+                  label="Пометка"
+                  value={noteDraft}
+                  onChange={(event) => setNoteDraft(event.target.value.slice(0, CHARACTER_NOTE_MAX_LENGTH))}
+                  fullWidth
+                  disabled={isAvatarActionsLocked}
+                  placeholder="Например: Друг Акеми"
+                  inputProps={{ maxLength: CHARACTER_NOTE_MAX_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={noteDraft.length} maxLength={CHARACTER_NOTE_MAX_LENGTH} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <Stack spacing={0.6}>
@@ -672,7 +1195,7 @@ function CharacterManagerDialog({
                   <Stack direction="row" spacing={0.8}>
                     <Button
                       onClick={() => setVisibilityDraft('private')}
-                      disabled={isSavingCharacter}
+                      disabled={isAvatarActionsLocked}
                       sx={{
                         minHeight: 34,
                         borderRadius: '10px',
@@ -689,7 +1212,7 @@ function CharacterManagerDialog({
                     </Button>
                     <Button
                       onClick={() => setVisibilityDraft('public')}
-                      disabled={isSavingCharacter}
+                      disabled={isAvatarActionsLocked}
                       sx={{
                         minHeight: 34,
                         borderRadius: '10px',
@@ -708,13 +1231,13 @@ function CharacterManagerDialog({
                 </Stack>
                 {avatarError ? <Alert severity="error">{avatarError}</Alert> : null}
                 <Stack direction="row" justifyContent="flex-end" spacing={0.8}>
-                  <Button onClick={handleCancelEdit} disabled={isSavingCharacter} sx={{ color: 'text.secondary' }}>
+                  <Button onClick={handleCancelEdit} disabled={isAvatarActionsLocked} sx={{ color: 'text.secondary' }}>
                     Отмена
                   </Button>
                   <Button
                     variant="contained"
                     onClick={() => void handleSaveCharacter()}
-                    disabled={isSavingCharacter}
+                    disabled={isAvatarActionsLocked}
                     sx={{
                       minHeight: 38,
                       borderRadius: 'var(--morius-radius)',
@@ -741,7 +1264,7 @@ function CharacterManagerDialog({
           ) : (
             <Button
               onClick={handleStartCreate}
-              disabled={isSavingCharacter || deletingCharacterId !== null}
+              disabled={isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar}
               sx={{
                 minHeight: 40,
                 borderRadius: '12px',
@@ -777,19 +1300,46 @@ function CharacterManagerDialog({
                       <Stack direction="row" spacing={0.8} alignItems="center">
                         <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
                         <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.08}>
-                          <Typography
-                            sx={{
-                              color: 'var(--morius-title-text)',
-                              fontWeight: 700,
-                              fontSize: '0.9rem',
-                              lineHeight: 1.2,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {character.name}
-                          </Typography>
+                          <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-title-text)',
+                                fontWeight: 700,
+                                fontSize: '0.9rem',
+                                lineHeight: 1.2,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                                flex: 1,
+                              }}
+                            >
+                              {character.name}
+                            </Typography>
+                            {character.note ? (
+                              <Box
+                                sx={{
+                                  borderRadius: '999px',
+                                  border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                  backgroundColor: 'rgba(23, 33, 45, 0.66)',
+                                  color: 'rgba(184, 218, 247, 0.96)',
+                                  px: 0.58,
+                                  py: 0.1,
+                                  fontSize: '0.64rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 700,
+                                  maxWidth: 112,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  flexShrink: 0,
+                                }}
+                                title={character.note}
+                              >
+                                {character.note}
+                              </Box>
+                            ) : null}
+                          </Stack>
                           {character.triggers.length > 0 ? (
                             <Typography
                               sx={{
@@ -817,7 +1367,7 @@ function CharacterManagerDialog({
                         </Stack>
                         <IconButton
                           onClick={(event) => handleOpenCharacterItemMenu(event, character.id)}
-                          disabled={isSavingCharacter || deletingCharacterId === character.id}
+                          disabled={isSavingCharacter || isGeneratingAiAvatar || deletingCharacterId === character.id}
                           sx={{
                             width: 28,
                             height: 28,
@@ -889,6 +1439,7 @@ function CharacterManagerDialog({
           disabled={
             !selectedCharacterMenuItem ||
             isSavingCharacter ||
+            isGeneratingAiAvatar ||
             (selectedCharacterMenuItem !== null && deletingCharacterId === selectedCharacterMenuItem.id)
           }
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
@@ -903,6 +1454,7 @@ function CharacterManagerDialog({
           disabled={
             !selectedCharacterMenuItem ||
             isSavingCharacter ||
+            isGeneratingAiAvatar ||
             (selectedCharacterMenuItem !== null && deletingCharacterId === selectedCharacterMenuItem.id)
           }
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
@@ -929,13 +1481,13 @@ function CharacterManagerDialog({
           </Typography>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={handleCancelCharacterDeletion} disabled={deletingCharacterId !== null} sx={{ color: 'text.secondary' }}>
+          <Button onClick={handleCancelCharacterDeletion} disabled={deletingCharacterId !== null || isGeneratingAiAvatar} sx={{ color: 'text.secondary' }}>
             Отмена
           </Button>
           <Button
             variant="contained"
             onClick={() => void handleConfirmCharacterDeletion()}
-            disabled={deletingCharacterId !== null}
+            disabled={deletingCharacterId !== null || isGeneratingAiAvatar}
             sx={{
               border: 'var(--morius-border-width) solid rgba(228, 120, 120, 0.44)',
               backgroundColor: 'rgba(184, 78, 78, 0.3)',
@@ -952,13 +1504,141 @@ function CharacterManagerDialog({
         </DialogActions>
       </BaseDialog>
 
+      <BaseDialog
+        open={isAiAvatarDialogOpen}
+        onClose={handleCloseAiAvatarDialog}
+        maxWidth="xs"
+        rawChildren
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {hasAvatarDraft ? 'Перегенерация аватара' : 'Генерация аватара'}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 0.4 }}>
+          <Stack spacing={0.7}>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+              Выберите ИИ-модель для генерации персонажа. Стоимость спишется сразу при запуске генерации.
+            </Typography>
+            <Stack spacing={0.6}>
+              {CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS.map((option) => (
+                <Button
+                  key={option.id}
+                  onClick={() => setAiAvatarModelDraft(option.id)}
+                  disabled={isGeneratingAiAvatar}
+                  sx={{
+                    justifyContent: 'flex-start',
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: aiAvatarModelDraft === option.id ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    px: 1,
+                    py: 0.85,
+                    '&:hover': {
+                      backgroundColor: 'var(--morius-button-hover)',
+                    },
+                  }}
+                >
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ width: '100%', minWidth: 0 }}>
+                    <Stack alignItems="flex-start" spacing={0.15} sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 700, fontSize: '0.86rem', lineHeight: 1.25 }}>{option.title}</Typography>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', lineHeight: 1.25 }}>
+                        {option.description}
+                      </Typography>
+                    </Stack>
+                    <Typography sx={{ color: 'rgba(231, 211, 158, 0.96)', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                      {option.cost} Сол
+                    </Typography>
+                  </Stack>
+                </Button>
+              ))}
+            </Stack>
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 700 }}>
+              Стиль
+            </Typography>
+            <Box
+              component="input"
+              value={aiAvatarStylePromptDraft}
+              placeholder="Стиль изображения..."
+              maxLength={CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setAiAvatarStylePromptDraft(event.target.value)}
+              disabled={isGeneratingAiAvatar}
+              sx={{
+                width: '100%',
+                minHeight: 36,
+                borderRadius: '11px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-elevated-bg)',
+                color: 'var(--morius-text-primary)',
+                px: 0.92,
+                outline: 'none',
+                fontSize: '0.85rem',
+                '&::placeholder': {
+                  color: 'var(--morius-text-secondary)',
+                },
+              }}
+            />
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
+                {aiAvatarStylePromptDraft.length}/{CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH}
+              </Typography>
+              {!canGenerateAiAvatar ? (
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
+                  Сначала заполните описание персонажа
+                </Typography>
+              ) : null}
+            </Stack>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+              Поле «Стиль» необязательно, но помогает задать визуальную манеру.
+            </Typography>
+            <Box
+              sx={{
+                borderRadius: '10px',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+                px: 1,
+                py: 0.75,
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+              }}
+            >
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem', mt: 0.2 }}>
+                Аватар генерируется в полный рост, после чего автоматически кадрируется под портрет (лицо и грудь).
+              </Typography>
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={handleCloseAiAvatarDialog} disabled={isGeneratingAiAvatar} sx={{ color: 'text.secondary' }}>
+            Отмена
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleGenerateAiAvatar()}
+            disabled={isGeneratingAiAvatar || !canGenerateAiAvatar}
+            sx={{
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-button-active)',
+              color: 'var(--morius-text-primary)',
+              textTransform: 'none',
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+            }}
+          >
+            {isGeneratingAiAvatar ? (
+              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+            ) : hasAvatarDraft ? (
+              `Перегенерировать за ${selectedAiAvatarGenerationCost} Сол`
+            ) : (
+              `Сгенерировать за ${selectedAiAvatarGenerationCost} Сол`
+            )}
+          </Button>
+        </DialogActions>
+      </BaseDialog>
+
       <AvatarCropDialog
         open={Boolean(avatarCropSource)}
         imageSrc={avatarCropSource}
-        isSaving={isSavingCharacter}
+        isSaving={isSavingCharacter || isGeneratingAiAvatar}
         outputSize={384}
         onCancel={() => {
-          if (!isSavingCharacter) {
+          if (!isSavingCharacter && !isGeneratingAiAvatar) {
             setAvatarCropSource(null)
           }
         }}
@@ -966,7 +1646,7 @@ function CharacterManagerDialog({
       />
 
       <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
-        <Button onClick={handleCloseDialog} disabled={isSavingCharacter || deletingCharacterId !== null} sx={{ color: 'text.secondary' }}>
+        <Button onClick={handleCloseDialog} disabled={isSavingCharacter || isGeneratingAiAvatar || deletingCharacterId !== null} sx={{ color: 'text.secondary' }}>
           Закрыть
         </Button>
       </DialogActions>

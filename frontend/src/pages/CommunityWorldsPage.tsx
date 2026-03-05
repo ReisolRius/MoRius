@@ -22,10 +22,19 @@ import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import TopUpDialog from '../components/profile/TopUpDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import UserAvatar from '../components/profile/UserAvatar'
-import { updateCurrentUserAvatar, updateCurrentUserProfile } from '../services/authApi'
+import {
+  createCoinTopUpPayment,
+  getCoinTopUpPlans,
+  syncCoinTopUpPayment,
+  updateCurrentUserAvatar,
+  updateCurrentUserProfile,
+  type CoinTopUpPlan,
+} from '../services/authApi'
 import {
   addCommunityCharacter,
   addCommunityInstructionTemplate,
@@ -78,16 +87,19 @@ const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const AVATAR_MAX_BYTES = 1 * 1024 * 1024
 const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `community-world-skeleton-${index}`)
 const TOP_FILTER_CONTROL_HEIGHT = 46
 const TOP_FILTER_CONTROL_RADIUS = '12px'
 const TOP_FILTER_TEXT_PADDING_X = '14px'
 const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
+const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_FEED_CACHE_TTL_MS = 30 * 60 * 1000
 const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
+const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
+const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 
 type CommunityFeedCachePayload = {
   saved_at: number
@@ -275,6 +287,7 @@ function CommunityCharacterCard({ item, currentUserId, disabled = false, onClick
   const authorName = item.author_name.trim() || 'Неизвестный автор'
   const authorInitials = resolveAuthorInitials(authorName)
   const isOwnedByUser = item.author_id === currentUserId
+  const characterNote = item.note.trim()
   const addStatusLabel = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Добавлено' : 'Не добавлено'
   const heroBackground = item.avatar_url
     ? {
@@ -407,6 +420,30 @@ function CommunityCharacterCard({ item, currentUserId, disabled = false, onClick
             >
               {item.name}
             </Typography>
+            {characterNote ? (
+              <Box
+                title={characterNote}
+                sx={{
+                  width: 'fit-content',
+                  maxWidth: '100%',
+                  px: 0.75,
+                  py: 0.2,
+                  borderRadius: '999px',
+                  border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)',
+                  color: 'rgba(170, 238, 191, 0.96)',
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  letterSpacing: 0.2,
+                  textTransform: 'uppercase',
+                  lineHeight: 1.2,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {characterNote}
+              </Box>
+            ) : null}
             <Typography
               sx={{
                 color: APP_TEXT_SECONDARY,
@@ -624,6 +661,13 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [isAvatarSaving, setIsAvatarSaving] = useState(false)
   const [avatarError, setAvatarError] = useState('')
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
+  const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
+  const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
+  const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
+  const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
+  const [topUpError, setTopUpError] = useState('')
+  const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
+  const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityCharacters, setCommunityCharacters] = useState<StoryCommunityCharacterSummary[]>([])
@@ -669,6 +713,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [characterAddedFilter, setCharacterAddedFilter] = useState<CommunityAddedFilter>('all')
   const [instructionAddedFilter, setInstructionAddedFilter] = useState<CommunityAddedFilter>('all')
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const hasLoadedCommunityWorldGameIdsRef = useRef(false)
 
   const worldGenreOptions = useMemo(() => {
     const uniqueGenres = new Set<string>()
@@ -841,7 +886,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   }, [authToken, user.id])
 
   useEffect(() => {
-    void loadCommunityWorlds({ force: true })
+    void loadCommunityWorlds()
   }, [loadCommunityWorlds])
 
   useEffect(() => {
@@ -887,18 +932,19 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     })
   }, [communityWorlds, selectedCommunityWorld?.world.id])
 
-  const syncCommunityWorldGameIds = useCallback(async () => {
+  const syncCommunityWorldGameIds = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force ?? false
+    if (hasLoadedCommunityWorldGameIdsRef.current && !forceReload) {
+      return
+    }
     try {
       const games = await listStoryGames(authToken, { compact: true })
       setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+      hasLoadedCommunityWorldGameIdsRef.current = true
     } catch {
       // Optional data for dialog button state; ignore failures.
     }
   }, [authToken])
-
-  useEffect(() => {
-    void syncCommunityWorldGameIds()
-  }, [syncCommunityWorldGameIds])
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -921,6 +967,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         setCommunityWorlds((previous) =>
           previous.map((world) => (world.id === normalizedPayload.world.id ? normalizedPayload.world : world)),
         )
+        void syncCommunityWorldGameIds()
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось открыть мир'
         setActionError(detail)
@@ -928,7 +975,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         setIsCommunityWorldDialogLoading(false)
       }
     },
-    [authToken, isCommunityWorldDialogLoading],
+    [authToken, isCommunityWorldDialogLoading, syncCommunityWorldGameIds],
   )
 
   useEffect(() => {
@@ -959,20 +1006,22 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
     const worldId = selectedCommunityWorld.world.id
     const previousRating = selectedCommunityWorld.world.user_rating ?? 0
-    setCommunityRatingDraft(ratingValue)
+    const nextRating = previousRating === ratingValue ? 0 : ratingValue
+    const nextUserRating = nextRating > 0 ? nextRating : null
+    setCommunityRatingDraft(nextRating)
     setSelectedCommunityWorld((previous) =>
       previous && previous.world.id === worldId
         ? {
             ...previous,
             world: {
               ...previous.world,
-              user_rating: ratingValue,
+              user_rating: nextUserRating,
             },
           }
         : previous,
     )
     setCommunityWorlds((previous) =>
-      previous.map((world) => (world.id === worldId ? { ...world, user_rating: ratingValue } : world)),
+      previous.map((world) => (world.id === worldId ? { ...world, user_rating: nextUserRating } : world)),
     )
     setActionError('')
     setIsCommunityRatingSaving(true)
@@ -980,7 +1029,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       const updatedWorld = await rateCommunityWorld({
         token: authToken,
         worldId,
-        rating: ratingValue,
+        rating: nextRating,
       })
       setSelectedCommunityWorld((previous) =>
         previous && previous.world.id === updatedWorld.id
@@ -1445,10 +1494,19 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
 
     const worldId = selectedCommunityWorld.world.id
-    const existingGameIds = communityWorldGameIds[worldId] ?? []
     setActionError('')
     setIsCommunityWorldMyGamesSaving(true)
     try {
+      let gameMapSnapshot = communityWorldGameIds
+      try {
+        const games = await listStoryGames(authToken, { compact: true })
+        gameMapSnapshot = buildCommunityWorldGameMap(games)
+        setCommunityWorldGameIds(gameMapSnapshot)
+      } catch {
+        // Keep local cache when metadata refresh fails.
+      }
+
+      const existingGameIds = gameMapSnapshot[worldId] ?? []
       if (existingGameIds.length > 0) {
         await Promise.all(
           existingGameIds.map((gameId) =>
@@ -1479,14 +1537,35 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       setActionError(detail)
     } finally {
       setIsCommunityWorldMyGamesSaving(false)
+      void syncCommunityWorldGameIds({ force: true })
     }
-  }, [authToken, communityWorldGameIds, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld, selectedCommunityWorld])
+  }, [
+    authToken,
+    communityWorldGameIds,
+    isCommunityWorldMyGamesSaving,
+    isLaunchingCommunityWorld,
+    selectedCommunityWorld,
+    syncCommunityWorldGameIds,
+  ])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setAvatarCropSource(null)
     setAvatarError('')
+  }
+
+  const handleCloseTopUpDialog = () => {
+    setTopUpDialogOpen(false)
+    setTopUpError('')
+    setActivePlanPurchaseId(null)
+  }
+
+  const handleOpenTopUpDialog = () => {
+    setProfileDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setTopUpError('')
+    setTopUpDialogOpen(true)
   }
 
   const handleChooseAvatar = () => {
@@ -1509,7 +1588,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
       return
     }
 
@@ -1557,15 +1636,90 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     [authToken, onUserUpdate],
   )
 
+  const loadTopUpPlans = useCallback(async () => {
+    setIsTopUpPlansLoading(true)
+    setTopUpError('')
+    try {
+      const plans = await getCoinTopUpPlans()
+      setTopUpPlans(plans)
+      setHasTopUpPlansLoaded(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Failed to load top-up plans'
+      setTopUpError(detail)
+    } finally {
+      setIsTopUpPlansLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!topUpDialogOpen || hasTopUpPlansLoaded || isTopUpPlansLoading) {
+      return
+    }
+    void loadTopUpPlans()
+  }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
+
+  const syncPendingPayment = useCallback(
+    async (paymentId: string) => {
+      try {
+        const response = await syncCoinTopUpPayment({
+          token: authToken,
+          payment_id: paymentId,
+        })
+        onUserUpdate(response.user)
+        if (response.status === 'succeeded') {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+          setPaymentSuccessCoins(response.coins)
+          return
+        }
+        if (FINAL_PAYMENT_STATUSES.has(response.status)) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Failed to sync payment status'
+        if (detail.includes('404')) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
+      }
+    },
+    [authToken, onUserUpdate],
+  )
+
+  useEffect(() => {
+    const pendingPaymentId = localStorage.getItem(PENDING_PAYMENT_STORAGE_KEY)
+    if (!pendingPaymentId) {
+      return
+    }
+    void syncPendingPayment(pendingPaymentId)
+  }, [syncPendingPayment])
+
+  const handlePurchasePlan = async (planId: string) => {
+    setTopUpError('')
+    setActivePlanPurchaseId(planId)
+    try {
+      const response = await createCoinTopUpPayment({
+        token: authToken,
+        plan_id: planId,
+      })
+      localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
+      window.location.assign(response.confirmation_url)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Failed to create payment'
+      setTopUpError(detail)
+      setActivePlanPurchaseId(null)
+    }
+  }
+
   const handleConfirmLogout = () => {
     setConfirmLogoutOpen(false)
     setProfileDialogOpen(false)
+    setTopUpDialogOpen(false)
     onLogout()
   }
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? [] : []
   const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
   const isSelectedCommunityCharacterOwnedByUser = selectedCommunityCharacter?.author_id === user.id
+  const selectedCommunityCharacterNote = selectedCommunityCharacter?.note.trim() ?? ''
   const isSelectedCommunityInstructionOwnedByUser = selectedCommunityInstructionTemplate?.author_id === user.id
   const communitySectionDescription =
     activeSection === 'worlds'
@@ -1609,7 +1763,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
-        onOpenTopUpDialog={() => onNavigate('/profile')}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
         rightActions={
           <Stack direction="row" spacing={0}>
@@ -2234,11 +2388,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 sx={{
                   display: 'grid',
                   gap: 1.4,
-                  gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, minmax(0, 1fr))',
-                    xl: 'repeat(3, minmax(0, 1fr))',
-                  },
+                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                 }}
               >
                 {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
@@ -2272,11 +2422,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 sx={{
                   display: 'grid',
                   gap: 1.4,
-                  gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, minmax(0, 1fr))',
-                    xl: 'repeat(3, minmax(0, 1fr))',
-                  },
+                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                 }}
               >
                 {filteredCommunityWorlds.map((world) => (
@@ -2299,11 +2445,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 sx={{
                   display: 'grid',
                   gap: 1.4,
-                  gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, minmax(0, 1fr))',
-                    xl: 'repeat(3, minmax(0, 1fr))',
-                  },
+                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                 }}
               >
                 {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
@@ -2337,11 +2479,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 sx={{
                   display: 'grid',
                   gap: 1.4,
-                  gridTemplateColumns: {
-                    xs: '1fr',
-                    sm: 'repeat(2, minmax(0, 1fr))',
-                    xl: 'repeat(3, minmax(0, 1fr))',
-                  },
+                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                 }}
               >
                 {filteredCommunityCharacters.map((item) => (
@@ -2360,11 +2498,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               sx={{
                 display: 'grid',
                 gap: 1.4,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(3, minmax(0, 1fr))',
-                },
+                gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
@@ -2398,11 +2532,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               sx={{
                 display: 'grid',
                 gap: 1.4,
-                gridTemplateColumns: {
-                  xs: '1fr',
-                  sm: 'repeat(2, minmax(0, 1fr))',
-                  xl: 'repeat(3, minmax(0, 1fr))',
-                },
+                gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {filteredCommunityInstructionTemplates.map((item) => (
@@ -2528,6 +2658,31 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
                   {selectedCommunityCharacter ? formatCommunityDate(selectedCommunityCharacter.created_at) : ''}
                 </Typography>
+                {selectedCommunityCharacterNote ? (
+                  <Box
+                    title={selectedCommunityCharacterNote}
+                    sx={{
+                      mt: 0.38,
+                      width: 'fit-content',
+                      maxWidth: '100%',
+                      px: 0.78,
+                      py: 0.24,
+                      borderRadius: '999px',
+                      border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)',
+                      color: 'rgba(170, 238, 191, 0.96)',
+                      fontSize: '0.69rem',
+                      lineHeight: 1.2,
+                      letterSpacing: 0.2,
+                      textTransform: 'uppercase',
+                      fontWeight: 700,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {selectedCommunityCharacterNote}
+                  </Box>
+                ) : null}
               </Stack>
             </Stack>
             <Typography sx={{ color: APP_TEXT_SECONDARY, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
@@ -2962,6 +3117,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         open={profileDialogOpen}
         user={user}
         authToken={authToken}
+        onNavigate={onNavigate}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}
@@ -2969,11 +3125,20 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         onClose={handleCloseProfileDialog}
         onChooseAvatar={handleChooseAvatar}
         onAvatarChange={handleAvatarChange}
-        onOpenTopUp={() => onNavigate('/dashboard')}
+        onOpenTopUp={handleOpenTopUpDialog}
         onOpenCharacterManager={() => onNavigate('/dashboard')}
         onOpenInstructionTemplates={() => onNavigate('/dashboard')}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
+      />
+      <TopUpDialog
+        open={topUpDialogOpen}
+        topUpError={topUpError}
+        isTopUpPlansLoading={isTopUpPlansLoading}
+        topUpPlans={topUpPlans}
+        activePlanPurchaseId={activePlanPurchaseId}
+        onClose={handleCloseTopUpDialog}
+        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
       />
       <ConfirmLogoutDialog
         open={confirmLogoutOpen}
@@ -2990,6 +3155,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           }
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
+      <PaymentSuccessDialog
+        open={paymentSuccessCoins !== null}
+        coins={paymentSuccessCoins ?? 0}
+        onClose={() => setPaymentSuccessCoins(null)}
       />
     </Box>
   )

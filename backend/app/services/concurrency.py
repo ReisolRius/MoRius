@@ -45,6 +45,20 @@ def apply_story_world_rating_update(db: Session, world_id: int, rating_delta: in
     )
 
 
+def apply_story_world_rating_delete(db: Session, world_id: int, previous_rating: int) -> None:
+    normalized_rating = max(int(previous_rating or 0), 0)
+    if normalized_rating <= 0:
+        return
+    db.execute(
+        sa_update(StoryGame)
+        .where(StoryGame.id == world_id)
+        .values(
+            community_rating_sum=StoryGame.community_rating_sum - normalized_rating,
+            community_rating_count=StoryGame.community_rating_count - 1,
+        )
+    )
+
+
 def apply_story_character_rating_insert(db: Session, character_id: int, rating_value: int) -> None:
     db.execute(
         sa_update(StoryCharacter)

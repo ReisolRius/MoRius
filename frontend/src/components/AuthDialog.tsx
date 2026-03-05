@@ -68,20 +68,20 @@ const formFieldSx = {
     borderRadius: '12px',
     backgroundColor: 'rgba(10, 14, 20, 0.66)',
     '& fieldset': {
-      borderColor: 'rgba(186, 202, 214, 0.22)',
+      borderColor: 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
     },
     '&:hover fieldset': {
-      borderColor: 'rgba(186, 202, 214, 0.38)',
+      borderColor: 'color-mix(in srgb, var(--morius-accent) 38%, transparent)',
     },
     '&.Mui-focused fieldset': {
-      borderColor: 'rgba(186, 202, 214, 0.62)',
+      borderColor: 'color-mix(in srgb, var(--morius-accent) 62%, transparent)',
     },
   },
   '& .MuiInputLabel-root': {
-    color: 'rgba(223, 229, 239, 0.72)',
+    color: 'var(--morius-text-secondary)',
   },
   '& .MuiInputBase-input': {
-    color: '#edf2f9',
+    color: 'var(--morius-text-primary)',
   },
 }
 
@@ -336,7 +336,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
       }}
       rawChildren
       paperSx={{
-        border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.16)',
+        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 60%, transparent)',
         background: 'linear-gradient(180deg, rgba(16, 18, 24, 0.97) 0%, rgba(9, 11, 16, 0.98) 100%)',
         overflow: 'hidden',
         animation: 'morius-dialog-pop 340ms cubic-bezier(0.22, 1, 0.36, 1)',
@@ -360,8 +360,8 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
               width: 34,
               height: 34,
               borderRadius: 'var(--morius-radius)',
-              border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.14)',
-              color: 'rgba(223, 229, 239, 0.84)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 56%, transparent)',
+              color: 'var(--morius-text-secondary)',
               fontSize: '1.35rem',
               lineHeight: 1,
             }}
@@ -379,7 +379,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
             sx={{
               p: 0.6,
               borderRadius: '12px',
-              border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.12)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 52%, transparent)',
               backgroundColor: 'rgba(12, 16, 22, 0.64)',
             }}
           >
@@ -389,10 +389,10 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
               variant={mode === 'login' ? 'contained' : 'text'}
               sx={{
                 minHeight: 40,
-                color: mode === 'login' ? '#171716' : 'rgba(223, 229, 239, 0.82)',
-                backgroundColor: mode === 'login' ? '#d9e4f2' : 'transparent',
+                color: mode === 'login' ? 'var(--morius-app-base)' : 'var(--morius-text-secondary)',
+                backgroundColor: mode === 'login' ? 'var(--morius-send-button-bg)' : 'transparent',
                 '&:hover': {
-                  backgroundColor: mode === 'login' ? '#edf4fc' : 'rgba(186, 202, 214, 0.08)',
+                  backgroundColor: mode === 'login' ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-accent) 10%, transparent)',
                 },
               }}
             >
@@ -404,10 +404,10 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
               variant={mode === 'register' ? 'contained' : 'text'}
               sx={{
                 minHeight: 40,
-                color: mode === 'register' ? '#171716' : 'rgba(223, 229, 239, 0.82)',
-                backgroundColor: mode === 'register' ? '#d9e4f2' : 'transparent',
+                color: mode === 'register' ? 'var(--morius-app-base)' : 'var(--morius-text-secondary)',
+                backgroundColor: mode === 'register' ? 'var(--morius-send-button-bg)' : 'transparent',
                 '&:hover': {
-                  backgroundColor: mode === 'register' ? '#edf4fc' : 'rgba(186, 202, 214, 0.08)',
+                  backgroundColor: mode === 'register' ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-accent) 10%, transparent)',
                 },
               }}
             >
@@ -481,7 +481,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                     fullWidth
                     onClick={handleResendCode}
                     disabled={isSubmitting || isGoogleSubmitting || resendCooldownSeconds > 0}
-                    sx={{ minHeight: 42, color: 'rgba(223, 229, 239, 0.84)' }}
+                    sx={{ minHeight: 42, color: 'var(--morius-text-secondary)' }}
                   >
                     {resendCooldownSeconds > 0
                       ? `Отправить снова через ${formatResendCooldown(resendCooldownSeconds)}`
@@ -498,7 +498,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                       setResendCooldownSeconds(0)
                     }}
                     disabled={isSubmitting || isGoogleSubmitting}
-                    sx={{ minHeight: 42, color: 'rgba(223, 229, 239, 0.84)' }}
+                    sx={{ minHeight: 42, color: 'var(--morius-text-secondary)' }}
                   >
                     Изменить данные
                   </Button>
@@ -512,14 +512,14 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                 disabled={isSubmitting || isGoogleSubmitting}
                 sx={{
                   minHeight: 44,
-                  backgroundColor: '#d9e4f2',
-                  color: '#171716',
-                  '&:hover': { backgroundColor: '#edf4fc' },
+                  backgroundColor: 'var(--morius-send-button-bg)',
+                  color: 'var(--morius-app-base)',
+                  '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
                   '&:disabled': { opacity: 0.66 },
                 }}
               >
                 {isSubmitting ? (
-                  <CircularProgress size={20} sx={{ color: '#171716' }} />
+                  <CircularProgress size={20} sx={{ color: 'var(--morius-app-base)' }} />
                 ) : isVerificationStep ? (
                   'Подтвердить email'
                 ) : isRegisterMode ? (
@@ -534,9 +534,9 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
           {!isVerificationStep ? (
             <>
               <Stack direction="row" alignItems="center" spacing={1}>
-                <Divider sx={{ flex: 1, borderColor: 'rgba(186, 202, 214, 0.2)' }} />
-                <Typography sx={{ color: 'rgba(223, 229, 239, 0.66)', fontSize: '0.86rem' }}>или</Typography>
-                <Divider sx={{ flex: 1, borderColor: 'rgba(186, 202, 214, 0.2)' }} />
+                <Divider sx={{ flex: 1, borderColor: 'color-mix(in srgb, var(--morius-card-border) 68%, transparent)' }} />
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.86rem' }}>или</Typography>
+                <Divider sx={{ flex: 1, borderColor: 'color-mix(in srgb, var(--morius-card-border) 68%, transparent)' }} />
               </Stack>
 
               {hasGoogleClientId ? (
@@ -561,7 +561,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                   {isGoogleSubmitting ? (
                     <Stack direction="row" spacing={1} alignItems="center" justifyContent="center">
                       <CircularProgress size={16} />
-                      <Typography sx={{ fontSize: '0.84rem', color: 'rgba(223, 229, 239, 0.74)' }}>
+                      <Typography sx={{ fontSize: '0.84rem', color: 'var(--morius-text-secondary)' }}>
                         Проверяем Google аккаунт...
                       </Typography>
                     </Stack>
@@ -574,7 +574,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                 </Alert>
               )}
 
-              <Typography sx={{ textAlign: 'center', color: 'rgba(223, 229, 239, 0.72)', fontSize: '0.86rem' }}>
+              <Typography sx={{ textAlign: 'center', color: 'var(--morius-text-secondary)', fontSize: '0.86rem' }}>
                 {isRegisterMode ? 'Уже есть аккаунт?' : 'Еще нет аккаунта?'}{' '}
                 <Box
                   component="button"
@@ -584,7 +584,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                     p: 0,
                     border: 'none',
                     background: 'transparent',
-                    color: '#d9e4f2',
+                    color: 'var(--morius-accent)',
                     font: 'inherit',
                     cursor: 'pointer',
                   }}
@@ -601,3 +601,4 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
 }
 
 export default AuthDialog
+

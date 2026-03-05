@@ -54,7 +54,6 @@ import {
   favoriteCommunityWorld,
   listFavoriteCommunityWorlds,
   listStoryCharacters,
-  listStoryGames,
   listStoryInstructionTemplates,
   unfavoriteCommunityWorld,
 } from '../services/storyApi'
@@ -81,7 +80,7 @@ type TabId = 'characters' | 'instructions' | 'favorites' | 'plots' | 'subscripti
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
 const PROFILE_CONTENT_SEARCH_MAX = 120
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const AVATAR_MAX_BYTES = 1 * 1024 * 1024
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const PROFILE_AVATAR_SIZE = 96
 const CARD_MIN_HEIGHT = 174
@@ -150,10 +149,6 @@ function toPublicationWorld(
 function parseSortDate(rawValue: string): number {
   const parsed = Date.parse(rawValue)
   return Number.isFinite(parsed) ? parsed : 0
-}
-
-function sortGamesByLastUpdate(games: StoryGameSummary[]): StoryGameSummary[] {
-  return [...games].sort((left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at))
 }
 
 function resolveFirstLetter(value: string): string {
@@ -226,6 +221,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
   const [publicationGames, setPublicationGames] = useState<StoryGameSummary[]>([])
   const [favoriteWorlds, setFavoriteWorlds] = useState<StoryCommunityWorldSummary[]>([])
+  const [hasLoadedFavoriteWorlds, setHasLoadedFavoriteWorlds] = useState(false)
+  const [isFavoriteWorldsLoading, setIsFavoriteWorldsLoading] = useState(false)
   const [favoriteLoadingById, setFavoriteLoadingById] = useState<Record<number, boolean>>({})
 
   const [avatarCropSource, setAvatarCropSource] = useState<string | null>(null)
@@ -300,7 +297,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const canViewSubscriptions = Boolean(profileView?.can_view_subscriptions)
   const canViewPublicWorlds = Boolean(profileView?.can_view_public_worlds)
   const canViewPrivateWorlds = Boolean(profileView?.can_view_private_worlds)
-  const visiblePublicationWorlds = profileView?.published_worlds ?? (isOwnProfile ? publicationWorlds : [])
+  const visiblePublicationWorlds = profileView?.published_worlds ?? []
   const visibleUnpublishedWorlds = useMemo(
     () =>
       (profileView?.unpublished_worlds ?? []).map((game) =>
@@ -425,34 +422,47 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setTemplates([])
       setFavoriteWorlds([])
       setPublicationGames([])
+      setHasLoadedFavoriteWorlds(false)
       return
     }
 
     setIsLoadingContent(true)
     setError('')
     try {
-      const [loadedCharacters, loadedTemplates, loadedGames, loadedFavorites] = await Promise.all([
+      const [loadedCharacters, loadedTemplates] = await Promise.all([
         listStoryCharacters(authToken),
         listStoryInstructionTemplates(authToken),
-        listStoryGames(authToken, { compact: true }),
-        listFavoriteCommunityWorlds(authToken),
       ])
 
       setCharacters(loadedCharacters)
       setTemplates(loadedTemplates)
-      setPublicationGames(
-        sortGamesByLastUpdate(
-          loadedGames.filter(
-            (game) => game.visibility === 'public' && (game.source_world_id === null || game.source_world_id <= 0),
-          ),
-        ),
-      )
-      setFavoriteWorlds(loadedFavorites)
+      setPublicationGames([])
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить данные профиля'
       setError(detail)
     } finally {
       setIsLoadingContent(false)
+    }
+  }, [authToken, isOwnProfile])
+
+  const loadFavoriteWorlds = useCallback(async () => {
+    if (!isOwnProfile) {
+      setFavoriteWorlds([])
+      setHasLoadedFavoriteWorlds(false)
+      return
+    }
+
+    setIsFavoriteWorldsLoading(true)
+    setError('')
+    try {
+      const loadedFavorites = await listFavoriteCommunityWorlds(authToken)
+      setFavoriteWorlds(loadedFavorites)
+      setHasLoadedFavoriteWorlds(true)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить любимые миры'
+      setError(detail)
+    } finally {
+      setIsFavoriteWorldsLoading(false)
     }
   }, [authToken, isOwnProfile])
 
@@ -481,6 +491,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   useEffect(() => {
     setProfileView(null)
+    setFavoriteWorlds([])
+    setHasLoadedFavoriteWorlds(false)
   }, [normalizedViewedUserId])
 
   useEffect(() => {
@@ -490,6 +502,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   useEffect(() => {
     void loadProfileView()
   }, [loadProfileView])
+
+  useEffect(() => {
+    if (!isOwnProfile || tab !== 'favorites' || hasLoadedFavoriteWorlds || isFavoriteWorldsLoading) {
+      return
+    }
+    void loadFavoriteWorlds()
+  }, [hasLoadedFavoriteWorlds, isFavoriteWorldsLoading, isOwnProfile, loadFavoriteWorlds, tab])
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -580,7 +599,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       return
     }
     if (file.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Максимальный размер аватара: 2 МБ')
+      setAvatarError('Максимальный размер аватара: 1 МБ')
       return
     }
 
@@ -717,11 +736,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         if (world.is_favorited_by_user) {
           await unfavoriteCommunityWorld({ token: authToken, worldId: world.id })
           setFavoriteWorlds((previous) => previous.filter((item) => item.id !== world.id))
+          setHasLoadedFavoriteWorlds(true)
           return
         }
 
         const updatedWorld = await favoriteCommunityWorld({ token: authToken, worldId: world.id })
         setFavoriteWorlds((previous) => [updatedWorld, ...previous.filter((item) => item.id !== updatedWorld.id)])
+        setHasLoadedFavoriteWorlds(true)
       } catch (requestError) {
         const detail = requestError instanceof Error ? requestError.message : 'Не удалось обновить список избранного'
         setError(detail)
@@ -1026,8 +1047,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         minHeight: CARD_MIN_HEIGHT,
         p: 1.1,
         borderRadius: '12px',
-        border: 'var(--morius-border-width) dashed rgba(203, 217, 236, 0.46)',
-        backgroundColor: 'rgba(116, 140, 171, 0.08)',
+        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -1035,7 +1056,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
         '&:hover': {
           backgroundColor: 'rgba(129, 151, 182, 0.14)',
-          borderColor: 'rgba(203, 217, 236, 0.7)',
+          borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
           transform: 'translateY(-1px)',
         },
       }}
@@ -1103,7 +1124,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
                   '&:hover': {
                     backgroundColor: 'var(--morius-button-hover)',
-                    borderColor: 'rgba(203, 217, 236, 0.48)',
+                    borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
                     transform: 'translateY(-1px)',
                   },
                 }}
@@ -1227,7 +1248,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
                   '&:hover': {
                     backgroundColor: 'var(--morius-button-hover)',
-                    borderColor: 'rgba(203, 217, 236, 0.48)',
+                    borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
                     transform: 'translateY(-1px)',
                   },
                 }}
@@ -1294,6 +1315,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderFavorites = () => {
+    if (isFavoriteWorldsLoading && favoriteWorlds.length === 0) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Загружаем любимые миры...</Typography>
+    }
+
     const filteredFavoriteWorlds = favoriteWorlds.filter((item) =>
       matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
     )
@@ -1374,7 +1399,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               cursor: 'pointer',
               '&:hover': {
                 backgroundColor: 'var(--morius-button-hover)',
-                borderColor: 'rgba(203, 217, 236, 0.48)',
+                borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
               },
             }}
           >
@@ -2163,8 +2188,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       minWidth: 0,
                       maxWidth: '100%',
                       overflowX: 'auto',
-                      scrollbarWidth: 'none',
-                      '&::-webkit-scrollbar': { display: 'none' },
                     }}
                   >
                     {mobileContentTabs.map((item) => (
@@ -2608,6 +2631,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         open={adminOpen}
         authToken={authToken}
         currentUserEmail={user.email}
+        onNavigate={onNavigate}
         onClose={() => setAdminOpen(false)}
       />
     </Box>

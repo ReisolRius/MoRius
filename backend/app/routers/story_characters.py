@@ -15,6 +15,8 @@ from app.models import (
 )
 from app.schemas import (
     MessageResponse,
+    StoryCharacterAvatarGenerateOut,
+    StoryCharacterAvatarGenerateRequest,
     StoryCommunityCharacterSummaryOut,
     StoryCommunityWorldReportCreateRequest,
     StoryCommunityWorldRatingRequest,
@@ -36,6 +38,7 @@ from app.services.story_characters import (
     normalize_story_character_avatar_url,
     normalize_story_character_description,
     normalize_story_character_name,
+    normalize_story_character_note,
     normalize_story_character_source,
     normalize_story_character_triggers,
     normalize_story_character_visibility,
@@ -102,6 +105,7 @@ def _build_story_community_character_summary(
         id=character.id,
         name=character.name,
         description=character.description,
+        note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
         avatar_url=character.avatar_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
@@ -191,6 +195,7 @@ def list_story_community_characters(
             id=character.id,
             name=character.name,
             description=character.description,
+            note=normalize_story_character_note(getattr(character, "note", "")),
             triggers=deserialize_triggers(character.triggers),
             avatar_url=character.avatar_url,
             avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
@@ -236,6 +241,8 @@ def rate_story_community_character(
     user = get_current_user(db, authorization)
     character = get_public_story_character_or_404(db, character_id)
     rating_value = int(payload.rating)
+    if rating_value <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rating should be between 1 and 5")
 
     existing_rating = db.scalar(
         select(StoryCommunityCharacterRating).where(
@@ -385,6 +392,7 @@ def add_story_community_character_to_account(
                 user_id=user.id,
                 name=character.name,
                 description=character.description,
+                note=normalize_story_character_note(getattr(character, "note", "")),
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
                 avatar_url=normalize_story_character_avatar_url(character.avatar_url),
                 avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
@@ -407,6 +415,21 @@ def add_story_community_character_to_account(
     )
 
 
+@router.post("/api/story/characters/avatar/generate", response_model=StoryCharacterAvatarGenerateOut)
+def generate_story_character_avatar(
+    payload: StoryCharacterAvatarGenerateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterAvatarGenerateOut:
+    from app import main as monolith_main
+
+    return monolith_main.generate_story_character_avatar_impl(
+        payload=payload,
+        authorization=authorization,
+        db=db,
+    )
+
+
 @router.post("/api/story/characters", response_model=StoryCharacterOut)
 def create_story_character(
     payload: StoryCharacterCreateRequest,
@@ -416,6 +439,7 @@ def create_story_character(
     user = get_current_user(db, authorization)
     normalized_name = normalize_story_character_name(payload.name)
     normalized_description = normalize_story_character_description(payload.description)
+    normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
@@ -424,6 +448,7 @@ def create_story_character(
         user_id=user.id,
         name=normalized_name,
         description=normalized_description,
+        note=normalized_note,
         triggers=serialize_triggers(normalized_triggers),
         avatar_url=avatar_url,
         avatar_scale=avatar_scale,
@@ -451,11 +476,13 @@ def update_story_character(
     character = get_story_character_for_user_or_404(db, user.id, character_id)
     normalized_name = normalize_story_character_name(payload.name)
     normalized_description = normalize_story_character_description(payload.description)
+    normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     character.name = normalized_name
     character.description = normalized_description
+    character.note = normalized_note
     character.triggers = serialize_triggers(normalized_triggers)
     character.avatar_url = avatar_url
     character.avatar_scale = avatar_scale

@@ -1,5 +1,19 @@
-import { useState, type ReactNode } from 'react'
-import { Box, Button, IconButton, Stack, SvgIcon, Tooltip, Typography, useMediaQuery } from '@mui/material'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  Box,
+  Button,
+  FormControl,
+  IconButton,
+  MenuItem,
+  Select,
+  Stack,
+  Switch,
+  SvgIcon,
+  Tooltip,
+  Typography,
+  useMediaQuery,
+  type SelectChangeEvent,
+} from '@mui/material'
 import { brandLogo, icons } from '../assets'
 import BaseDialog from './dialogs/BaseDialog'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
@@ -28,6 +42,7 @@ type AppHeaderProps = {
   rightActionsWidth?: number
   hideRightToggle?: boolean
   onOpenTopUpDialog?: () => void
+  onOpenBugReportDialog?: () => void
 }
 
 type SidebarIconComponent = typeof SidebarHomeIcon
@@ -44,7 +59,7 @@ const shellButtonSx = {
   borderRadius: '10px',
   border: 'none',
   backgroundColor: 'transparent',
-  color: 'var(--morius-accent)',
+  color: 'var(--morius-text-secondary)',
   transition: 'color 180ms ease',
   '&:hover': {
     color: 'var(--morius-accent)',
@@ -55,34 +70,39 @@ const shellButtonSx = {
   },
 } as const
 
-const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = false) => ({
-  width: isExpanded ? '100%' : 'fit-content',
-  minWidth: isExpanded ? '100%' : 0,
-  minHeight: isExpanded ? 44 : 0,
-  px: isExpanded ? 1 : 0,
-  py: isExpanded ? 0.5 : 0,
-  justifyContent: 'flex-start',
-  borderRadius: isExpanded ? '14px' : '12px',
-  border: isActive && isExpanded ? 'var(--morius-border-width) solid transparent' : 'var(--morius-border-width) solid transparent',
-  backgroundColor: isActive && isExpanded ? 'var(--morius-button-hover)' : 'transparent',
-  color: isActive ? 'var(--morius-title-text)' : isUtility ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
-  textTransform: 'none',
-  fontWeight: isActive ? 800 : 700,
-  fontSize: '0.94rem',
-  letterSpacing: '0.01em',
-  transition: 'background-color 220ms ease, color 180ms ease, min-width 220ms ease, padding 220ms ease',
-  '&:hover': {
-    backgroundColor: isExpanded
-      ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
-      : 'transparent',
-    color: 'var(--morius-title-text)',
-  },
-  '&:active': {
-    backgroundColor: isExpanded
-      ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
-      : 'transparent',
-  },
-})
+const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = false, preserveLabelColor = false) => {
+  const baseTextColor = isUtility ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)'
+  const resolvedTextColor = preserveLabelColor ? baseTextColor : (isActive ? 'var(--morius-title-text)' : baseTextColor)
+
+  return {
+    width: isExpanded ? '100%' : 'fit-content',
+    minWidth: isExpanded ? '100%' : 0,
+    minHeight: isExpanded ? 44 : 0,
+    px: isExpanded ? 1 : 0,
+    py: isExpanded ? 0.5 : 0,
+    justifyContent: 'flex-start',
+    borderRadius: isExpanded ? '14px' : '12px',
+    border: isActive && isExpanded ? 'var(--morius-border-width) solid transparent' : 'var(--morius-border-width) solid transparent',
+    backgroundColor: isActive && isExpanded ? 'var(--morius-button-hover)' : 'transparent',
+    color: resolvedTextColor,
+    textTransform: 'none',
+    fontWeight: isActive ? 800 : 700,
+    fontSize: '0.94rem',
+    letterSpacing: '0.01em',
+    transition: 'background-color 220ms ease, color 180ms ease, min-width 220ms ease, padding 220ms ease',
+    '&:hover': {
+      backgroundColor: isExpanded
+        ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
+        : 'transparent',
+      color: preserveLabelColor ? baseTextColor : 'var(--morius-title-text)',
+    },
+    '&:active': {
+      backgroundColor: isExpanded
+        ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
+        : 'transparent',
+    },
+  }
+}
 
 const sidebarIconWrapSx = (isActive: boolean, isExpanded: boolean) => ({
   width: isExpanded ? 40 : 42,
@@ -93,7 +113,7 @@ const sidebarIconWrapSx = (isActive: boolean, isExpanded: boolean) => ({
   justifyContent: isExpanded ? 'flex-start' : 'center',
   pl: isExpanded ? 1 : 0,
   flexShrink: 0,
-  color: isActive ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+  color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
   backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-button-hover) 92%, var(--morius-app-surface))' : 'transparent',
   transition: 'background-color 220ms ease, color 180ms ease',
 })
@@ -137,6 +157,17 @@ function SidebarLibraryIcon() {
   )
 }
 
+function SidebarBugReportIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+      <path
+        d="M17 4h-1.18C15.4 2.84 14.3 2 13 2h-2c-1.3 0-2.4.84-2.82 2H7c-1.1 0-2 .9-2 2v13c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-6 0h2c.37 0 .69.2.87.5h-3.74c.18-.3.5-.5.87-.5zM12 18a1.25 1.25 0 1 1 0-2.5A1.25 1.25 0 0 1 12 18zm1-4h-2V8h2v6z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 function AppHeader({
   isPageMenuOpen,
   onTogglePageMenu,
@@ -149,10 +180,29 @@ function AppHeader({
   rightActionsWidth = 240,
   hideRightToggle = false,
   onOpenTopUpDialog,
+  onOpenBugReportDialog,
 }: AppHeaderProps) {
   const [isThemeDialogOpen, setIsThemeDialogOpen] = useState(false)
   const [isSupportDialogOpen, setIsSupportDialogOpen] = useState(false)
-  const { themeId, themes, placeholders, setTheme } = useMoriusThemeController()
+  const menuTriggerRef = useRef<HTMLDivElement | null>(null)
+  const menuPanelRef = useRef<HTMLDivElement | null>(null)
+  const {
+    themeId,
+    themes,
+    placeholders,
+    setTheme,
+    storyHistoryFontFamily,
+    storyHistoryFontWeight,
+    voiceInputEnabled,
+    storyHistoryFontFamilyOptions,
+    storyHistoryFontWeightOptions,
+    setStoryHistoryFontFamily,
+    setStoryHistoryFontWeight,
+    setVoiceInputEnabled,
+  } = useMoriusThemeController()
+  const isGrayTheme = themeId === 'gray'
+  const isYamiTheme = themeId === 'yami-rius'
+  const neutralImageIconFilter = isGrayTheme ? 'grayscale(1) brightness(0.82)' : (isYamiTheme ? 'grayscale(1) brightness(1.72)' : 'none')
   const isCompactSidebar = useMediaQuery('(max-width:1439.95px)')
 
   const handleOpenThemeDialog = () => setIsThemeDialogOpen(true)
@@ -165,6 +215,13 @@ function AppHeader({
       return
     }
     onOpenTopUpDialog()
+  }
+
+  const handleOpenBugReportDialog = () => {
+    if (!onOpenBugReportDialog) {
+      return
+    }
+    onOpenBugReportDialog()
   }
 
   const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon]
@@ -182,18 +239,24 @@ function AppHeader({
   const sidebarWidth = isCompactSidebar
     ? (isPageMenuOpen ? MENU_EXPANDED_WIDTH : HEADER_BUTTON_SIZE)
     : (isPageMenuOpen ? MENU_EXPANDED_WIDTH : MENU_COLLAPSED_WIDTH)
+  const utilityImageIconSx = {
+    width: 20,
+    height: 20,
+    opacity: 0.92,
+    ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
+  } as const
   const utilityMenuItems = [
     {
       key: 'theme-settings',
-      label: 'Темы',
+      label: 'Настройки',
       onClick: handleOpenThemeDialog,
-      icon: <Box component="img" src={icons.menuSettings} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
+      icon: <Box component="img" src={icons.menuSettings} alt="" sx={utilityImageIconSx} />,
     },
     {
       key: 'support',
       label: 'Поддержка',
       onClick: handleOpenSupportDialog,
-      icon: <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
+      icon: <Box component="img" src={icons.help} alt="" sx={utilityImageIconSx} />,
     },
     ...(onOpenTopUpDialog
       ? [
@@ -201,11 +264,47 @@ function AppHeader({
             key: 'top-up',
             label: 'Пополнить',
             onClick: handleOpenTopUpDialog,
-            icon: <Box component="img" src={icons.menuShop} alt="" sx={{ width: 20, height: 20, opacity: 0.92 }} />,
+            icon: <Box component="img" src={icons.menuShop} alt="" sx={utilityImageIconSx} />,
+          },
+        ]
+      : []),
+    ...(onOpenBugReportDialog
+      ? [
+          {
+            key: 'bug-report',
+            label: 'Баг Репорт',
+            onClick: handleOpenBugReportDialog,
+            icon: <SidebarBugReportIcon />,
           },
         ]
       : []),
   ]
+
+  useEffect(() => {
+    if (!isPageMenuOpen) {
+      return
+    }
+
+    const handleOutsideMenuClick = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+
+      const clickedToggleArea = menuTriggerRef.current?.contains(target) ?? false
+      const clickedMenuPanel = menuPanelRef.current?.contains(target) ?? false
+      if (clickedToggleArea || clickedMenuPanel) {
+        return
+      }
+
+      onTogglePageMenu()
+    }
+
+    window.addEventListener('pointerdown', handleOutsideMenuClick)
+    return () => {
+      window.removeEventListener('pointerdown', handleOutsideMenuClick)
+    }
+  }, [isPageMenuOpen, onTogglePageMenu])
 
   return (
     <>
@@ -229,6 +328,7 @@ function AppHeader({
       />
 
       <Box
+        ref={menuTriggerRef}
         sx={{
           position: 'fixed',
           top: 'var(--morius-header-top-offset)',
@@ -246,7 +346,17 @@ function AppHeader({
           onClick={onTogglePageMenu}
           sx={shellButtonSx}
         >
-          <Box component="img" src={icons.menu} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
+          <Box
+            component="img"
+            src={icons.menu}
+            alt=""
+            sx={{
+              width: 20,
+              height: 20,
+              opacity: 0.9,
+              ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
+            }}
+          />
         </IconButton>
         <Box
           sx={{
@@ -277,6 +387,7 @@ function AppHeader({
 
       {shouldRenderSidebarPanel ? (
         <Box
+          ref={menuPanelRef}
           sx={{
             position: 'fixed',
             top: `calc(var(--morius-header-top-offset) + ${MENU_PANEL_TOP_OFFSET}px)`,
@@ -320,7 +431,7 @@ function AppHeader({
 
                   return (
                     <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
-                      <Button sx={sidebarButtonSx(isActive, isPageMenuOpen)} onClick={item.onClick}>
+                      <Button sx={sidebarButtonSx(isActive, isPageMenuOpen, false, isGrayTheme)} onClick={item.onClick}>
                         <Box sx={sidebarIconWrapSx(isActive, isPageMenuOpen)}>
                           <MenuIcon />
                         </Box>
@@ -393,6 +504,7 @@ function AppHeader({
                   width: 20,
                   height: 20,
                   opacity: 0.9,
+                  ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
                   transform: isRightPanelOpen ? 'none' : 'rotate(180deg)',
                   transition: 'transform 220ms ease',
                 }}
@@ -430,7 +542,7 @@ function AppHeader({
         open={isThemeDialogOpen}
         onClose={handleCloseThemeDialog}
         maxWidth="md"
-        header={<Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Темы оформления</Typography>}
+        header={<Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Настройки</Typography>}
         paperSx={{
           borderRadius: '14px',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -460,6 +572,180 @@ function AppHeader({
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem' }}>
             Нажмите на тему, чтобы применить её сразу. Выбор сохраняется после перезапуска и повторного входа.
           </Typography>
+
+          <Box
+            sx={{
+              borderRadius: '12px',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-elevated-bg)',
+              px: 1,
+              py: 0.9,
+            }}
+          >
+            <Stack spacing={0.72}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                <Stack spacing={0.2}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800 }}>
+                    Голосовой ввод
+                  </Typography>
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.35 }}>
+                    Показывать микрофон в поле ввода и разрешать диктовку.
+                  </Typography>
+                </Stack>
+                <Switch
+                  checked={voiceInputEnabled}
+                  onChange={(event) => setVoiceInputEnabled(event.target.checked)}
+                  color="default"
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': {
+                      color: 'var(--morius-accent)',
+                    },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                      backgroundColor: 'var(--morius-accent)',
+                      opacity: 0.85,
+                    },
+                  }}
+                />
+              </Stack>
+              <Box
+                sx={{
+                  width: '100%',
+                  borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
+                  my: 0.3,
+                }}
+              />
+              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800 }}>
+                Шрифт истории в игре
+              </Typography>
+              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.4 }}>
+                Меняет только сообщения игрока и ответы ИИ в истории игры.
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={storyHistoryFontFamily}
+                  onChange={(event: SelectChangeEvent<string>) => {
+                    setStoryHistoryFontFamily(event.target.value as typeof storyHistoryFontFamily)
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        mt: 0.45,
+                        borderRadius: '12px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                        '& .MuiMenuItem-root': {
+                          color: 'var(--morius-text-primary)',
+                          fontWeight: 600,
+                          fontSize: '0.92rem',
+                          minHeight: 38,
+                        },
+                        '& .MuiMenuItem-root:hover': {
+                          backgroundColor: 'var(--morius-button-hover)',
+                        },
+                        '& .MuiMenuItem-root.Mui-selected': {
+                          backgroundColor: 'var(--morius-button-active)',
+                          color: 'var(--morius-title-text)',
+                        },
+                        '& .MuiMenuItem-root.Mui-selected:hover': {
+                          backgroundColor: 'var(--morius-button-active)',
+                        },
+                      },
+                    },
+                  }}
+                  sx={{
+                    color: 'var(--morius-title-text)',
+                    fontWeight: 700,
+                    borderRadius: '11px',
+                    backgroundColor: 'var(--morius-card-bg)',
+                    '& .MuiSelect-select': {
+                      py: 0.8,
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    },
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'var(--morius-accent)',
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'var(--morius-accent)',
+                    },
+                    '& .MuiSelect-icon': {
+                      color: 'var(--morius-text-secondary)',
+                    },
+                  }}
+                >
+                  {storyHistoryFontFamilyOptions.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>
+                      {option.title}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth size="small">
+                <Select
+                  value={storyHistoryFontWeight}
+                  onChange={(event: SelectChangeEvent<string>) => {
+                    setStoryHistoryFontWeight(event.target.value as typeof storyHistoryFontWeight)
+                  }}
+                  MenuProps={{
+                    PaperProps: {
+                      sx: {
+                        mt: 0.45,
+                        borderRadius: '12px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                        '& .MuiMenuItem-root': {
+                          color: 'var(--morius-text-primary)',
+                          fontWeight: 600,
+                          fontSize: '0.92rem',
+                          minHeight: 38,
+                        },
+                        '& .MuiMenuItem-root:hover': {
+                          backgroundColor: 'var(--morius-button-hover)',
+                        },
+                        '& .MuiMenuItem-root.Mui-selected': {
+                          backgroundColor: 'var(--morius-button-active)',
+                          color: 'var(--morius-title-text)',
+                        },
+                        '& .MuiMenuItem-root.Mui-selected:hover': {
+                          backgroundColor: 'var(--morius-button-active)',
+                        },
+                      },
+                    },
+                  }}
+                  sx={{
+                    color: 'var(--morius-title-text)',
+                    fontWeight: 700,
+                    borderRadius: '11px',
+                    backgroundColor: 'var(--morius-card-bg)',
+                    '& .MuiSelect-select': {
+                      py: 0.8,
+                    },
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    },
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'var(--morius-accent)',
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      borderColor: 'var(--morius-accent)',
+                    },
+                    '& .MuiSelect-icon': {
+                      color: 'var(--morius-text-secondary)',
+                    },
+                  }}
+                >
+                  {storyHistoryFontWeightOptions.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>
+                      {option.title}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          </Box>
 
           <Box
             sx={{

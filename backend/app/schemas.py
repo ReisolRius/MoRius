@@ -154,6 +154,33 @@ class AdminReportListResponse(BaseModel):
     reports: list[AdminReportOut]
 
 
+class AdminBugReportSummaryOut(BaseModel):
+    id: int
+    source_game_id: int
+    source_game_title: str
+    reporter_user_id: int
+    reporter_name: str
+    title: str
+    description: str
+    created_at: datetime
+
+
+class AdminBugReportListResponse(BaseModel):
+    reports: list[AdminBugReportSummaryOut]
+
+
+class AdminBugReportDetailOut(BaseModel):
+    id: int
+    source_game_id: int
+    source_game_title: str
+    reporter_user_id: int
+    reporter_name: str
+    title: str
+    description: str
+    created_at: datetime
+    snapshot: dict[str, Any]
+
+
 class CoinPlanOut(BaseModel):
     id: str
     title: str
@@ -203,6 +230,7 @@ class StoryGameCreateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
@@ -226,6 +254,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
@@ -259,6 +288,7 @@ class StoryGenerateRequest(BaseModel):
     memory_optimization_enabled: bool | None = None
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
+    story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
@@ -271,6 +301,23 @@ class StoryTurnImageGenerateRequest(BaseModel):
 class StoryTurnImageGenerateOut(BaseModel):
     id: int
     assistant_message_id: int
+    model: str
+    prompt: str
+    revised_prompt: str | None
+    image_url: str | None
+    image_data_url: str | None
+    user: UserOut | None = None
+
+
+class StoryCharacterAvatarGenerateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=2_500)
+    style_prompt: str | None = Field(default=None, max_length=320)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    image_model: str | None = Field(default=None, max_length=120)
+
+
+class StoryCharacterAvatarGenerateOut(BaseModel):
     model: str
     prompt: str
     revised_prompt: str | None
@@ -338,7 +385,8 @@ class StoryPlotCardEnabledUpdateRequest(BaseModel):
 
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=6_000)
+    description: str = Field(min_length=1, max_length=2_500)
+    note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -347,7 +395,8 @@ class StoryCharacterCreateRequest(BaseModel):
 
 class StoryCharacterUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=6_000)
+    description: str = Field(min_length=1, max_length=2_500)
+    note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=2_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -372,17 +421,32 @@ class StoryPlotCardUpdateRequest(BaseModel):
     memory_turns: int | None = Field(default=None)
 
 
+class StoryMemoryBlockCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=64_000)
+
+
+class StoryMemoryBlockUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=64_000)
+
+
 class StoryMessageUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=20_000)
 
 
 class StoryCommunityWorldRatingRequest(BaseModel):
-    rating: int = Field(ge=1, le=5)
+    rating: int = Field(ge=0, le=5)
 
 
 class StoryCommunityWorldReportCreateRequest(BaseModel):
     reason: Literal["cp", "politics", "racism", "nationalism", "other"]
     description: str = Field(min_length=1, max_length=2_000)
+
+
+class StoryBugReportCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    description: str = Field(min_length=1, max_length=8_000)
 
 
 class StoryCommunityWorldCommentCreateRequest(BaseModel):
@@ -468,6 +532,7 @@ class StoryCharacterOut(BaseModel):
     user_id: int
     name: str
     description: str
+    note: str
     triggers: list[str]
     avatar_url: str | None
     avatar_scale: float
@@ -588,6 +653,7 @@ class StoryGameSummaryOut(BaseModel):
     memory_optimization_enabled: bool
     story_top_k: int
     story_top_r: float
+    story_temperature: float
     show_gg_thoughts: bool
     show_npc_thoughts: bool
     ambient_enabled: bool
@@ -646,6 +712,7 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     id: int
     name: str
     description: str
+    note: str
     triggers: list[str]
     avatar_url: str | None
     avatar_scale: float

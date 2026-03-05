@@ -32,6 +32,7 @@ import {
   Stack,
   SvgIcon,
   Switch,
+  TextField,
   Tooltip,
   Typography,
   type GrowProps,
@@ -60,6 +61,7 @@ import {
   type CoinTopUpPlan,
 } from '../services/authApi'
 import {
+  addCommunityCharacter,
   createStoryCharacter,
   createStoryBugReport,
   createStoryInstructionCard,
@@ -75,7 +77,9 @@ import {
   deleteStoryWorldCard,
   generateStoryResponseStream,
   generateStoryTurnImage,
+  getCommunityCharacter,
   getStoryGame,
+  listCommunityCharacters,
   listStoryCharacters,
   listStoryGames,
   selectStoryMainHero,
@@ -106,6 +110,7 @@ import type { AuthUser } from '../types/auth'
 import type {
   StoryAmbientProfile,
   StoryCharacter,
+  StoryCommunityCharacterSummary,
   StoryGameSummary,
   StoryInstructionCard,
   StoryInstructionTemplate,
@@ -155,6 +160,9 @@ type DeletionTargetType = 'instruction' | 'plot' | 'world' | 'memory' | 'charact
 type CharacterDialogMode = 'manage' | 'select-main-hero' | 'select-npc'
 type CharacterSelectionDialogMode = Exclude<CharacterDialogMode, 'manage'>
 type CharacterDraftMode = 'create' | 'edit'
+type SelectorSourceTab = 'my' | 'community'
+type CommunityAddedFilter = 'all' | 'added' | 'not_added'
+type CommunitySortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
 type DeletionPrompt = {
   type: DeletionTargetType
   targetId: number
@@ -184,7 +192,7 @@ type SpeakerAvatarEntry = {
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 45_000
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_NANO_BANANO_2_MS = 180_000
+const STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS = 180_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
@@ -203,9 +211,10 @@ const STORY_MEMORY_BLOCK_CONTENT_MAX_LENGTH = 64000
 const STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH = 5
 const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
 const STORY_CHARACTER_NAME_MAX_LENGTH = 120
+const STORY_CHARACTER_NOTE_MAX_LENGTH = 20
 const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 32000
-const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
+const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 2500
 const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 500
 const STORY_CONTEXT_LIMIT_MAX = 10000
@@ -233,6 +242,7 @@ const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-p
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
+const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image-pro'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
 const STORY_NARRATOR_MODEL_OPTIONS: Array<{
   id: StoryNarratorModelId
@@ -243,7 +253,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: Array<{
     id: 'z-ai/glm-5',
     title: 'Огма',
     description:
-      'Идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом.',
+      'деальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом.',
   },
   {
     id: 'z-ai/glm-4.7',
@@ -257,12 +267,12 @@ const STORY_NARRATOR_MODEL_OPTIONS: Array<{
   },
   {
     id: 'x-ai/grok-4.1-fast',
-    title: 'Илон',
+    title: 'лон',
     description: 'Слушает инструкции, очень быстрый, но сюжет выходит поверхностным.',
   },
   {
     id: 'arcee-ai/trinity-large-preview:free',
-    title: 'Исида',
+    title: 'сида',
     description: 'Быстрая, немного глупая модель со своим стилем.',
   },
 ]
@@ -270,46 +280,61 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   id: StoryImageModelId
   title: string
   description: string
+  priceLabel: string
 }> = [
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
     title: 'Flux',
     description: '3 сола за генерацию кадра.',
+    priceLabel: '3 \u0441\u043e\u043b\u0430',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream',
     description: '5 солов за генерацию кадра.',
+    priceLabel: '5 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
     description: '15 солов за генерацию кадра.',
+    priceLabel: '15 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
+    description: '30 sols per scene generation.',
+    priceLabel: '30 \u0441\u043e\u043b\u043e\u0432',
+  },
+  {
+    id: STORY_IMAGE_MODEL_GROK_ID,
+    title: 'Grok (VPN!)',
     description: '30 солов за генерацию кадра.',
+    priceLabel: '30 \u0441\u043e\u043b\u043e\u0432',
   },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите ИИ-модель, которая будет вести историю. Велес — быстрый, живой, отлично толкает сюжет, но может плохо следовать правилам. Огма — идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом. Илон — слушает инструкции, очень быстрый, но сюжет выходит поверхностным. Исида — быстрая, немного глупая модель со своим стилем. Фрейя (GLM 4.7) — альтернативный стиль повествования.',
+    'Выберите -модель, которая будет вести историю. Велес — быстрый, живой, отлично толкает сюжет, но может плохо следовать правилам. Огма — идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом. лон — слушает инструкции, очень быстрый, но сюжет выходит поверхностным. сида — быстрая, немного глупая модель со своим стилем. Фрейя (GLM 4.7) — альтернативный стиль повествования.',
   artist:
-    'Выберите ИИ модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
+    'Выберите  модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
   contextLimit:
-    'Ограничение памяти истории ИИ. Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов.',
-  responseTokens: 'Ограничьте объем ИИ точечно в токенах.',
-  showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ',
-  showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и траснлировать мысли NPC',
+    'Ограничение памяти истории . Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов.',
+  responseTokens: 'Ограничьте объем  точечно в токенах.',
+  showGgThoughts: 'Настройка того, будет ли  генерировать и транслировать мысли вашего ГГ',
+  showNpcThoughts: 'Настройка того, будет ли  генерировать и траснлировать мысли NPC',
   memoryOptimization:
     'Помогает дольше помнить старые события, ужимая память без потери смысла и важных деталей.',
   ambient:
     'БЕТА. Подсветка вокруг поля ввода меняется по окружению сцены (фон, свет, погода, локация) и использует 2-3 цвета. Включение стоит +1 сол за каждый ход, а ответ может генерироваться дольше.',
   temperature:
-    'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать ИИ.',
-  contextUsage: 'Следите за тем сколько у вас осталось места в памяти истории для ИИ.',
+    'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать .',
+  contextUsage: 'Следите за тем сколько у вас осталось места в памяти истории для .',
 } as const
+
+function formatStoryImageModelLabel(option: { title: string; priceLabel: string }): string {
+  return `${option.title} (${option.priceLabel})`
+}
 
 function SettingsInfoTooltipIcon({ text }: { text: string }) {
   return (
@@ -390,9 +415,9 @@ function RightPanelAiIcon() {
 
 function RightPanelMemoryIcon() {
   return (
-    <SvgIcon viewBox="0 0 22 20" sx={{ width: 21, height: 21 }}>
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
       <path
-        d="M8.77387 0.177826L1.25047 3.4534C0.746075 3.67735 0.349839 4.09047 0.14712 4.60376C-0.0555991 5.11706 -0.0485766 5.68944 0.166675 6.1976L5.34362 18.7138C5.44687 18.968 5.59978 19.199 5.79341 19.3933C5.98705 19.5877 6.2175 19.7414 6.47129 19.8456C6.72508 19.9497 6.9971 20.0022 7.27142 19.9999C7.54574 19.9977 7.81685 19.9407 8.06888 19.8323L15.5839 16.5599C16.0902 16.3371 16.4884 15.924 16.6924 15.4098C16.8964 14.8957 16.8898 14.3219 16.674 13.8126L11.497 1.29739C11.3939 1.0434 11.2411 0.812517 11.0477 0.618253C10.8542 0.42399 10.624 0.270241 10.3705 0.165998C10.1169 0.0617553 9.84511 0.00911012 9.57097 0.011141C9.29684 0.0131719 9.02585 0.069838 8.77387 0.177826ZM14.721 1.05504e-07C15.252 -0.000167913 15.7633 0.20035 16.1526 0.561359C16.542 0.922367 16.7804 1.41718 16.8202 1.94662L16.8255 2.10445V5.78724C16.8252 6.05543 16.7225 6.31338 16.5384 6.5084C16.3543 6.70341 16.1027 6.82077 15.8349 6.83649C15.5672 6.8522 15.3036 6.7651 15.0979 6.59296C14.8923 6.42083 14.7601 6.17666 14.7284 5.91035L14.721 5.78724V2.10445H13.6688C13.4006 2.10415 13.1427 2.00146 12.9477 1.81735C12.7526 1.63325 12.6353 1.38162 12.6196 1.11389C12.6039 0.846161 12.691 0.582533 12.8631 0.376873C13.0352 0.171212 13.2794 0.0390414 13.5457 0.00736565L13.6688 1.05504e-07H14.721ZM17.9619 2.74631C18.0709 2.48971 18.2773 2.28685 18.5357 2.18229C18.7942 2.07773 19.0835 2.08001 19.3403 2.18863C19.6107 2.30227 19.8717 2.40959 20.1495 2.51903C20.6375 2.7262 21.0294 3.10996 21.2467 3.59357C21.464 4.07718 21.4908 4.625 21.3217 5.12749L21.2627 5.28112L18.8447 10.9358C18.7383 11.1812 18.5424 11.3769 18.2969 11.483C18.0514 11.5892 17.7746 11.5979 17.5229 11.5073C17.2713 11.4167 17.0635 11.2336 16.942 10.9953C16.8204 10.757 16.7942 10.4814 16.8686 10.2245L16.9107 10.1087L19.3266 4.45722L18.9415 4.30149L18.5185 4.12577C18.3912 4.07181 18.2758 3.99328 18.1788 3.89467C18.0819 3.79606 18.0053 3.67932 17.9535 3.5511C17.9018 3.42289 17.8757 3.28573 17.877 3.14745C17.8782 3.00918 17.9067 2.87251 17.9608 2.74525L17.9619 2.74631Z"
+        d="M7 4h10a2 2 0 0 1 2 2v3h1a1 1 0 1 1 0 2h-1v2h1a1 1 0 1 1 0 2h-1v3a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-3H4a1 1 0 1 1 0-2h1v-2H4a1 1 0 1 1 0-2h1V6a2 2 0 0 1 2-2Zm0 2v12h10V6H7Zm2 2h6v2H9V8Zm0 4h2v2H9v-2Zm4 0h2v2h-2v-2Z"
         fill="currentColor"
       />
     </SvgIcon>
@@ -431,6 +456,17 @@ function ComposerRegenerateImageIcon() {
         fill="none"
         stroke="currentColor"
         strokeWidth="1.6"
+      />
+    </SvgIcon>
+  )
+}
+
+function ComposerMicIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)' }}>
+      <path
+        d="M12 15c1.66 0 3-1.34 3-3V6a3 3 0 0 0-6 0v6c0 1.66 1.34 3 3 3zm5-3a1 1 0 1 1 2 0 7 7 0 0 1-6 6.92V21h2a1 1 0 1 1 0 2H9a1 1 0 1 1 0-2h2v-2.08A7 7 0 0 1 5 12a1 1 0 1 1 2 0 5 5 0 1 0 10 0z"
+        fill="currentColor"
       />
     </SvgIcon>
   )
@@ -481,10 +517,50 @@ function RightPanelEmptyState({
 }
 
 function getStoryTurnImageRequestTimeoutMs(modelId: StoryImageModelId): number {
-  if (modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID) {
-    return STORY_TURN_IMAGE_REQUEST_TIMEOUT_NANO_BANANO_2_MS
+  if (modelId === STORY_IMAGE_MODEL_GROK_ID || modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID) {
+    return STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS
   }
   return STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS
+}
+
+type BrowserSpeechRecognitionResultAlternative = {
+  transcript?: string
+}
+
+type BrowserSpeechRecognitionResultList = ArrayLike<ArrayLike<BrowserSpeechRecognitionResultAlternative>>
+
+type BrowserSpeechRecognition = {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onstart: (() => void) | null
+  onresult: ((event: Event) => void) | null
+  onerror: ((event: Event) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+type BrowserSpeechRecognitionCtor = new () => BrowserSpeechRecognition
+
+const MOBILE_COMPOSER_MEDIA_QUERY = '(pointer: coarse), (max-width: 899px)'
+
+function isMobileComposerViewport(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false
+  }
+  return window.matchMedia(MOBILE_COMPOSER_MEDIA_QUERY).matches
+}
+
+function resolveSpeechRecognitionCtor(): BrowserSpeechRecognitionCtor | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  const extendedWindow = window as Window & {
+    SpeechRecognition?: BrowserSpeechRecognitionCtor
+    webkitSpeechRecognition?: BrowserSpeechRecognitionCtor
+  }
+  return extendedWindow.SpeechRecognition ?? extendedWindow.webkitSpeechRecognition ?? null
 }
 
 function moveContentEditableCaretToEnd(element: HTMLDivElement): void {
@@ -522,6 +598,9 @@ const STRUCTURED_MARKER_START_PATTERN = /^\[\[\s*([A-Za-z_ -]+)(?:\s*:\s*([^\]]+
 const STRUCTURED_MARKER_INLINE_SPLIT_PATTERN = /\[\[\s*[A-Za-z_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]/giu
 const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z_ -]+)(?:\s*:\s*([^>]+?))?\s*>([\s\S]*?)<\/\s*([A-Za-z_ -]+)\s*>$/iu
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
+const MAIN_HERO_SPEAKER_ALIASES = ['ГГ', 'Главный герой', 'Main hero', 'Main character', 'MC', 'Hero'] as const
+const MAIN_HERO_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
+const MAIN_HERO_FALLBACK_NAME = '\u0413\u043b\u0430\u0432\u043d\u044b\u0439 \u0433\u0435\u0440\u043e\u0439'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
 const STORY_SENTENCE_MATCH_PATTERN = /[^.!?…]+[.!?…]?/gu
@@ -612,9 +691,9 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
   deleted: 'Удалено',
 }
 const AI_MEMORY_LAYER_LABEL: Record<'raw' | 'compressed' | 'super', string> = {
-  raw: 'Свежие блоки · 50%',
-  compressed: 'Сжатые блоки · 30%',
-  super: 'Суперсжатые блоки · 20%',
+  raw: 'Свежие блоки В· 50%',
+  compressed: 'Сжатые блоки В· 30%',
+  super: 'Суперсжатые блоки В· 20%',
 }
 type WorldCardContextState = {
   isActive: boolean
@@ -789,6 +868,25 @@ function normalizeAssistantMarkerKey(value: string): string {
   return value.toLowerCase().replace(/[\s-]+/g, '_').trim()
 }
 
+function resolveMainHeroDisplayName(rawMainHeroName: string | null | undefined): string {
+  const normalizedMainHeroName = (rawMainHeroName ?? '').replace(/\s+/g, ' ').trim()
+  return normalizedMainHeroName || MAIN_HERO_FALLBACK_NAME
+}
+
+function replaceMainHeroInlineTags(value: string, rawMainHeroName: string | null | undefined): string {
+  if (!value || !value.includes('[[')) {
+    return value
+  }
+  const resolvedMainHeroName = resolveMainHeroDisplayName(rawMainHeroName)
+  return value.replace(MAIN_HERO_INLINE_TAG_PATTERN, (_fullMatch, inlineFallbackName: string | undefined) => {
+    if (resolvedMainHeroName) {
+      return resolvedMainHeroName
+    }
+    const normalizedFallbackName = (inlineFallbackName ?? '').replace(/\s+/g, ' ').trim()
+    return normalizedFallbackName || MAIN_HERO_FALLBACK_NAME
+  })
+}
+
 function stripLeadingStructuredMarkerLines(value: string): string {
   let normalized = value.replace(/\r\n/g, '\n').trim()
   while (true) {
@@ -814,7 +912,10 @@ function resolveAssistantMarkerKind(
   }
   if (
     compact === 'npc' ||
-    compact === 'gg' ||
+    compact === 'ggreplick' ||
+    compact === 'ggreplica' ||
+    compact === 'ggspeech' ||
+    compact === 'ggdialogue' ||
     compact === 'mc' ||
     compact === 'mainhero' ||
     compact === 'say' ||
@@ -1110,11 +1211,13 @@ function buildAssistantMessageContentWithEditedBlock(
   }
 
   const normalizedText = nextText.replace(/\r\n/g, '\n').trim()
-  if (!normalizedText) {
+  const nextBlocks = normalizedText
+    ? blocks.map((block, index) => (index === blockIndex ? { ...block, text: normalizedText } : block))
+    : blocks.filter((_, index) => index !== blockIndex)
+  if (nextBlocks.length === 0) {
     return null
   }
 
-  const nextBlocks = blocks.map((block, index) => (index === blockIndex ? { ...block, text: normalizedText } : block))
   const serialized = serializeAssistantMessageBlocks(nextBlocks)
   return serialized || null
 }
@@ -1129,7 +1232,7 @@ const LATIN_TO_CYRILLIC_NAME_DIGRAPHS: Array<[string, string]> = [
   ['kh', 'х'],
   ['ts', 'ц'],
   ['ch', 'ч'],
-  ['sh', 'ш'],
+  ['sh', 'р'],
   ['ye', 'е'],
 ]
 
@@ -1187,6 +1290,14 @@ function normalizeCharacterIdentity(value: string): string {
     .replace(/[^0-9a-zа-яё\s-]/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function normalizeCharacterNoteValue(value: string | null | undefined): string {
+  return (value ?? '')
+    .replace(/\r\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, STORY_CHARACTER_NOTE_MAX_LENGTH)
 }
 
 function buildCharacterAliases(value: string): string[] {
@@ -1822,7 +1933,7 @@ function estimateHistoryTokensWithinBudget(
   }
 
   const payload = selected
-    .map((message) => `${message.role === 'user' ? 'Игрок' : 'ИИ'}: ${message.content}`)
+    .map((message) => `${message.role === 'user' ? 'грок' : ''}: ${message.content}`)
     .join('\n')
   return estimateTextTokens(payload)
 }
@@ -2024,9 +2135,9 @@ function formatWorldCardContextStatus(state: WorldCardContextState | undefined):
   }
   const memoryTurns = state.memoryTurns ?? WORLD_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
-    return `активна · +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
+    return `активна В· +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
   }
-  return `активна · ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
+  return `активна В· ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
 }
 
 function formatPlotCardContextStatus(state: PlotCardContextState | undefined): string {
@@ -2035,9 +2146,9 @@ function formatPlotCardContextStatus(state: PlotCardContextState | undefined): s
   }
   const memoryTurns = state.memoryTurns ?? PLOT_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
-    return `активна · +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
+    return `активна В· +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
   }
-  return `активна · ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
+  return `активна В· ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
 }
 
 function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: StoryMessage[]): Map<number, WorldCardContextState> {
@@ -2324,6 +2435,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     themeId,
     storyHistoryFontFamily,
     storyHistoryFontWeight,
+    voiceInputEnabled,
     storyHistoryFontFamilyOptions,
     storyHistoryFontWeightOptions,
   } = useMoriusThemeController()
@@ -2373,6 +2485,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [messages, setMessages] = useState<StoryMessage[]>([])
   const [ambientByAssistantMessageId, setAmbientByAssistantMessageId] = useState<Record<number, StoryAmbientProfile>>({})
   const [inputValue, setInputValue] = useState('')
+  const [isMobileComposer, setIsMobileComposer] = useState<boolean>(() => isMobileComposerViewport())
+  const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
   const [quickStartIntro, setQuickStartIntro] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
   const [isLoadingGameMessages, setIsLoadingGameMessages] = useState(false)
@@ -2446,18 +2560,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [deletingCharacterId, setDeletingCharacterId] = useState<number | null>(null)
   const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
   const [characterManagerDialogOpen, setCharacterManagerDialogOpen] = useState(false)
-  const [characterDialogMode, setCharacterDialogMode] = useState<CharacterDialogMode>('manage')
+  const [characterManagerInitialMode, setCharacterManagerInitialMode] = useState<'list' | 'create'>('list')
+  const [characterManagerInitialCharacterId, setCharacterManagerInitialCharacterId] = useState<number | null>(null)
+  const [characterManagerSyncCardId, setCharacterManagerSyncCardId] = useState<number | null>(null)
+  const [characterDialogMode, setCharacterDialogMode] = useState<CharacterDialogMode>('select-main-hero')
   const [characterDialogReturnMode, setCharacterDialogReturnMode] = useState<CharacterSelectionDialogMode | null>(null)
   const [characterDraftMode, setCharacterDraftMode] = useState<CharacterDraftMode>('create')
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null)
   const [characterNameDraft, setCharacterNameDraft] = useState('')
   const [characterDescriptionDraft, setCharacterDescriptionDraft] = useState('')
+  const [characterNoteDraft, setCharacterNoteDraft] = useState('')
   const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
   const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
   const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
   const [characterAvatarError, setCharacterAvatarError] = useState('')
   const [isSelectingCharacter, setIsSelectingCharacter] = useState(false)
+  const [characterSelectionTab, setCharacterSelectionTab] = useState<SelectorSourceTab>('my')
+  const [characterSelectionSearchQuery, setCharacterSelectionSearchQuery] = useState('')
+  const [characterSelectionAddedFilter, setCharacterSelectionAddedFilter] = useState<CommunityAddedFilter>('all')
+  const [characterSelectionSortMode, setCharacterSelectionSortMode] = useState<CommunitySortMode>('updated_desc')
+  const [communityCharacterOptions, setCommunityCharacterOptions] = useState<StoryCommunityCharacterSummary[]>([])
+  const [isLoadingCommunityCharacterOptions, setIsLoadingCommunityCharacterOptions] = useState(false)
+  const [hasLoadedCommunityCharacterOptions, setHasLoadedCommunityCharacterOptions] = useState(false)
+  const [expandedCommunityCharacterId, setExpandedCommunityCharacterId] = useState<number | null>(null)
+  const [loadingCommunityCharacterId, setLoadingCommunityCharacterId] = useState<number | null>(null)
+  const [savingCommunityCharacterId, setSavingCommunityCharacterId] = useState<number | null>(null)
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
+  const [worldCardCharacterMirrorByCardId, setWorldCardCharacterMirrorByCardId] = useState<Record<number, number>>({})
   const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
   const [canRedoAssistantStepServer, setCanRedoAssistantStepServer] = useState(false)
@@ -2477,6 +2606,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
+  const [isNarratorSettingsExpanded, setIsNarratorSettingsExpanded] = useState(false)
+  const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
+  const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(false)
+  const [isFineTuneSettingsExpanded, setIsFineTuneSettingsExpanded] = useState(false)
   const [isContextUsageExpanded, setIsContextUsageExpanded] = useState(false)
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
   const [responseMaxTokens, setResponseMaxTokens] = useState(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
@@ -2490,7 +2623,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [storyTemperature, setStoryTemperature] = useState(STORY_DEFAULT_TEMPERATURE)
   const [storyTopK, setStoryTopK] = useState(STORY_DEFAULT_TOP_K)
   const [storyTopR, setStoryTopR] = useState(STORY_DEFAULT_TOP_R)
-  const [isModelSamplingExpanded, setIsModelSamplingExpanded] = useState(true)
   const [showGgThoughts, setShowGgThoughts] = useState(true)
   const [showNpcThoughts, setShowNpcThoughts] = useState(true)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
@@ -2499,7 +2631,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
   const [isSavingStoryImageModel, setIsSavingStoryImageModel] = useState(false)
   const [isSavingImageStylePrompt, setIsSavingImageStylePrompt] = useState(false)
-  const [isSavingMemoryOptimization, setIsSavingMemoryOptimization] = useState(false)
+  const [isSavingMemoryOptimization] = useState(false)
   const [isSavingStorySampling, setIsSavingStorySampling] = useState(false)
   const [isSavingShowGgThoughts, setIsSavingShowGgThoughts] = useState(false)
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
@@ -2526,6 +2658,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const voiceRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
+  const voiceSessionRequestedRef = useRef(false)
+  const hasVoiceTranscriptRef = useRef(false)
+  const voiceBasePromptRef = useRef('')
+  const voiceFinalTranscriptRef = useRef('')
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const worldCardAvatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -2655,7 +2792,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setStoryLlmModel(override.storyLlmModel)
       setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
       setResponseMaxTokensEnabled(override.responseMaxTokensEnabled)
-      setMemoryOptimizationEnabled(override.memoryOptimizationEnabled)
+      setMemoryOptimizationEnabled(true)
       setStoryTemperature(clampStoryTemperature(override.storyTemperature ?? normalizedRuntimeStoryTemperature))
       setStoryTopK(clampStoryTopK(override.storyTopK))
       setStoryTopR(clampStoryTopR(override.storyTopR))
@@ -2667,9 +2804,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
       setStoryLlmModel(normalizeStoryNarratorModelId(runtimeGame.story_llm_model))
     }
-    if (typeof runtimeGame.memory_optimization_enabled === 'boolean') {
-      setMemoryOptimizationEnabled(runtimeGame.memory_optimization_enabled)
-    }
+    setMemoryOptimizationEnabled(true)
     if (typeof runtimeGame.story_temperature === 'number') {
       setStoryTemperature(clampStoryTemperature(runtimeGame.story_temperature))
     } else {
@@ -2707,7 +2842,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const shouldShowStoryMessagesLoadingSkeleton = (isBootstrappingGameData || isLoadingGameMessages) && messages.length === 0
   const shouldShowRightPanelLoadingSkeleton =
     isBootstrappingGameData && instructionCards.length === 0 && plotCards.length === 0 && worldCards.length === 0
-  const quickStartIntroBlocks = useMemo(() => parseAssistantMessageBlocks(quickStartIntro), [quickStartIntro])
+  const quickStartIntroBlocks = useMemo(() => {
+    const mainHeroName = worldCards.find((card) => card.kind === 'main_hero')?.title ?? null
+    return parseAssistantMessageBlocks(replaceMainHeroInlineTags(quickStartIntro, mainHeroName))
+  }, [quickStartIntro, worldCards])
   const lastCurrentUserMessageIndex = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       if (messages[index]?.role === 'user') {
@@ -2756,7 +2894,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isLatestTurnImageLoading
   const leftPanelTabLabel =
     rightPanelMode === 'ai'
-      ? 'Инструкции'
+      ? 'нструкции'
       : rightPanelMode === 'world'
         ? 'Сюжет'
         : 'Память'
@@ -2878,6 +3016,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => plotCards.filter((card) => plotCardContextStateById.get(card.id)?.isActive),
     [plotCardContextStateById, plotCards],
   )
+  const mainHeroDisplayNameForTags = useMemo(() => {
+    const mainHero = worldCards.find((card) => card.kind === 'main_hero') ?? null
+    return resolveMainHeroDisplayName(mainHero?.title)
+  }, [worldCards])
   const normalizedPlotCardsForContext = useMemo(
     () => {
       if (!memoryOptimizationEnabled) {
@@ -2886,11 +3028,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return activePlotCardsForContext
         .map((card) => ({
           title: card.title.replace(/\s+/g, ' ').trim(),
-          content: card.content.replace(/\r\n/g, '\n').trim(),
+          content: replaceMainHeroInlineTags(card.content.replace(/\r\n/g, '\n').trim(), mainHeroDisplayNameForTags),
         }))
         .filter((card) => card.title.length > 0 && card.content.length > 0)
     },
-    [activePlotCardsForContext, memoryOptimizationEnabled],
+    [activePlotCardsForContext, mainHeroDisplayNameForTags, memoryOptimizationEnabled],
   )
   const worldCardContextStateById = useMemo(
     () => buildWorldCardContextStateById(worldCards, messages),
@@ -2981,19 +3123,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     : effectiveHistoryContextTokensUsed
   const storyMemoryLabel = memoryOptimizationEnabled
     ? isAiMemoryActive && isPlotMemoryActive
-      ? 'Память ИИ + Сюжет'
+      ? 'Память  + Сюжет'
       : isAiMemoryActive
-        ? 'Память ИИ'
+        ? 'Память '
         : isPlotMemoryActive
           ? 'Карточки сюжета'
-          : 'История сообщений'
-    : 'История сообщений'
+          : 'стория сообщений'
+    : 'стория сообщений'
   const storyMemoryHint = !memoryOptimizationEnabled
     ? 'Оптимизация памяти выключена: карточки сюжета не используются в контексте.'
     : isAiMemoryActive && isPlotMemoryActive
-      ? `Используются рекурсивная память ИИ (${normalizedAiMemoryCardsForContext.length}) и карточки сюжета (${normalizedPlotCardsForContext.length}).`
+      ? `спользуются рекурсивная память  (${normalizedAiMemoryCardsForContext.length}) и карточки сюжета (${normalizedPlotCardsForContext.length}).`
       : isAiMemoryActive
-        ? `Используется рекурсивная память ИИ: ${normalizedAiMemoryCardsForContext.length} блоков.`
+        ? `спользуется рекурсивная память : ${normalizedAiMemoryCardsForContext.length} блоков.`
         : isPlotMemoryActive
           ? `Учитываются карточки сюжета: ${normalizedPlotCardsForContext.length}.`
           : 'Карточек памяти нет, учитывается история диалога.'
@@ -3013,6 +3155,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     : hasMessages
       ? NEXT_INPUT_PLACEHOLDER
       : INITIAL_INPUT_PLACEHOLDER
+  const speechRecognitionCtor = useMemo(() => resolveSpeechRecognitionCtor(), [])
+  const voiceInputSupported = speechRecognitionCtor !== null
+  const hasPromptText = inputValue.trim().length > 0
+  const showMicAction = voiceInputEnabled && !isGenerating && (!hasPromptText || isVoiceInputActive)
+  const canUseVoiceInput =
+    voiceInputEnabled &&
+    !isGenerating &&
+    !isCreatingGame &&
+    !hasInsufficientTokensForTurn &&
+    voiceInputSupported
   const isSavingStorySettings =
     isSavingContextLimit ||
     isSavingResponseMaxTokens ||
@@ -3054,11 +3206,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [],
   )
   const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
+  const editingWorldCard = useMemo(
+    () => (editingWorldCardId !== null ? worldCards.find((card) => card.id === editingWorldCardId) ?? null : null),
+    [editingWorldCardId, worldCards],
+  )
+  const editingWorldCardAvatarUrl = useMemo(
+    () => resolveWorldCardAvatar(editingWorldCard),
+    [editingWorldCard, resolveWorldCardAvatar],
+  )
+  const isCharacterWorldCardEditor =
+    worldCardDialogOpen && (editingWorldCardKind === 'main_hero' || editingWorldCardKind === 'npc')
   const mainHeroCharacterId = useMemo(
     () => (mainHeroCard && mainHeroCard.character_id && mainHeroCard.character_id > 0 ? mainHeroCard.character_id : null),
     [mainHeroCard],
   )
-  const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHeroCard?.title ?? ''), [mainHeroCard])
   const npcCharacterIds = useMemo(() => {
     const selectedIds = new Set<number>()
     worldCards.forEach((card) => {
@@ -3069,43 +3230,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return selectedIds
   }, [worldCards])
-  const npcCharacterNames = useMemo(() => {
-    const selectedNames = new Set<string>()
-    worldCards.forEach((card) => {
-      if (card.kind !== 'npc') {
-        return
-      }
-      const normalizedName = normalizeCharacterIdentity(card.title)
-      if (normalizedName) {
-        selectedNames.add(normalizedName)
-      }
-    })
-    return selectedNames
-  }, [worldCards])
-  const getCharacterSelectionDisabledReason = useCallback(
-    (character: StoryCharacter, mode: CharacterDialogMode): string | null => {
-      const normalizedCharacterName = normalizeCharacterIdentity(character.name)
-
-      if (mode === 'select-main-hero') {
-        if (npcCharacterIds.has(character.id) || (normalizedCharacterName && npcCharacterNames.has(normalizedCharacterName))) {
-          return 'Уже выбран как NPC'
-        }
-        return null
-      }
-
-      if (
-        (mainHeroCharacterId !== null && character.id === mainHeroCharacterId) ||
-        (mainHeroName && normalizedCharacterName && normalizedCharacterName === mainHeroName)
-      ) {
-        return 'Уже выбран как ГГ'
-      }
-      if (npcCharacterIds.has(character.id) || (normalizedCharacterName && npcCharacterNames.has(normalizedCharacterName))) {
-        return 'Уже выбран как NPC'
-      }
-      return null
-    },
-    [mainHeroCharacterId, mainHeroName, npcCharacterIds, npcCharacterNames],
-  )
   const charactersById = useMemo(() => {
     const nextMap = new Map<number, StoryCharacter>()
     characters.forEach((character) => {
@@ -3113,6 +3237,124 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return nextMap
   }, [characters])
+  const mainHeroSourceCharacterId = useMemo(() => {
+    if (!mainHeroCard?.character_id || mainHeroCard.character_id <= 0) {
+      return null
+    }
+    const linkedCharacter = charactersById.get(mainHeroCard.character_id) ?? null
+    if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
+      return null
+    }
+    return linkedCharacter.source_character_id
+  }, [charactersById, mainHeroCard])
+  const npcSourceCharacterIds = useMemo(() => {
+    const selectedIds = new Set<number>()
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc' || !card.character_id || card.character_id <= 0) {
+        return
+      }
+      const linkedCharacter = charactersById.get(card.character_id) ?? null
+      if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
+        return
+      }
+      selectedIds.add(linkedCharacter.source_character_id)
+    })
+    return selectedIds
+  }, [charactersById, worldCards])
+  const getCharacterSelectionDisabledReason = useCallback(
+    (character: StoryCharacter, mode: CharacterDialogMode): string | null => {
+      if (mode === 'select-main-hero') {
+        return npcCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
+      }
+      if (mainHeroCharacterId !== null && character.id === mainHeroCharacterId) {
+        return 'Уже выбран как ГГ'
+      }
+      if (npcCharacterIds.has(character.id)) {
+        return 'Уже выбран как NPC'
+      }
+      return null
+    },
+    [mainHeroCharacterId, npcCharacterIds],
+  )
+  const ownCharacterOptions = useMemo(
+    () => [...characters].sort((left, right) => right.id - left.id),
+    [characters],
+  )
+  const filteredOwnCharacterOptions = useMemo(() => {
+    const normalizedQuery = normalizeCharacterIdentity(characterSelectionSearchQuery)
+    if (!normalizedQuery) {
+      return ownCharacterOptions
+    }
+    return ownCharacterOptions.filter((character) => {
+      const searchValues = [
+        character.name,
+        character.description,
+        ...character.triggers,
+      ]
+      return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
+    })
+  }, [characterSelectionSearchQuery, ownCharacterOptions])
+  const filteredCommunityCharacterOptions = useMemo(() => {
+    const normalizedQuery = normalizeCharacterIdentity(characterSelectionSearchQuery)
+    let nextItems = [...communityCharacterOptions]
+    if (characterSelectionAddedFilter === 'added') {
+      nextItems = nextItems.filter((item) => item.is_added_by_user)
+    } else if (characterSelectionAddedFilter === 'not_added') {
+      nextItems = nextItems.filter((item) => !item.is_added_by_user)
+    }
+    if (normalizedQuery) {
+      nextItems = nextItems.filter((item) => {
+        const searchValues = [
+          item.name,
+          item.description,
+          item.author_name,
+          ...item.triggers,
+        ]
+        return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
+      })
+    }
+    nextItems.sort((left, right) => {
+      if (characterSelectionSortMode === 'rating_desc') {
+        if (right.community_rating_avg !== left.community_rating_avg) {
+          return right.community_rating_avg - left.community_rating_avg
+        }
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (characterSelectionSortMode === 'additions_desc') {
+        if (right.community_additions_count !== left.community_additions_count) {
+          return right.community_additions_count - left.community_additions_count
+        }
+        return right.id - left.id
+      }
+      const leftTimestamp = Date.parse(left.updated_at)
+      const rightTimestamp = Date.parse(right.updated_at)
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && rightTimestamp !== leftTimestamp) {
+        return rightTimestamp - leftTimestamp
+      }
+      return right.id - left.id
+    })
+    return nextItems
+  }, [
+    characterSelectionAddedFilter,
+    characterSelectionSearchQuery,
+    characterSelectionSortMode,
+    communityCharacterOptions,
+  ])
+  const getCommunityCharacterSelectionDisabledReason = useCallback(
+    (character: StoryCommunityCharacterSummary, mode: CharacterDialogMode): string | null => {
+      if (mode === 'select-main-hero') {
+        return npcSourceCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
+      }
+      if (mainHeroSourceCharacterId === character.id) {
+        return 'Уже выбран как ГГ'
+      }
+      if (npcSourceCharacterIds.has(character.id)) {
+        return 'Уже выбран как NPC'
+      }
+      return null
+    },
+    [mainHeroSourceCharacterId, npcSourceCharacterIds],
+  )
   const speakerCardsForAvatar = useMemo(() => {
     const entries: SpeakerAvatarEntry[] = []
     const appendEntry = (names: string[], avatar: string | null, displayName: string) => {
@@ -3131,6 +3373,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const aliasSet = new Set<string>()
       buildCharacterAliases(card.title).forEach((alias) => aliasSet.add(alias))
       buildIdentityTriggerAliases(card.title, card.triggers).forEach((alias) => aliasSet.add(alias))
+      if (card.kind === 'main_hero') {
+        MAIN_HERO_SPEAKER_ALIASES.forEach((alias) => {
+          const normalizedAlias = normalizeCharacterIdentity(alias)
+          if (normalizedAlias) {
+            aliasSet.add(normalizedAlias)
+          }
+        })
+      }
 
       const linkedCharacter =
         card.character_id && card.character_id > 0 ? charactersById.get(card.character_id) ?? null : null
@@ -3246,7 +3496,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     selectedMenuWorldCard && selectedMenuWorldCard.kind !== 'main_hero',
   )
   const getWorldCardAiEditStatusLabel = useCallback(
-    (card: StoryWorldCard): string => (card.ai_edit_enabled ? 'ИИ редактирование: разрешено' : 'ИИ редактирование: запрещено'),
+    (card: StoryWorldCard): string => (card.ai_edit_enabled ? ' редактирование: разрешено' : ' редактирование: запрещено'),
     [],
   )
 
@@ -3315,6 +3565,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setEditingCharacterId(null)
     setCharacterNameDraft('')
     setCharacterDescriptionDraft('')
+    setCharacterNoteDraft('')
     setCharacterTriggersDraft('')
     setCharacterAvatarDraft(null)
     setCharacterAvatarCropSource(null)
@@ -3334,9 +3585,105 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [hasLoadedCharacters, isLoadingCharacters, loadCharacters],
   )
 
-  const handleOpenCharacterManager = useCallback(() => {
-    setCharacterManagerDialogOpen(true)
-  }, [])
+  const handleOpenCharacterManager = useCallback(
+    (options?: { initialCharacterId?: number | null; syncCardId?: number | null }) => {
+      const initialCharacterId = options?.initialCharacterId ?? null
+      const syncCardId = options?.syncCardId ?? null
+      setCharacterManagerInitialMode('list')
+      setCharacterManagerInitialCharacterId(initialCharacterId)
+      setCharacterManagerSyncCardId(syncCardId)
+      setCharacterManagerDialogOpen(true)
+    },
+    [],
+  )
+
+  const handleCloseCharacterManager = useCallback(() => {
+    const targetGameId = activeGameId
+    const targetCharacterId = characterManagerInitialCharacterId
+    const targetCardId = characterManagerSyncCardId
+    const returnMode = characterDialogReturnMode
+    let latestCharacters = characters
+
+    setCharacterManagerDialogOpen(false)
+    setCharacterManagerInitialMode('list')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncCardId(null)
+    setCharacterDialogReturnMode(null)
+
+    void (async () => {
+      try {
+        const loadedCharacters = await listStoryCharacters(authToken)
+        latestCharacters = loadedCharacters
+        setCharacters(loadedCharacters)
+        setHasLoadedCharacters(true)
+      } catch {
+        // Ignore transient load errors here; other requests can still proceed.
+      }
+
+      if (returnMode) {
+        setCharacterDialogMode(returnMode)
+        setCharacterDialogOpen(true)
+      }
+
+      if (!targetGameId || !targetCharacterId || !targetCardId) {
+        return
+      }
+
+      const linkedCharacter = latestCharacters.find((item) => item.id === targetCharacterId) ?? null
+      const linkedWorldCard = worldCards.find((card) => card.id === targetCardId) ?? null
+      if (!linkedCharacter || !linkedWorldCard) {
+        return
+      }
+
+      try {
+        const normalizedTriggers = Array.isArray(linkedCharacter.triggers)
+          ? linkedCharacter.triggers.filter((value): value is string => typeof value === 'string')
+          : []
+        const syncedCard = await updateStoryWorldCard({
+          token: authToken,
+          gameId: targetGameId,
+          cardId: linkedWorldCard.id,
+          title: linkedCharacter.name,
+          content: linkedCharacter.description,
+          triggers: normalizedTriggers,
+          memory_turns: linkedWorldCard.kind === 'npc' ? resolveWorldCardMemoryTurns(linkedWorldCard) : undefined,
+        })
+        const syncedCardWithAvatar = await updateStoryWorldCardAvatar({
+          token: authToken,
+          gameId: targetGameId,
+          cardId: linkedWorldCard.id,
+          avatar_url: linkedCharacter.avatar_url,
+          avatar_scale: linkedCharacter.avatar_scale,
+        })
+        setWorldCards((previousCards) =>
+          previousCards.map((card) => {
+            if (card.id !== linkedWorldCard.id) {
+              return card
+            }
+            return {
+              ...syncedCard,
+              avatar_url: syncedCardWithAvatar.avatar_url,
+              avatar_scale: syncedCardWithAvatar.avatar_scale,
+            }
+          }),
+        )
+      } catch (error) {
+        const detail =
+          error instanceof Error
+            ? error.message
+            : 'Не удалось синхронизировать карточку мира после редактирования персонажа'
+        setErrorMessage(detail)
+      }
+    })()
+  }, [
+    activeGameId,
+    authToken,
+    characterDialogReturnMode,
+    characterManagerInitialCharacterId,
+    characterManagerSyncCardId,
+    characters,
+    worldCards,
+  ])
 
   const handleOpenCharacterSelectorForMainHero = useCallback(async () => {
     await openCharacterDialog('select-main-hero')
@@ -3359,18 +3706,106 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterAvatarError('')
   }, [isSavingCharacter, isSelectingCharacter])
 
+  const loadCommunityCharacterOptions = useCallback(async () => {
+    setIsLoadingCommunityCharacterOptions(true)
+    setErrorMessage('')
+    try {
+      const items = await listCommunityCharacters(authToken)
+      setCommunityCharacterOptions(items.map((item) => ({ ...item, note: normalizeCharacterNoteValue(item.note) })))
+      setHasLoadedCommunityCharacterOptions(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей сообщества'
+      setErrorMessage(detail)
+    } finally {
+      setIsLoadingCommunityCharacterOptions(false)
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    if (!characterDialogOpen) {
+      setCharacterSelectionTab('my')
+      setCharacterSelectionSearchQuery('')
+      setCharacterSelectionAddedFilter('all')
+      setCharacterSelectionSortMode('updated_desc')
+      setExpandedCommunityCharacterId(null)
+      setLoadingCommunityCharacterId(null)
+      setSavingCommunityCharacterId(null)
+      return
+    }
+    if (characterDialogMode === 'manage') {
+      return
+    }
+    setCharacterSelectionTab('my')
+    setCharacterSelectionSearchQuery('')
+    setCharacterSelectionAddedFilter('all')
+    setCharacterSelectionSortMode('updated_desc')
+    setExpandedCommunityCharacterId(null)
+    setLoadingCommunityCharacterId(null)
+    setSavingCommunityCharacterId(null)
+  }, [characterDialogMode, characterDialogOpen])
+
+  useEffect(() => {
+    if (
+      !characterDialogOpen ||
+      characterDialogMode === 'manage' ||
+      characterSelectionTab !== 'community' ||
+      hasLoadedCommunityCharacterOptions ||
+      isLoadingCommunityCharacterOptions
+    ) {
+      return
+    }
+    void loadCommunityCharacterOptions()
+  }, [
+    characterDialogMode,
+    characterDialogOpen,
+    characterSelectionTab,
+    hasLoadedCommunityCharacterOptions,
+    isLoadingCommunityCharacterOptions,
+    loadCommunityCharacterOptions,
+  ])
+
+  const handleToggleCommunityCharacterCard = useCallback(
+    async (characterId: number) => {
+      if (expandedCommunityCharacterId === characterId) {
+        setExpandedCommunityCharacterId(null)
+        return
+      }
+      setExpandedCommunityCharacterId(characterId)
+      setLoadingCommunityCharacterId(characterId)
+      try {
+        const detailedCharacter = await getCommunityCharacter({
+          token: authToken,
+          characterId,
+        })
+        setCommunityCharacterOptions((previous) =>
+          previous.map((item) =>
+            item.id === detailedCharacter.id ? { ...detailedCharacter, note: normalizeCharacterNoteValue(detailedCharacter.note) } : item,
+          ),
+        )
+      } catch {
+        // We still keep local summary data expanded.
+      } finally {
+        setLoadingCommunityCharacterId((previous) => (previous === characterId ? null : previous))
+      }
+    },
+    [authToken, expandedCommunityCharacterId],
+  )
+
   const handleStartCreateCharacter = useCallback(() => {
     resetCharacterDraft()
   }, [resetCharacterDraft])
 
   const handleStartCreateCharacterFromNpcSelector = useCallback(() => {
-    if (characterDialogMode !== 'select-npc' || isSavingCharacter || isSelectingCharacter) {
+    if (characterDialogMode !== 'select-npc' || isSelectingCharacter) {
       return
     }
+    setCharacterDialogOpen(false)
     setCharacterDialogReturnMode('select-npc')
-    setCharacterDialogMode('manage')
-    resetCharacterDraft()
-  }, [characterDialogMode, isSavingCharacter, isSelectingCharacter, resetCharacterDraft])
+    setCharacterManagerInitialMode('create')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncCardId(null)
+    setCharacterManagerDialogOpen(true)
+  }, [characterDialogMode, isSelectingCharacter])
 
   const handleStartEditCharacter = useCallback((character: StoryCharacter) => {
     setCharacterDialogReturnMode(null)
@@ -3378,6 +3813,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setEditingCharacterId(character.id)
     setCharacterNameDraft(character.name)
     setCharacterDescriptionDraft(character.description)
+    setCharacterNoteDraft(character.note)
     setCharacterTriggersDraft(character.triggers.join(', '))
     setCharacterAvatarDraft(character.avatar_url)
     setCharacterAvatarCropSource(null)
@@ -3437,8 +3873,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const normalizedName = characterNameDraft.replace(/\s+/g, ' ').trim()
     const normalizedDescription = characterDescriptionDraft.replace(/\r\n/g, '\n').trim()
+    const normalizedNote = normalizeCharacterNoteValue(characterNoteDraft)
     if (!normalizedName) {
-      setErrorMessage('Имя персонажа не может быть пустым')
+      setErrorMessage('мя персонажа не может быть пустым')
       return
     }
     if (!normalizedDescription) {
@@ -3456,6 +3893,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: characterAvatarDraft,
           },
@@ -3472,6 +3910,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: characterAvatarDraft,
           },
@@ -3492,6 +3931,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterDraftMode,
     characterDialogReturnMode,
     characterNameDraft,
+    characterNoteDraft,
     characterTriggersDraft,
     editingCharacterId,
     isSavingCharacter,
@@ -3551,7 +3991,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       type: 'character',
       targetId: selectedCharacterMenuItem.id,
       title: 'Удалить персонажа?',
-      message: `Персонаж «${selectedCharacterMenuItem.name}» будет удален из «Мои персонажи». Это действие нельзя отменить.`,
+      message: `Персонаж В«${selectedCharacterMenuItem.name}В» будет удален из «Мои персонажи». Это действие нельзя отменить.`,
     })
     handleCloseCharacterItemMenu()
   }, [handleCloseCharacterItemMenu, selectedCharacterMenuItem, setDeletionPrompt])
@@ -3644,6 +4084,125 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ],
   )
 
+  const handleApplyCommunityCharacterForGame = useCallback(
+    async (
+      character: StoryCommunityCharacterSummary,
+      options: { saveToProfile: boolean },
+    ) => {
+      if (isSelectingCharacter || savingCommunityCharacterId !== null) {
+        return
+      }
+
+      const disabledReason = getCommunityCharacterSelectionDisabledReason(character, characterDialogMode)
+      if (disabledReason) {
+        setErrorMessage(disabledReason)
+        return
+      }
+
+      setIsSelectingCharacter(true)
+      setSavingCommunityCharacterId(character.id)
+      setErrorMessage('')
+      let temporaryCharacterId: number | null = null
+
+      try {
+        const targetGameId = await ensureGameForCharacterSelection()
+        if (!targetGameId) {
+          return
+        }
+
+        let gameCharacterId: number | null = null
+        if (options.saveToProfile) {
+          await addCommunityCharacter({
+            token: authToken,
+            characterId: character.id,
+          })
+          const refreshedCharacters = await listStoryCharacters(authToken)
+          const normalizedCharacters = refreshedCharacters.map((item) => ({
+            ...item,
+            note: normalizeCharacterNoteValue(item.note),
+          }))
+          setCharacters(normalizedCharacters)
+          const linkedCharacter = normalizedCharacters.find((item) => item.source_character_id === character.id) ?? null
+          if (!linkedCharacter) {
+            throw new Error('Не удалось найти сохраненного персонажа в профиле')
+          }
+          gameCharacterId = linkedCharacter.id
+          setCommunityCharacterOptions((previous) =>
+            previous.map((item) =>
+              item.id === character.id ? { ...item, is_added_by_user: true } : item,
+            ),
+          )
+        } else {
+          const temporaryCharacter = await createStoryCharacter({
+            token: authToken,
+            input: {
+              name: character.name,
+              description: character.description,
+              note: character.note,
+              triggers: character.triggers,
+              avatar_url: character.avatar_url,
+              avatar_scale: character.avatar_scale,
+              visibility: 'private',
+            },
+          })
+          temporaryCharacterId = temporaryCharacter.id
+          gameCharacterId = temporaryCharacter.id
+        }
+
+        if (!gameCharacterId) {
+          throw new Error('Не удалось подготовить персонажа для добавления в игру')
+        }
+
+        const createdCard =
+          characterDialogMode === 'select-main-hero'
+            ? await selectStoryMainHero({
+                token: authToken,
+                gameId: targetGameId,
+                characterId: gameCharacterId,
+              })
+            : await createStoryNpcFromCharacter({
+                token: authToken,
+                gameId: targetGameId,
+                characterId: gameCharacterId,
+              })
+
+        if (temporaryCharacterId !== null) {
+          try {
+            await deleteStoryCharacter({
+              token: authToken,
+              characterId: temporaryCharacterId,
+            })
+          } catch {
+            // Best-effort cleanup for temporary profile character.
+          }
+        }
+
+        setWorldCards((previousCards) => {
+          const hasCard = previousCards.some((card) => card.id === createdCard.id)
+          if (hasCard) {
+            return previousCards.map((card) => (card.id === createdCard.id ? createdCard : card))
+          }
+          return [...previousCards, createdCard]
+        })
+        setCharacterDialogOpen(false)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось применить персонажа из сообщества'
+        setErrorMessage(detail)
+      } finally {
+        setIsSelectingCharacter(false)
+        setSavingCommunityCharacterId((previous) => (previous === character.id ? null : previous))
+      }
+    },
+    [
+      authToken,
+      characterDialogMode,
+      ensureGameForCharacterSelection,
+      getCommunityCharacterSelectionDisabledReason,
+      isSelectingCharacter,
+      savingCommunityCharacterId,
+    ],
+  )
+
   const handleOpenWorldCardAvatarPicker = useCallback((cardId: number) => {
     if (isSavingWorldCardAvatar) {
       return
@@ -3711,7 +4270,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setCardMenuType(null)
       setCardMenuCardId(null)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить настройку редактирования ИИ'
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить настройку редактирования '
       setErrorMessage(detail)
     } finally {
       setUpdatingWorldCardAiEditId(null)
@@ -4138,6 +4697,54 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
   }, [adjustInputHeight])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return
+    }
+
+    const mediaQuery = window.matchMedia(MOBILE_COMPOSER_MEDIA_QUERY)
+    const updateComposerDeviceMode = () => setIsMobileComposer(mediaQuery.matches)
+    updateComposerDeviceMode()
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateComposerDeviceMode)
+      return () => mediaQuery.removeEventListener('change', updateComposerDeviceMode)
+    }
+
+    mediaQuery.addListener(updateComposerDeviceMode)
+    return () => mediaQuery.removeListener(updateComposerDeviceMode)
+  }, [])
+
+  useEffect(() => () => {
+    voiceSessionRequestedRef.current = false
+    const recognition = voiceRecognitionRef.current
+    voiceRecognitionRef.current = null
+    if (!recognition) {
+      return
+    }
+    try {
+      recognition.stop()
+    } catch {
+      // Ignore stop errors during unmount cleanup.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (voiceInputEnabled) {
+      return
+    }
+    voiceSessionRequestedRef.current = false
+    const recognition = voiceRecognitionRef.current
+    if (recognition) {
+      try {
+        recognition.stop()
+      } catch {
+        // Ignore stop errors when voice input setting is disabled.
+      }
+    }
+    setIsVoiceInputActive(false)
+  }, [voiceInputEnabled])
 
   useEffect(() => {
     const composerNode = composerContainerRef.current
@@ -4741,6 +5348,59 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
     }
+    if (card.kind === 'main_hero' || card.kind === 'npc') {
+      const linkedCharacterId =
+        typeof card.character_id === 'number' && card.character_id > 0
+          ? card.character_id
+          : worldCardCharacterMirrorByCardId[card.id] ?? null
+      const hasLinkedCharacter = linkedCharacterId ? characters.some((item) => item.id === linkedCharacterId) : false
+      if (linkedCharacterId && linkedCharacterId > 0 && hasLinkedCharacter) {
+        handleOpenCharacterManager({
+          initialCharacterId: linkedCharacterId,
+          syncCardId: card.id,
+        })
+        return
+      }
+
+      void (async () => {
+        try {
+          const normalizedName = card.title.replace(/\s+/g, ' ').trim() || 'Персонаж'
+          const normalizedDescription = card.content.replace(/\r\n/g, '\n').trim() || 'Описание персонажа'
+          const normalizedTriggers =
+            Array.isArray(card.triggers) && card.triggers.length > 0
+              ? card.triggers
+              : normalizeCharacterTriggersDraft('', normalizedName)
+          const mirroredCharacter = await createStoryCharacter({
+            token: authToken,
+            input: {
+              name: normalizedName,
+              description: normalizedDescription,
+              note: '',
+              triggers: normalizedTriggers,
+              avatar_url: resolveWorldCardAvatar(card),
+              avatar_scale: card.avatar_scale,
+              visibility: 'private',
+            },
+          })
+          setCharacters((previous) =>
+            [...previous.filter((item) => item.id !== mirroredCharacter.id), mirroredCharacter].sort((left, right) => left.id - right.id),
+          )
+          setHasLoadedCharacters(true)
+          setWorldCardCharacterMirrorByCardId((previous) => ({
+            ...previous,
+            [card.id]: mirroredCharacter.id,
+          }))
+          handleOpenCharacterManager({
+            initialCharacterId: mirroredCharacter.id,
+            syncCardId: card.id,
+          })
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'Не удалось открыть редактор персонажа'
+          setErrorMessage(detail)
+        }
+      })()
+      return
+    }
     setEditingWorldCardId(card.id)
     setEditingWorldCardKind(card.kind)
     setWorldCardTitleDraft(card.title)
@@ -4885,6 +5545,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           cardId,
         })
         setWorldCards((previousCards) => previousCards.filter((card) => card.id !== cardId))
+        setWorldCardCharacterMirrorByCardId((previous) => {
+          if (!(cardId in previous)) {
+            return previous
+          }
+          const next = { ...previous }
+          delete next[cardId]
+          return next
+        })
         if (editingWorldCardId === cardId) {
           setWorldCardDialogOpen(false)
           setEditingWorldCardId(null)
@@ -5040,7 +5708,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       type: 'memory',
       targetId: block.id,
       title: 'Удалить карточку памяти?',
-      message: `Карточка памяти «${normalizedTitle}» будет удалена без возможности восстановления.`,
+      message: `Карточка памяти В«${normalizedTitle}В» будет удалена без возможности восстановления.`,
     })
   }, [])
 
@@ -5103,7 +5771,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'instruction',
         targetId: targetCardId,
         title: 'Удалить инструкцию?',
-        message: `Инструкция «${normalizedTitle}» будет удалена без возможности восстановления.`,
+        message: `нструкция В«${normalizedTitle}В» будет удалена без возможности восстановления.`,
       })
       return
     }
@@ -5114,7 +5782,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'plot',
         targetId: targetCardId,
         title: 'Удалить карточку сюжета?',
-        message: `Карточка сюжета «${normalizedTitle}» будет удалена без возможности восстановления.`,
+        message: `Карточка сюжета В«${normalizedTitle}В» будет удалена без возможности восстановления.`,
       })
       return
     }
@@ -5131,7 +5799,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'world',
         targetId: targetCardId,
         title: 'Удалить карточку мира?',
-        message: `${worldCardLabel} «${normalizedTitle}» будет удалена без возможности восстановления.`,
+        message: `${worldCardLabel} В«${normalizedTitle}В» будет удалена без возможности восстановления.`,
       })
       return
     }
@@ -5394,7 +6062,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
         )
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответа ИИ'
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответа '
         setErrorMessage(detail)
       } finally {
         setIsSavingResponseMaxTokens(false)
@@ -5673,114 +6341,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const handleImageStylePromptCommit = useCallback(async () => {
     await persistImageStylePrompt(imageStylePromptDraft)
   }, [imageStylePromptDraft, persistImageStylePrompt])
-
-  const toggleMemoryOptimization = useCallback(async () => {
-    const targetGameId = activeGameId
-    if (
-      !targetGameId ||
-      isSavingMemoryOptimization ||
-      isSavingResponseMaxTokens ||
-      isSavingResponseMaxTokensEnabled ||
-        isSavingContextLimit ||
-        isSavingStoryLlmModel ||
-        isSavingStorySampling ||
-        isSavingThoughtVisibility ||
-        isSavingAmbientEnabled ||
-        isGenerating
-      ) {
-      return
-    }
-
-    const nextValue = !memoryOptimizationEnabled
-    const previousStoryLlmModel = storyLlmModel
-    const previousStoryTopK = storyTopK
-    const previousStoryTopR = storyTopR
-    const previousShowGgThoughts = showGgThoughts
-    const previousShowNpcThoughts = showNpcThoughts
-    const previousAmbientEnabled = ambientEnabled
-    const previousResponseMaxTokens = responseMaxTokens
-    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
-    setMemoryOptimizationEnabled(nextValue)
-    setStorySettingsOverrides((previousOverrides) => ({
-      ...previousOverrides,
-      [targetGameId]: {
-        storyLlmModel: previousStoryLlmModel,
-        responseMaxTokens: previousResponseMaxTokens,
-        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
-        memoryOptimizationEnabled: nextValue,
-        storyTopK: previousStoryTopK,
-        storyTopR: previousStoryTopR,
-        showGgThoughts: previousShowGgThoughts,
-        showNpcThoughts: previousShowNpcThoughts,
-        ambientEnabled: previousAmbientEnabled,
-      },
-    }))
-    setErrorMessage('')
-    setIsSavingMemoryOptimization(true)
-    try {
-      const updatedGame = await updateStoryGameSettings({
-        token: authToken,
-        gameId: targetGameId,
-        memoryOptimizationEnabled: nextValue,
-        contextLimitTokens: contextLimitChars,
-        responseMaxTokens: previousResponseMaxTokens,
-        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
-        storyTopK: previousStoryTopK,
-        storyTopR: previousStoryTopR,
-        showGgThoughts: previousShowGgThoughts,
-        showNpcThoughts: previousShowNpcThoughts,
-        ambientEnabled: previousAmbientEnabled,
-      })
-      const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars)
-      setContextLimitChars(persistedContextLimit)
-      setContextLimitDraft(String(persistedContextLimit))
-      setMemoryOptimizationEnabled(nextValue)
-      setGames((previousGames) =>
-        sortGamesByActivity(
-          previousGames.map((game) =>
-            game.id === updatedGame.id
-              ? {
-                  ...updatedGame,
-                  story_llm_model: previousStoryLlmModel,
-                  memory_optimization_enabled: nextValue,
-                  story_top_k: previousStoryTopK,
-                  story_top_r: previousStoryTopR,
-                  show_gg_thoughts: previousShowGgThoughts,
-                  show_npc_thoughts: previousShowNpcThoughts,
-                }
-              : game,
-          ),
-        ),
-      )
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить оптимизацию памяти'
-      setErrorMessage(detail)
-    } finally {
-      setIsSavingMemoryOptimization(false)
-    }
-  }, [
-    activeGameId,
-    authToken,
-    isGenerating,
-    isSavingAmbientEnabled,
-    isSavingContextLimit,
-    isSavingMemoryOptimization,
-    isSavingResponseMaxTokens,
-    isSavingResponseMaxTokensEnabled,
-    isSavingStorySampling,
-    isSavingThoughtVisibility,
-    isSavingStoryLlmModel,
-    contextLimitChars,
-    responseMaxTokens,
-    responseMaxTokensEnabled,
-    memoryOptimizationEnabled,
-    ambientEnabled,
-    showGgThoughts,
-    showNpcThoughts,
-    storyTopK,
-    storyTopR,
-    storyLlmModel,
-  ])
 
   const toggleShowGgThoughts = useCallback(async () => {
     const targetGameId = activeGameId
@@ -6163,7 +6723,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
       )
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа ИИ'
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа '
       setErrorMessage(detail)
     } finally {
       setIsSavingResponseMaxTokensEnabled(false)
@@ -6955,7 +7515,127 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ],
   )
 
+  const stopVoiceInput = useCallback(() => {
+    voiceSessionRequestedRef.current = false
+    const activeRecognition = voiceRecognitionRef.current
+    if (activeRecognition) {
+      try {
+        activeRecognition.stop()
+      } catch {
+        // Ignore repeated stop calls from toggle handlers.
+      }
+    }
+    setIsVoiceInputActive(false)
+  }, [])
+
+  const startVoiceInput = useCallback(() => {
+    if (isVoiceInputActive || !speechRecognitionCtor || !canUseVoiceInput) {
+      if (!speechRecognitionCtor && !isGenerating && !hasPromptText) {
+        setErrorMessage('Голосовой ввод недоступен в этом браузере.')
+      }
+      return
+    }
+
+    voiceSessionRequestedRef.current = true
+
+    const recognition = new speechRecognitionCtor()
+    voiceRecognitionRef.current = recognition
+    hasVoiceTranscriptRef.current = false
+    voiceBasePromptRef.current = inputValue.replace(/\r\n/g, '\n').trim()
+    voiceFinalTranscriptRef.current = ''
+
+    recognition.lang = 'ru-RU'
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.onstart = () => {
+      setIsVoiceInputActive(true)
+    }
+    recognition.onresult = (event: Event) => {
+      const rawResults = (event as Event & { results?: BrowserSpeechRecognitionResultList }).results
+      if (!rawResults) {
+        return
+      }
+
+      const finalizedParts: string[] = []
+      const interimParts: string[] = []
+      for (let index = 0; index < rawResults.length; index += 1) {
+        const result = rawResults[index] as ({ isFinal?: boolean } & ArrayLike<BrowserSpeechRecognitionResultAlternative>) | undefined
+        if (!result) {
+          continue
+        }
+        const candidate = result[0]
+        const transcript = typeof candidate?.transcript === 'string' ? candidate.transcript.trim() : ''
+        if (transcript) {
+          if (result.isFinal) {
+            finalizedParts.push(transcript)
+          } else {
+            interimParts.push(transcript)
+          }
+        }
+      }
+
+      const normalizedFinalTranscript = finalizedParts.join(' ').replace(/\s+/g, ' ').trim()
+      voiceFinalTranscriptRef.current = normalizedFinalTranscript
+      hasVoiceTranscriptRef.current = normalizedFinalTranscript.length > 0
+      const interimTranscript = interimParts.join(' ').replace(/\s+/g, ' ').trim()
+      const combinedTranscript = [voiceBasePromptRef.current, normalizedFinalTranscript, interimTranscript]
+        .filter((value) => value.trim().length > 0)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      setInputValue(combinedTranscript.slice(0, STORY_PROMPT_MAX_LENGTH))
+    }
+    recognition.onerror = (event: Event) => {
+      const errorCode = String((event as Event & { error?: string }).error ?? '').trim().toLowerCase()
+      if (!errorCode || errorCode === 'aborted' || errorCode === 'no-speech') {
+        return
+      }
+      setErrorMessage('Не удалось распознать голос. Проверьте разрешение на микрофон и попробуйте снова.')
+    }
+    recognition.onend = () => {
+      voiceRecognitionRef.current = null
+      setIsVoiceInputActive(false)
+      if (!voiceSessionRequestedRef.current) {
+        return
+      }
+      window.setTimeout(() => {
+        if (!voiceSessionRequestedRef.current) {
+          return
+        }
+        if (voiceRecognitionRef.current) {
+          return
+        }
+        if (isGenerating || isCreatingGame || hasInsufficientTokensForTurn) {
+          voiceSessionRequestedRef.current = false
+          return
+        }
+        startVoiceInput()
+      }, 140)
+    }
+
+    try {
+      recognition.start()
+    } catch {
+      voiceRecognitionRef.current = null
+      setIsVoiceInputActive(false)
+      setErrorMessage('Не удалось запустить голосовой ввод.')
+    }
+  }, [canUseVoiceInput, hasPromptText, inputValue, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor])
+
   const handleSendPrompt = useCallback(async () => {
+    if (isVoiceInputActive) {
+      voiceSessionRequestedRef.current = false
+      const activeRecognition = voiceRecognitionRef.current
+      if (activeRecognition) {
+        try {
+          activeRecognition.stop()
+        } catch {
+          // Ignore voice stop errors before message send.
+        }
+      }
+      setIsVoiceInputActive(false)
+    }
+
     if (isGenerating) {
       return
     }
@@ -7024,7 +7704,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isGenerating, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isGenerating, isVoiceInputActive, onNavigate, runStoryGeneration])
+
+  const handleVoiceActionClick = useCallback(() => {
+    if (isGenerating) {
+      const activeController = generationAbortRef.current
+      if (activeController) {
+        activeController.abort()
+        generationAbortRef.current = null
+      }
+      setIsGenerating(false)
+      setActiveAssistantMessageId(null)
+      return
+    }
+    if (!showMicAction) {
+      void handleSendPrompt()
+      return
+    }
+    if (isVoiceInputActive) {
+      stopVoiceInput()
+      return
+    }
+    voiceSessionRequestedRef.current = true
+    startVoiceInput()
+  }, [handleSendPrompt, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -7079,10 +7782,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsUndoingAssistantStep(false)
     }
   }, [activeGameId, authToken, canRedoAssistantStep, isUndoingAssistantStep, loadGameById])
-
-  const handleStopGeneration = useCallback(() => {
-    generationAbortRef.current?.abort()
-  }, [])
 
   const handleRerollLastResponse = useCallback(async () => {
     if (!canReroll || !activeGameId) {
@@ -7366,7 +8065,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     onLogout()
   }
 
-  const profileName = user.display_name || 'Игрок'
+  const profileName = user.display_name || 'грок'
 
   return (
     <Box
@@ -7413,7 +8112,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <RightPanelWorldIcon />
             </IconButton>
             <IconButton
-              aria-label="Инструкции и настройки"
+              aria-label="нструкции и настройки"
               onClick={() => {
                 setRightPanelMode('ai')
                 setActiveAiPanelTab('instructions')
@@ -7423,7 +8122,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <RightPanelAiIcon />
             </IconButton>
             <IconButton
-              aria-label="Память ИИ"
+              aria-label="Память "
               onClick={() => {
                 setRightPanelMode('memory')
                 setActiveMemoryPanelTab('memory')
@@ -7684,13 +8383,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         },
                       }}
                     >
-                      Из шаблона
+                      з шаблона
                     </Button>
                   </Stack>
                   <RightPanelEmptyState
                     iconSrc={icons.communityCards}
-                    title="Инструкции"
-                    description="Задавайте свои шаблоны и ограничения, которым будет следовать ИИ. Например: отвечай максимум 5 небольшими абзацами, в художественном стиле"
+                    title="нструкции"
+                    description="Задавайте свои шаблоны и ограничения, которым будет следовать . Например: отвечай максимум 5 небольшими абзацами, в художественном стиле"
                   />
                 </>
               ) : (
@@ -7770,7 +8469,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
                               }}
                             >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
                             </IconButton>
                           </Stack>
                           <Typography
@@ -7842,7 +8541,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         },
                       }}
                     >
-                      Из шаблона
+                      з шаблона
                     </Button>
                   </Box>
                 </>
@@ -7863,822 +8562,871 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Typography>
               ) : (
                 <>
-                  <Stack direction="row" spacing={0.45} alignItems="center" sx={{ mt: 0.95 }}>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>
-                      Рассказчик
-                    </Typography>
-                    <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.narrator} />
-                  </Stack>
-                  <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
-                    <Select
-                      value={storyLlmModel}
-                      disabled={isSavingStorySettings || isGenerating}
-                      onChange={(event: SelectChangeEvent<string>) => {
-                        const nextModel = normalizeStoryNarratorModelId(event.target.value)
-                        void persistStoryNarratorModel(nextModel)
-                      }}
-                      MenuProps={{
-                        PaperProps: {
-                          sx: {
-                            mt: 0.45,
-                            borderRadius: '12px',
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-card-bg)',
-                            boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
-                            '& .MuiMenuItem-root': {
-                              color: 'var(--morius-text-primary)',
-                              fontWeight: 600,
-                              fontSize: '0.94rem',
-                              minHeight: 40,
-                            },
-                            '& .MuiMenuItem-root:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
-                            },
-                            '& .MuiMenuItem-root.Mui-selected': {
-                              backgroundColor: 'var(--morius-button-active)',
-                              color: 'var(--morius-title-text)',
-                            },
-                            '& .MuiMenuItem-root.Mui-selected:hover': {
-                              backgroundColor: 'var(--morius-button-active)',
-                            },
-                          },
-                        },
-                      }}
+                  <Box
+                    sx={{
+                      mt: 0.35,
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
+                    <Button
+                      onClick={() => setIsNarratorSettingsExpanded((previous) => !previous)}
                       sx={{
+                        width: '100%',
+                        minHeight: 54,
+                        px: 0,
+                        borderRadius: 0,
+                        justifyContent: 'space-between',
+                        textTransform: 'none',
                         color: 'var(--morius-title-text)',
-                        fontWeight: 700,
-                        borderRadius: '12px',
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        '& .MuiSelect-select': {
-                          py: 0.88,
-                        },
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        },
-                        '&:hover .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'var(--morius-accent)',
-                        },
-                        '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                          borderColor: 'var(--morius-accent)',
-                        },
-                        '& .MuiSelect-icon': {
-                          color: 'var(--morius-text-secondary)',
-                        },
-                        '&.Mui-disabled .MuiSelect-select': {
-                          WebkitTextFillColor: 'var(--morius-text-secondary)',
-                        },
+                        '&:hover': { backgroundColor: 'transparent' },
                       }}
                     >
-                      {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
-                        <MenuItem key={option.id} value={option.id}>
-                          {option.title}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <Box
-                    sx={{
-                      mt: 0.92,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 0.72,
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                          Показывать мысли ГГ
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showGgThoughts} />
-                      </Stack>
-                      <Switch
-                        checked={showGgThoughts}
-                        onChange={() => {
-                          void toggleShowGgThoughts()
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Рассказчик</Typography>
+                      <SvgIcon
                         sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: 'var(--morius-accent)',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: switchCheckedTrackColor,
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: switchTrackColor,
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Stack>
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                          Показывать мысли NPC
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showNpcThoughts} />
-                      </Stack>
-                      <Switch
-                        checked={showNpcThoughts}
-                        onChange={() => {
-                          void toggleShowNpcThoughts()
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
-                        sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: 'var(--morius-accent)',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: switchCheckedTrackColor,
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: switchTrackColor,
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Stack>
-                    {isSavingThoughtVisibility ? <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} /> : null}
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" spacing={0.45} alignItems="center">
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>
-                        Художник
-                      </Typography>
-                      <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.artist} />
-                    </Stack>
-                    <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
-                      <Select
-                        value={storyImageModel}
-                        disabled={isSavingStorySettings || isGenerating}
-                        onChange={(event: SelectChangeEvent<string>) => {
-                          const nextModel = normalizeStoryImageModelId(event.target.value)
-                          void persistStoryImageModel(nextModel)
-                        }}
-                        MenuProps={{
-                          PaperProps: {
-                            sx: {
-                              mt: 0.45,
-                              borderRadius: '12px',
-                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                              backgroundColor: 'var(--morius-card-bg)',
-                              boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
-                              '& .MuiMenuItem-root': {
-                                color: 'var(--morius-text-primary)',
-                                fontWeight: 600,
-                                fontSize: '0.94rem',
-                                minHeight: 40,
-                              },
-                              '& .MuiMenuItem-root:hover': {
-                                backgroundColor: 'var(--morius-button-hover)',
-                              },
-                              '& .MuiMenuItem-root.Mui-selected': {
-                                backgroundColor: 'var(--morius-button-active)',
-                                color: 'var(--morius-title-text)',
-                              },
-                              '& .MuiMenuItem-root.Mui-selected:hover': {
-                                backgroundColor: 'var(--morius-button-active)',
-                              },
-                            },
-                          },
-                        }}
-                        sx={{
-                          color: 'var(--morius-title-text)',
-                          fontWeight: 700,
-                          borderRadius: '12px',
-                          backgroundColor: 'var(--morius-elevated-bg)',
-                          '& .MuiSelect-select': {
-                            py: 0.88,
-                          },
-                          '& .MuiOutlinedInput-notchedOutline': {
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          },
-                          '&:hover .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'var(--morius-accent)',
-                          },
-                          '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                            borderColor: 'var(--morius-accent)',
-                          },
-                          '& .MuiSelect-icon': {
-                            color: 'var(--morius-text-secondary)',
-                          },
-                          '&.Mui-disabled .MuiSelect-select': {
-                            WebkitTextFillColor: 'var(--morius-text-secondary)',
-                          },
+                          fontSize: 21,
+                          color: 'var(--morius-text-secondary)',
+                          transform: isNarratorSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms ease',
                         }}
                       >
-                        {STORY_IMAGE_MODEL_OPTIONS.map((option) => (
-                          <MenuItem key={option.id} value={option.id}>
-                            {option.title}
-                          </MenuItem>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <Box
-                      component="input"
-                      value={imageStylePromptDraft}
-                      placeholder="Аниме стиль..."
-                      maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
-                      onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
-                      onBlur={() => {
-                        void handleImageStylePromptCommit()
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          event.preventDefault()
-                          void handleImageStylePromptCommit()
-                        }
-                      }}
-                      disabled={isSavingStorySettings || isGenerating}
-                      sx={{
-                        mt: 0.72,
-                        width: '100%',
-                        minHeight: 36,
-                        borderRadius: '11px',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-elevated-bg)',
-                        color: 'var(--morius-text-primary)',
-                        px: 0.92,
-                        outline: 'none',
-                        fontSize: '0.85rem',
-                        '&::placeholder': {
-                          color: 'var(--morius-text-secondary)',
-                        },
-                      }}
-                    />
-                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 0.44 }}>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
-                        {imageStylePromptDraft.length}/{STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
-                      </Typography>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        {isSavingStoryImageModel ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
-                        {isSavingImageStylePrompt ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
-                      </Stack>
-                    </Stack>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="baseline">
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                          Лимит контекста
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextLimit} />
-                      </Stack>
-                      <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.84rem' }}>{contextLimitChars}</Typography>
-                    </Stack>
-
-                    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.78 }}>
-                      <Box
-                        component="input"
-                        value={contextLimitDraft}
-                        maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
-                        onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
-                        onBlur={() => {
-                          void handleContextLimitDraftCommit()
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') {
-                            event.preventDefault()
-                            void handleContextLimitDraftCommit()
-                          }
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
-                        inputMode="numeric"
-                        sx={{
-                          width: 92,
-                          minHeight: 32,
-                          borderRadius: '999px',
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-elevated-bg)',
-                          color: 'var(--morius-text-primary)',
-                          px: 1,
-                          outline: 'none',
-                          fontSize: '0.84rem',
-                        }}
-                      />
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Токенов</Typography>
-                      {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
-                    </Stack>
-                    <TextLimitIndicator
-                      currentLength={contextLimitDraft.length}
-                      maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
-                      sx={{ mt: 0.45 }}
-                    />
-
-                    <Slider
-                      value={contextLimitChars}
-                      min={STORY_CONTEXT_LIMIT_MIN}
-                      max={STORY_CONTEXT_LIMIT_MAX}
-                      step={1}
-                      onChange={handleContextLimitSliderChange}
-                      onChangeCommitted={(event, value) => {
-                        void handleContextLimitSliderCommit(event, value)
-                      }}
-                      disabled={isSavingStorySettings || isGenerating}
-                      sx={{
-                        mt: 0.72,
-                        color: 'var(--morius-accent)',
-                        '& .MuiSlider-thumb': {
-                          width: 16,
-                          height: 16,
-                          backgroundColor: sliderThumbColor,
-                          border: `2px solid ${sliderThumbBorderColor}`,
-                        },
-                        '& .MuiSlider-rail': {
-                          opacity: 1,
-                          backgroundColor: sliderRailColor,
-                        },
-                      }}
-                    />
-
-                    <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.24 }}>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                        {STORY_CONTEXT_LIMIT_MIN}
-                      </Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                        {STORY_CONTEXT_LIMIT_MAX}
-                      </Typography>
-                    </Stack>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                          Ответ ИИ в токенах
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
-                      </Stack>
-                      <Switch
-                        checked={responseMaxTokensEnabled}
-                        onChange={() => {
-                          void toggleResponseMaxTokensEnabled()
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
-                        sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: 'var(--morius-accent)',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: switchCheckedTrackColor,
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: switchTrackColor,
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Stack>
-
-                    <Box sx={{ mt: 0.86 }}>
-                      <Stack direction="row" justifyContent="space-between" alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                          Лимит ответа
-                        </Typography>
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{responseMaxTokens}</Typography>
-                      </Stack>
-                      <Slider
-                        value={responseMaxTokens}
-                        min={STORY_RESPONSE_MAX_TOKENS_MIN}
-                        max={STORY_RESPONSE_MAX_TOKENS_MAX}
-                        step={1}
-                        onChange={handleResponseMaxTokensSliderChange}
-                        onChangeCommitted={(event, value) => {
-                          void handleResponseMaxTokensSliderCommit(event, value)
-                        }}
-                        disabled={!responseMaxTokensEnabled || isSavingStorySettings || isGenerating}
-                        sx={{
-                          mt: 0.42,
-                          color: 'var(--morius-accent)',
-                          '& .MuiSlider-thumb': {
-                            width: 14,
-                            height: 14,
-                            backgroundColor: sliderThumbColor,
-                            border: `2px solid ${sliderThumbBorderColor}`,
-                          },
-                          '& .MuiSlider-rail': {
-                            opacity: 1,
-                            backgroundColor: sliderRailColor,
-                          },
-                        }}
-                      />
-                    </Box>
-
-                    <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.28 }}>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                        {STORY_RESPONSE_MAX_TOKENS_MIN}
-                      </Typography>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                        {STORY_RESPONSE_MAX_TOKENS_MAX}
-                      </Typography>
-                    </Stack>
-
-                    {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
-                      <CircularProgress size={14} sx={{ mt: 0.45, color: 'var(--morius-accent)' }} />
-                    ) : null}
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                          Оптимизация памяти
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.memoryOptimization} />
-                      </Stack>
-                      <Switch
-                        checked={memoryOptimizationEnabled}
-                        onChange={() => {
-                          void toggleMemoryOptimization()
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
-                        sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: 'var(--morius-accent)',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: switchCheckedTrackColor,
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: switchTrackColor,
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Stack>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
-                          Эмбиент подсветка
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.ambient} />
-                      </Stack>
-                      <Switch
-                        checked={ambientEnabled}
-                        onChange={() => {
-                          void toggleAmbientEnabled()
-                        }}
-                        disabled={isSavingStorySettings || isGenerating}
-                        sx={{
-                          '& .MuiSwitch-switchBase.Mui-checked': {
-                            color: 'var(--morius-accent)',
-                          },
-                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                            backgroundColor: switchCheckedTrackColor,
-                            opacity: 1,
-                          },
-                          '& .MuiSwitch-track': {
-                            backgroundColor: switchTrackColor,
-                            opacity: 1,
-                          },
-                        }}
-                      />
-                    </Stack>
-                  </Box>
-
-                  <Box
-                    sx={{
-                      mt: 0.98,
-                      pt: 0.9,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack direction="row" spacing={0.45} alignItems="center">
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>
-                          Параметры модели
-                        </Typography>
-                        <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.temperature} />
-                      </Stack>
-                      <Stack direction="row" alignItems="center" spacing={0.35}>
-                        <Button
-                          onClick={() => {
-                            void handleResetStorySampling()
-                          }}
-                          disabled={
-                            isSavingStorySettings ||
-                            isGenerating ||
-                            (storyTemperature === STORY_DEFAULT_TEMPERATURE &&
-                              storyTopK === STORY_DEFAULT_TOP_K &&
-                              storyTopR === STORY_DEFAULT_TOP_R)
-                          }
-                          sx={{
-                            minHeight: 30,
-                            px: 1.1,
-                            borderRadius: '999px',
-                            textTransform: 'none',
-                            fontSize: '0.76rem',
-                            fontWeight: 700,
-                            color: 'var(--morius-text-secondary)',
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
-                            '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
-                            },
-                          }}
-                        >
-                          Сброс
-                        </Button>
-                        <IconButton
-                          aria-label={isModelSamplingExpanded ? 'Свернуть параметры модели' : 'Развернуть параметры модели'}
-                          onClick={() => setIsModelSamplingExpanded((previous) => !previous)}
-                          sx={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: '999px',
-                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                            color: 'var(--morius-text-secondary)',
-                            backgroundColor: 'var(--morius-elevated-bg)',
-                            '&:hover': {
-                              backgroundColor: 'var(--morius-button-hover)',
-                            },
-                          }}
-                        >
-                          <SvgIcon
+                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                      </SvgIcon>
+                    </Button>
+                    <Collapse in={isNarratorSettingsExpanded} timeout={200} unmountOnExit>
+                      <Box sx={{ pb: 0.9 }}>
+                        <Stack direction="row" spacing={0.45} alignItems="center">
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                            Выбор рассказчика
+                          </Typography>
+                          <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.narrator} />
+                        </Stack>
+                        <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
+                          <Select
+                            value={storyLlmModel}
+                            disabled={isSavingStorySettings || isGenerating}
+                            onChange={(event: SelectChangeEvent<string>) => {
+                              const nextModel = normalizeStoryNarratorModelId(event.target.value)
+                              void persistStoryNarratorModel(nextModel)
+                            }}
+                            MenuProps={{
+                              PaperProps: {
+                                sx: {
+                                  mt: 0.45,
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-card-bg)',
+                                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                                  '& .MuiMenuItem-root': {
+                                    color: 'var(--morius-text-primary)',
+                                    fontWeight: 600,
+                                    fontSize: '0.94rem',
+                                    minHeight: 40,
+                                  },
+                                  '& .MuiMenuItem-root:hover': {
+                                    backgroundColor: 'var(--morius-button-hover)',
+                                  },
+                                  '& .MuiMenuItem-root.Mui-selected': {
+                                    backgroundColor: 'var(--morius-button-active)',
+                                    color: 'var(--morius-title-text)',
+                                  },
+                                  '& .MuiMenuItem-root.Mui-selected:hover': {
+                                    backgroundColor: 'var(--morius-button-active)',
+                                  },
+                                },
+                              },
+                            }}
                             sx={{
-                              fontSize: 19,
-                              transform: isModelSamplingExpanded ? 'rotate(0deg)' : 'rotate(-90deg)',
-                              transition: 'transform 200ms ease',
+                              color: 'var(--morius-title-text)',
+                              fontWeight: 700,
+                              borderRadius: '12px',
+                              backgroundColor: 'var(--morius-elevated-bg)',
+                              '& .MuiSelect-select': {
+                                py: 0.88,
+                              },
+                              '& .MuiOutlinedInput-notchedOutline': {
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              },
+                              '&:hover .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--morius-accent)',
+                              },
+                              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--morius-accent)',
+                              },
+                              '& .MuiSelect-icon': {
+                                color: 'var(--morius-text-secondary)',
+                              },
+                              '&.Mui-disabled .MuiSelect-select': {
+                                WebkitTextFillColor: 'var(--morius-text-secondary)',
+                              },
                             }}
                           >
-                            <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
-                          </SvgIcon>
-                        </IconButton>
-                      </Stack>
-                    </Stack>
-
-                    <Collapse in={isModelSamplingExpanded} timeout={200}>
-                      <Box sx={{ mt: 0.86 }}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
-                            Температура
-                          </Typography>
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
-                            {storyTemperature.toFixed(2)}
-                          </Typography>
-                        </Stack>
-                        <Slider
-                          value={storyTemperature}
-                          min={STORY_TEMPERATURE_MIN}
-                          max={STORY_TEMPERATURE_MAX}
-                          step={0.01}
-                          onChange={handleStoryTemperatureSliderChange}
-                          onChangeCommitted={(event, value) => {
-                            void handleStoryTemperatureSliderCommit(event, value)
-                          }}
-                          disabled={isSavingStorySettings || isGenerating}
-                          sx={{
-                            mt: 0.42,
-                            color: 'var(--morius-accent)',
-                            '& .MuiSlider-thumb': {
-                              width: 14,
-                              height: 14,
-                              backgroundColor: sliderThumbColor,
-                              border: `2px solid ${sliderThumbBorderColor}`,
-                            },
-                            '& .MuiSlider-rail': {
-                              opacity: 1,
-                              backgroundColor: sliderRailColor,
-                            },
-                          }}
-                        />
+                            {STORY_NARRATOR_MODEL_OPTIONS.map((option) => (
+                              <MenuItem key={option.id} value={option.id}>
+                                {option.title}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
                       </Box>
-
-                      <Box sx={{ mt: 0.34 }}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>Топ-K</Typography>
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{storyTopK}</Typography>
-                        </Stack>
-                        <Slider
-                          value={storyTopK}
-                          min={STORY_TOP_K_MIN}
-                          max={STORY_TOP_K_MAX}
-                          step={1}
-                          onChange={handleStoryTopKSliderChange}
-                          onChangeCommitted={(event, value) => {
-                            void handleStoryTopKSliderCommit(event, value)
-                          }}
-                          disabled={isSavingStorySettings || isGenerating}
-                          sx={{
-                            mt: 0.42,
-                            color: 'var(--morius-accent)',
-                            '& .MuiSlider-thumb': {
-                              width: 14,
-                              height: 14,
-                              backgroundColor: sliderThumbColor,
-                              border: `2px solid ${sliderThumbBorderColor}`,
-                            },
-                            '& .MuiSlider-rail': {
-                              opacity: 1,
-                              backgroundColor: sliderRailColor,
-                            },
-                          }}
-                        />
-                      </Box>
-
-                      <Box sx={{ mt: 0.34 }}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>Топ-P</Typography>
-                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{storyTopR.toFixed(2)}</Typography>
-                        </Stack>
-                        <Slider
-                          value={storyTopR}
-                          min={STORY_TOP_R_MIN}
-                          max={STORY_TOP_R_MAX}
-                          step={0.01}
-                          onChange={handleStoryTopRSliderChange}
-                          onChangeCommitted={(event, value) => {
-                            void handleStoryTopRSliderCommit(event, value)
-                          }}
-                          disabled={isSavingStorySettings || isGenerating}
-                          sx={{
-                            mt: 0.42,
-                            color: 'var(--morius-accent)',
-                            '& .MuiSlider-thumb': {
-                              width: 14,
-                              height: 14,
-                              backgroundColor: sliderThumbColor,
-                              border: `2px solid ${sliderThumbBorderColor}`,
-                            },
-                            '& .MuiSlider-rail': {
-                              opacity: 1,
-                              backgroundColor: sliderRailColor,
-                            },
-                          }}
-                        />
-                      </Box>
-
-                      {isSavingStorySampling ? <CircularProgress size={14} sx={{ mt: 0.45, color: 'var(--morius-accent)' }} /> : null}
                     </Collapse>
                   </Box>
 
-                  <Box
-                    sx={{
-                      mt: 1.05,
-                      pt: 0.92,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    }}
-                  >
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                      <Stack spacing={0.14}>
-                        <Stack direction="row" spacing={0.42} alignItems="center">
-                          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 700 }}>
-                            Использование контекста
-                          </Typography>
-                          <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextUsage} />
-                        </Stack>
-                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem' }}>
-                          {formatContextChars(cardsContextCharsUsed)} / {formatContextChars(contextLimitChars)}
-                        </Typography>
-                      </Stack>
-                      <Button
-                        onClick={() => setIsContextUsageExpanded((previous) => !previous)}
-                        sx={{
-                          minHeight: 28,
-                          px: 1,
-                          borderRadius: '999px',
-                          textTransform: 'none',
-                          fontSize: '0.73rem',
-                          fontWeight: 700,
-                          color: 'var(--morius-text-primary)',
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-elevated-bg)',
-                          '&:hover': {
-                            backgroundColor: 'var(--morius-button-hover)',
-                          },
-                        }}
-                      >
-                        {isContextUsageExpanded ? 'Свернуть' : 'Подробнее'}
-                      </Button>
-                    </Stack>
-
-                    <Box
+                  <Box sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                    <Button
+                      onClick={() => setIsVisualizationSettingsExpanded((previous) => !previous)}
                       sx={{
-                        mt: 0.64,
-                        height: 7,
-                        borderRadius: '999px',
-                        backgroundColor: switchTrackColor,
-                        overflow: 'hidden',
+                        width: '100%',
+                        minHeight: 54,
+                        px: 0,
+                        borderRadius: 0,
+                        justifyContent: 'space-between',
+                        textTransform: 'none',
+                        color: 'var(--morius-title-text)',
+                        '&:hover': { backgroundColor: 'transparent' },
                       }}
                     >
-                      <Box
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Визуализация</Typography>
+                      <SvgIcon
                         sx={{
-                          width: `${cardsContextUsagePercent}%`,
-                          height: '100%',
-                          borderRadius: '999px',
-                          backgroundColor: 'var(--morius-accent)',
-                          transition: 'width 180ms ease',
-                        }}
-                      />
-                    </Box>
-
-                    <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.7 }}>
-                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>Свободно</Typography>
-                      <Typography
-                        sx={{
-                          color: cardsContextOverflowChars > 0 ? 'error.main' : 'success.main',
-                          fontSize: '0.78rem',
-                          fontWeight: 700,
+                          fontSize: 21,
+                          color: 'var(--morius-text-secondary)',
+                          transform: isVisualizationSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms ease',
                         }}
                       >
-                        {formatContextChars(freeContextChars)}
-                      </Typography>
-                    </Stack>
-
-                    {isContextUsageExpanded ? (
-                      <>
-                        <Stack spacing={0.56} sx={{ mt: 0.85 }}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>Инструкции</Typography>
-                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
-                              {formatContextChars(instructionContextTokensUsed)}
-                            </Typography>
-                          </Stack>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
-                              {storyMemoryLabel}
-                            </Typography>
-                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
-                              {formatContextChars(storyMemoryTokensUsed)}
-                            </Typography>
-                          </Stack>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
-                              Карточки мира (активные)
-                            </Typography>
-                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
-                              {formatContextChars(worldContextTokensUsed)}
-                            </Typography>
-                          </Stack>
+                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                      </SvgIcon>
+                    </Button>
+                    <Collapse in={isVisualizationSettingsExpanded} timeout={200} unmountOnExit>
+                      <Box sx={{ pb: 0.9, pt: 0.08 }}>
+                        <Stack direction="row" spacing={0.45} alignItems="center">
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
+                            Художник
+                          </Typography>
+                          <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.artist} />
                         </Stack>
-
-                        <Typography sx={{ mt: 0.72, color: 'var(--morius-text-secondary)', fontSize: '0.73rem', lineHeight: 1.36 }}>
-                          {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length},
-                          ии-память {normalizedAiMemoryCardsForContext.length}, сюжет {normalizedPlotCardsForContext.length},
-                          мир {normalizedWorldCardsForContext.length} из {worldCards.length}.
-                        </Typography>
-
-                        {cardsContextOverflowChars > 0 ? (
-                          <Alert
-                            severity="warning"
+                        <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
+                          <Select
+                            value={storyImageModel}
+                            disabled={isSavingStorySettings || isGenerating}
+                            renderValue={(selectedValue) => {
+                              const option = STORY_IMAGE_MODEL_OPTIONS.find((item) => item.id === selectedValue)
+                              return option ? formatStoryImageModelLabel(option) : String(selectedValue)
+                            }}
+                            onChange={(event: SelectChangeEvent<string>) => {
+                              const nextModel = normalizeStoryImageModelId(event.target.value)
+                              void persistStoryImageModel(nextModel)
+                            }}
+                            MenuProps={{
+                              PaperProps: {
+                                sx: {
+                                  mt: 0.45,
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-card-bg)',
+                                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.42)',
+                                  '& .MuiMenuItem-root': {
+                                    color: 'var(--morius-text-primary)',
+                                    fontWeight: 600,
+                                    fontSize: '0.94rem',
+                                    minHeight: 40,
+                                  },
+                                  '& .MuiMenuItem-root:hover': {
+                                    backgroundColor: 'var(--morius-button-hover)',
+                                  },
+                                  '& .MuiMenuItem-root.Mui-selected': {
+                                    backgroundColor: 'var(--morius-button-active)',
+                                    color: 'var(--morius-title-text)',
+                                  },
+                                  '& .MuiMenuItem-root.Mui-selected:hover': {
+                                    backgroundColor: 'var(--morius-button-active)',
+                                  },
+                                },
+                              },
+                            }}
                             sx={{
-                              mt: 0.78,
-                              py: 0.2,
-                              borderRadius: 'var(--morius-radius)',
-                              backgroundColor: 'rgba(171, 57, 26, 0.16)',
-                              color: 'var(--morius-text-primary)',
-                              border: 'var(--morius-border-width) solid rgba(214, 116, 82, 0.32)',
-                              '& .MuiAlert-icon': {
-                                color: 'error.main',
-                                alignItems: 'center',
-                                py: 0.1,
+                              color: 'var(--morius-title-text)',
+                              fontWeight: 700,
+                              borderRadius: '12px',
+                              backgroundColor: 'var(--morius-elevated-bg)',
+                              '& .MuiSelect-select': {
+                                py: 0.88,
+                              },
+                              '& .MuiOutlinedInput-notchedOutline': {
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              },
+                              '&:hover .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--morius-accent)',
+                              },
+                              '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                                borderColor: 'var(--morius-accent)',
+                              },
+                              '& .MuiSelect-icon': {
+                                color: 'var(--morius-text-secondary)',
+                              },
+                              '&.Mui-disabled .MuiSelect-select': {
+                                WebkitTextFillColor: 'var(--morius-text-secondary)',
                               },
                             }}
                           >
-                            Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
-                          </Alert>
+                            {STORY_IMAGE_MODEL_OPTIONS.map((option) => (
+                              <MenuItem key={option.id} value={option.id}>
+                                {formatStoryImageModelLabel(option)}
+                              </MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <Box
+                          component="input"
+                          value={imageStylePromptDraft}
+                          placeholder="Аниме стиль..."
+                          maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
+                          onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
+                          onBlur={() => {
+                            void handleImageStylePromptCommit()
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              void handleImageStylePromptCommit()
+                            }
+                          }}
+                          disabled={isSavingStorySettings || isGenerating}
+                          sx={{
+                            mt: 0.72,
+                            width: '100%',
+                            minHeight: 36,
+                            borderRadius: '11px',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-text-primary)',
+                            px: 0.92,
+                            outline: 'none',
+                            fontSize: '0.85rem',
+                            '&::placeholder': {
+                              color: 'var(--morius-text-secondary)',
+                            },
+                          }}
+                        />
+                        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 0.44 }}>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem' }}>
+                            {imageStylePromptDraft.length}/{STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
+                          </Typography>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            {isSavingStoryImageModel ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
+                            {isSavingImageStylePrompt ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
+                          </Stack>
+                        </Stack>
+                      </Box>
+                    </Collapse>
+                  </Box>
+
+                  <Box sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                    <Button
+                      onClick={() => setIsAdditionalSettingsExpanded((previous) => !previous)}
+                      sx={{
+                        width: '100%',
+                        minHeight: 54,
+                        px: 0,
+                        borderRadius: 0,
+                        justifyContent: 'space-between',
+                        textTransform: 'none',
+                        color: 'var(--morius-title-text)',
+                        '&:hover': { backgroundColor: 'transparent' },
+                      }}
+                    >
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Дополнительно</Typography>
+                      <SvgIcon
+                        sx={{
+                          fontSize: 21,
+                          color: 'var(--morius-text-secondary)',
+                          transform: isAdditionalSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms ease',
+                        }}
+                      >
+                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                      </SvgIcon>
+                    </Button>
+                    <Collapse in={isAdditionalSettingsExpanded} timeout={200} unmountOnExit>
+                      <Box
+                        sx={{
+                          pb: 0.9,
+                          pt: 0.08,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 0.72,
+                        }}
+                      >
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Эмбиент подсветка
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.ambient} />
+                          </Stack>
+                          <Switch
+                            checked={ambientEnabled}
+                            onChange={() => {
+                              void toggleAmbientEnabled()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Показывать мысли ГГ
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showGgThoughts} />
+                          </Stack>
+                          <Switch
+                            checked={showGgThoughts}
+                            onChange={() => {
+                              void toggleShowGgThoughts()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Показывать мысли NPC
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.showNpcThoughts} />
+                          </Stack>
+                          <Switch
+                            checked={showNpcThoughts}
+                            onChange={() => {
+                              void toggleShowNpcThoughts()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        {isSavingThoughtVisibility || isSavingAmbientEnabled ? (
+                          <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
                         ) : null}
-                      </>
-                    ) : null}
+                      </Box>
+                    </Collapse>
+                  </Box>
+
+                  <Box sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                    <Button
+                      onClick={() => setIsFineTuneSettingsExpanded((previous) => !previous)}
+                      sx={{
+                        width: '100%',
+                        minHeight: 54,
+                        px: 0,
+                        borderRadius: 0,
+                        justifyContent: 'space-between',
+                        textTransform: 'none',
+                        color: 'var(--morius-title-text)',
+                        '&:hover': { backgroundColor: 'transparent' },
+                      }}
+                    >
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Тонкая настройка</Typography>
+                      <SvgIcon
+                        sx={{
+                          fontSize: 21,
+                          color: 'var(--morius-text-secondary)',
+                          transform: isFineTuneSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 200ms ease',
+                        }}
+                      >
+                        <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                      </SvgIcon>
+                    </Button>
+                    <Collapse in={isFineTuneSettingsExpanded} timeout={200} unmountOnExit>
+                      <Box sx={{ pb: 0.9, pt: 0.08 }}>
+                        <Box sx={{ mt: 0.12 }}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="baseline">
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
+                                Лимит контекста
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextLimit} />
+                            </Stack>
+                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.84rem' }}>{contextLimitChars}</Typography>
+                          </Stack>
+
+                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.78 }}>
+                            <Box
+                              component="input"
+                              value={contextLimitDraft}
+                              maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
+                              onBlur={() => {
+                                void handleContextLimitDraftCommit()
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  void handleContextLimitDraftCommit()
+                                }
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              inputMode="numeric"
+                              sx={{
+                                width: 92,
+                                minHeight: 32,
+                                borderRadius: '999px',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'var(--morius-elevated-bg)',
+                                color: 'var(--morius-text-primary)',
+                                px: 1,
+                                outline: 'none',
+                                fontSize: '0.84rem',
+                              }}
+                            />
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Токенов</Typography>
+                            {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
+                          </Stack>
+                          <TextLimitIndicator
+                            currentLength={contextLimitDraft.length}
+                            maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
+                            sx={{ mt: 0.45 }}
+                          />
+
+                          <Slider
+                            value={contextLimitChars}
+                            min={STORY_CONTEXT_LIMIT_MIN}
+                            max={STORY_CONTEXT_LIMIT_MAX}
+                            step={1}
+                            onChange={handleContextLimitSliderChange}
+                            onChangeCommitted={(event, value) => {
+                              void handleContextLimitSliderCommit(event, value)
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
+                            sx={{
+                              mt: 0.72,
+                              color: 'var(--morius-accent)',
+                              '& .MuiSlider-thumb': {
+                                width: 16,
+                                height: 16,
+                                backgroundColor: sliderThumbColor,
+                                border: `2px solid ${sliderThumbBorderColor}`,
+                              },
+                              '& .MuiSlider-rail': {
+                                opacity: 1,
+                                backgroundColor: sliderRailColor,
+                              },
+                            }}
+                          />
+
+                          <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.24 }}>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {STORY_CONTEXT_LIMIT_MIN}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {STORY_CONTEXT_LIMIT_MAX}
+                            </Typography>
+                          </Stack>
+                        </Box>
+
+                        <Box
+                          sx={{
+                            mt: 0.98,
+                            pt: 0.9,
+                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack spacing={0.14}>
+                              <Stack direction="row" spacing={0.42} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 700 }}>
+                                  спользование контекста
+                                </Typography>
+                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextUsage} />
+                              </Stack>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem' }}>
+                                {formatContextChars(cardsContextCharsUsed)} / {formatContextChars(contextLimitChars)}
+                              </Typography>
+                            </Stack>
+                            <Button
+                              onClick={() => setIsContextUsageExpanded((previous) => !previous)}
+                              sx={{
+                                minHeight: 28,
+                                px: 1,
+                                borderRadius: '999px',
+                                textTransform: 'none',
+                                fontSize: '0.73rem',
+                                fontWeight: 700,
+                                color: 'var(--morius-text-primary)',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'var(--morius-elevated-bg)',
+                                '&:hover': {
+                                  backgroundColor: 'var(--morius-button-hover)',
+                                },
+                              }}
+                            >
+                              {isContextUsageExpanded ? 'Свернуть' : 'Подробнее'}
+                            </Button>
+                          </Stack>
+
+                          <Box
+                            sx={{
+                              mt: 0.64,
+                              height: 7,
+                              borderRadius: '999px',
+                              backgroundColor: switchTrackColor,
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <Box
+                              sx={{
+                                width: `${cardsContextUsagePercent}%`,
+                                height: '100%',
+                                borderRadius: '999px',
+                                backgroundColor: 'var(--morius-accent)',
+                                transition: 'width 180ms ease',
+                              }}
+                            />
+                          </Box>
+
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.7 }}>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>Свободно</Typography>
+                            <Typography
+                              sx={{
+                                color: cardsContextOverflowChars > 0 ? 'error.main' : 'success.main',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {formatContextChars(freeContextChars)}
+                            </Typography>
+                          </Stack>
+
+                          {isContextUsageExpanded ? (
+                            <>
+                              <Stack spacing={0.56} sx={{ mt: 0.85 }}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>нструкции</Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
+                                    {formatContextChars(instructionContextTokensUsed)}
+                                  </Typography>
+                                </Stack>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                    {storyMemoryLabel}
+                                  </Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
+                                    {formatContextChars(storyMemoryTokensUsed)}
+                                  </Typography>
+                                </Stack>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                    Карточки мира (активные)
+                                  </Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 600 }}>
+                                    {formatContextChars(worldContextTokensUsed)}
+                                  </Typography>
+                                </Stack>
+                              </Stack>
+
+                              <Typography sx={{ mt: 0.72, color: 'var(--morius-text-secondary)', fontSize: '0.73rem', lineHeight: 1.36 }}>
+                                {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length}, ии-память{' '}
+                                {normalizedAiMemoryCardsForContext.length}, сюжет {normalizedPlotCardsForContext.length}, мир{' '}
+                                {normalizedWorldCardsForContext.length} из {worldCards.length}.
+                              </Typography>
+
+                              {cardsContextOverflowChars > 0 ? (
+                                <Alert
+                                  severity="warning"
+                                  sx={{
+                                    mt: 0.78,
+                                    py: 0.2,
+                                    borderRadius: 'var(--morius-radius)',
+                                    backgroundColor: 'rgba(171, 57, 26, 0.16)',
+                                    color: 'var(--morius-text-primary)',
+                                    border: 'var(--morius-border-width) solid rgba(214, 116, 82, 0.32)',
+                                    '& .MuiAlert-icon': {
+                                      color: 'error.main',
+                                      alignItems: 'center',
+                                      py: 0.1,
+                                    },
+                                  }}
+                                >
+                                  Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
+                                </Alert>
+                              ) : null}
+                            </>
+                          ) : null}
+                        </Box>
+
+                        <Box
+                          sx={{
+                            mt: 0.98,
+                            pt: 0.9,
+                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
+                                Ответ  в токенах
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokens} />
+                            </Stack>
+                            <Switch
+                              checked={responseMaxTokensEnabled}
+                              onChange={() => {
+                                void toggleResponseMaxTokensEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: 'var(--morius-accent)',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: switchCheckedTrackColor,
+                                  opacity: 1,
+                                },
+                                '& .MuiSwitch-track': {
+                                  backgroundColor: switchTrackColor,
+                                  opacity: 1,
+                                },
+                              }}
+                            />
+                          </Stack>
+
+                          <Box sx={{ mt: 0.86 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
+                                Лимит ответа
+                              </Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{responseMaxTokens}</Typography>
+                            </Stack>
+                            <Slider
+                              value={responseMaxTokens}
+                              min={STORY_RESPONSE_MAX_TOKENS_MIN}
+                              max={STORY_RESPONSE_MAX_TOKENS_MAX}
+                              step={1}
+                              onChange={handleResponseMaxTokensSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleResponseMaxTokensSliderCommit(event, value)
+                              }}
+                              disabled={!responseMaxTokensEnabled || isSavingStorySettings || isGenerating}
+                              sx={{
+                                mt: 0.42,
+                                color: 'var(--morius-accent)',
+                                '& .MuiSlider-thumb': {
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: sliderThumbColor,
+                                  border: `2px solid ${sliderThumbBorderColor}`,
+                                },
+                                '& .MuiSlider-rail': {
+                                  opacity: 1,
+                                  backgroundColor: sliderRailColor,
+                                },
+                              }}
+                            />
+                          </Box>
+
+                          <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.28 }}>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {STORY_RESPONSE_MAX_TOKENS_MIN}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {STORY_RESPONSE_MAX_TOKENS_MAX}
+                            </Typography>
+                          </Stack>
+
+                          {isSavingResponseMaxTokens || isSavingResponseMaxTokensEnabled ? (
+                            <CircularProgress size={14} sx={{ mt: 0.45, color: 'var(--morius-accent)' }} />
+                          ) : null}
+                        </Box>
+
+                        <Box
+                          sx={{
+                            mt: 0.98,
+                            pt: 0.9,
+                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>
+                                Параметры модели
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.temperature} />
+                            </Stack>
+                            <Button
+                              onClick={() => {
+                                void handleResetStorySampling()
+                              }}
+                              disabled={
+                                isSavingStorySettings ||
+                                isGenerating ||
+                                (storyTemperature === STORY_DEFAULT_TEMPERATURE &&
+                                  storyTopK === STORY_DEFAULT_TOP_K &&
+                                  storyTopR === STORY_DEFAULT_TOP_R)
+                              }
+                              sx={{
+                                minHeight: 30,
+                                px: 1.1,
+                                borderRadius: '999px',
+                                textTransform: 'none',
+                                fontSize: '0.76rem',
+                                fontWeight: 700,
+                                color: 'var(--morius-text-secondary)',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'var(--morius-elevated-bg)',
+                                '&:hover': {
+                                  backgroundColor: 'var(--morius-button-hover)',
+                                },
+                              }}
+                            >
+                              Сброс
+                            </Button>
+                          </Stack>
+
+                          <Box sx={{ mt: 0.86 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>
+                                Температура
+                              </Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>
+                                {storyTemperature.toFixed(2)}
+                              </Typography>
+                            </Stack>
+                            <Slider
+                              value={storyTemperature}
+                              min={STORY_TEMPERATURE_MIN}
+                              max={STORY_TEMPERATURE_MAX}
+                              step={0.01}
+                              onChange={handleStoryTemperatureSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleStoryTemperatureSliderCommit(event, value)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                mt: 0.42,
+                                color: 'var(--morius-accent)',
+                                '& .MuiSlider-thumb': {
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: sliderThumbColor,
+                                  border: `2px solid ${sliderThumbBorderColor}`,
+                                },
+                                '& .MuiSlider-rail': {
+                                  opacity: 1,
+                                  backgroundColor: sliderRailColor,
+                                },
+                              }}
+                            />
+                          </Box>
+
+                          <Box sx={{ mt: 0.34 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>Топ-K</Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{storyTopK}</Typography>
+                            </Stack>
+                            <Slider
+                              value={storyTopK}
+                              min={STORY_TOP_K_MIN}
+                              max={STORY_TOP_K_MAX}
+                              step={1}
+                              onChange={handleStoryTopKSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleStoryTopKSliderCommit(event, value)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                mt: 0.42,
+                                color: 'var(--morius-accent)',
+                                '& .MuiSlider-thumb': {
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: sliderThumbColor,
+                                  border: `2px solid ${sliderThumbBorderColor}`,
+                                },
+                                '& .MuiSlider-rail': {
+                                  opacity: 1,
+                                  backgroundColor: sliderRailColor,
+                                },
+                              }}
+                            />
+                          </Box>
+
+                          <Box sx={{ mt: 0.34 }}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.8rem', fontWeight: 700 }}>Топ-P</Typography>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{storyTopR.toFixed(2)}</Typography>
+                            </Stack>
+                            <Slider
+                              value={storyTopR}
+                              min={STORY_TOP_R_MIN}
+                              max={STORY_TOP_R_MAX}
+                              step={0.01}
+                              onChange={handleStoryTopRSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleStoryTopRSliderCommit(event, value)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                mt: 0.42,
+                                color: 'var(--morius-accent)',
+                                '& .MuiSlider-thumb': {
+                                  width: 14,
+                                  height: 14,
+                                  backgroundColor: sliderThumbColor,
+                                  border: `2px solid ${sliderThumbBorderColor}`,
+                                },
+                                '& .MuiSlider-rail': {
+                                  opacity: 1,
+                                  backgroundColor: sliderRailColor,
+                                },
+                              }}
+                            />
+                          </Box>
+
+                          {isSavingStorySampling ? <CircularProgress size={14} sx={{ mt: 0.45, color: 'var(--morius-accent)' }} /> : null}
+                        </Box>
+                      </Box>
+                    </Collapse>
                   </Box>
                 </>
               )}
@@ -8759,7 +9507,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               textOverflow: 'ellipsis',
                             }}
                           >
-                            #{block.id} · {block.title}
+                            #{block.id} В· {block.title}
                           </Typography>
                           <Typography
                             sx={{
@@ -8789,7 +9537,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
-                  DEV · ИИ память
+                  DEV В·  память
                 </Typography>
                 {(['raw', 'compressed', 'super'] as const).map((layer) => {
                   const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
@@ -8853,7 +9601,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     textOverflow: 'ellipsis',
                                   }}
                                 >
-                                  #{block.id} · {block.title}
+                                  #{block.id} В· {block.title}
                                 </Typography>
                                 <Typography
                                   sx={{
@@ -8912,7 +9660,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <RightPanelEmptyState
                     iconSrc={icons.communityInfo}
                     title="Сюжет"
-                    description="Карточки сюжета создаются только вручную. ИИ их не создает и не редактирует."
+                    description="Карточки сюжета создаются только вручную.  их не создает и не редактирует."
                   />
                 </>
               ) : (
@@ -8931,6 +9679,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         const contextState = plotCardContextStateById.get(card.id)
                         const isCardContextActive = Boolean(contextState?.isActive)
                         const resolvedPlotMemoryTurns = resolvePlotCardMemoryTurns(card)
+                        const resolvedPlotCardContent = replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)
                         return (
                         <Box key={card.id} sx={{ display: 'flex', flexDirection: 'column', gap: 0.45 }}>
                           <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap', px: 0 }}>
@@ -8950,7 +9699,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 py: 0.18,
                               }}
                             >
-                              {card.is_enabled ? 'АКТИВНА' : 'ВЫКЛЮЧЕНА'}
+                              {card.is_enabled ? 'АКТВНА' : 'ВЫКЛЮЧЕНА'}
                             </Typography>
                             <Typography
                               sx={{
@@ -9026,7 +9775,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
                                 }}
                               >
-                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
                               </IconButton>
                             </Stack>
                             <Typography
@@ -9042,7 +9791,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 overflow: 'hidden',
                               }}
                             >
-                              {card.content}
+                              {resolvedPlotCardContent}
                             </Typography>
                             <Typography
                               sx={{
@@ -9191,7 +9940,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
                       }}
                     >
-                      <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                      <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
                     </IconButton>
                   </Box>
                 )}
@@ -9211,7 +9960,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
+                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и . У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
               </Typography>
 
               {displayedWorldCards.length === 0 ? (
@@ -9271,7 +10020,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 py: 0.18,
                               }}
                             >
-                              {card.ai_edit_enabled ? 'ИИ: РАЗРЕШЕНО' : 'ИИ: ЗАПРЕЩЕНО'}
+                              {card.ai_edit_enabled ? ': РАЗРЕШЕНО' : ': ЗАПРЕЩЕНО'}
                             </Typography>
                           </Stack>
                           <Box
@@ -9355,7 +10104,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
                                 }}
                               >
-                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                                <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
                               </IconButton>
                             </Stack>
                             <Typography
@@ -9705,7 +10454,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }
 
                   if (message.role === 'assistant') {
-                    const blocks = parseAssistantMessageBlocks(message.content)
+                    const blocks = parseAssistantMessageBlocks(
+                      replaceMainHeroInlineTags(message.content, mainHeroDisplayNameForTags),
+                    )
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
                     const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
@@ -10050,7 +10801,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        ×
+                                        Г—
                                       </IconButton>
                                       <IconButton
                                         aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
@@ -10071,7 +10822,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        {isExpanded ? '˄' : '˅'}
+                                        {isExpanded ? 'Л„' : 'Л…'}
                                       </IconButton>
                                     </Stack>
                                     {isExpanded ? (
@@ -10193,7 +10944,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        ×
+                                        Г—
                                       </IconButton>
                                       <IconButton
                                         aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
@@ -10214,7 +10965,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        {isExpanded ? '˄' : '˅'}
+                                        {isExpanded ? 'Л„' : 'Л…'}
                                       </IconButton>
                                     </Stack>
                                     {isExpanded ? (
@@ -10381,7 +11132,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     >
                       <CharacterAvatar
                         avatarUrl={mainHeroAvatarUrl}
-                        fallbackLabel={mainHeroCard?.title || user.display_name || 'Игрок'}
+                        fallbackLabel={mainHeroCard?.title || user.display_name || 'грок'}
                         size={28}
                       />
                       <Box
@@ -10507,24 +11258,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             sx={{
               width: '100%',
               borderRadius: 'var(--morius-radius)',
-              border: composerAmbientVisual
-                ? `var(--morius-border-width) solid ${composerAmbientVisual.borderColor}`
-                : 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-card-bg)',
-              boxShadow: composerAmbientVisual
-                ? `0 14px 30px rgba(0, 0, 0, 0.28), ${composerAmbientVisual.baseShadow}`
-                : '0 14px 30px rgba(0, 0, 0, 0.28)',
-              transition: 'box-shadow 1000ms ease, border-color 1000ms ease',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+              background: 'color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%)',
+              boxShadow: 'none',
+              transition: 'none',
               overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
               position: 'relative',
               zIndex: 1,
             }}
           >
             <Stack
               direction="row"
-              alignItems="flex-start"
-              spacing={0.95}
-              sx={{ px: 1.35, pt: 'var(--morius-story-right-padding)', pb: 'var(--morius-story-right-padding)' }}
+              alignItems="stretch"
+              spacing={0}
+              sx={{
+                px: 1.1,
+                pt: 0.84,
+                pb: 0.72,
+                position: 'relative',
+              }}
             >
               <Box
                 component="textarea"
@@ -10535,23 +11289,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 disabled={isGenerating || hasInsufficientTokensForTurn}
                 onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && !event.shiftKey) {
+                  if (event.key !== 'Enter') {
+                    return
+                  }
+                  if (isMobileComposer) {
+                    return
+                  }
+                  if (!event.shiftKey) {
                     event.preventDefault()
                     void handleSendPrompt()
                   }
                 }}
                 sx={{
                   flex: 1,
-                  minHeight: 42,
+                  minHeight: 96,
                   maxHeight: '34vh',
                   resize: 'none',
                   border: 'none',
+                  borderRadius: 'calc(var(--morius-radius) - 2px)',
                   outline: 'none',
                   background: 'transparent',
                   color: 'var(--morius-title-text)',
-                  fontSize: 'var(--morius-body-size)',
+                  fontSize: { xs: '1.12rem', sm: 'var(--morius-body-size)' },
                   lineHeight: 1.42,
                   fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                  px: 1.2,
+                  py: 0.95,
+                  pr: 8.05,
                   '&::placeholder': {
                     color: 'var(--morius-text-secondary)',
                   },
@@ -10559,22 +11323,36 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               />
               <IconButton
                 aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
-                onClick={() => {
-                  if (isGenerating) {
-                    handleStopGeneration()
-                    return
-                  }
-                  void handleSendPrompt()
-                }}
-                disabled={isCreatingGame || (!isGenerating && !inputValue.trim())}
+                onClick={handleVoiceActionClick}
+                disabled={isGenerating ? false : (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText))}
                 sx={{
+                  '@keyframes morius-voice-pulse': {
+                    '0%, 100%': {
+                      transform: 'scale(1)',
+                      boxShadow: '0 0 0 0 color-mix(in srgb, var(--morius-accent) 34%, transparent)',
+                    },
+                    '50%': {
+                      transform: 'scale(1.03)',
+                      boxShadow: '0 0 0 7px color-mix(in srgb, var(--morius-accent) 0%, transparent)',
+                    },
+                  },
+                  position: 'absolute',
+                  top: 12,
+                  right: 12,
                   width: 'var(--morius-action-size)',
                   height: 'var(--morius-action-size)',
                   borderRadius: 'var(--morius-radius)',
-                  alignSelf: 'flex-start',
                   backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
                   border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
                   color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                  ...(isVoiceInputActive && showMicAction
+                    ? {
+                        color: sendButtonIconColor,
+                        backgroundColor: 'color-mix(in srgb, var(--morius-send-button-bg) 78%, var(--morius-accent) 22%)',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border) 42%)',
+                        animation: 'morius-voice-pulse 1.05s ease-in-out infinite',
+                      }
+                    : {}),
                   '&:hover': {
                     backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 92%, #fff 8%)',
                   },
@@ -10582,7 +11360,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 88%, #000 12%)',
                   },
                   '&:disabled': {
-                    opacity: isGenerating ? 0.7 : 0.65,
+                    opacity: isGenerating ? 0.7 : 0.62,
                     color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
                     backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
                     border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -10599,6 +11377,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       backgroundColor: 'var(--morius-accent)',
                     }}
                   />
+                ) : showMicAction ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      placeItems: 'center',
+                      transform: isVoiceInputActive ? 'scale(1.06)' : 'scale(1)',
+                      transition: 'transform 120ms ease',
+                    }}
+                  >
+                    <ComposerMicIcon />
+                  </Box>
                 ) : (
                   <Box
                     component="img"
@@ -10611,6 +11400,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   />
                 )}
               </IconButton>
+              {isVoiceInputActive && showMicAction ? (
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={0.45}
+                  sx={{
+                    position: 'absolute',
+                    left: 13,
+                    bottom: 9,
+                    color: 'var(--morius-accent)',
+                    '@keyframes morius-voice-dot': {
+                      '0%, 100%': {
+                        opacity: 0.45,
+                        transform: 'scale(0.88)',
+                      },
+                      '50%': {
+                        opacity: 1,
+                        transform: 'scale(1.2)',
+                      },
+                    },
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      backgroundColor: 'var(--morius-accent)',
+                      animation: 'morius-voice-dot 0.86s ease-in-out infinite',
+                    }}
+                  />
+                  <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
+                    дет запись...
+                  </Typography>
+                </Stack>
+              ) : null}
             </Stack>
 
             <Stack
@@ -10618,12 +11443,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               alignItems="center"
               justifyContent="space-between"
               sx={{
-                borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-                px: 1.35,
-                py: 'var(--morius-story-right-padding)',
+                borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
+                px: 1.1,
+                py: 0.78,
+                gap: 0.8,
               }}
             >
-              <Stack direction="row" alignItems="center" sx={{ gap: 1.1 }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                sx={{
+                  gap: 0.74,
+                  flexWrap: 'nowrap',
+                  minWidth: 0,
+                  flex: 1,
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 <Tooltip
                   arrow
                   placement="top"
@@ -10635,9 +11473,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Box>
                   }
                 >
-                  <Stack direction="row" spacing={0.35} alignItems="center" sx={{ cursor: 'help' }}>
-                    <Box component="img" src={icons.coin} alt="" sx={{ width: 16, height: 16, opacity: 0.92 }} />
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: 'var(--morius-subheading-size)', lineHeight: 1 }}>
+                  <Stack
+                    direction="row"
+                    spacing={0.42}
+                    alignItems="center"
+                    sx={{
+                      cursor: 'help',
+                      px: 0.18,
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={icons.coin}
+                      alt=""
+                      sx={{
+                        width: 15,
+                        height: 15,
+                        opacity: 0.96,
+                        filter: 'drop-shadow(0 0 4px color-mix(in srgb, var(--morius-accent) 38%, transparent))',
+                      }}
+                    />
+                    <Typography
+                      sx={{
+                        color: 'var(--morius-accent)',
+                        fontSize: '1.02rem',
+                        lineHeight: 1,
+                        fontWeight: 800,
+                        letterSpacing: '0.01em',
+                      }}
+                    >
                       {currentTurnCostTokens}
                     </Typography>
                   </Stack>
@@ -10647,12 +11511,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onClick={() => void handleUndoAssistantStep()}
                   disabled={!canUndoAssistantStep}
                   sx={{
-                    opacity: canUndoAssistantStep ? 1 : 0.45,
-                    p: 0,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
-                    '&:active': { backgroundColor: 'transparent' },
+                    width: 'var(--morius-action-size)',
+                    height: 'var(--morius-action-size)',
+                    borderRadius: 'var(--morius-radius)',
+                    opacity: canUndoAssistantStep ? 0.95 : 0.45,
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
+                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -10672,12 +11538,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onClick={() => void handleRedoAssistantStep()}
                   disabled={!canRedoAssistantStep}
                   sx={{
-                    opacity: canRedoAssistantStep ? 1 : 0.45,
-                    p: 0,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
-                    '&:active': { backgroundColor: 'transparent' },
+                    width: 'var(--morius-action-size)',
+                    height: 'var(--morius-action-size)',
+                    borderRadius: 'var(--morius-radius)',
+                    opacity: canRedoAssistantStep ? 0.95 : 0.45,
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
+                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -10697,12 +11565,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onClick={() => void handleRerollLastResponse()}
                   disabled={!canReroll}
                   sx={{
-                    opacity: canReroll ? 1 : 0.45,
-                    p: 0,
-                    backgroundColor: 'transparent',
-                    border: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
-                    '&:active': { backgroundColor: 'transparent' },
+                    width: 'var(--morius-action-size)',
+                    height: 'var(--morius-action-size)',
+                    borderRadius: 'var(--morius-radius)',
+                    opacity: canReroll ? 0.95 : 0.45,
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
+                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -10733,22 +11603,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     onClick={handleGenerateLatestTurnImage}
                     disabled={!canGenerateLatestTurnImage}
                     sx={{
-                      opacity: canGenerateLatestTurnImage ? 0.92 : 0.45,
-                      p: 0,
-                      width: 24,
-                      height: 24,
-                      borderRadius: '7px',
+                      opacity: canGenerateLatestTurnImage ? 0.95 : 0.45,
+                      width: 'var(--morius-action-size)',
+                      height: 'var(--morius-action-size)',
+                      borderRadius: 'var(--morius-radius)',
                       color: hasLatestTurnImage ? 'var(--morius-accent)' : secondaryGameButtonColor,
-                      border: 'none',
-                      backgroundColor: 'transparent',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
                       transition: 'color .15s ease, opacity .15s ease',
                       '&:hover': {
-                        backgroundColor: 'transparent',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)',
                         color: 'var(--morius-accent)',
                         opacity: 1,
                       },
                       '&:active': {
-                        backgroundColor: 'transparent',
+                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
                       },
                     }}
                   >
@@ -10762,18 +11631,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </IconButton>
                 </Tooltip>
               </Stack>
+              <Typography
+                sx={{
+                  color: 'var(--morius-text-secondary)',
+                  fontSize: '0.74rem',
+                  lineHeight: 1,
+                  flexShrink: 0,
+                  pr: 0.1,
+                }}
+              >
+                {`${inputValue.length}/${STORY_PROMPT_MAX_LENGTH}`}
+              </Typography>
 
-              <Stack direction="row" alignItems="center" spacing={0.9}>
-                <TextLimitIndicator
-                  currentLength={inputValue.length}
-                  maxLength={STORY_PROMPT_MAX_LENGTH}
-                  sx={{
-                    '@media (max-width:449px)': {
-                      display: 'none',
-                    },
-                  }}
-                />
-              </Stack>
             </Stack>
           </Box>
       </Box>
@@ -10910,9 +11779,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             {isSelectedMenuWorldCardAiEditUpdating ? (
               <CircularProgress size={14} sx={{ color: 'rgba(220, 231, 245, 0.92)' }} />
             ) : selectedMenuWorldCard?.ai_edit_enabled ? (
-              'Не редактировать ИИ'
+              'Не редактировать '
             ) : (
-              'Разрешить редактирование ИИ'
+              'Разрешить редактирование '
             )}
           </MenuItem>
         ) : null}
@@ -11036,7 +11905,168 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.3 }}>
-          <Stack spacing={1.1}>
+          {isCharacterWorldCardEditor ? (
+            <Stack spacing={0.95}>
+              <Stack spacing={0.7} alignItems="center">
+                <Box
+                  role="button"
+                  tabIndex={editingWorldCard ? 0 : -1}
+                  aria-label="зменить аватар персонажа"
+                  onClick={() => {
+                    if (!editingWorldCard || isWorldCardActionLocked) {
+                      return
+                    }
+                    handleOpenWorldCardAvatarPicker(editingWorldCard.id)
+                  }}
+                  onKeyDown={(event) => {
+                    if ((event.key === 'Enter' || event.key === ' ') && editingWorldCard && !isWorldCardActionLocked) {
+                      event.preventDefault()
+                      handleOpenWorldCardAvatarPicker(editingWorldCard.id)
+                    }
+                  }}
+                  sx={{
+                    position: 'relative',
+                    width: 248,
+                    height: 248,
+                    borderRadius: '50%',
+                    overflow: 'hidden',
+                    cursor: editingWorldCard && !isWorldCardActionLocked ? 'pointer' : 'default',
+                    border: '1px dashed rgba(194, 208, 226, 0.5)',
+                    background: 'linear-gradient(135deg, rgba(30, 33, 39, 0.86), rgba(56, 60, 68, 0.9))',
+                    outline: 'none',
+                    '&:hover .morius-world-card-avatar-overlay': {
+                      opacity: editingWorldCard && !isWorldCardActionLocked ? 1 : 0,
+                    },
+                    '&:focus-visible .morius-world-card-avatar-overlay': {
+                      opacity: editingWorldCard && !isWorldCardActionLocked ? 1 : 0,
+                    },
+                  }}
+                >
+                  <CharacterAvatar
+                    avatarUrl={editingWorldCardAvatarUrl}
+                    avatarScale={editingWorldCard?.avatar_scale ?? 1}
+                    fallbackLabel={worldCardTitleDraft || 'Персонаж'}
+                    size={248}
+                  />
+                  <Box
+                    className="morius-world-card-avatar-overlay"
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: 'rgba(16, 18, 20, 0.58)',
+                      opacity: 0,
+                      transition: 'opacity 180ms ease',
+                      pointerEvents: 'none',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 62,
+                        height: 62,
+                        borderRadius: '50%',
+                        border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.68)',
+                        backgroundColor: 'rgba(22, 24, 27, 0.66)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: 'var(--morius-text-primary)',
+                        fontSize: '2rem',
+                        fontWeight: 400,
+                      }}
+                    >
+                      +
+                    </Box>
+                  </Box>
+                  {isSavingWorldCardAvatar ? (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'grid',
+                        placeItems: 'center',
+                        backgroundColor: 'rgba(14, 16, 20, 0.56)',
+                      }}
+                    >
+                      <CircularProgress size={28} sx={{ color: 'rgba(224, 232, 243, 0.95)' }} />
+                    </Box>
+                  ) : null}
+                </Box>
+              </Stack>
+              <TextField
+                label="мя"
+                value={worldCardTitleDraft}
+                onChange={(event) => setWorldCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))}
+                fullWidth
+                autoFocus
+                disabled={isWorldCardActionLocked}
+                inputProps={{ maxLength: STORY_CARD_TITLE_MAX_LENGTH }}
+                helperText={<TextLimitIndicator currentLength={worldCardTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+              <TextField
+                label="Описание"
+                value={worldCardContentDraft}
+                onChange={(event) => setWorldCardContentDraft(event.target.value.slice(0, WORLD_CARD_CONTENT_MAX_LENGTH))}
+                fullWidth
+                multiline
+                minRows={4}
+                maxRows={8}
+                disabled={isWorldCardActionLocked}
+                inputProps={{ maxLength: WORLD_CARD_CONTENT_MAX_LENGTH }}
+                helperText={<TextLimitIndicator currentLength={worldCardContentDraft.length} maxLength={WORLD_CARD_CONTENT_MAX_LENGTH} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+              <TextField
+                label="Триггеры"
+                value={worldCardTriggersDraft}
+                onChange={(event) => setWorldCardTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))}
+                fullWidth
+                multiline
+                minRows={2}
+                maxRows={4}
+                disabled={isWorldCardActionLocked}
+                placeholder="через запятую"
+                inputProps={{ maxLength: STORY_TRIGGER_INPUT_MAX_LENGTH }}
+                helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+              {editingWorldCardKind === 'npc' ? (
+                <Stack spacing={0.35}>
+                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                    Память NPC в контексте
+                  </Typography>
+                  <Box
+                    component="select"
+                    value={worldCardMemoryTurnsDraft === null ? 'always' : String(worldCardMemoryTurnsDraft)}
+                    onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                      const nextValue = event.target.value
+                      setWorldCardMemoryTurnsDraft(nextValue === 'always' ? null : (Number(nextValue) as NpcMemoryTurnsOption))
+                    }}
+                    sx={{
+                      width: '100%',
+                      minHeight: 40,
+                      borderRadius: 'var(--morius-radius)',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: 'var(--morius-text-primary)',
+                      px: 1.1,
+                      outline: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    <option value="5">5 ходов</option>
+                    <option value="10">10 ходов</option>
+                    <option value="15">15 ходов</option>
+                    <option value="always">Помнить всегда</option>
+                  </Box>
+                </Stack>
+              ) : null}
+            </Stack>
+          ) : (
+            <Stack spacing={1.1}>
             <Box
               component="input"
               value={instructionTitleDraft}
@@ -11068,7 +12098,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box
               component="textarea"
               value={instructionContentDraft}
-              placeholder="Опишите стиль, жанр, формат и другие пожелания к ответам ИИ."
+              placeholder="Опишите стиль, жанр, формат и другие пожелания к ответам ."
               maxLength={8000}
               onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setInstructionContentDraft(event.target.value.slice(0, 8000))}
               onKeyDown={(event) => {
@@ -11095,6 +12125,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <TextLimitIndicator currentLength={instructionContentDraft.length} maxLength={8000} />
           </Stack>
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
           <Button
@@ -11644,16 +12675,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <CharacterManagerDialog
         open={characterManagerDialogOpen}
         authToken={authToken}
-        onClose={() => {
-          setCharacterManagerDialogOpen(false)
-          void loadCharacters({ silent: true })
-        }}
+        initialMode={characterManagerInitialMode}
+        initialCharacterId={characterManagerInitialCharacterId}
+        onClose={handleCloseCharacterManager}
       />
 
       <InstructionTemplateDialog
         open={instructionTemplateDialogOpen}
         authToken={authToken}
         mode={instructionTemplateDialogMode}
+        enableCommunityPicker={instructionTemplateDialogMode === 'picker'}
         selectedTemplateSignatures={
           instructionTemplateDialogMode === 'picker' ? selectedInstructionTemplateSignatures : undefined
         }
@@ -11719,7 +12750,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Box
                     role="button"
                     tabIndex={0}
-                    aria-label="Изменить аватар персонажа"
+                    aria-label="зменить аватар персонажа"
                     onClick={handleChooseCharacterAvatar}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -11777,7 +12808,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           fontWeight: 700,
                         }}
                       >
-                        ✎
+                        вњЋ
                       </Box>
                     </Box>
                   </Box>
@@ -11786,7 +12817,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Box
                     component="input"
                     value={characterNameDraft}
-                    placeholder="Имя"
+                    placeholder="мя"
                     maxLength={STORY_CHARACTER_NAME_MAX_LENGTH}
                     onChange={(event: ChangeEvent<HTMLInputElement>) =>
                       setCharacterNameDraft(event.target.value.slice(0, STORY_CHARACTER_NAME_MAX_LENGTH))
@@ -11853,6 +12884,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     }}
                   />
                   <TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />
+                  <Box
+                    component="input"
+                    value={characterNoteDraft}
+                    placeholder="Пометка (до 20 символов)"
+                    maxLength={STORY_CHARACTER_NOTE_MAX_LENGTH}
+                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                      setCharacterNoteDraft(event.target.value.slice(0, STORY_CHARACTER_NOTE_MAX_LENGTH))
+                    }
+                    sx={{
+                      width: '100%',
+                      minHeight: 38,
+                      borderRadius: 'var(--morius-radius)',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: 'var(--morius-text-primary)',
+                      px: 1.1,
+                      outline: 'none',
+                      fontSize: '0.9rem',
+                    }}
+                  />
+                  <TextLimitIndicator currentLength={characterNoteDraft.length} maxLength={STORY_CHARACTER_NOTE_MAX_LENGTH} />
                   {characterAvatarError ? <Alert severity="error">{characterAvatarError}</Alert> : null}
                   <Stack direction="row" spacing={0.7}>
                     <Button
@@ -11898,7 +12950,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Stack direction="row" spacing={0.7} alignItems="flex-start">
                         <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
                         <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.28}>
-                          <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 700, fontSize: '0.94rem' }}>{character.name}</Typography>
+                          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 700, fontSize: '0.94rem', minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.name}</Typography>
+                            {character.note ? (
+                              <Typography
+                                sx={{
+                                  color: 'rgba(184, 218, 247, 0.96)',
+                                  fontSize: '0.62rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 700,
+                                  border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                  borderRadius: '999px',
+                                  px: 0.5,
+                                  py: 0.08,
+                                  maxWidth: 98,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  flexShrink: 0,
+                                }}
+                                title={character.note}
+                              >
+                                {character.note}
+                              </Typography>
+                            ) : null}
+                          </Stack>
                           <Typography
                             sx={{
                               color: 'rgba(207, 217, 232, 0.86)',
@@ -11931,7 +13007,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           {deletingCharacterId === character.id ? (
                             <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
                           ) : (
-                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>⋯</Box>
+                            <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
                           )}
                         </IconButton>
                       </Stack>
@@ -11946,106 +13022,422 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               </Box>
             </Stack>
           ) : (
-            <Stack spacing={0.8}>
+            <Stack spacing={0.85}>
               <Typography sx={{ color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.9rem' }}>
                 {characterDialogMode === 'select-main-hero'
                   ? 'Выберите персонажа для роли главного героя. После выбора смена будет недоступна.'
                   : 'Выберите персонажа для добавления как NPC.'}
               </Typography>
-              <Box className="morius-scrollbar" sx={{ maxHeight: 360, overflowY: 'auto', pr: 0.2 }}>
-                <Stack spacing={0.75}>
-                  {characterDialogMode === 'select-npc' ? (
-                    <Button
-                      onClick={handleStartCreateCharacterFromNpcSelector}
-                      aria-label="Create character"
-                      disabled={isSavingCharacter || isSelectingCharacter}
-                      sx={{
-                        borderRadius: '12px',
-                        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
-                        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
-                        minHeight: 72,
-                        color: 'var(--morius-text-primary)',
-                        textTransform: 'none',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        '&:hover': {
-                          backgroundColor: 'rgba(129, 151, 182, 0.14)',
-                          borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
-                        },
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          width: 34,
-                          height: 34,
-                          borderRadius: '50%',
-                          border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
-                          display: 'grid',
-                          placeItems: 'center',
-                          fontSize: '1.45rem',
-                          fontWeight: 700,
-                          lineHeight: 1,
-                        }}
-                      >
-                        +
-                      </Box>
-                    </Button>
-                  ) : null}
-                  {characters.map((character) => {
-                    const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
-                    const isCharacterDisabled = Boolean(disabledReason)
-                    return (
+              <Stack direction="row" spacing={0.8}>
+                <Button
+                  onClick={() => setCharacterSelectionTab('my')}
+                  disabled={isSavingCharacter || isSelectingCharacter || savingCommunityCharacterId !== null}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor:
+                      characterSelectionTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                  }}
+                >
+                  Мои персонажи
+                </Button>
+                <Button
+                  onClick={() => setCharacterSelectionTab('community')}
+                  disabled={isSavingCharacter || isSelectingCharacter || savingCommunityCharacterId !== null}
+                  sx={{
+                    minHeight: 34,
+                    borderRadius: '10px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor:
+                      characterSelectionTab === 'community'
+                        ? 'var(--morius-button-active)'
+                        : 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                  }}
+                >
+                  Сообщество
+                </Button>
+              </Stack>
+              <Box
+                component="input"
+                value={characterSelectionSearchQuery}
+                placeholder="Поиск по имени, описанию, триггерам и автору"
+                onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                  setCharacterSelectionSearchQuery(event.target.value.slice(0, 240))
+                }
+                sx={{
+                  width: '100%',
+                  minHeight: 38,
+                  borderRadius: 'var(--morius-radius)',
+                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                  backgroundColor: 'var(--morius-card-bg)',
+                  color: 'var(--morius-text-primary)',
+                  px: 1.1,
+                  outline: 'none',
+                  fontSize: '0.9rem',
+                }}
+              />
+              {characterSelectionTab === 'community' ? (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                  <Box
+                    component="select"
+                    value={characterSelectionAddedFilter}
+                    onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                      setCharacterSelectionAddedFilter(event.target.value as CommunityAddedFilter)
+                    }
+                    sx={{
+                      flex: 1,
+                      minHeight: 36,
+                      borderRadius: '10px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      color: 'var(--morius-text-primary)',
+                      px: 1,
+                      fontSize: '0.84rem',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="all">Все</option>
+                    <option value="added">Сохраненные</option>
+                    <option value="not_added">Не сохраненные</option>
+                  </Box>
+                  <Box
+                    component="select"
+                    value={characterSelectionSortMode}
+                    onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                      setCharacterSelectionSortMode(event.target.value as CommunitySortMode)
+                    }
+                    sx={{
+                      flex: 1,
+                      minHeight: 36,
+                      borderRadius: '10px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      color: 'var(--morius-text-primary)',
+                      px: 1,
+                      fontSize: '0.84rem',
+                      outline: 'none',
+                    }}
+                  >
+                    <option value="updated_desc">Сначала новые</option>
+                    <option value="rating_desc">По рейтингу</option>
+                    <option value="additions_desc">По добавлениям</option>
+                  </Box>
+                </Stack>
+              ) : null}
+              <Box className="morius-scrollbar" sx={{ maxHeight: 390, overflowY: 'auto', pr: 0.2 }}>
+                {characterSelectionTab === 'my' ? (
+                  <Stack spacing={0.75}>
+                    {characterDialogMode === 'select-npc' ? (
                       <Button
-                        key={character.id}
-                        onClick={() => void handleSelectCharacterForGame(character)}
-                        disabled={isSelectingCharacter || isCharacterDisabled}
+                        onClick={handleStartCreateCharacterFromNpcSelector}
+                        aria-label="Create character"
+                        disabled={isSavingCharacter || isSelectingCharacter}
                         sx={{
                           borderRadius: '12px',
-                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                          backgroundColor: 'var(--morius-card-bg)',
+                          border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+                          minHeight: 72,
                           color: 'var(--morius-text-primary)',
                           textTransform: 'none',
                           alignItems: 'center',
-                          textAlign: 'left',
-                          px: 0.9,
-                          py: 0.7,
-                          justifyContent: 'flex-start',
-                          opacity: isCharacterDisabled ? 0.64 : 1,
+                          justifyContent: 'center',
+                          '&:hover': {
+                            backgroundColor: 'rgba(129, 151, 182, 0.14)',
+                            borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
+                          },
                         }}
                       >
-                        <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
-                          <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
-                          <Stack spacing={0.25} sx={{ minWidth: 0 }}>
-                            <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: 'var(--morius-title-text)' }}>{character.name}</Typography>
+                        <Box
+                          sx={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: '50%',
+                            border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            fontSize: '1.45rem',
+                            fontWeight: 700,
+                            lineHeight: 1,
+                          }}
+                        >
+                          +
+                        </Box>
+                      </Button>
+                    ) : null}
+                    {filteredOwnCharacterOptions.map((character) => {
+                      const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
+                      const isCharacterDisabled = Boolean(disabledReason)
+                      return (
+                        <Button
+                          key={character.id}
+                          onClick={() => void handleSelectCharacterForGame(character)}
+                          disabled={isSelectingCharacter || isCharacterDisabled}
+                          sx={{
+                            borderRadius: '12px',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-card-bg)',
+                            color: 'var(--morius-text-primary)',
+                            textTransform: 'none',
+                            alignItems: 'center',
+                            textAlign: 'left',
+                            px: 0.9,
+                            py: 0.7,
+                            justifyContent: 'flex-start',
+                            opacity: isCharacterDisabled ? 0.64 : 1,
+                          }}
+                        >
+                          <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
+                            <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                            <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+                              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: 'var(--morius-title-text)', minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {character.name}
+                                </Typography>
+                                {character.note ? (
+                                  <Typography
+                                    sx={{
+                                      color: 'rgba(184, 218, 247, 0.96)',
+                                      fontSize: '0.62rem',
+                                      lineHeight: 1.2,
+                                      fontWeight: 700,
+                                      border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                      borderRadius: '999px',
+                                      px: 0.5,
+                                      py: 0.08,
+                                      maxWidth: 98,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      flexShrink: 0,
+                                    }}
+                                    title={character.note}
+                                  >
+                                    {character.note}
+                                  </Typography>
+                                ) : null}
+                              </Stack>
+                              <Typography
+                                sx={{
+                                  color: 'rgba(207, 217, 232, 0.86)',
+                                  fontSize: '0.84rem',
+                                  lineHeight: 1.36,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {character.description}
+                              </Typography>
+                              {disabledReason ? (
+                                <Typography sx={{ color: 'rgba(241, 189, 159, 0.9)', fontSize: '0.74rem', lineHeight: 1.25 }}>
+                                  {disabledReason}
+                                </Typography>
+                              ) : null}
+                            </Stack>
+                          </Stack>
+                        </Button>
+                      )
+                    })}
+                    {filteredOwnCharacterOptions.length === 0 ? (
+                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
+                        Персонажи не найдены.
+                      </Typography>
+                    ) : null}
+                  </Stack>
+                ) : isLoadingCommunityCharacterOptions ? (
+                  <Stack alignItems="center" justifyContent="center" sx={{ py: 3 }}>
+                    <CircularProgress size={24} />
+                  </Stack>
+                ) : filteredCommunityCharacterOptions.length === 0 ? (
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem' }}>
+                    Персонажи сообщества не найдены.
+                  </Typography>
+                ) : (
+                  <Stack spacing={0.75}>
+                    {filteredCommunityCharacterOptions.map((character) => {
+                      const disabledReason = getCommunityCharacterSelectionDisabledReason(character, characterDialogMode)
+                      const isExpanded = expandedCommunityCharacterId === character.id
+                      const isLoadingDetails = loadingCommunityCharacterId === character.id
+                      const isSavingCommunityCharacter = savingCommunityCharacterId === character.id
+                      return (
+                        <Box
+                          key={character.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => void handleToggleCommunityCharacterCard(character.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              void handleToggleCommunityCharacterCard(character.id)
+                            }
+                          }}
+                          sx={{
+                            borderRadius: '12px',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: isExpanded ? 'var(--morius-button-hover)' : 'var(--morius-elevated-bg)',
+                            px: 0.9,
+                            py: 0.75,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Stack spacing={0.35}>
+                            <Stack direction="row" spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
+                              <CharacterAvatar
+                                avatarUrl={character.avatar_url}
+                                avatarScale={character.avatar_scale}
+                                fallbackLabel={character.name}
+                                size={34}
+                              />
+                              <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1 }}>
+                                <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                                  <Typography
+                                    sx={{
+                                      color: 'var(--morius-title-text)',
+                                      fontWeight: 700,
+                                      fontSize: '0.94rem',
+                                      lineHeight: 1.2,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                      minWidth: 0,
+                                      flex: 1,
+                                    }}
+                                  >
+                                    {character.name}
+                                  </Typography>
+                                  {character.note ? (
+                                    <Typography
+                                      sx={{
+                                        color: 'rgba(184, 218, 247, 0.96)',
+                                        fontSize: '0.62rem',
+                                        lineHeight: 1.2,
+                                        fontWeight: 700,
+                                        border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                        borderRadius: '999px',
+                                        px: 0.5,
+                                        py: 0.08,
+                                        maxWidth: 98,
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        flexShrink: 0,
+                                      }}
+                                      title={character.note}
+                                    >
+                                      {character.note}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
+                                <Typography sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                                  Автор: {character.author_name || 'Неизвестно'}
+                                </Typography>
+                              </Stack>
+                              {isLoadingDetails ? (
+                                <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                              ) : null}
+                            </Stack>
                             <Typography
                               sx={{
                                 color: 'rgba(207, 217, 232, 0.86)',
                                 fontSize: '0.84rem',
                                 lineHeight: 1.36,
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
+                                whiteSpace: isExpanded ? 'pre-wrap' : 'normal',
+                                display: isExpanded ? 'block' : '-webkit-box',
+                                WebkitLineClamp: isExpanded ? 'none' : 2,
                                 WebkitBoxOrient: 'vertical',
                                 overflow: 'hidden',
                               }}
                             >
                               {character.description}
                             </Typography>
-                            {disabledReason ? (
-                              <Typography sx={{ color: 'rgba(241, 189, 159, 0.9)', fontSize: '0.74rem', lineHeight: 1.25 }}>
-                                {disabledReason}
+                            <Stack direction="row" spacing={0.9} alignItems="center" sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                              <Typography sx={{ fontSize: 'inherit' }}>
+                                {character.community_additions_count} + / {character.community_rating_avg.toFixed(1)} 
                               </Typography>
+                              <Typography sx={{ fontSize: 'inherit', fontWeight: 700 }}>
+                                {disabledReason
+                                  ? disabledReason
+                                  : character.is_added_by_user
+                                    ? 'Сохранено'
+                                    : 'Не сохранено'}
+                              </Typography>
+                            </Stack>
+                            {isExpanded ? (
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} sx={{ pt: 0.35 }}>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setExpandedCommunityCharacterId(null)
+                                  }}
+                                  disabled={isSelectingCharacter || isSavingCommunityCharacter}
+                                  sx={{
+                                    textTransform: 'none',
+                                    minHeight: 34,
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--morius-text-secondary)',
+                                    '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                                  }}
+                                >
+                                  Свернуть
+                                </Button>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleApplyCommunityCharacterForGame(character, { saveToProfile: false })
+                                  }}
+                                  disabled={Boolean(disabledReason) || isSelectingCharacter || isSavingCommunityCharacter}
+                                  sx={{
+                                    textTransform: 'none',
+                                    minHeight: 34,
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--morius-text-primary)',
+                                    '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                                  }}
+                                >
+                                  {isSavingCommunityCharacter ? (
+                                    <CircularProgress size={14} sx={{ color: 'var(--morius-text-primary)' }} />
+                                  ) : (
+                                    'Добавить'
+                                  )}
+                                </Button>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleApplyCommunityCharacterForGame(character, { saveToProfile: true })
+                                  }}
+                                  disabled={Boolean(disabledReason) || isSelectingCharacter || isSavingCommunityCharacter}
+                                  sx={{
+                                    textTransform: 'none',
+                                    minHeight: 34,
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--morius-text-primary)',
+                                    '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                                  }}
+                                >
+                                  Сохранить
+                                </Button>
+                              </Stack>
                             ) : null}
                           </Stack>
-                        </Stack>
-                      </Button>
-                    )
-                  })}
-                  {characters.length === 0 ? (
-                    <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
-                      Сначала создайте персонажей в разделе «Мои персонажи».
-                    </Typography>
-                  ) : null}
-                </Stack>
+                        </Box>
+                      )
+                    })}
+                  </Stack>
+                )}
               </Box>
             </Stack>
           )}
@@ -12081,7 +13473,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.2rem' }}>
-            {openedAiMemoryBlock ? `#${openedAiMemoryBlock.id} · ${openedAiMemoryBlock.title}` : 'Блок ИИ памяти'}
+            {openedAiMemoryBlock ? `#${openedAiMemoryBlock.id} В· ${openedAiMemoryBlock.title}` : 'Блок  памяти'}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.4 }}>
@@ -12153,7 +13545,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>вњЋ</Box>
             <Box component="span">Редактировать</Box>
           </Stack>
         </MenuItem>
@@ -12167,7 +13559,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>вЊ¦</Box>
             <Box component="span">Удалить</Box>
           </Stack>
         </MenuItem>

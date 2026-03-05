@@ -8,12 +8,12 @@ export type StoryNarratorModelId =
   | 'deepseek/deepseek-v3.2'
   | 'x-ai/grok-4.1-fast'
   | 'arcee-ai/trinity-large-preview:free'
-  | 'google/gemini-3-flash-preview'
 export type StoryImageModelId =
   | 'black-forest-labs/flux.2-pro'
   | 'bytedance-seed/seedream-4.5'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
+  | 'grok-imagine-image-pro'
 
 export type StoryGameSummary = {
   id: number
@@ -42,6 +42,7 @@ export type StoryGameSummary = {
   memory_optimization_enabled: boolean
   story_top_k: number
   story_top_r: number
+  story_temperature: number
   show_gg_thoughts: boolean
   show_npc_thoughts: boolean
   ambient_enabled: boolean
@@ -197,6 +198,7 @@ export type StoryCharacter = {
   user_id: number
   name: string
   description: string
+  note: string
   triggers: string[]
   avatar_url: string | null
   avatar_scale: number
@@ -214,6 +216,7 @@ export type StoryCommunityCharacterSummary = {
   id: number
   name: string
   description: string
+  note: string
   triggers: string[]
   avatar_url: string | null
   avatar_scale: number
@@ -353,6 +356,15 @@ export type StoryStreamPlotMemoryPayload = {
 export type StoryTurnImageGenerationPayload = {
   id: number
   assistant_message_id: number
+  model: string
+  prompt: string
+  revised_prompt: string | null
+  image_url: string | null
+  image_data_url: string | null
+  user?: AuthUser
+}
+
+export type StoryCharacterAvatarGenerationPayload = {
   model: string
   prompt: string
   revised_prompt: string | null

@@ -291,7 +291,7 @@ function CommunityWorldCard({
               width: 32,
               height: 32,
               borderRadius: '999px',
-              border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.35)',
+              border: 'none',
               backgroundColor: 'rgba(5, 8, 13, 0.64)',
               '&:hover': {
                 backgroundColor: 'rgba(17, 27, 40, 0.78)',

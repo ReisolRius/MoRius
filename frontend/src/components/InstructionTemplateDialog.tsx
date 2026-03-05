@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Alert,
   Box,
@@ -16,18 +16,24 @@ import {
 } from '@mui/material'
 import BaseDialog from './dialogs/BaseDialog'
 import {
+  addCommunityInstructionTemplate,
   createStoryInstructionTemplate,
   deleteStoryInstructionTemplate,
+  getCommunityInstructionTemplate,
+  listCommunityInstructionTemplates,
   listStoryInstructionTemplates,
   updateStoryInstructionTemplate,
 } from '../services/storyApi'
-import type { StoryInstructionTemplate } from '../types/story'
+import type { StoryCommunityInstructionTemplateSummary, StoryInstructionTemplate } from '../types/story'
 import TextLimitIndicator from './TextLimitIndicator'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
 const TEMPLATE_CONTENT_MAX_LENGTH = 8000
 
 export type InstructionTemplateDialogMode = 'manage' | 'picker'
+type PickerSourceTab = 'my' | 'community'
+type CommunityAddedFilter = 'all' | 'added' | 'not_added'
+type CommunitySortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
 
 type InstructionTemplateDialogProps = {
   open: boolean
@@ -38,12 +44,35 @@ type InstructionTemplateDialogProps = {
   selectedTemplateSignatures?: string[]
   initialMode?: 'list' | 'create'
   initialTemplateId?: number | null
+  enableCommunityPicker?: boolean
 }
 
 function createInstructionTemplateSignature(title: string, content: string): string {
   const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
   const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
   return `${normalizedTitle}::${normalizedContent}`
+}
+
+function normalizeSearchValue(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function mapCommunityTemplateToInstructionTemplate(
+  template: StoryCommunityInstructionTemplateSummary,
+): StoryInstructionTemplate {
+  return {
+    id: template.id,
+    user_id: template.author_id,
+    title: template.title,
+    content: template.content,
+    visibility: 'private',
+    source_template_id: template.id,
+    community_rating_avg: template.community_rating_avg,
+    community_rating_count: template.community_rating_count,
+    community_additions_count: template.community_additions_count,
+    created_at: template.created_at,
+    updated_at: template.updated_at,
+  }
 }
 
 function InstructionTemplateDialog({
@@ -55,6 +84,7 @@ function InstructionTemplateDialog({
   selectedTemplateSignatures = [],
   initialMode = 'list',
   initialTemplateId = null,
+  enableCommunityPicker = false,
 }: InstructionTemplateDialogProps) {
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
@@ -71,8 +101,23 @@ function InstructionTemplateDialog({
   const [templateMenuTemplateId, setTemplateMenuTemplateId] = useState<number | null>(null)
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
   const [hasLoadedTemplates, setHasLoadedTemplates] = useState(false)
+  const [pickerSourceTab, setPickerSourceTab] = useState<PickerSourceTab>('my')
+  const [pickerSearchQuery, setPickerSearchQuery] = useState('')
+  const [pickerAddedFilter, setPickerAddedFilter] = useState<CommunityAddedFilter>('all')
+  const [pickerSortMode, setPickerSortMode] = useState<CommunitySortMode>('updated_desc')
+  const [communityTemplates, setCommunityTemplates] = useState<StoryCommunityInstructionTemplateSummary[]>([])
+  const [isLoadingCommunityTemplates, setIsLoadingCommunityTemplates] = useState(false)
+  const [hasLoadedCommunityTemplates, setHasLoadedCommunityTemplates] = useState(false)
+  const [expandedCommunityTemplateId, setExpandedCommunityTemplateId] = useState<number | null>(null)
+  const [loadingCommunityTemplateId, setLoadingCommunityTemplateId] = useState<number | null>(null)
+  const [savingCommunityTemplateId, setSavingCommunityTemplateId] = useState<number | null>(null)
+  const loadedCommunityTemplateDetailsRef = useRef<Set<number>>(new Set())
 
-  const isBusy = isSavingTemplate || deletingTemplateId !== null || applyingTemplateId !== null
+  const isBusy =
+    isSavingTemplate ||
+    deletingTemplateId !== null ||
+    applyingTemplateId !== null ||
+    savingCommunityTemplateId !== null
 
   const loadTemplates = useCallback(async () => {
     setIsLoadingTemplates(true)
@@ -112,6 +157,17 @@ function InstructionTemplateDialog({
       setTemplateMenuTemplateId(null)
       setHasAppliedInitialAction(false)
       setHasLoadedTemplates(false)
+      setPickerSourceTab('my')
+      setPickerSearchQuery('')
+      setPickerAddedFilter('all')
+      setPickerSortMode('updated_desc')
+      setCommunityTemplates([])
+      setIsLoadingCommunityTemplates(false)
+      setHasLoadedCommunityTemplates(false)
+      setExpandedCommunityTemplateId(null)
+      setLoadingCommunityTemplateId(null)
+      setSavingCommunityTemplateId(null)
+      loadedCommunityTemplateDetailsRef.current.clear()
       return
     }
     setHasAppliedInitialAction(false)
@@ -136,6 +192,117 @@ function InstructionTemplateDialog({
         ? sortedTemplates.find((template) => template.id === templateMenuTemplateId) ?? null
         : null,
     [sortedTemplates, templateMenuTemplateId],
+  )
+  const isCommunityPickerAvailable = mode === 'picker' && enableCommunityPicker
+  const filteredTemplates = useMemo(() => {
+    const normalizedQuery = normalizeSearchValue(pickerSearchQuery)
+    if (!normalizedQuery) {
+      return sortedTemplates
+    }
+    return sortedTemplates.filter((template) => {
+      const searchValues = [template.title, template.content]
+      return searchValues.some((value) => normalizeSearchValue(value).includes(normalizedQuery))
+    })
+  }, [pickerSearchQuery, sortedTemplates])
+  const filteredCommunityTemplates = useMemo(() => {
+    const normalizedQuery = normalizeSearchValue(pickerSearchQuery)
+    let nextItems = [...communityTemplates]
+    if (pickerAddedFilter === 'added') {
+      nextItems = nextItems.filter((template) => template.is_added_by_user)
+    } else if (pickerAddedFilter === 'not_added') {
+      nextItems = nextItems.filter((template) => !template.is_added_by_user)
+    }
+    if (normalizedQuery) {
+      nextItems = nextItems.filter((template) => {
+        const searchValues = [template.title, template.content, template.author_name]
+        return searchValues.some((value) => normalizeSearchValue(value).includes(normalizedQuery))
+      })
+    }
+    nextItems.sort((left, right) => {
+      if (pickerSortMode === 'rating_desc') {
+        if (right.community_rating_avg !== left.community_rating_avg) {
+          return right.community_rating_avg - left.community_rating_avg
+        }
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (pickerSortMode === 'additions_desc') {
+        if (right.community_additions_count !== left.community_additions_count) {
+          return right.community_additions_count - left.community_additions_count
+        }
+        return right.id - left.id
+      }
+      const leftTimestamp = Date.parse(left.updated_at)
+      const rightTimestamp = Date.parse(right.updated_at)
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && rightTimestamp !== leftTimestamp) {
+        return rightTimestamp - leftTimestamp
+      }
+      return right.id - left.id
+    })
+    return nextItems
+  }, [communityTemplates, pickerAddedFilter, pickerSearchQuery, pickerSortMode])
+
+  const loadCommunityTemplates = useCallback(async () => {
+    setIsLoadingCommunityTemplates(true)
+    setErrorMessage('')
+    try {
+      const items = await listCommunityInstructionTemplates(authToken)
+      setCommunityTemplates(items)
+      setHasLoadedCommunityTemplates(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить шаблоны сообщества'
+      setErrorMessage(detail)
+    } finally {
+      setIsLoadingCommunityTemplates(false)
+    }
+  }, [authToken])
+
+  useEffect(() => {
+    if (
+      !open ||
+      !isCommunityPickerAvailable ||
+      pickerSourceTab !== 'community' ||
+      hasLoadedCommunityTemplates ||
+      isLoadingCommunityTemplates
+    ) {
+      return
+    }
+    void loadCommunityTemplates()
+  }, [
+    hasLoadedCommunityTemplates,
+    isCommunityPickerAvailable,
+    isLoadingCommunityTemplates,
+    loadCommunityTemplates,
+    open,
+    pickerSourceTab,
+  ])
+
+  const handleToggleCommunityTemplateCard = useCallback(
+    async (templateId: number) => {
+      if (expandedCommunityTemplateId === templateId) {
+        setExpandedCommunityTemplateId(null)
+        return
+      }
+      setExpandedCommunityTemplateId(templateId)
+      if (loadedCommunityTemplateDetailsRef.current.has(templateId)) {
+        return
+      }
+      setLoadingCommunityTemplateId(templateId)
+      try {
+        const detailedTemplate = await getCommunityInstructionTemplate({
+          token: authToken,
+          templateId,
+        })
+        setCommunityTemplates((previous) =>
+          previous.map((item) => (item.id === detailedTemplate.id ? detailedTemplate : item)),
+        )
+        loadedCommunityTemplateDetailsRef.current.add(templateId)
+      } catch {
+        // Keep summary card open even when details request fails.
+      } finally {
+        setLoadingCommunityTemplateId((previous) => (previous === templateId ? null : previous))
+      }
+    },
+    [authToken, expandedCommunityTemplateId],
   )
 
   const handleCloseDialog = () => {
@@ -294,6 +461,61 @@ function InstructionTemplateDialog({
     [isBusy, onClose, onSelectTemplate, selectedTemplateSignatureSet],
   )
 
+  const getCommunityTemplateDisabledReason = useCallback(
+    (template: StoryCommunityInstructionTemplateSummary): string | null => {
+      const templateSignature = createInstructionTemplateSignature(template.title, template.content)
+      return selectedTemplateSignatureSet.has(templateSignature) ? 'Уже выбрано' : null
+    },
+    [selectedTemplateSignatureSet],
+  )
+
+  const handleApplyCommunityTemplate = useCallback(
+    async (
+      template: StoryCommunityInstructionTemplateSummary,
+      options: { saveToProfile: boolean },
+    ) => {
+      if (!onSelectTemplate || isBusy) {
+        return
+      }
+      const disabledReason = getCommunityTemplateDisabledReason(template)
+      if (disabledReason) {
+        setErrorMessage(disabledReason)
+        return
+      }
+
+      setErrorMessage('')
+      setSavingCommunityTemplateId(template.id)
+      try {
+        if (options.saveToProfile) {
+          const updatedTemplate = await addCommunityInstructionTemplate({
+            token: authToken,
+            templateId: template.id,
+          })
+          setCommunityTemplates((previous) =>
+            previous.map((item) =>
+              item.id === updatedTemplate.id
+                ? {
+                    ...item,
+                    ...updatedTemplate,
+                    is_added_by_user: true,
+                  }
+                : item,
+            ),
+          )
+        }
+
+        await onSelectTemplate(mapCommunityTemplateToInstructionTemplate(template))
+        onClose()
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось применить шаблон сообщества'
+        setErrorMessage(detail)
+      } finally {
+        setSavingCommunityTemplateId((previous) => (previous === template.id ? null : previous))
+      }
+    },
+    [authToken, getCommunityTemplateDisabledReason, isBusy, onClose, onSelectTemplate],
+  )
+
   const handleEditTemplateFromMenu = useCallback(() => {
     if (!selectedTemplateMenuItem || isBusy) {
       return
@@ -319,8 +541,8 @@ function InstructionTemplateDialog({
         width: '100%',
         minHeight: 68,
         borderRadius: '12px',
-        border: 'var(--morius-border-width) dashed rgba(203, 217, 236, 0.46)',
-        backgroundColor: 'rgba(116, 140, 171, 0.08)',
+        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 74%, transparent)',
+        backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -328,7 +550,7 @@ function InstructionTemplateDialog({
         transition: 'background-color 180ms ease, border-color 180ms ease',
         '&:hover': {
           backgroundColor: 'rgba(129, 151, 182, 0.14)',
-          borderColor: 'rgba(203, 217, 236, 0.7)',
+          borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
         },
       }}
     >
@@ -395,6 +617,18 @@ function InstructionTemplateDialog({
     sortedTemplates,
   ])
 
+  const communityActionButtonSx = {
+    textTransform: 'none',
+    minHeight: 34,
+    borderRadius: '10px',
+    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+    backgroundColor: 'transparent',
+    color: 'var(--morius-text-primary)',
+    '&:hover': {
+      backgroundColor: 'var(--morius-button-hover)',
+    },
+  }
+
   return (
     <>
       <BaseDialog
@@ -425,13 +659,258 @@ function InstructionTemplateDialog({
           <Stack spacing={0.9}>
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
 
-            {renderCreatePlaceholderCard({ onClick: handleOpenCreateEditor })}
+            {isCommunityPickerAvailable ? (
+              <>
+                <Stack direction="row" spacing={0.8}>
+                  <Button
+                    onClick={() => setPickerSourceTab('my')}
+                    disabled={isBusy}
+                    sx={{
+                      minHeight: 34,
+                      borderRadius: '10px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: pickerSourceTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                      color: 'var(--morius-text-primary)',
+                      textTransform: 'none',
+                      '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                    }}
+                  >
+                    Мои инструкции
+                  </Button>
+                  <Button
+                    onClick={() => setPickerSourceTab('community')}
+                    disabled={isBusy}
+                    sx={{
+                      minHeight: 34,
+                      borderRadius: '10px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor:
+                        pickerSourceTab === 'community' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
+                      color: 'var(--morius-text-primary)',
+                      textTransform: 'none',
+                      '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                    }}
+                  >
+                    Сообщество
+                  </Button>
+                </Stack>
+                <Box
+                  component="input"
+                  value={pickerSearchQuery}
+                  placeholder="Поиск по названию, тексту и автору"
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => setPickerSearchQuery(event.target.value.slice(0, 240))}
+                  sx={{
+                    width: '100%',
+                    minHeight: 38,
+                    borderRadius: 'var(--morius-radius)',
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                    backgroundColor: 'var(--morius-card-bg)',
+                    color: 'var(--morius-text-primary)',
+                    px: 1.1,
+                    outline: 'none',
+                    fontSize: '0.9rem',
+                  }}
+                />
+                {pickerSourceTab === 'community' ? (
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                    <Box
+                      component="select"
+                      value={pickerAddedFilter}
+                      onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                        setPickerAddedFilter(event.target.value as CommunityAddedFilter)
+                      }
+                      sx={{
+                        flex: 1,
+                        minHeight: 36,
+                        borderRadius: '10px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-text-primary)',
+                        px: 1,
+                        fontSize: '0.84rem',
+                        outline: 'none',
+                      }}
+                    >
+                      <option value="all">Все</option>
+                      <option value="added">Сохраненные</option>
+                      <option value="not_added">Не сохраненные</option>
+                    </Box>
+                    <Box
+                      component="select"
+                      value={pickerSortMode}
+                      onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                        setPickerSortMode(event.target.value as CommunitySortMode)
+                      }
+                      sx={{
+                        flex: 1,
+                        minHeight: 36,
+                        borderRadius: '10px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-text-primary)',
+                        px: 1,
+                        fontSize: '0.84rem',
+                        outline: 'none',
+                      }}
+                    >
+                      <option value="updated_desc">Сначала новые</option>
+                      <option value="rating_desc">По рейтингу</option>
+                      <option value="additions_desc">По добавлениям</option>
+                    </Box>
+                  </Stack>
+                ) : null}
+              </>
+            ) : null}
 
-            {isLoadingTemplates ? (
+            {!isCommunityPickerAvailable || pickerSourceTab === 'my' ? renderCreatePlaceholderCard({ onClick: handleOpenCreateEditor }) : null}
+
+            {isCommunityPickerAvailable && pickerSourceTab === 'community' ? (
+              isLoadingCommunityTemplates ? (
+                <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
+                  <CircularProgress size={24} />
+                </Stack>
+              ) : filteredCommunityTemplates.length === 0 ? (
+                <Box
+                  sx={{
+                    borderRadius: '12px',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    px: 1.05,
+                    py: 0.95,
+                  }}
+                >
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.87rem' }}>
+                    Шаблоны сообщества не найдены.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box className="morius-scrollbar" sx={{ maxHeight: 352, overflowY: 'auto', pr: 0.25 }}>
+                  <Stack spacing={0.6}>
+                    {filteredCommunityTemplates.map((template) => {
+                      const disabledReason = getCommunityTemplateDisabledReason(template)
+                      const isExpanded = expandedCommunityTemplateId === template.id
+                      const isLoadingDetails = loadingCommunityTemplateId === template.id
+                      const isSavingCommunityTemplate = savingCommunityTemplateId === template.id
+                      return (
+                        <Box
+                          key={template.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => void handleToggleCommunityTemplateCard(template.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              void handleToggleCommunityTemplateCard(template.id)
+                            }
+                          }}
+                          sx={{
+                            width: '100%',
+                            borderRadius: '12px',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: isExpanded ? 'var(--morius-button-hover)' : 'var(--morius-elevated-bg)',
+                            px: 0.95,
+                            py: 0.75,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Stack spacing={0.42}>
+                            <Stack direction="row" spacing={0.6} alignItems="flex-start" justifyContent="space-between">
+                              <Typography
+                                sx={{
+                                  color: 'var(--morius-text-primary)',
+                                  fontSize: '0.93rem',
+                                  fontWeight: 700,
+                                  lineHeight: 1.23,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                  minWidth: 0,
+                                  flex: 1,
+                                }}
+                              >
+                                {template.title}
+                              </Typography>
+                              {isLoadingDetails ? (
+                                <CircularProgress size={13} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                              ) : null}
+                            </Stack>
+                            <Typography sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                              Автор: {template.author_name || 'Неизвестно'}
+                            </Typography>
+                            <Typography
+                              sx={{
+                                color: 'var(--morius-text-secondary)',
+                                fontSize: '0.82rem',
+                                lineHeight: 1.3,
+                                whiteSpace: isExpanded ? 'pre-wrap' : 'normal',
+                                display: isExpanded ? 'block' : '-webkit-box',
+                                WebkitLineClamp: isExpanded ? 'none' : 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'anywhere',
+                              }}
+                            >
+                              {template.content}
+                            </Typography>
+                            <Stack direction="row" spacing={0.8} alignItems="center" sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                              <Typography sx={{ fontSize: 'inherit' }}>
+                                {template.community_additions_count} + / {template.community_rating_avg.toFixed(1)} ★
+                              </Typography>
+                              <Typography sx={{ fontSize: 'inherit', fontWeight: 700 }}>
+                                {disabledReason ? disabledReason : template.is_added_by_user ? 'Сохранено' : 'Не сохранено'}
+                              </Typography>
+                            </Stack>
+                            {isExpanded ? (
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.65} sx={{ pt: 0.35 }}>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    setExpandedCommunityTemplateId(null)
+                                  }}
+                                  disabled={isBusy}
+                                  sx={{ ...communityActionButtonSx, color: 'var(--morius-text-secondary)' }}
+                                >
+                                  Свернуть
+                                </Button>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleApplyCommunityTemplate(template, { saveToProfile: false })
+                                  }}
+                                  disabled={Boolean(disabledReason) || isBusy || isSavingCommunityTemplate}
+                                  sx={communityActionButtonSx}
+                                >
+                                  {isSavingCommunityTemplate ? (
+                                    <CircularProgress size={14} sx={{ color: 'var(--morius-text-primary)' }} />
+                                  ) : (
+                                    'Добавить'
+                                  )}
+                                </Button>
+                                <Button
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    void handleApplyCommunityTemplate(template, { saveToProfile: true })
+                                  }}
+                                  disabled={Boolean(disabledReason) || isBusy || isSavingCommunityTemplate}
+                                  sx={communityActionButtonSx}
+                                >
+                                  Сохранить
+                                </Button>
+                              </Stack>
+                            ) : null}
+                          </Stack>
+                        </Box>
+                      )
+                    })}
+                  </Stack>
+                </Box>
+              )
+            ) : isLoadingTemplates ? (
               <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
                 <CircularProgress size={24} />
               </Stack>
-            ) : sortedTemplates.length === 0 ? (
+            ) : filteredTemplates.length === 0 ? (
               <Box
                 sx={{
                   borderRadius: '12px',
@@ -442,13 +921,13 @@ function InstructionTemplateDialog({
                 }}
               >
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.87rem' }}>
-                  Пока нет сохраненных шаблонов.
+                  {pickerSearchQuery ? 'Шаблоны не найдены.' : 'Пока нет сохраненных шаблонов.'}
                 </Typography>
               </Box>
             ) : (
               <Box className="morius-scrollbar" sx={{ maxHeight: 352, overflowY: 'auto', pr: 0.25 }}>
                 <Stack spacing={0.6}>
-                  {sortedTemplates.map((template) => {
+                  {filteredTemplates.map((template) => {
                     const templateSignature = createInstructionTemplateSignature(template.title, template.content)
                     const isTemplateSelected = mode === 'picker' && selectedTemplateSignatureSet.has(templateSignature)
                     const isTemplateDisabled = isBusy || (mode === 'picker' && (!onSelectTemplate || isTemplateSelected))
@@ -664,9 +1143,9 @@ function InstructionTemplateDialog({
                 width: '100%',
                 minHeight: 42,
                 borderRadius: 'var(--morius-radius)',
-                border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.26)',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
                 backgroundColor: 'var(--morius-card-bg)',
-                color: '#dfe6f2',
+                color: 'var(--morius-text-primary)',
                 px: 1.1,
                 outline: 'none',
                 fontSize: '0.96rem',
@@ -690,9 +1169,9 @@ function InstructionTemplateDialog({
                 minHeight: 150,
                 resize: 'vertical',
                 borderRadius: 'var(--morius-radius)',
-                border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.22)',
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
                 backgroundColor: 'var(--morius-card-bg)',
-                color: '#dbe2ee',
+                color: 'var(--morius-text-primary)',
                 px: 1.1,
                 py: 0.9,
                 outline: 'none',
@@ -775,6 +1254,7 @@ function InstructionTemplateDialog({
 }
 
 export default InstructionTemplateDialog
+
 
 
 

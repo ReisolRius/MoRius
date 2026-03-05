@@ -62,6 +62,19 @@ function extractStoryGameId(pathname: string): number | null {
   return parsed
 }
 
+function extractAdminBugReportId(pathname: string): number | null {
+  const match = /^\/home\/reports\/(\d+)$/.exec(pathname)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number.parseInt(match[1], 10)
+  if (Number.isNaN(parsed) || parsed <= 0) {
+    return null
+  }
+  return parsed
+}
+
 function extractWorldEditGameId(pathname: string): number | null {
   const match = /^\/worlds\/(\d+)\/edit$/.exec(pathname)
   if (!match) {
@@ -139,6 +152,7 @@ const initialSession = loadAuthSession()
 const PublicLandingPage = lazy(() => import('./pages/PublicLandingPage'))
 const AuthenticatedHomePage = lazy(() => import('./pages/AuthenticatedHomePage'))
 const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
+const AdminBugReportPage = lazy(() => import('./pages/AdminBugReportPage'))
 const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
 const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
 const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
@@ -316,10 +330,12 @@ function App() {
   }, [])
 
   const isAuthenticated = Boolean(authToken && authUser)
+  const adminBugReportId = extractAdminBugReportId(path)
   const initialGameId = extractStoryGameId(path)
   const worldEditGameId = extractWorldEditGameId(path)
   const profileUserId = extractProfileUserId(path)
-  const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/'))
+  const shouldShowBugReportPage = isAuthenticated && adminBugReportId !== null
+  const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/')) && !shouldShowBugReportPage
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowMyGamesPage = isAuthenticated && path === '/games'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
@@ -417,6 +433,18 @@ function App() {
           user={authUser}
           authToken={authToken!}
           editingGameId={worldEditGameId}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  }
+
+  if (shouldShowBugReportPage && authUser && adminBugReportId !== null) {
+    return (
+      <Suspense fallback={null}>
+        <AdminBugReportPage
+          authToken={authToken!}
+          reportId={adminBugReportId}
           onNavigate={navigate}
         />
       </Suspense>

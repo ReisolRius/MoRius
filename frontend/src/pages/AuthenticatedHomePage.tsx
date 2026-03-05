@@ -8,7 +8,6 @@ import {
   type ChangeEvent,
   type ReactElement,
   type Ref,
-  type WheelEvent,
 } from 'react'
 import {
   Alert,
@@ -18,13 +17,11 @@ import {
   DialogContent,
   DialogTitle,
   Grow,
-  IconButton,
   Skeleton,
   Stack,
   Typography,
   type GrowProps,
 } from '@mui/material'
-import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
@@ -92,6 +89,15 @@ const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HOME_NEWS_SKELETON_KEYS = Array.from({ length: 3 }, (_, index) => `home-news-skeleton-${index}`)
 const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 3 }, (_, index) => `home-community-skeleton-${index}`)
+const HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const HOME_FOOTER_SOCIAL_LINKS: Array<{ label: string; href: string; external?: boolean }> = [
+  { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+  { label: 'Телеграмм', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+]
+const HOME_FOOTER_INFO_LINKS: Array<{ label: string; path: string }> = [
+  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+]
 const DASHBOARD_NEWS: DashboardNewsItem[] = [
   {
     id: 'news-1',
@@ -116,7 +122,7 @@ const DASHBOARD_NEWS: DashboardNewsItem[] = [
   },
 ]
 
-const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const AVATAR_MAX_BYTES = 1 * 1024 * 1024
 const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -177,7 +183,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
-  const communityWorldsSliderRef = useRef<HTMLDivElement | null>(null)
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -244,7 +249,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
       return
     }
 
@@ -429,27 +434,29 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
     const worldId = selectedCommunityWorld.world.id
     const previousRating = selectedCommunityWorld.world.user_rating ?? 0
-    setCommunityRatingDraft(ratingValue)
+    const nextRating = previousRating === ratingValue ? 0 : ratingValue
+    const nextUserRating = nextRating > 0 ? nextRating : null
+    setCommunityRatingDraft(nextRating)
     setSelectedCommunityWorld((previous) =>
       previous && previous.world.id === worldId
         ? {
             ...previous,
             world: {
               ...previous.world,
-              user_rating: ratingValue,
+              user_rating: nextUserRating,
             },
           }
         : previous,
     )
     setCommunityWorlds((previous) =>
-      previous.map((world) => (world.id === worldId ? { ...world, user_rating: ratingValue } : world)),
+      previous.map((world) => (world.id === worldId ? { ...world, user_rating: nextUserRating } : world)),
     )
     setIsCommunityRatingSaving(true)
     try {
       const updatedWorld = await rateCommunityWorld({
         token: authToken,
         worldId,
-        rating: ratingValue,
+        rating: nextRating,
       })
       setSelectedCommunityWorld((previous) =>
         previous && previous.world.id === updatedWorld.id
@@ -667,9 +674,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
 
     const worldId = selectedCommunityWorld.world.id
-    const existingGameIds = communityWorldGameIds[worldId] ?? []
     setIsCommunityWorldMyGamesSaving(true)
     try {
+      let gamesSnapshot = await listStoryGames(authToken, { compact: true })
+      let gameMapSnapshot = buildCommunityWorldGameMap(gamesSnapshot)
+      setStoryGames(gamesSnapshot)
+      setCommunityWorldGameIds(gameMapSnapshot)
+
+      const existingGameIds = gameMapSnapshot[worldId] ?? []
       if (existingGameIds.length > 0) {
         await Promise.all(
           existingGameIds.map((gameId) =>
@@ -679,12 +691,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             }),
           ),
         )
-        setCommunityWorldGameIds((previous) => {
-          const nextMap = { ...previous }
-          delete nextMap[worldId]
-          return nextMap
-        })
-        setStoryGames((previousGames) => previousGames.filter((game) => !existingGameIds.includes(game.id)))
+        gamesSnapshot = gamesSnapshot.filter((game) => !existingGameIds.includes(game.id))
+        gameMapSnapshot = buildCommunityWorldGameMap(gamesSnapshot)
+        setStoryGames(gamesSnapshot)
+        setCommunityWorldGameIds(gameMapSnapshot)
         return
       }
 
@@ -692,18 +702,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         token: authToken,
         worldId,
       })
-      setCommunityWorldGameIds((previous) => ({
-        ...previous,
-        [worldId]: [...new Set([...(previous[worldId] ?? []), game.id])],
-      }))
-      setStoryGames((previousGames) => sortStoryGamesByActivity([game, ...previousGames.filter((item) => item.id !== game.id)]))
+      gamesSnapshot = sortStoryGamesByActivity([game, ...gamesSnapshot.filter((item) => item.id !== game.id)])
+      gameMapSnapshot = buildCommunityWorldGameMap(gamesSnapshot)
+      setStoryGames(gamesSnapshot)
+      setCommunityWorldGameIds(gameMapSnapshot)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось обновить список "Мои игры"'
       setCommunityWorldsError(detail)
     } finally {
       setIsCommunityWorldMyGamesSaving(false)
     }
-  }, [authToken, communityWorldGameIds, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld, selectedCommunityWorld])
+  }, [authToken, isCommunityWorldMyGamesSaving, isLaunchingCommunityWorld, selectedCommunityWorld])
 
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
@@ -787,28 +796,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const handleCloseNewsDetails = () => {
     setSelectedNewsItem(null)
   }
-
-  const handleScrollCommunityWorlds = useCallback((direction: 'left' | 'right') => {
-    const slider = communityWorldsSliderRef.current
-    if (!slider) {
-      return
-    }
-
-    const scrollStep = Math.max(300, slider.clientWidth * 0.9)
-    // Keep this mapping stable: left button must scroll left, right button must scroll right.
-    slider.scrollBy({
-      left: direction === 'left' ? -scrollStep : scrollStep,
-      behavior: 'smooth',
-    })
-  }, [])
-
-  const handleCommunityWorldsWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
-    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-      return
-    }
-
-    event.currentTarget.scrollLeft += event.deltaY
-  }, [])
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld
     ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
@@ -1114,7 +1101,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   key={item.id}
                   sx={{
                     borderRadius: 'var(--morius-radius)',
-                    border: 'var(--morius-border-width) solid rgba(186, 202, 214, 0.14)',
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 56%, transparent)',
                     background: 'linear-gradient(166deg, rgba(20, 27, 37, 0.9), rgba(13, 18, 25, 0.95))',
                     p: 1.4,
                     minHeight: 182,
@@ -1151,63 +1138,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
               </Typography>
             </Stack>
-            <Stack direction="row" alignItems="center" sx={{ gap: 'var(--morius-icon-gap)' }}>
-              <IconButton
-                aria-label="Прокрутить миры влево"
-                onClick={() => handleScrollCommunityWorlds('left')}
-                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
-                sx={{
-                  width: 'var(--morius-action-size)',
-                  height: 'var(--morius-action-size)',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid transparent',
-                  backgroundColor: 'transparent',
-                  color: 'var(--morius-accent)',
-                  '&:hover': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_HOVER,
-                  },
-                  '&:active': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_ACTIVE,
-                  },
-                }}
-              >
-                <Box
-                  component="img"
-                  src={icons.arrowback}
-                  alt=""
-                  sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9, transform: 'rotate(180deg)' }}
-                />
-              </IconButton>
-              <IconButton
-                aria-label="Прокрутить миры вправо"
-                onClick={() => handleScrollCommunityWorlds('right')}
-                disabled={isCommunityWorldsLoading || communityWorldsPreview.length <= 1}
-                sx={{
-                  width: 'var(--morius-action-size)',
-                  height: 'var(--morius-action-size)',
-                  borderRadius: 'var(--morius-radius)',
-                  border: 'var(--morius-border-width) solid transparent',
-                  backgroundColor: 'transparent',
-                  color: 'var(--morius-accent)',
-                  '&:hover': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_HOVER,
-                  },
-                  '&:active': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_ACTIVE,
-                  },
-                }}
-              >
-                <Box
-                  component="img"
-                  src={icons.arrowback}
-                  alt=""
-                  sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)', opacity: 0.9 }}
-                />
-              </IconButton>
+            <Stack direction="row" alignItems="center" sx={{ gap: 0.9 }}>
               <Button
                 onClick={() => onNavigate('/games/all')}
                 sx={{
@@ -1242,26 +1173,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
           {isCommunityWorldsLoading ? (
             <Box
-              className="morius-scrollbar"
               sx={{
                 display: 'grid',
-                gridAutoFlow: 'column',
-                gridAutoColumns: {
-                  xs: 'minmax(268px, 86vw)',
-                  sm: 'minmax(284px, 46vw)',
-                  md: 'calc((100% - 20px) / 2)',
-                  xl: 'calc((100% - 40px) / 3)',
-                },
-                gap: 'var(--morius-interface-gap)',
-                overflowX: 'auto',
-                pb: 'var(--morius-story-right-padding)',
-                pr: 'var(--morius-scrollbar-offset)',
-                scrollSnapType: 'x mandatory',
-                overscrollBehaviorX: 'contain',
+                gap: 1.4,
+                gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {HOME_COMMUNITY_SKELETON_CARD_KEYS.map((cardKey) => (
-                <Box key={cardKey} sx={{ scrollSnapAlign: 'start' }}>
+                <Box key={cardKey}>
                   <CommunityWorldCardSkeleton showFavoriteButton />
                 </Box>
               ))}
@@ -1279,24 +1198,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           ) : (
             <Box
-              className="morius-scrollbar"
-              ref={communityWorldsSliderRef}
-              onWheel={handleCommunityWorldsWheel}
               sx={{
                 display: 'grid',
-                gridAutoFlow: 'column',
-                gridAutoColumns: {
-                  xs: 'minmax(268px, 86vw)',
-                  sm: 'minmax(284px, 46vw)',
-                  md: 'calc((100% - 20px) / 2)',
-                  xl: 'calc((100% - 40px) / 3)',
-                },
-                gap: 'var(--morius-interface-gap)',
-                overflowX: 'auto',
-                pb: 'var(--morius-story-right-padding)',
-                pr: 'var(--morius-scrollbar-offset)',
-                scrollSnapType: 'x mandatory',
-                overscrollBehaviorX: 'contain',
+                gap: 1.4,
+                gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
               }}
             >
               {communityWorldsPreview.map((world) => (
@@ -1309,11 +1214,102 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   showFavoriteButton
                   isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
                   onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                  sx={{ scrollSnapAlign: 'start' }}
                 />
               ))}
             </Box>
           )}
+
+          <Box component="footer" sx={{ mt: 2.8, pb: 0.3 }}>
+            <Box
+              sx={{
+                borderRadius: 'var(--morius-radius)',
+                border: `var(--morius-border-width) solid color-mix(in srgb, ${APP_BORDER_COLOR} 80%, transparent)`,
+                background:
+                  'linear-gradient(145deg, color-mix(in srgb, var(--morius-card-bg) 94%, #03070d 6%), color-mix(in srgb, var(--morius-card-bg) 89%, #02060b 11%))',
+                px: { xs: 1.4, md: 2.2 },
+                py: { xs: 1.6, md: 2.1 },
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: { xs: 1.8, md: 2.6 },
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: '1.25fr 0.8fr 1.25fr' },
+                  mb: 1.4,
+                }}
+              >
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>О проекте</Typography>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', maxWidth: 320, lineHeight: 1.48 }}>
+                    Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
+                  </Typography>
+                </Stack>
+
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>Соц сети</Typography>
+                  {HOME_FOOTER_SOCIAL_LINKS.map((link) => (
+                    <Typography
+                      key={link.label}
+                      component="a"
+                      href={link.href}
+                      target={link.external ? '_blank' : undefined}
+                      rel={link.external ? 'noopener noreferrer' : undefined}
+                      sx={{
+                        color: APP_TEXT_SECONDARY,
+                        textDecoration: 'none',
+                        fontSize: '0.92rem',
+                        width: 'fit-content',
+                        transition: 'color 170ms ease',
+                        '&:hover': {
+                          color: APP_TEXT_PRIMARY,
+                        },
+                      }}
+                    >
+                      {link.label}
+                    </Typography>
+                  ))}
+                </Stack>
+
+                <Stack spacing={0.55}>
+                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>Информация</Typography>
+                  {HOME_FOOTER_INFO_LINKS.map((link) => (
+                    <Box
+                      key={link.label}
+                      component="button"
+                      type="button"
+                      onClick={() => onNavigate(link.path)}
+                      sx={{
+                        p: 0,
+                        m: 0,
+                        border: 'none',
+                        background: 'none',
+                        color: APP_TEXT_SECONDARY,
+                        textAlign: 'left',
+                        font: 'inherit',
+                        fontSize: '0.92rem',
+                        width: 'fit-content',
+                        cursor: 'pointer',
+                        transition: 'color 170ms ease',
+                        '&:hover': {
+                          color: APP_TEXT_PRIMARY,
+                        },
+                      }}
+                    >
+                      {link.label}
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
+
+              <Typography sx={{ textAlign: 'center', color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>
+                MoRius ©
+              </Typography>
+            </Box>
+
+            <Typography sx={{ textAlign: 'center', color: APP_TEXT_SECONDARY, fontSize: '0.78rem', mt: 1.05 }}>
+              Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com
+            </Typography>
+          </Box>
         </Box>
       </Box>
 
@@ -1382,6 +1378,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         open={profileDialogOpen}
         user={user}
         authToken={authToken}
+        onNavigate={onNavigate}
         profileName={profileName}
         avatarInputRef={avatarInputRef}
         avatarError={avatarError}
@@ -1513,5 +1510,6 @@ function buildDashboardGameDescription(game: StoryGameSummary): string {
 }
 
 export default AuthenticatedHomePage
+
 
 

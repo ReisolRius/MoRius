@@ -11,6 +11,7 @@ import {
   Select,
   Snackbar,
   Stack,
+  SvgIcon,
   TextField,
   Typography,
 } from '@mui/material'
@@ -28,9 +29,9 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
-const HEADING_FONT_SIZE = '40px'
-const SUBHEADING_FONT_SIZE = '20px'
-const BASE_GAP = '20px'
+const HEADING_FONT_SIZE = '2.5rem'
+const SUBHEADING_FONT_SIZE = '1.12rem'
+const BASE_GAP = '14px'
 
 type CommunityPreviewBadgeTone = 'green' | 'blue'
 type DialogTab = 'description' | 'cards' | 'comments'
@@ -118,7 +119,7 @@ function formatDateLabel(value: string): string {
 function formatCommentDateLabel(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
-    return 'вЂ”'
+    return '—'
   }
   return date.toLocaleString('ru-RU', {
     day: '2-digit',
@@ -455,7 +456,7 @@ function CommunityWorldDialog({
     }
     const normalizedContent = commentDraft.trim()
     if (!normalizedContent) {
-      setCommentValidationError('РљРѕРјРјРµРЅС‚Р°СЂРёР№ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.')
+      setCommentValidationError('Комментарий не может быть пустым.')
       return
     }
     setCommentValidationError('')
@@ -464,7 +465,7 @@ function CommunityWorldDialog({
       await onCreateComment(normalizedContent)
       setCommentDraft('')
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РґРѕР±Р°РІРёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      const detail = error instanceof Error ? error.message : 'Не удалось добавить комментарий'
       setCommentValidationError(detail)
     } finally {
       setIsCommentSubmitting(false)
@@ -495,7 +496,7 @@ function CommunityWorldDialog({
     }
     const normalizedContent = editingCommentDraft.trim()
     if (!normalizedContent) {
-      setCommentValidationError('РљРѕРјРјРµРЅС‚Р°СЂРёР№ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј.')
+      setCommentValidationError('Комментарий не может быть пустым.')
       return
     }
     setCommentValidationError('')
@@ -505,7 +506,7 @@ function CommunityWorldDialog({
       setEditingCommentId(null)
       setEditingCommentDraft('')
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ РѕР±РЅРѕРІРёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить комментарий'
       setCommentValidationError(detail)
     } finally {
       setCommentActionId(null)
@@ -516,7 +517,7 @@ function CommunityWorldDialog({
     if (!onDeleteComment || isCommentActionLocked) {
       return
     }
-    if (typeof window !== 'undefined' && !window.confirm('РЈРґР°Р»РёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№?')) {
+    if (typeof window !== 'undefined' && !window.confirm('Удалить комментарий?')) {
       return
     }
     setCommentValidationError('')
@@ -528,7 +529,7 @@ function CommunityWorldDialog({
         setEditingCommentDraft('')
       }
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ СѓРґР°Р»РёС‚СЊ РєРѕРјРјРµРЅС‚Р°СЂРёР№'
+      const detail = error instanceof Error ? error.message : 'Не удалось удалить комментарий'
       setCommentValidationError(detail)
     } finally {
       setCommentActionId(null)
@@ -670,12 +671,12 @@ function CommunityWorldDialog({
                             component="img"
                             src={value <= ratingDraft ? icons.communityStarFilled : icons.communityStarOutline}
                             alt=""
-                            sx={{ height: 20, width: 'auto', display: 'block' }}
+                            sx={{ height: { xs: 18, sm: 20 }, width: 'auto', display: 'block' }}
                           />
                         </Button>
                       ))}
                     </Stack>
-                    <Typography sx={{ ml: BASE_GAP, color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
+                    <Typography sx={{ ml: { xs: 1, sm: BASE_GAP }, color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>
                       {world.community_rating_avg.toFixed(1)}
                     </Typography>
                   </Box>
@@ -683,16 +684,18 @@ function CommunityWorldDialog({
                   <Button
                     onClick={onToggleMyGames}
                     disabled={isActionLocked}
+                    aria-label={isInMyGames ? 'Убрать из моих игр' : 'Добавить в мои игры'}
                     sx={{
                       minHeight: 0,
-                      px: BASE_GAP,
-                      py: BASE_GAP,
+                      px: { xs: 1.2, sm: BASE_GAP },
+                      py: { xs: 1.05, sm: BASE_GAP },
                       borderRadius: '12px',
                       textTransform: 'none',
                       border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: isInMyGames ? 'rgba(40, 64, 48, 0.7)' : APP_BUTTON_ACTIVE,
                       color: APP_TEXT_PRIMARY,
-                      columnGap: BASE_GAP,
+                      columnGap: { xs: 0, sm: BASE_GAP },
+                      minWidth: { xs: 44, sm: 0 },
                       '&:hover': {
                         backgroundColor: APP_BUTTON_HOVER,
                       },
@@ -704,7 +707,7 @@ function CommunityWorldDialog({
                       alt=""
                       sx={{ width: 20, height: 20, opacity: 0.95 }}
                     />
-                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>
+                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
                       {isInMyGames ? 'Добавлено' : 'Добавить'}
                     </Typography>
                   </Button>
@@ -712,52 +715,68 @@ function CommunityWorldDialog({
                   <Button
                     onClick={() => void handleShareWorld()}
                     disabled={isActionLocked}
+                    aria-label="Поделиться миром"
                     sx={{
                       minHeight: 0,
-                      px: BASE_GAP,
-                      py: BASE_GAP,
+                      px: { xs: 1.2, sm: BASE_GAP },
+                      py: { xs: 1.05, sm: BASE_GAP },
                       borderRadius: '12px',
                       textTransform: 'none',
                       border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: APP_BUTTON_ACTIVE,
                       color: APP_TEXT_PRIMARY,
-                      columnGap: BASE_GAP,
+                      columnGap: { xs: 0, sm: BASE_GAP },
+                      minWidth: { xs: 44, sm: 0 },
                       '&:hover': {
                         backgroundColor: APP_BUTTON_HOVER,
                       },
                     }}
                   >
                     <Box component="img" src={icons.communityShare} alt="" sx={{ width: 20, height: 20, opacity: 0.95 }} />
-                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Поделиться</Typography>
+                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
+                      Поделиться
+                    </Typography>
                   </Button>
                   <Button
                     onClick={handleOpenReportDialog}
                     disabled={isActionLocked || !canReportWorld}
+                    aria-label={hasWorldBeenReportedByUser ? 'Жалоба уже отправлена' : 'Пожаловаться'}
                     sx={{
                       minHeight: 0,
-                      px: BASE_GAP,
-                      py: BASE_GAP,
+                      px: { xs: 1.2, sm: BASE_GAP },
+                      py: { xs: 1.05, sm: BASE_GAP },
                       borderRadius: '12px',
                       textTransform: 'none',
                       border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                       backgroundColor: hasWorldBeenReportedByUser ? 'rgba(76, 54, 54, 0.5)' : 'rgba(107, 63, 63, 0.58)',
                       color: APP_TEXT_PRIMARY,
+                      columnGap: { xs: 0, sm: 1 },
+                      minWidth: { xs: 44, sm: 0 },
                       '&:hover': {
                         backgroundColor: hasWorldBeenReportedByUser ? 'rgba(76, 54, 54, 0.5)' : 'rgba(134, 77, 77, 0.66)',
                       },
                     }}
                   >
-                    {hasWorldBeenReportedByUser ? 'Жалоба отправлена' : 'Пожаловаться'}
+                    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+                      <path
+                        d="M6 3h2v18H6V3Zm3 1h9l-1.2 3L18 10H9V4Z"
+                        fill="currentColor"
+                      />
+                    </SvgIcon>
+                    <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
+                      {hasWorldBeenReportedByUser ? 'Жалоба отправлена' : 'Пожаловаться'}
+                    </Typography>
                   </Button>
                 </Stack>
 
                 <Button
                   onClick={onPlay}
                   disabled={isLaunching || isLoading}
+                  aria-label="Играть"
                   sx={{
                     minHeight: 0,
-                    px: '60px',
-                    py: BASE_GAP,
+                    px: { xs: 2.2, sm: '60px' },
+                    py: { xs: 1.05, sm: BASE_GAP },
                     borderRadius: '12px',
                     textTransform: 'none',
                     fontWeight: 700,
@@ -765,12 +784,21 @@ function CommunityWorldDialog({
                     backgroundColor: APP_BUTTON_ACTIVE,
                     color: APP_TEXT_PRIMARY,
                     fontSize: SUBHEADING_FONT_SIZE,
+                    width: { xs: '100%', sm: 'auto' },
+                    columnGap: 0.75,
                     '&:hover': {
                       backgroundColor: APP_BUTTON_HOVER,
                     },
                   }}
                 >
-                  {isLaunching ? <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Играть'}
+                  {isLaunching ? (
+                    <CircularProgress size={18} sx={{ color: APP_TEXT_PRIMARY }} />
+                  ) : (
+                    <Box component="img" src={icons.communityPlay} alt="" sx={{ width: 20, height: 20, opacity: 0.95 }} />
+                  )}
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>
+                    Играть
+                  </Typography>
                 </Button>
               </Stack>
               </Box>
@@ -780,57 +808,66 @@ function CommunityWorldDialog({
               <Stack direction="row" flexWrap="wrap" sx={{ gap: BASE_GAP }}>
                 <Button
                   onClick={() => setTab('description')}
+                  aria-label="Описание"
                   sx={{
                     minHeight: 0,
-                    px: BASE_GAP,
-                    py: BASE_GAP,
+                    px: { xs: 1.2, sm: BASE_GAP },
+                    py: { xs: 1.05, sm: BASE_GAP },
                     borderRadius: '12px',
                     textTransform: 'none',
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: tab === 'description' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
-                    columnGap: 1.1,
+                    columnGap: { xs: 0, sm: 1.1 },
                     '&:hover': { backgroundColor: APP_BUTTON_HOVER },
                   }}
                 >
                   <Box component="img" src={icons.communityInfo} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Описание</Typography>
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
+                    Описание
+                  </Typography>
                 </Button>
                 <Button
                   onClick={() => setTab('cards')}
+                  aria-label="Карточки"
                   sx={{
                     minHeight: 0,
-                    px: BASE_GAP,
-                    py: BASE_GAP,
+                    px: { xs: 1.2, sm: BASE_GAP },
+                    py: { xs: 1.05, sm: BASE_GAP },
                     borderRadius: '12px',
                     textTransform: 'none',
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: tab === 'cards' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
-                    columnGap: 1.1,
+                    columnGap: { xs: 0, sm: 1.1 },
                     '&:hover': { backgroundColor: APP_BUTTON_HOVER },
                   }}
                 >
                   <Box component="img" src={icons.communityCards} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Карточки</Typography>
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
+                    Карточки
+                  </Typography>
                 </Button>
                 <Button
                   onClick={() => setTab('comments')}
+                  aria-label="Комментарии"
                   sx={{
                     minHeight: 0,
-                    px: BASE_GAP,
-                    py: BASE_GAP,
+                    px: { xs: 1.2, sm: BASE_GAP },
+                    py: { xs: 1.05, sm: BASE_GAP },
                     borderRadius: '12px',
                     textTransform: 'none',
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                     backgroundColor: tab === 'comments' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
                     color: APP_TEXT_PRIMARY,
-                    columnGap: 1.1,
+                    columnGap: { xs: 0, sm: 1.1 },
                     '&:hover': { backgroundColor: APP_BUTTON_HOVER },
                   }}
                 >
                   <Box component="img" src={icons.communityComments} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1 }}>Комментарии</Typography>
+                  <Typography sx={{ fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700, lineHeight: 1, display: { xs: 'none', sm: 'block' } }}>
+                    Комментарии
+                  </Typography>
                 </Button>
               </Stack>
             </Box>

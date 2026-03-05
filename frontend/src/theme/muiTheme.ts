@@ -76,7 +76,7 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             height: `${moriusThemeTokens.layout.actionButtonSize}px`,
             borderRadius: moriusThemeTokens.radii.button,
             border: `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
-            color: colors.accent,
+            color: colors.textSecondary,
             backgroundColor: colors.appElevated,
             '&:hover': {
               backgroundColor: colors.buttonHover,

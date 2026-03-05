@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -9,6 +10,7 @@ from sqlalchemy.orm import Session, load_only
 
 from app.database import get_db
 from app.models import (
+    StoryBugReport,
     StoryCommunityWorldComment,
     StoryCommunityWorldFavorite,
     StoryCommunityWorldLaunch,
@@ -17,6 +19,7 @@ from app.models import (
     StoryCommunityWorldView,
     StoryGame,
     StoryInstructionCard,
+    StoryMemoryBlock,
     StoryMessage,
     StoryTurnImage,
     StoryPlotCard,
@@ -27,6 +30,7 @@ from app.models import (
 )
 from app.schemas import (
     MessageResponse,
+    StoryBugReportCreateRequest,
     StoryCommunityWorldCommentCreateRequest,
     StoryCommunityWorldCommentOut,
     StoryCommunityWorldCommentUpdateRequest,
@@ -35,12 +39,18 @@ from app.schemas import (
     StoryCommunityWorldSummaryOut,
     StoryGameCloneRequest,
     StoryGameCreateRequest,
+    StoryGameOut,
     StoryGameMetaUpdateRequest,
     StoryGameSettingsUpdateRequest,
     StoryGameSummaryOut,
+    StoryInstructionCardOut,
+    StoryMemoryBlockOut,
+    StoryMessageOut,
+    StoryTurnImageOut,
 )
 from app.services.auth_identity import get_current_user
 from app.services.concurrency import (
+    apply_story_world_rating_delete,
     apply_story_world_rating_insert,
     apply_story_world_rating_update,
     increment_story_world_launches,
@@ -48,11 +58,15 @@ from app.services.concurrency import (
 from app.services.story_games import (
     STORY_DEFAULT_TITLE,
     STORY_GAME_VISIBILITY_PRIVATE,
+    STORY_GAME_VISIBILITY_PUBLIC,
     clone_story_world_cards_to_game,
+    coerce_story_game_visibility,
     coerce_story_llm_model,
     coerce_story_image_model,
     coerce_story_game_age_rating,
+    ensure_story_game_public_card_snapshots,
     deserialize_story_game_genres,
+    get_story_game_public_cards_out,
     normalize_story_ambient_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
@@ -71,8 +85,10 @@ from app.services.story_games import (
     normalize_story_memory_optimization_enabled,
     normalize_story_show_gg_thoughts,
     normalize_story_show_npc_thoughts,
+    normalize_story_temperature,
     normalize_story_top_k,
     normalize_story_top_r,
+    refresh_story_game_public_card_snapshots,
     serialize_story_game_genres,
     story_author_avatar_url,
     story_author_name,
@@ -80,21 +96,39 @@ from app.services.story_games import (
     story_game_summary_to_compact_out,
     story_game_summary_to_out,
 )
+from app.services.story_cards import story_plot_card_to_out
+from app.services.story_events import (
+    story_plot_card_change_event_to_out,
+    story_world_card_change_event_to_out,
+)
+from app.services.story_memory import story_memory_block_to_out
 from app.services.story_queries import (
     get_public_story_world_or_404,
     get_user_story_game_or_404,
+    has_story_assistant_redo_step,
+    list_story_instruction_cards,
+    list_story_memory_blocks,
     list_story_messages,
+    list_story_plot_card_events,
+    list_story_plot_cards,
     touch_story_game,
+    list_story_turn_images,
+    list_story_world_card_events,
+    list_story_world_cards,
 )
 from app.services.story_world_comments import (
     list_story_community_world_comments_out,
     normalize_story_community_world_comment_content,
     story_community_world_comment_to_out,
 )
+from app.services.story_world_cards import story_world_card_to_out
 
 router = APIRouter()
 
 STORY_WORLD_REPORT_STATUS_OPEN = "open"
+STORY_BUG_REPORT_STATUS_OPEN = "open"
+STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
+STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8_000
 STORY_GAME_TITLE_MAX_LENGTH = 160
 STORY_CLONE_TITLE_SUFFIX = " (копия)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
@@ -124,6 +158,46 @@ def _build_story_list_preview(raw_content: str | None) -> str | None:
     if len(normalized) <= STORY_LIST_PREVIEW_MAX_CHARS:
         return normalized
     return f"{normalized[:STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS]}..."
+
+
+def _normalize_story_bug_report_title(value: str) -> str:
+    normalized = " ".join(str(value).replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bug report title should not be empty")
+    return normalized[:STORY_BUG_REPORT_TITLE_MAX_LENGTH].rstrip()
+
+
+def _normalize_story_bug_report_description(value: str) -> str:
+    normalized = str(value).replace("\r\n", "\n").strip()
+    if not normalized:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bug report description should not be empty")
+    return normalized[:STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH].rstrip()
+
+
+def _build_story_game_snapshot_payload(db: Session, game: StoryGame) -> dict[str, object]:
+    messages = list_story_messages(db, game.id)
+    turn_images = list_story_turn_images(db, game.id)
+    instruction_cards = list_story_instruction_cards(db, game.id)
+    plot_cards = list_story_plot_cards(db, game.id)
+    plot_card_events = list_story_plot_card_events(db, game.id)
+    memory_blocks = list_story_memory_blocks(db, game.id)
+    world_cards = list_story_world_cards(db, game.id)
+    world_card_events = list_story_world_card_events(db, game.id)
+    can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
+
+    payload = StoryGameOut(
+        game=story_game_summary_to_out(game),
+        messages=[StoryMessageOut.model_validate(message) for message in messages],
+        turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
+        instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
+        plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
+        plot_card_events=[story_plot_card_change_event_to_out(event) for event in plot_card_events],
+        memory_blocks=[StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks],
+        world_cards=[story_world_card_to_out(card) for card in world_cards],
+        world_card_events=[story_world_card_change_event_to_out(event) for event in world_card_events],
+        can_redo_assistant_step=can_redo_assistant_step,
+    )
+    return payload.model_dump(mode="json")
 
 
 def _load_latest_story_message_preview_by_game_id(
@@ -255,6 +329,7 @@ def list_story_games(
                 StoryGame.memory_optimization_enabled,
                 StoryGame.story_top_k,
                 StoryGame.story_top_r,
+                StoryGame.story_temperature,
                 StoryGame.show_gg_thoughts,
                 StoryGame.show_npc_thoughts,
                 StoryGame.ambient_enabled,
@@ -458,6 +533,7 @@ def launch_story_community_world(
         memory_optimization_enabled=bool(getattr(world, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
+        story_temperature=normalize_story_temperature(getattr(world, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(world, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(world, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
@@ -467,10 +543,15 @@ def launch_story_community_world(
     db.add(cloned_game)
     db.flush()
 
+    ensure_story_game_public_card_snapshots(db, world)
+    source_instruction_cards, source_plot_cards, source_world_cards = get_story_game_public_cards_out(db, world)
     clone_story_world_cards_to_game(
         db,
         source_world_id=world.id,
         target_game_id=cloned_game.id,
+        source_instruction_cards_out=source_instruction_cards,
+        source_plot_cards_out=source_plot_cards,
+        source_world_cards_out=source_world_cards,
     )
 
     launch_inserted = False
@@ -512,6 +593,20 @@ def rate_story_community_world(
             StoryCommunityWorldRating.user_id == user.id,
         )
     )
+    if rating_value <= 0:
+        if existing_rating is not None:
+            previous_rating = int(existing_rating.rating)
+            db.delete(existing_rating)
+            apply_story_world_rating_delete(db, world.id, previous_rating)
+        db.commit()
+        db.refresh(world)
+        return _build_story_community_world_summary(
+            db,
+            user_id=user.id,
+            world=world,
+            user_rating_override=None,
+        )
+
     if existing_rating is None:
         inserted_rating: StoryCommunityWorldRating | None = None
         try:
@@ -789,6 +884,7 @@ def create_story_game(
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
     story_top_k = normalize_story_top_k(payload.story_top_k)
     story_top_r = normalize_story_top_r(payload.story_top_r)
+    story_temperature = normalize_story_temperature(payload.story_temperature)
     show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
@@ -819,6 +915,7 @@ def create_story_game(
         memory_optimization_enabled=memory_optimization_enabled,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
+        story_temperature=story_temperature,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         ambient_enabled=ambient_enabled,
@@ -826,6 +923,9 @@ def create_story_game(
         last_activity_at=_utcnow(),
     )
     db.add(game)
+    db.flush()
+    if game.visibility == STORY_GAME_VISIBILITY_PUBLIC:
+        refresh_story_game_public_card_snapshots(db, game)
     db.commit()
     db.refresh(game)
     return story_game_summary_to_out(game)
@@ -869,6 +969,7 @@ def clone_story_game(
         memory_optimization_enabled=bool(getattr(source_game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(source_game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(source_game, "story_top_r", None)),
+        story_temperature=normalize_story_temperature(getattr(source_game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
@@ -890,19 +991,70 @@ def clone_story_game(
 
     if payload.copy_history:
         source_messages = list_story_messages(db, source_game.id)
+        message_id_map: dict[int, int] = {}
         for message in source_messages:
-            db.add(
-                StoryMessage(
-                    game_id=cloned_game.id,
-                    role=message.role,
-                    content=message.content,
-                )
+            cloned_message = StoryMessage(
+                game_id=cloned_game.id,
+                role=message.role,
+                content=message.content,
             )
+            db.add(cloned_message)
+            db.flush()
+            message_id_map[int(message.id)] = int(cloned_message.id)
+
+        source_memory_blocks = list_story_memory_blocks(db, source_game.id)
+        for block in source_memory_blocks:
+            source_assistant_message_id = getattr(block, "assistant_message_id", None)
+            target_assistant_message_id: int | None = None
+            if source_assistant_message_id is not None:
+                target_assistant_message_id = message_id_map.get(int(source_assistant_message_id))
+            cloned_memory_block = StoryMemoryBlock(
+                game_id=cloned_game.id,
+                assistant_message_id=target_assistant_message_id,
+                layer=str(block.layer or "raw"),
+                title=str(block.title or ""),
+                content=str(block.content or ""),
+                token_count=max(int(getattr(block, "token_count", 0) or 0), 0),
+            )
+            db.add(cloned_memory_block)
 
     touch_story_game(cloned_game)
     db.commit()
     db.refresh(cloned_game)
     return story_game_summary_to_out(cloned_game)
+
+
+@router.post("/api/story/games/{game_id}/bug-reports", response_model=MessageResponse)
+def create_story_bug_report(
+    game_id: int,
+    payload: StoryBugReportCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+
+    title = _normalize_story_bug_report_title(payload.title)
+    description = _normalize_story_bug_report_description(payload.description)
+    snapshot_payload = _build_story_game_snapshot_payload(db, game)
+    snapshot_payload_json = json.dumps(snapshot_payload, ensure_ascii=False, separators=(",", ":"))
+    source_game_title = (str(game.title or "").strip() or f"Game #{int(game.id)}")[:STORY_GAME_TITLE_MAX_LENGTH]
+
+    report = StoryBugReport(
+        source_game_id=int(game.id),
+        source_game_title=source_game_title,
+        reporter_user_id=int(user.id),
+        reporter_display_name=story_author_name(user),
+        title=title,
+        description=description,
+        snapshot_payload=snapshot_payload_json,
+        status=STORY_BUG_REPORT_STATUS_OPEN,
+        closed_by_user_id=None,
+        closed_at=None,
+    )
+    db.add(report)
+    db.commit()
+    return MessageResponse(message="Bug report submitted")
 
 
 @router.patch("/api/story/games/{game_id}/settings", response_model=StoryGameSummaryOut)
@@ -934,6 +1086,8 @@ def update_story_game_settings(
         game.story_top_k = normalize_story_top_k(payload.story_top_k)
     if payload.story_top_r is not None:
         game.story_top_r = normalize_story_top_r(payload.story_top_r)
+    if payload.story_temperature is not None:
+        game.story_temperature = normalize_story_temperature(payload.story_temperature)
     if payload.show_gg_thoughts is not None:
         game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     if payload.show_npc_thoughts is not None:
@@ -955,7 +1109,6 @@ def update_story_game_meta(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-
     if payload.title is not None:
         normalized_title = payload.title.strip()
         game.title = normalized_title or STORY_DEFAULT_TITLE
@@ -977,6 +1130,14 @@ def update_story_game_meta(
         game.cover_position_x = normalize_story_cover_position(payload.cover_position_x)
     if payload.cover_position_y is not None:
         game.cover_position_y = normalize_story_cover_position(payload.cover_position_y)
+
+    next_visibility = coerce_story_game_visibility(game.visibility)
+    should_refresh_public_snapshot = (
+        next_visibility == STORY_GAME_VISIBILITY_PUBLIC
+        and payload.visibility is not None
+    )
+    if should_refresh_public_snapshot:
+        refresh_story_game_public_card_snapshots(db, game)
 
     touch_story_game(game)
     db.commit()
@@ -1006,6 +1167,11 @@ def delete_story_game(
     db.execute(
         sa_delete(StoryTurnImage).where(
             StoryTurnImage.game_id == game.id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryMemoryBlock).where(
+            StoryMemoryBlock.game_id == game.id,
         )
     )
     db.execute(

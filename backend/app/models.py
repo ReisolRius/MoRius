@@ -99,8 +99,8 @@ class StoryGame(Base):
     story_llm_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="z-ai/glm-5",
-        server_default="z-ai/glm-5",
+        default="deepseek/deepseek-v3.2",
+        server_default="deepseek/deepseek-v3.2",
     )
     image_model: Mapped[str] = mapped_column(
         String(120),
@@ -127,6 +127,12 @@ class StoryGame(Base):
         server_default="0",
     )
     story_top_r: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        default=1.0,
+        server_default="1.0",
+    )
+    story_temperature: Mapped[float] = mapped_column(
         Float,
         nullable=False,
         default=1.0,
@@ -166,6 +172,9 @@ class StoryGame(Base):
     cover_position_x: Mapped[float] = mapped_column(Float, nullable=False, default=50.0, server_default="50.0")
     cover_position_y: Mapped[float] = mapped_column(Float, nullable=False, default=50.0, server_default="50.0")
     source_world_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    published_instruction_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_plot_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    published_world_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     community_views: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_launches: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -314,6 +323,28 @@ class StoryCommunityInstructionTemplateReport(Base):
     )
 
 
+class StoryBugReport(Base):
+    __tablename__ = "story_bug_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    source_game_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    source_game_title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    reporter_display_name: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    snapshot_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", server_default="open")
+    closed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class StoryMessage(Base):
     __tablename__ = "story_messages"
 
@@ -392,6 +423,7 @@ class StoryCharacter(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    note: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")

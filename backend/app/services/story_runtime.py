@@ -26,11 +26,13 @@ from app.services.story_games import (
     coerce_story_llm_model,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
+    normalize_story_temperature,
     normalize_story_top_k,
     normalize_story_top_r,
 )
 
 logger = logging.getLogger(__name__)
+STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 
 
@@ -64,6 +66,8 @@ class StoryRuntimeDeps:
     world_card_to_out: Callable[[Any], Any]
     world_card_event_to_out: Callable[[Any], Any]
     plot_card_event_to_out: Callable[[Any], Any]
+    resolve_story_ambient_profile: Callable[..., dict[str, Any] | None]
+    serialize_story_ambient_profile: Callable[[dict[str, Any] | None], str]
     story_default_title: str
     story_user_role: str
     story_assistant_role: str
@@ -122,6 +126,14 @@ def _estimate_story_tokens(value: str) -> int:
     if matches:
         return len(matches)
     return max(1, math.ceil(len(normalized) / 4))
+
+
+def _normalize_story_model_id(value: str | None) -> str:
+    return str(value or "").strip().lower()
+
+
+def _should_use_english_memory_source(model_name: str | None) -> bool:
+    return _normalize_story_model_id(model_name) in STORY_MEMORY_SOURCE_EN_MODEL_IDS
 
 
 def _estimate_story_context_usage_tokens(
@@ -232,9 +244,11 @@ def _stream_story_response(
     context_limit_chars: int,
     story_model_name: str | None,
     story_response_max_tokens: int | None,
+    story_temperature: float,
     story_top_k: int,
     story_top_r: float,
     memory_optimization_enabled: bool,
+    ambient_enabled: bool,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
 ):
@@ -264,6 +278,7 @@ def _stream_story_response(
     )
 
     produced = ""
+    stream_runtime_meta: dict[str, str] = {}
     persisted_length = 0
     last_persisted_at = time.monotonic()
     aborted = False
@@ -279,11 +294,13 @@ def _stream_story_response(
             context_limit_chars=context_limit_chars,
             story_model_name=story_model_name,
             story_response_max_tokens=story_response_max_tokens,
+            story_temperature=story_temperature,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=memory_optimization_enabled,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
+            raw_output_collector=stream_runtime_meta,
         ):
             produced += chunk
             current_time = time.monotonic()
@@ -315,6 +332,7 @@ def _stream_story_response(
             normalized_output = deps.normalize_generated_story_output(
                 text_value=produced,
                 world_cards=world_cards,
+                model_name=story_model_name,
                 show_gg_thoughts=show_gg_thoughts,
                 show_npc_thoughts=show_npc_thoughts,
             )
@@ -360,6 +378,23 @@ def _stream_story_response(
     if not assistant_text_for_postprocess:
         assistant_text_for_postprocess = produced.strip()
 
+    assistant_text_for_memory = assistant_text_for_postprocess
+    if _should_use_english_memory_source(story_model_name):
+        raw_output_candidate = str(stream_runtime_meta.get("raw_output") or "").replace("\r\n", "\n").strip()
+        if raw_output_candidate:
+            try:
+                raw_output_candidate = deps.normalize_generated_story_output(
+                    text_value=raw_output_candidate,
+                    world_cards=world_cards,
+                    model_name=None,
+                    show_gg_thoughts=show_gg_thoughts,
+                    show_npc_thoughts=show_npc_thoughts,
+                ).strip()
+            except Exception:
+                logger.exception("Failed to normalize raw English output for memory")
+            if raw_output_candidate:
+                assistant_text_for_memory = raw_output_candidate
+
     assistant_triggered_world_cards: list[dict[str, Any]] = []
     if not aborted and response_has_content:
         try:
@@ -373,6 +408,34 @@ def _stream_story_response(
                 game.id,
                 assistant_message.id,
             )
+
+    ambient_payload: dict[str, Any] | None = None
+    if ambient_enabled and not aborted and response_has_content:
+        try:
+            ambient_payload = deps.resolve_story_ambient_profile(
+                latest_assistant_text=assistant_text_for_postprocess,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to resolve ambient profile: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+            ambient_payload = None
+
+        if isinstance(ambient_payload, dict):
+            try:
+                game.ambient_profile = deps.serialize_story_ambient_profile(ambient_payload)
+                deps.touch_story_game(game)
+                db.commit()
+            except Exception:
+                logger.exception(
+                    "Failed to persist ambient profile: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
+                ambient_payload = None
 
     if response_has_content:
         logger.info(
@@ -393,7 +456,7 @@ def _stream_story_response(
                     game=game,
                     assistant_message=assistant_message,
                     latest_user_prompt_override=prompt,
-                    latest_assistant_text_override=assistant_text_for_postprocess,
+                    latest_assistant_text_override=assistant_text_for_memory,
                 )
                 plot_card_events_out = [
                     deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
@@ -462,6 +525,8 @@ def _stream_story_response(
                 if isinstance(card, dict) and isinstance(card.get("id"), int)
             ],
         }
+        if isinstance(ambient_payload, dict):
+            done_payload["ambient"] = ambient_payload
         try:
             yield _sse_event("done", done_payload)
         except Exception as exc:
@@ -524,12 +589,19 @@ def generate_story_response(
     memory_optimization_enabled = True if raw_memory_optimization_enabled is None else bool(raw_memory_optimization_enabled)
     if payload.memory_optimization_enabled is not None:
         memory_optimization_enabled = bool(payload.memory_optimization_enabled)
+    raw_ambient_enabled = getattr(game, "ambient_enabled", None)
+    ambient_enabled = bool(raw_ambient_enabled)
+    if payload.ambient_enabled is not None:
+        ambient_enabled = bool(payload.ambient_enabled)
     logger.info(
-        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s",
+        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s",
         game.id,
         memory_optimization_enabled,
         payload.memory_optimization_enabled,
         raw_memory_optimization_enabled,
+        ambient_enabled,
+        payload.ambient_enabled,
+        raw_ambient_enabled,
     )
     story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None))
     if payload.story_top_k is not None:
@@ -537,6 +609,9 @@ def generate_story_response(
     story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
     if payload.story_top_r is not None:
         story_top_r = normalize_story_top_r(payload.story_top_r)
+    story_temperature = normalize_story_temperature(getattr(game, "story_temperature", None))
+    if payload.story_temperature is not None:
+        story_temperature = normalize_story_temperature(payload.story_temperature)
     raw_show_gg_thoughts = getattr(game, "show_gg_thoughts", None)
     show_gg_thoughts = True if raw_show_gg_thoughts is None else bool(raw_show_gg_thoughts)
     if payload.show_gg_thoughts is not None:
@@ -561,6 +636,29 @@ def generate_story_response(
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
     source_user_message: StoryMessage | None = None
 
+    def _seed_opening_scene_message_if_needed(current_messages: list[StoryMessage]) -> list[StoryMessage]:
+        opening_scene = str(getattr(game, "opening_scene", "") or "").replace("\r\n", "\n").strip()
+        if not opening_scene or current_messages:
+            return current_messages
+        try:
+            db.add(
+                StoryMessage(
+                    game_id=game.id,
+                    role=deps.story_assistant_role,
+                    content=opening_scene,
+                )
+            )
+            deps.touch_story_game(game)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.exception("Failed to seed opening scene message: game_id=%s", game.id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to prepare opening scene: {_public_story_error_detail(exc)}",
+            ) from exc
+        return deps.list_story_messages(db, game.id)
+
     def _calculate_turn_cost_tokens(context_messages_for_cost: list[StoryMessage]) -> int:
         world_cards_for_cost = deps.list_story_world_cards(db, game.id)
         active_world_cards_for_cost = deps.select_story_world_cards_for_prompt(
@@ -580,7 +678,10 @@ def generate_story_response(
             world_cards=active_world_cards_for_cost,
             memory_optimization_enabled=memory_optimization_enabled,
         )
-        return max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
+        base_turn_cost_tokens = max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
+        if ambient_enabled:
+            return base_turn_cost_tokens + 1
+        return base_turn_cost_tokens
 
     def _drop_last_assistant_steps(
         *,
@@ -732,6 +833,8 @@ def generate_story_response(
                 detail=f"Failed to purge undone steps for {action_label}: {_public_story_error_detail(exc)}",
             ) from exc
 
+    messages = _seed_opening_scene_message_if_needed(messages)
+
     if payload.reroll_last_response:
         if discard_last_assistant_steps > 0:
             raise HTTPException(
@@ -837,9 +940,11 @@ def generate_story_response(
         context_limit_chars=context_limit_chars,
         story_model_name=story_model_name,
         story_response_max_tokens=story_response_max_tokens,
+        story_temperature=story_temperature,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
+        ambient_enabled=ambient_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -861,8 +966,10 @@ def generate_story_response(
         _safe_stream(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-transform",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
+            # Force identity encoding for SSE so middleware/proxies do not gzip-buffer the stream.
+            "Content-Encoding": "identity",
         },
     )

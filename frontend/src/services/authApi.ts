@@ -1,5 +1,5 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
-import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
+import type { StoryCommunityWorldSummary, StoryGamePayload, StoryGameSummary } from '../types/story'
 import { requestJson } from './httpClient'
 
 type MessageResponse = {
@@ -106,6 +106,33 @@ export type AdminReport = {
 
 type AdminReportListResponse = {
   reports: AdminReport[]
+}
+
+export type AdminBugReportSummary = {
+  id: number
+  source_game_id: number
+  source_game_title: string
+  reporter_user_id: number
+  reporter_name: string
+  title: string
+  description: string
+  created_at: string
+}
+
+type AdminBugReportListResponse = {
+  reports: AdminBugReportSummary[]
+}
+
+export type AdminBugReportDetail = {
+  id: number
+  source_game_id: number
+  source_game_title: string
+  reporter_user_id: number
+  reporter_name: string
+  title: string
+  description: string
+  created_at: string
+  snapshot: StoryGamePayload
 }
 
 const AUTH_NETWORK_ERROR =
@@ -463,6 +490,54 @@ export async function listOpenReportsForAdmin(payload: {
     AUTH_NETWORK_ERROR,
   )
   return response.reports
+}
+
+export async function listBugReportsForAdmin(payload: {
+  token: string
+}): Promise<AdminBugReportSummary[]> {
+  const response = await requestJson<AdminBugReportListResponse>(
+    '/api/auth/admin/bug-reports',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return response.reports
+}
+
+export async function getBugReportForAdmin(payload: {
+  token: string
+  report_id: number
+}): Promise<AdminBugReportDetail> {
+  return requestJson<AdminBugReportDetail>(
+    `/api/auth/admin/bug-reports/${payload.report_id}`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function closeBugReportForAdmin(payload: {
+  token: string
+  report_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/bug-reports/${payload.report_id}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function dismissWorldReportsAsAdmin(payload: {

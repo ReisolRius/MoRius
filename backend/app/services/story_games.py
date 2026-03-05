@@ -6,7 +6,13 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models import StoryGame, StoryInstructionCard, StoryPlotCard, StoryWorldCard, User
-from app.schemas import StoryCommunityWorldSummaryOut, StoryGameSummaryOut
+from app.schemas import (
+    StoryCommunityWorldSummaryOut,
+    StoryGameSummaryOut,
+    StoryInstructionCardOut,
+    StoryPlotCardOut,
+    StoryWorldCardOut,
+)
 from app.services.media import (
     normalize_avatar_value,
     normalize_media_position,
@@ -23,11 +29,17 @@ from app.services.story_cards import (
     normalize_story_plot_card_source,
     normalize_story_plot_card_triggers,
     serialize_story_plot_card_triggers,
+    story_plot_card_to_out,
 )
 from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_plot_cards,
     list_story_world_cards,
+)
+from app.services.story_world_cards import (
+    normalize_story_world_card_triggers,
+    serialize_story_world_card_triggers,
+    story_world_card_to_out,
 )
 
 STORY_DEFAULT_TITLE = "Новая игра"
@@ -86,26 +98,26 @@ STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
 STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
-STORY_LLM_MODEL_GEMINI_3_FLASH_PREVIEW = "google/gemini-3-flash-preview"
-STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_GLM5
+STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GROK_41_FAST,
     STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE,
-    STORY_LLM_MODEL_GEMINI_3_FLASH_PREVIEW,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
+STORY_IMAGE_MODEL_GROK = "grok-imagine-image-pro"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
 STORY_SUPPORTED_IMAGE_MODELS = {
     STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
+    STORY_IMAGE_MODEL_GROK,
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
@@ -113,6 +125,9 @@ STORY_DEFAULT_TOP_K = 0
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
 STORY_DEFAULT_TOP_R = 1.0
+STORY_TEMPERATURE_MIN = 0.0
+STORY_TEMPERATURE_MAX = 2.0
+STORY_DEFAULT_TEMPERATURE = 1.0
 STORY_DEFAULT_SHOW_GG_THOUGHTS = True
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = True
 STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
@@ -122,7 +137,7 @@ STORY_COVER_SCALE_DEFAULT = 1.0
 STORY_IMAGE_POSITION_MIN = 0.0
 STORY_IMAGE_POSITION_MAX = 100.0
 STORY_IMAGE_POSITION_DEFAULT = 50.0
-STORY_COVER_MAX_BYTES = 500 * 1024
+STORY_COVER_MAX_BYTES = 1 * 1024 * 1024
 STORY_OPENING_SCENE_MAX_LENGTH = 12_000
 STORY_WORLD_CARD_KIND_WORLD = "world"
 STORY_WORLD_CARD_KIND_NPC = "npc"
@@ -317,8 +332,8 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-4.7, deepseek/deepseek-v3.2, x-ai/grok-4.1-fast, "
-                "arcee-ai/trinity-large-preview:free, google/gemini-3-flash-preview"
+                "Use one of: z-ai/glm-5, z-ai/glm-4.7, deepseek/deepseek-v3.2, "
+                "x-ai/grok-4.1-fast, arcee-ai/trinity-large-preview:free"
             ),
         )
     return normalized
@@ -339,7 +354,7 @@ def normalize_story_image_model(value: str | None) -> str:
             detail=(
                 "Unsupported image model. "
                 "Use one of: black-forest-labs/flux.2-pro, bytedance-seed/seedream-4.5, "
-                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
+                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview, grok-imagine-image-pro"
             ),
         )
     return normalized
@@ -361,6 +376,13 @@ def normalize_story_top_r(value: float | None) -> float:
     if value is None:
         return STORY_DEFAULT_TOP_R
     clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
+    return round(clamped_value, 2)
+
+
+def normalize_story_temperature(value: float | None) -> float:
+    if value is None:
+        return STORY_DEFAULT_TEMPERATURE
+    clamped_value = max(STORY_TEMPERATURE_MIN, min(float(value), STORY_TEMPERATURE_MAX))
     return round(clamped_value, 2)
 
 
@@ -470,6 +492,7 @@ def story_game_summary_to_out(
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
@@ -514,6 +537,7 @@ def story_game_summary_to_compact_out(
         memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
+        story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
@@ -604,6 +628,127 @@ def _normalize_story_world_card_memory_turns_for_storage(raw_value: int | None, 
     return parsed_value
 
 
+def _serialize_story_public_cards_snapshot(items: list[dict[str, Any]]) -> str:
+    return json.dumps(items, ensure_ascii=False, separators=(",", ":"))
+
+
+def _deserialize_story_public_cards_snapshot(raw_value: str | None) -> list[dict[str, Any]] | None:
+    if not raw_value:
+        return None
+    try:
+        loaded = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(loaded, list):
+        return None
+    if not all(isinstance(item, dict) for item in loaded):
+        return None
+    return loaded
+
+
+def _load_story_public_instruction_cards_snapshot(raw_value: str | None) -> list[StoryInstructionCardOut] | None:
+    loaded = _deserialize_story_public_cards_snapshot(raw_value)
+    if loaded is None:
+        return None
+    try:
+        return [StoryInstructionCardOut.model_validate(item) for item in loaded]
+    except Exception:
+        return None
+
+
+def _load_story_public_plot_cards_snapshot(raw_value: str | None) -> list[StoryPlotCardOut] | None:
+    loaded = _deserialize_story_public_cards_snapshot(raw_value)
+    if loaded is None:
+        return None
+    try:
+        return [StoryPlotCardOut.model_validate(item) for item in loaded]
+    except Exception:
+        return None
+
+
+def _load_story_public_world_cards_snapshot(raw_value: str | None) -> list[StoryWorldCardOut] | None:
+    loaded = _deserialize_story_public_cards_snapshot(raw_value)
+    if loaded is None:
+        return None
+    try:
+        return [StoryWorldCardOut.model_validate(item) for item in loaded]
+    except Exception:
+        return None
+
+
+def refresh_story_game_public_card_snapshots(db: Session, game: StoryGame) -> None:
+    instruction_cards_snapshot = [
+        StoryInstructionCardOut.model_validate(card).model_dump(mode="json")
+        for card in list_story_instruction_cards(db, game.id)
+    ]
+    plot_cards_snapshot = [
+        story_plot_card_to_out(card).model_dump(mode="json")
+        for card in list_story_plot_cards(db, game.id)
+    ]
+    world_cards_snapshot = [
+        story_world_card_to_out(card).model_dump(mode="json")
+        for card in list_story_world_cards(db, game.id)
+    ]
+    game.published_instruction_cards_snapshot = _serialize_story_public_cards_snapshot(instruction_cards_snapshot)
+    game.published_plot_cards_snapshot = _serialize_story_public_cards_snapshot(plot_cards_snapshot)
+    game.published_world_cards_snapshot = _serialize_story_public_cards_snapshot(world_cards_snapshot)
+
+
+def get_story_game_public_cards_out(
+    db: Session,
+    game: StoryGame,
+) -> tuple[list[StoryInstructionCardOut], list[StoryPlotCardOut], list[StoryWorldCardOut]]:
+    instruction_cards_snapshot = _load_story_public_instruction_cards_snapshot(
+        getattr(game, "published_instruction_cards_snapshot", None)
+    )
+    plot_cards_snapshot = _load_story_public_plot_cards_snapshot(
+        getattr(game, "published_plot_cards_snapshot", None)
+    )
+    world_cards_snapshot = _load_story_public_world_cards_snapshot(
+        getattr(game, "published_world_cards_snapshot", None)
+    )
+    if (
+        instruction_cards_snapshot is not None
+        and plot_cards_snapshot is not None
+        and world_cards_snapshot is not None
+    ):
+        return instruction_cards_snapshot, plot_cards_snapshot, world_cards_snapshot
+
+    instruction_cards = [
+        StoryInstructionCardOut.model_validate(card)
+        for card in list_story_instruction_cards(db, game.id)
+    ]
+    plot_cards = [
+        story_plot_card_to_out(card)
+        for card in list_story_plot_cards(db, game.id)
+    ]
+    world_cards = [
+        story_world_card_to_out(card)
+        for card in list_story_world_cards(db, game.id)
+    ]
+    return instruction_cards, plot_cards, world_cards
+
+
+def ensure_story_game_public_card_snapshots(db: Session, game: StoryGame) -> bool:
+    instruction_cards_snapshot = _load_story_public_instruction_cards_snapshot(
+        getattr(game, "published_instruction_cards_snapshot", None)
+    )
+    plot_cards_snapshot = _load_story_public_plot_cards_snapshot(
+        getattr(game, "published_plot_cards_snapshot", None)
+    )
+    world_cards_snapshot = _load_story_public_world_cards_snapshot(
+        getattr(game, "published_world_cards_snapshot", None)
+    )
+    if (
+        instruction_cards_snapshot is not None
+        and plot_cards_snapshot is not None
+        and world_cards_snapshot is not None
+    ):
+        return False
+    refresh_story_game_public_card_snapshots(db, game)
+    return True
+
+
 def clone_story_world_cards_to_game(
     db: Session,
     *,
@@ -613,43 +758,103 @@ def clone_story_world_cards_to_game(
     copy_plot: bool = True,
     copy_world: bool = True,
     copy_main_hero: bool = True,
+    source_instruction_cards_out: list[StoryInstructionCardOut] | None = None,
+    source_plot_cards_out: list[StoryPlotCardOut] | None = None,
+    source_world_cards_out: list[StoryWorldCardOut] | None = None,
 ) -> None:
     if copy_instructions:
-        source_instruction_cards = list_story_instruction_cards(db, source_world_id)
-        for card in source_instruction_cards:
-            cloned_instruction = StoryInstructionCard(
-                game_id=target_game_id,
-                title=card.title,
-                content=card.content,
-            )
-            db.add(cloned_instruction)
+        if source_instruction_cards_out is None:
+            source_instruction_cards = list_story_instruction_cards(db, source_world_id)
+            for card in source_instruction_cards:
+                cloned_instruction = StoryInstructionCard(
+                    game_id=target_game_id,
+                    title=card.title,
+                    content=card.content,
+                )
+                db.add(cloned_instruction)
+        else:
+            for card in source_instruction_cards_out:
+                cloned_instruction = StoryInstructionCard(
+                    game_id=target_game_id,
+                    title=card.title,
+                    content=card.content,
+                )
+                db.add(cloned_instruction)
 
     if copy_plot:
-        source_plot_cards = list_story_plot_cards(db, source_world_id)
-        for card in source_plot_cards:
-            cloned_plot = StoryPlotCard(
+        if source_plot_cards_out is None:
+            source_plot_cards = list_story_plot_cards(db, source_world_id)
+            for card in source_plot_cards:
+                cloned_plot = StoryPlotCard(
+                    game_id=target_game_id,
+                    title=card.title,
+                    content=card.content,
+                    triggers=serialize_story_plot_card_triggers(
+                        normalize_story_plot_card_triggers(
+                            deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+                            fallback_title=card.title,
+                        )
+                    ),
+                    memory_turns=normalize_story_plot_card_memory_turns_for_storage(
+                        getattr(card, "memory_turns", None),
+                        explicit=False,
+                        current_value=getattr(card, "memory_turns", None),
+                    ),
+                    ai_edit_enabled=bool(getattr(card, "ai_edit_enabled", True)),
+                    is_enabled=bool(getattr(card, "is_enabled", True)),
+                    source=normalize_story_plot_card_source(getattr(card, "source", "")),
+                )
+                db.add(cloned_plot)
+        else:
+            for card in source_plot_cards_out:
+                snapshot_memory_turns = 0 if card.memory_turns is None else int(card.memory_turns)
+                cloned_plot = StoryPlotCard(
+                    game_id=target_game_id,
+                    title=card.title,
+                    content=card.content,
+                    triggers=serialize_story_plot_card_triggers(
+                        normalize_story_plot_card_triggers(
+                            list(card.triggers),
+                            fallback_title=card.title,
+                        )
+                    ),
+                    memory_turns=normalize_story_plot_card_memory_turns_for_storage(
+                        snapshot_memory_turns,
+                        explicit=False,
+                        current_value=snapshot_memory_turns,
+                    ),
+                    ai_edit_enabled=bool(card.ai_edit_enabled),
+                    is_enabled=bool(card.is_enabled),
+                    source=normalize_story_plot_card_source(card.source),
+                )
+                db.add(cloned_plot)
+
+    if source_world_cards_out is None:
+        source_world_cards = list_story_world_cards(db, source_world_id)
+        for card in source_world_cards:
+            card_kind = _normalize_story_world_card_kind(card.kind)
+            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_main_hero:
+                continue
+            if card_kind != STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_world:
+                continue
+            cloned_world_card = StoryWorldCard(
                 game_id=target_game_id,
                 title=card.title,
                 content=card.content,
-                triggers=serialize_story_plot_card_triggers(
-                    normalize_story_plot_card_triggers(
-                        deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
-                        fallback_title=card.title,
-                    )
-                ),
-                memory_turns=normalize_story_plot_card_memory_turns_for_storage(
-                    getattr(card, "memory_turns", None),
-                    explicit=False,
-                    current_value=getattr(card, "memory_turns", None),
-                ),
-                ai_edit_enabled=bool(getattr(card, "ai_edit_enabled", True)),
-                is_enabled=bool(getattr(card, "is_enabled", True)),
-                source=normalize_story_plot_card_source(getattr(card, "source", "")),
+                triggers=card.triggers,
+                kind=card_kind,
+                avatar_url=normalize_story_character_avatar_url(card.avatar_url),
+                avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
+                character_id=None,
+                memory_turns=_normalize_story_world_card_memory_turns_for_storage(card.memory_turns, kind=card_kind),
+                is_locked=bool(card.is_locked),
+                ai_edit_enabled=bool(card.ai_edit_enabled),
+                source=_normalize_story_world_card_source(card.source),
             )
-            db.add(cloned_plot)
+            db.add(cloned_world_card)
+        return
 
-    source_world_cards = list_story_world_cards(db, source_world_id)
-    for card in source_world_cards:
+    for card in source_world_cards_out:
         card_kind = _normalize_story_world_card_kind(card.kind)
         if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and not copy_main_hero:
             continue
@@ -659,7 +864,12 @@ def clone_story_world_cards_to_game(
             game_id=target_game_id,
             title=card.title,
             content=card.content,
-            triggers=card.triggers,
+            triggers=serialize_story_world_card_triggers(
+                normalize_story_world_card_triggers(
+                    list(card.triggers),
+                    fallback_title=card.title,
+                )
+            ),
             kind=card_kind,
             avatar_url=normalize_story_character_avatar_url(card.avatar_url),
             avatar_scale=normalize_story_avatar_scale(card.avatar_scale),

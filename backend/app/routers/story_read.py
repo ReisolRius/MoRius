@@ -23,6 +23,8 @@ from app.services.story_events import (
     story_world_card_change_event_to_out,
 )
 from app.services.story_games import (
+    ensure_story_game_public_card_snapshots,
+    get_story_game_public_cards_out,
     story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
@@ -70,8 +72,10 @@ def get_story_community_world(
     except IntegrityError:
         view_inserted = False
 
+    snapshot_backfilled = ensure_story_game_public_card_snapshots(db, world)
     if view_inserted:
         increment_story_world_views(db, world.id)
+    if view_inserted or snapshot_backfilled:
         db.commit()
         db.refresh(world)
 
@@ -94,9 +98,7 @@ def get_story_community_world(
             StoryCommunityWorldFavorite.user_id == user.id,
         )
     )
-    instruction_cards = list_story_instruction_cards(db, world.id)
-    plot_cards = list_story_plot_cards(db, world.id)
-    world_cards = list_story_world_cards(db, world.id)
+    instruction_cards, plot_cards, world_cards = get_story_game_public_cards_out(db, world)
     comments = list_story_community_world_comments_out(db, world_id=world.id)
 
     return StoryCommunityWorldOut(
@@ -110,9 +112,9 @@ def get_story_community_world(
             is_favorited_by_user=user_favorite is not None,
         ),
         context_limit_chars=world.context_limit_chars,
-        instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
-        plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
-        world_cards=[story_world_card_to_out(card) for card in world_cards],
+        instruction_cards=instruction_cards,
+        plot_cards=plot_cards,
+        world_cards=world_cards,
         comments=comments,
     )
 

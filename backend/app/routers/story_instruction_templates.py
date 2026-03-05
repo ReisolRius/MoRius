@@ -221,6 +221,8 @@ def rate_story_community_instruction_template(
     user = get_current_user(db, authorization)
     template = get_public_story_instruction_template_or_404(db, template_id)
     rating_value = int(payload.rating)
+    if rating_value <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Rating should be between 1 and 5")
 
     existing_rating = db.scalar(
         select(StoryCommunityInstructionTemplateRating).where(

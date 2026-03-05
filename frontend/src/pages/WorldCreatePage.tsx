@@ -7,14 +7,13 @@ import {
   IconButton,
   InputAdornment,
   MenuItem,
-  Slider,
   Stack,
   TextField,
   Typography,
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
-import AvatarCropDialog from '../components/AvatarCropDialog'
+import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import BaseDialog from '../components/dialogs/BaseDialog'
@@ -24,6 +23,8 @@ import ImageCropper from '../components/ImageCropper'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import {
+  addCommunityCharacter,
+  createStoryCharacter,
   createStoryGame,
   createStoryInstructionCard,
   createStoryPlotCard,
@@ -31,7 +32,9 @@ import {
   deleteStoryInstructionCard,
   deleteStoryPlotCard,
   deleteStoryWorldCard,
+  getCommunityCharacter,
   getStoryGame,
+  listCommunityCharacters,
   listStoryCharacters,
   updateStoryGameMeta,
   updateStoryInstructionCard,
@@ -42,7 +45,12 @@ import {
 import { loadStoryTitleMap, persistStoryTitleMap, setStoryTitle } from '../services/storyTitleStore'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryCharacter, StoryGameVisibility, StoryWorldCard } from '../types/story'
+import type {
+  StoryCharacter,
+  StoryCommunityCharacterSummary,
+  StoryGameVisibility,
+  StoryWorldCard,
+} from '../types/story'
 import { compressImageDataUrl, compressImageFileToDataUrl } from '../utils/avatar'
 
 type WorldCreatePageProps = {
@@ -63,11 +71,21 @@ type EditableCharacterCard = {
   localId: string
   id?: number
   character_id: number | null
+  source_character_id: number | null
   name: string
   description: string
+  note: string
   triggers: string
   avatar_url: string | null
   avatar_scale: number
+}
+
+type CharacterPickerSourceTab = 'my' | 'community'
+type CommunityAddedFilter = 'all' | 'added' | 'not_added'
+type CommunitySortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
+type CharacterManagerSyncTarget = {
+  target: 'main_hero' | 'npc'
+  localId: string
 }
 
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
@@ -80,12 +98,17 @@ const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
-const COVER_MAX_BYTES = 360 * 1024
-const CHARACTER_AVATAR_MAX_BYTES = 260 * 1024
+const COVER_MAX_BYTES = 1 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 1 * 1024 * 1024
 const CARD_WIDTH = 286
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
 const OPENING_SCENE_MAX_LENGTH = 4_000
+const OPENING_SCENE_NPC_NAME_MAX_LENGTH = 120
+const OPENING_SCENE_NPC_FALLBACK_NAME = 'NPC'
+const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный герой'
+const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
+const CHARACTER_NOTE_MAX_LENGTH = 20
 const WORLD_GENRE_OPTIONS = [
   'Фэнтези',
   'Фантастика (Научная фантастика)',
@@ -129,6 +152,28 @@ function parseTriggers(value: string, fallback: string): string[] {
   return fallback.trim() ? [fallback.trim()] : []
 }
 
+function normalizeCharacterNote(value: string): string {
+  return value
+    .replace(/\r\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHARACTER_NOTE_MAX_LENGTH)
+}
+
+function replacePlotMainHeroTags(value: string, rawMainHeroName: string | null | undefined): string {
+  if (!value || !value.includes('[[')) {
+    return value
+  }
+  const normalizedMainHeroName = (rawMainHeroName ?? '').replace(/\s+/g, ' ').trim()
+  return value.replace(PLOT_GG_INLINE_TAG_PATTERN, (_fullMatch, inlineFallbackName: string | undefined) => {
+    if (normalizedMainHeroName) {
+      return normalizedMainHeroName
+    }
+    const normalizedFallbackName = (inlineFallbackName ?? '').replace(/\s+/g, ' ').trim()
+    return normalizedFallbackName || OPENING_SCENE_GG_FALLBACK_NAME
+  })
+}
+
 function createInstructionTemplateSignature(title: string, content: string): string {
   const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
   const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
@@ -147,8 +192,27 @@ function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCha
   return {
     localId: makeLocalId(),
     character_id: character.id,
+    source_character_id: character.source_character_id ?? null,
     name: character.name,
     description: character.description,
+    note: normalizeCharacterNote(character.note),
+    triggers: character.triggers.join(', '),
+    avatar_url: character.avatar_url,
+    avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+  }
+}
+
+function toEditableCharacterFromCommunity(
+  character: StoryCommunityCharacterSummary,
+  profileCharacterId: number | null = null,
+): EditableCharacterCard {
+  return {
+    localId: makeLocalId(),
+    character_id: profileCharacterId,
+    source_character_id: character.id,
+    name: character.name,
+    description: character.description,
+    note: normalizeCharacterNote(character.note),
     triggers: character.triggers.join(', '),
     avatar_url: character.avatar_url,
     avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
@@ -160,8 +224,10 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
     localId: makeLocalId(),
     id: card.id,
     character_id: card.character_id ?? null,
+    source_character_id: null,
     name: card.title,
     description: card.content,
+    note: '',
     triggers: card.triggers.join(', '),
     avatar_url: card.avatar_url,
     avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
@@ -183,14 +249,51 @@ function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: s
   )
 }
 
-function CompactCard({ title, content, badge, avatar, actions }: { title: string; content: string; badge?: string; avatar?: ReactNode; actions?: ReactNode }) {
+function CompactCard({
+  title,
+  content,
+  badge,
+  noteBadge,
+  avatar,
+  actions,
+}: {
+  title: string
+  content: string
+  badge?: string
+  noteBadge?: string
+  avatar?: ReactNode
+  actions?: ReactNode
+}) {
   return (
     <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
         <Stack direction="row" spacing={0.7} alignItems="center">
           {avatar}
           <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', lineHeight: 1.2, minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
-          {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18 }}>{badge}</Typography> : null}
+          {noteBadge ? (
+            <Typography
+              sx={{
+                color: 'rgba(184, 218, 247, 0.96)',
+                fontSize: '0.61rem',
+                lineHeight: 1,
+                letterSpacing: 0.16,
+                fontWeight: 700,
+                border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                borderRadius: '999px',
+                px: 0.54,
+                py: 0.2,
+                maxWidth: 104,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                flexShrink: 0,
+              }}
+              title={noteBadge}
+            >
+              {noteBadge}
+            </Typography>
+          ) : null}
+          {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18, flexShrink: 0 }}>{badge}</Typography> : null}
         </Stack>
       </Box>
       <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -282,6 +385,106 @@ function EmptyAddCard({ onClick, label, actions = [] }: { onClick: () => void; l
   )
 }
 
+function TemplateButtonsCard({
+  title,
+  subtitle,
+  onCreate,
+  onTemplate,
+}: {
+  title: string
+  subtitle?: string
+  onCreate: () => void
+  onTemplate: () => void
+}) {
+  return (
+    <Box
+      sx={{
+        width: { xs: '100%', sm: 380 },
+        borderRadius: '12px',
+        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 78%, rgba(174, 201, 231, 0.34))',
+        background:
+          'linear-gradient(120deg, color-mix(in srgb, var(--morius-elevated-bg) 84%, #1a2634) 0%, color-mix(in srgb, var(--morius-card-bg) 82%, #2c3646) 100%)',
+        color: APP_TEXT_PRIMARY,
+        px: 1.15,
+        py: 1.05,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 0.85,
+      }}
+    >
+      <Stack spacing={0.35}>
+        <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 700, lineHeight: 1.2 }}>{title}</Typography>
+        {subtitle ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', lineHeight: 1.35 }}>{subtitle}</Typography> : null}
+      </Stack>
+      <Stack direction="row" spacing={0.7} sx={{ width: '100%' }}>
+        <Button
+          onClick={onCreate}
+          sx={{
+            minHeight: 34,
+            flex: 1,
+            borderRadius: '10px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            textTransform: 'none',
+            fontSize: '0.84rem',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
+          }}
+        >
+          Новая
+        </Button>
+        <Button
+          onClick={onTemplate}
+          sx={{
+            minHeight: 34,
+            flex: 1,
+            borderRadius: '10px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            textTransform: 'none',
+            fontSize: '0.84rem',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
+          }}
+        >
+          Из шаблона
+        </Button>
+      </Stack>
+    </Box>
+  )
+}
+
+function StandardCreateButtonsRow({ onCreate, onTemplate }: { onCreate: () => void; onTemplate: () => void }) {
+  return (
+    <Stack direction="row" spacing={0.7} sx={{ width: { xs: '100%', sm: 380 } }}>
+      <Button
+        onClick={onCreate}
+        sx={{
+          minHeight: 34,
+          flex: 1,
+          borderRadius: '10px',
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          textTransform: 'none',
+          fontSize: '0.84rem',
+          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
+        }}
+      >
+        Новая
+      </Button>
+      <Button
+        onClick={onTemplate}
+        sx={{
+          minHeight: 34,
+          flex: 1,
+          borderRadius: '10px',
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          textTransform: 'none',
+          fontSize: '0.84rem',
+          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
+        }}
+      >
+        Из шаблона
+      </Button>
+    </Stack>
+  )
+}
+
 function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: WorldCreatePageProps) {
   const isEditMode = editingGameId !== null
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
@@ -293,6 +496,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [openingScene, setOpeningScene] = useState('')
+  const [openingSceneNpcName, setOpeningSceneNpcName] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
   const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
   const [genres, setGenres] = useState<string[]>([])
@@ -317,34 +521,51 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
 
   const [characterPickerTarget, setCharacterPickerTarget] = useState<'main_hero' | 'npc' | null>(null)
-  const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
-  const [characterDialogTarget, setCharacterDialogTarget] = useState<'main_hero' | 'npc'>('npc')
-  const [characterDialogTargetLocalId, setCharacterDialogTargetLocalId] = useState<string | null>(null)
-  const [characterNameDraft, setCharacterNameDraft] = useState('')
-  const [characterDescriptionDraft, setCharacterDescriptionDraft] = useState('')
-  const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
-  const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
-  const [characterAvatarScaleDraft, setCharacterAvatarScaleDraft] = useState(1)
-  const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
+  const [characterPickerSourceTab, setCharacterPickerSourceTab] = useState<CharacterPickerSourceTab>('my')
+  const [characterPickerSearchQuery, setCharacterPickerSearchQuery] = useState('')
+  const [characterPickerAddedFilter, setCharacterPickerAddedFilter] = useState<CommunityAddedFilter>('all')
+  const [characterPickerSortMode, setCharacterPickerSortMode] = useState<CommunitySortMode>('updated_desc')
+  const [communityCharacterOptions, setCommunityCharacterOptions] = useState<StoryCommunityCharacterSummary[]>([])
+  const [isLoadingCommunityCharacterOptions, setIsLoadingCommunityCharacterOptions] = useState(false)
+  const [hasLoadedCommunityCharacterOptions, setHasLoadedCommunityCharacterOptions] = useState(false)
+  const [expandedCommunityCharacterId, setExpandedCommunityCharacterId] = useState<number | null>(null)
+  const [loadingCommunityCharacterId, setLoadingCommunityCharacterId] = useState<number | null>(null)
+  const [savingCommunityCharacterId, setSavingCommunityCharacterId] = useState<number | null>(null)
+  const [characterManagerOpen, setCharacterManagerOpen] = useState(false)
+  const [characterManagerInitialMode, setCharacterManagerInitialMode] = useState<'list' | 'create'>('list')
+  const [characterManagerInitialCharacterId, setCharacterManagerInitialCharacterId] = useState<number | null>(null)
+  const [characterManagerReturnTarget, setCharacterManagerReturnTarget] = useState<'main_hero' | 'npc' | null>(null)
+  const [characterManagerSyncTarget, setCharacterManagerSyncTarget] = useState<CharacterManagerSyncTarget | null>(null)
+  const [isOpeningCharacterManager, setIsOpeningCharacterManager] = useState(false)
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
-  const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
+  const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
+  const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
   const selectedInstructionTemplateSignatures = useMemo(
     () => instructionCards.map((card) => createInstructionTemplateSignature(card.title, card.content)),
     [instructionCards],
   )
-  const mainHeroName = useMemo(() => normalizeCharacterIdentity(mainHero?.name ?? ''), [mainHero?.name])
+  const mainHeroCharacterId = useMemo(
+    () => (typeof mainHero?.character_id === 'number' && mainHero.character_id > 0 ? mainHero.character_id : null),
+    [mainHero?.character_id],
+  )
+  const mainHeroSourceCharacterId = useMemo(
+    () =>
+      typeof mainHero?.source_character_id === 'number' && mainHero.source_character_id > 0
+        ? mainHero.source_character_id
+        : null,
+    [mainHero?.source_character_id],
+  )
   const npcCharacterIds = useMemo(() => new Set(npcs.map((npc) => npc.character_id).filter((id): id is number => Boolean(id))), [npcs])
-  const npcNames = useMemo(() => {
-    const names = new Set<string>()
+  const npcSourceCharacterIds = useMemo(() => {
+    const ids = new Set<number>()
     npcs.forEach((npc) => {
-      const normalizedName = normalizeCharacterIdentity(npc.name)
-      if (normalizedName) {
-        names.add(normalizedName)
+      if (typeof npc.source_character_id === 'number' && npc.source_character_id > 0) {
+        ids.add(npc.source_character_id)
       }
     })
-    return names
+    return ids
   }, [npcs])
   const canSubmit = useMemo(
     () => !isSubmitting && !isLoading && Boolean(title.trim()),
@@ -357,6 +578,57 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     }
     return WORLD_GENRE_OPTIONS.filter((genre) => genre.toLowerCase().includes(query))
   }, [genreSearch])
+  const filteredOwnCharacterOptions = useMemo(() => {
+    const normalizedQuery = normalizeCharacterIdentity(characterPickerSearchQuery)
+    if (!normalizedQuery) {
+      return sortedCharacters
+    }
+    return sortedCharacters.filter((character) => {
+      const searchValues = [character.name, character.description, ...character.triggers]
+      return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
+    })
+  }, [characterPickerSearchQuery, sortedCharacters])
+  const filteredCommunityCharacterOptions = useMemo(() => {
+    const normalizedQuery = normalizeCharacterIdentity(characterPickerSearchQuery)
+    let nextItems = [...communityCharacterOptions]
+    if (characterPickerAddedFilter === 'added') {
+      nextItems = nextItems.filter((item) => item.is_added_by_user)
+    } else if (characterPickerAddedFilter === 'not_added') {
+      nextItems = nextItems.filter((item) => !item.is_added_by_user)
+    }
+    if (normalizedQuery) {
+      nextItems = nextItems.filter((item) => {
+        const searchValues = [item.name, item.description, item.author_name, ...item.triggers]
+        return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
+      })
+    }
+    nextItems.sort((left, right) => {
+      if (characterPickerSortMode === 'rating_desc') {
+        if (right.community_rating_avg !== left.community_rating_avg) {
+          return right.community_rating_avg - left.community_rating_avg
+        }
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (characterPickerSortMode === 'additions_desc') {
+        if (right.community_additions_count !== left.community_additions_count) {
+          return right.community_additions_count - left.community_additions_count
+        }
+        return right.id - left.id
+      }
+      const leftTimestamp = Date.parse(left.updated_at)
+      const rightTimestamp = Date.parse(right.updated_at)
+      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && rightTimestamp !== leftTimestamp) {
+        return rightTimestamp - leftTimestamp
+      }
+      return right.id - left.id
+    })
+    return nextItems
+  }, [
+    characterPickerAddedFilter,
+    characterPickerSearchQuery,
+    characterPickerSortMode,
+    communityCharacterOptions,
+  ])
 
   const toggleGenre = useCallback((genre: string) => {
     setGenres((previous) => {
@@ -377,38 +649,174 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const getTemplateDisabledReason = useCallback(
     (character: StoryCharacter, target: 'main_hero' | 'npc'): string | null => {
-      const normalizedName = normalizeCharacterIdentity(character.name)
       if (target === 'main_hero') {
-        return npcCharacterIds.has(character.id) || (normalizedName && npcNames.has(normalizedName))
-          ? 'Уже выбран как NPC'
-          : null
+        return npcCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
       }
-      if ((mainHero?.character_id === character.id) || (mainHeroName && normalizedName && mainHeroName === normalizedName)) {
+      if (mainHeroCharacterId === character.id) {
         return 'Уже выбран как главный герой'
       }
-      return npcCharacterIds.has(character.id) || (normalizedName && npcNames.has(normalizedName))
-        ? 'Уже выбран как NPC'
-        : null
+      return npcCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
     },
-    [mainHero?.character_id, mainHeroName, npcCharacterIds, npcNames],
+    [mainHeroCharacterId, npcCharacterIds],
+  )
+  const getCommunityTemplateDisabledReason = useCallback(
+    (character: StoryCommunityCharacterSummary, target: 'main_hero' | 'npc'): string | null => {
+      if (target === 'main_hero') {
+        return npcSourceCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
+      }
+      if (mainHeroSourceCharacterId === character.id) {
+        return 'Уже выбран как главный герой'
+      }
+      return npcSourceCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
+    },
+    [mainHeroSourceCharacterId, npcSourceCharacterIds],
   )
 
   const hasTemplateConflicts = useCallback((hero: EditableCharacterCard | null, nextNpcs: EditableCharacterCard[]) => {
     const usedNpcTemplates = new Set<number>()
+    const usedNpcSources = new Set<number>()
     for (const npc of nextNpcs) {
       if (!npc.character_id) continue
       if (hero?.character_id && npc.character_id === hero.character_id) return true
       if (usedNpcTemplates.has(npc.character_id)) return true
       usedNpcTemplates.add(npc.character_id)
     }
+    for (const npc of nextNpcs) {
+      if (!npc.source_character_id) continue
+      if (hero?.source_character_id && npc.source_character_id === hero.source_character_id) return true
+      if (usedNpcSources.has(npc.source_character_id)) return true
+      usedNpcSources.add(npc.source_character_id)
+    }
     return false
   }, [])
+  const loadCommunityCharacterOptions = useCallback(async () => {
+    setIsLoadingCommunityCharacterOptions(true)
+    setErrorMessage('')
+    try {
+      const items = await listCommunityCharacters(authToken)
+      setCommunityCharacterOptions(items.map((item) => ({ ...item, note: normalizeCharacterNote(item.note ?? '') })))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Failed to open character editor'
+      setErrorMessage(detail)
+    } finally {
+      setIsLoadingCommunityCharacterOptions(false)
+      setHasLoadedCommunityCharacterOptions(true)
+    }
+  }, [authToken])
+
+  const loadCharacters = useCallback(async (): Promise<StoryCharacter[]> => {
+    try {
+      const items = await listStoryCharacters(authToken)
+      const normalizedItems = items.map((item) => ({
+        ...item,
+        note: normalizeCharacterNote(item.note ?? ''),
+      }))
+      setCharacters(normalizedItems)
+      return normalizedItems
+    } catch {
+      setCharacters([])
+      return []
+    }
+  }, [authToken])
 
   useEffect(() => {
-    let active = true
-    listStoryCharacters(authToken).then((items) => active && setCharacters(items)).catch(() => active && setCharacters([]))
-    return () => { active = false }
-  }, [authToken])
+    void loadCharacters()
+  }, [loadCharacters])
+
+  useEffect(() => {
+    if (characters.length === 0) {
+      return
+    }
+    const charactersById = new Map<number, StoryCharacter>()
+    characters.forEach((character) => {
+      charactersById.set(character.id, character)
+    })
+
+    setMainHero((previous) => {
+      if (!previous?.character_id) {
+        return previous
+      }
+      const linkedCharacter = charactersById.get(previous.character_id)
+      if (!linkedCharacter) {
+        return previous
+      }
+      const nextNote = normalizeCharacterNote(linkedCharacter.note ?? '')
+      const nextSourceCharacterId = linkedCharacter.source_character_id ?? null
+      if (previous.note === nextNote && previous.source_character_id === nextSourceCharacterId) {
+        return previous
+      }
+      return {
+        ...previous,
+        note: nextNote,
+        source_character_id: nextSourceCharacterId,
+      }
+    })
+
+    setNpcs((previous) => {
+      let hasChanges = false
+      const next = previous.map((npc) => {
+        if (!npc.character_id) {
+          return npc
+        }
+        const linkedCharacter = charactersById.get(npc.character_id)
+        if (!linkedCharacter) {
+          return npc
+        }
+        const nextNote = normalizeCharacterNote(linkedCharacter.note ?? '')
+        const nextSourceCharacterId = linkedCharacter.source_character_id ?? null
+        if (npc.note === nextNote && npc.source_character_id === nextSourceCharacterId) {
+          return npc
+        }
+        hasChanges = true
+        return {
+          ...npc,
+          note: nextNote,
+          source_character_id: nextSourceCharacterId,
+        }
+      })
+      return hasChanges ? next : previous
+    })
+  }, [characters])
+
+  useEffect(() => {
+    if (!characterPickerTarget) {
+      setCharacterPickerSourceTab('my')
+      setCharacterPickerSearchQuery('')
+      setCharacterPickerAddedFilter('all')
+      setCharacterPickerSortMode('updated_desc')
+      setExpandedCommunityCharacterId(null)
+      setLoadingCommunityCharacterId(null)
+      setSavingCommunityCharacterId(null)
+      setHasLoadedCommunityCharacterOptions(false)
+      loadedCommunityCharacterDetailsRef.current.clear()
+      return
+    }
+    setCharacterPickerSourceTab('my')
+    setCharacterPickerSearchQuery('')
+    setCharacterPickerAddedFilter('all')
+    setCharacterPickerSortMode('updated_desc')
+    setExpandedCommunityCharacterId(null)
+    setLoadingCommunityCharacterId(null)
+    setSavingCommunityCharacterId(null)
+  }, [characterPickerTarget])
+
+  useEffect(() => {
+    if (
+      !characterPickerTarget ||
+      characterPickerSourceTab !== 'community' ||
+      hasLoadedCommunityCharacterOptions ||
+      isLoadingCommunityCharacterOptions
+    ) {
+      return
+    }
+    void loadCommunityCharacterOptions()
+  }, [
+    characterPickerSourceTab,
+    characterPickerTarget,
+    hasLoadedCommunityCharacterOptions,
+    isLoadingCommunityCharacterOptions,
+    loadCommunityCharacterOptions,
+  ])
 
   useEffect(() => {
     if (!isEditMode || editingGameId === null) {
@@ -527,84 +935,142 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     setInstructionCards((previous) => [...previous, { localId: makeLocalId(), title: normalizedTitle, content: normalizedContent }])
   }, [instructionCards])
 
-  const openCharacterDialog = useCallback((target: 'main_hero' | 'npc', card?: EditableCharacterCard) => {
-    setCharacterDialogTarget(target)
-    setCharacterDialogTargetLocalId(card?.localId ?? null)
-    setCharacterNameDraft(card?.name ?? '')
-    setCharacterDescriptionDraft(card?.description ?? '')
-    setCharacterTriggersDraft(card?.triggers ?? '')
-    setCharacterAvatarDraft(card?.avatar_url ?? null)
-    setCharacterAvatarScaleDraft(card?.avatar_scale ?? 1)
-    setCharacterDialogOpen(true)
+  const openCharacterManagerForCreate = useCallback((target: 'main_hero' | 'npc') => {
+    setCharacterManagerInitialMode('create')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncTarget(null)
+    setCharacterManagerReturnTarget(target)
+    setCharacterManagerOpen(true)
   }, [])
 
-  const handleCharacterAvatarUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      setErrorMessage('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
-      return
-    }
-    try {
-      const dataUrl = await compressImageFileToDataUrl(file, { maxBytes: CHARACTER_AVATAR_MAX_BYTES, maxDimension: 1200 })
-      setCharacterAvatarCropSource(dataUrl)
+  const openCharacterManagerForEdit = useCallback(
+    async (target: 'main_hero' | 'npc', card: EditableCharacterCard) => {
+      setIsOpeningCharacterManager(true)
       setErrorMessage('')
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Не удалось загрузить аватар')
-    }
-  }, [])
+      try {
+        let targetCharacterId = card.character_id
+        if (!targetCharacterId) {
+          const normalizedName = card.name.replace(/\s+/g, ' ').trim() || (target === 'main_hero' ? 'Main hero' : 'NPC')
+          const normalizedDescription = card.description.replace(/\r\n/g, '\n').trim() || 'World card character'
+          const mirroredCharacter = await createStoryCharacter({
+            token: authToken,
+            input: {
+              name: normalizedName,
+              description: normalizedDescription,
+              note: normalizeCharacterNote(card.note),
+              triggers: parseTriggers(card.triggers, normalizedName),
+              avatar_url: card.avatar_url,
+              avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+              visibility: 'private',
+            },
+          })
+          targetCharacterId = mirroredCharacter.id
+          setCharacters((previous) => [...previous.filter((item) => item.id !== mirroredCharacter.id), mirroredCharacter])
+          if (target === 'main_hero') {
+            setMainHero((previous) =>
+              previous && previous.localId === card.localId
+                ? {
+                    ...previous,
+                    character_id: mirroredCharacter.id,
+                    source_character_id: mirroredCharacter.source_character_id ?? null,
+                    note: normalizeCharacterNote(mirroredCharacter.note),
+                  }
+                : previous,
+            )
+          } else {
+            setNpcs((previous) =>
+              previous.map((item) =>
+                item.localId === card.localId
+                  ? {
+                      ...item,
+                      character_id: mirroredCharacter.id,
+                      source_character_id: mirroredCharacter.source_character_id ?? null,
+                      note: normalizeCharacterNote(mirroredCharacter.note),
+                    }
+                  : item,
+              ),
+            )
+          }
+        }
+        setCharacterManagerInitialMode('list')
+        setCharacterManagerInitialCharacterId(targetCharacterId)
+        setCharacterManagerSyncTarget({ target, localId: card.localId })
+        setCharacterManagerReturnTarget(null)
+        setCharacterManagerOpen(true)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Failed to open character editor'
+        setErrorMessage(detail)
+      } finally {
+        setIsOpeningCharacterManager(false)
+      }
+    },
+    [authToken],
+  )
 
-  const openCharacterAvatarCrop = useCallback(() => {
-    if (!characterAvatarDraft) {
-      return
-    }
-    setCharacterAvatarCropSource(characterAvatarDraft)
-  }, [characterAvatarDraft])
-
-  const handleCancelCharacterAvatarCrop = useCallback(() => {
-    setCharacterAvatarCropSource(null)
-  }, [])
-
-  const handleSaveCharacterAvatarCrop = useCallback(async (croppedDataUrl: string) => {
-    try {
-      const preparedAvatar = await compressImageDataUrl(croppedDataUrl, {
-        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
-        maxDimension: 1200,
-      })
-      setCharacterAvatarDraft(preparedAvatar)
-      setCharacterAvatarScaleDraft(1)
-      setCharacterAvatarCropSource(null)
-      setErrorMessage('')
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'Не удалось подготовить аватар')
-    }
-  }, [])
-
-  const saveCharacterDialog = useCallback(() => {
-    const next: EditableCharacterCard = {
-      localId: characterDialogTargetLocalId ?? makeLocalId(),
-      character_id: null,
-      name: characterNameDraft.trim(),
-      description: characterDescriptionDraft.trim(),
-      triggers: characterTriggersDraft,
-      avatar_url: characterAvatarDraft,
-      avatar_scale: clamp(characterAvatarScaleDraft, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
-    }
-    if (!next.name || !next.description) return
-    if (characterDialogTarget === 'main_hero') {
-      setMainHero((prev) => (prev ? { ...next, id: prev.id, character_id: prev.character_id } : next))
-    } else {
-      setNpcs((prev) => {
-        const idx = prev.findIndex((item) => item.localId === next.localId)
-        if (idx < 0) return [...prev, next]
-        const copy = [...prev]
-        copy[idx] = { ...copy[idx], ...next, id: copy[idx].id }
-        return copy
-      })
-    }
-    setCharacterDialogOpen(false)
-  }, [characterAvatarDraft, characterAvatarScaleDraft, characterDescriptionDraft, characterDialogTarget, characterDialogTargetLocalId, characterNameDraft, characterTriggersDraft])
+  const handleCloseCharacterManager = useCallback(() => {
+    const targetCharacterId = characterManagerInitialCharacterId
+    const syncTarget = characterManagerSyncTarget
+    const returnTarget = characterManagerReturnTarget
+    setCharacterManagerOpen(false)
+    setCharacterManagerInitialMode('list')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncTarget(null)
+    setCharacterManagerReturnTarget(null)
+    void (async () => {
+      const latestCharacters = await loadCharacters()
+      if (syncTarget && targetCharacterId) {
+        const linkedCharacter = latestCharacters.find((item) => item.id === targetCharacterId) ?? null
+        if (linkedCharacter) {
+          const nextTriggers = linkedCharacter.triggers.join(', ')
+          const nextAvatarScale = clamp(linkedCharacter.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)
+          if (syncTarget.target === 'main_hero') {
+            setMainHero((previous) => {
+              if (!previous || previous.localId !== syncTarget.localId) {
+                return previous
+              }
+              return {
+                ...previous,
+                character_id: linkedCharacter.id,
+                source_character_id: linkedCharacter.source_character_id ?? null,
+                name: linkedCharacter.name,
+                description: linkedCharacter.description,
+                note: normalizeCharacterNote(linkedCharacter.note),
+                triggers: nextTriggers,
+                avatar_url: linkedCharacter.avatar_url,
+                avatar_scale: nextAvatarScale,
+              }
+            })
+          } else {
+            setNpcs((previous) =>
+              previous.map((item) =>
+                item.localId === syncTarget.localId
+                  ? {
+                      ...item,
+                      character_id: linkedCharacter.id,
+                      source_character_id: linkedCharacter.source_character_id ?? null,
+                      name: linkedCharacter.name,
+                      description: linkedCharacter.description,
+                      note: normalizeCharacterNote(linkedCharacter.note),
+                      triggers: nextTriggers,
+                      avatar_url: linkedCharacter.avatar_url,
+                      avatar_scale: nextAvatarScale,
+                    }
+                  : item,
+              ),
+            )
+          }
+        }
+      }
+      if (returnTarget) {
+        setCharacterPickerTarget(returnTarget)
+      }
+    })()
+  }, [
+    characterManagerInitialCharacterId,
+    characterManagerReturnTarget,
+    characterManagerSyncTarget,
+    loadCharacters,
+  ])
 
   const applyTemplate = useCallback((character: StoryCharacter) => {
     if (!characterPickerTarget) return
@@ -621,6 +1087,149 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     }
     setCharacterPickerTarget(null)
   }, [characterPickerTarget, getTemplateDisabledReason])
+
+  const handleToggleCommunityCharacterCard = useCallback(
+    async (characterId: number) => {
+      if (expandedCommunityCharacterId === characterId) {
+        setExpandedCommunityCharacterId(null)
+        return
+      }
+      setExpandedCommunityCharacterId(characterId)
+      if (loadedCommunityCharacterDetailsRef.current.has(characterId)) {
+        return
+      }
+      setLoadingCommunityCharacterId(characterId)
+      try {
+        const detailedCharacter = await getCommunityCharacter({
+          token: authToken,
+          characterId,
+        })
+        setCommunityCharacterOptions((previous) =>
+          previous.map((item) =>
+            item.id === detailedCharacter.id ? { ...detailedCharacter, note: normalizeCharacterNote(detailedCharacter.note ?? '') } : item,
+          ),
+        )
+        loadedCommunityCharacterDetailsRef.current.add(characterId)
+      } catch {
+        // Keep summary card expanded even if details fetch fails.
+      } finally {
+        setLoadingCommunityCharacterId((previous) => (previous === characterId ? null : previous))
+      }
+    },
+    [authToken, expandedCommunityCharacterId],
+  )
+
+  const handleApplyCommunityTemplate = useCallback(
+    async (character: StoryCommunityCharacterSummary, options: { saveToProfile: boolean }) => {
+      if (!characterPickerTarget || savingCommunityCharacterId !== null) {
+        return
+      }
+      const reason = getCommunityTemplateDisabledReason(character, characterPickerTarget)
+      if (reason) {
+        setErrorMessage(reason)
+        return
+      }
+      setErrorMessage('')
+      setSavingCommunityCharacterId(character.id)
+      try {
+        let profileCharacterId: number | null = null
+        if (options.saveToProfile) {
+          let availableCharacters = characters
+          if (!character.is_added_by_user) {
+            await addCommunityCharacter({
+              token: authToken,
+              characterId: character.id,
+            })
+            const refreshedCharacters = await listStoryCharacters(authToken)
+            const normalizedCharacters = refreshedCharacters.map((item) => ({
+              ...item,
+              note: normalizeCharacterNote(item.note ?? ''),
+            }))
+            setCharacters(normalizedCharacters)
+            availableCharacters = normalizedCharacters
+          }
+          const linkedCharacter = availableCharacters.find((item) => item.source_character_id === character.id) ?? null
+          profileCharacterId = linkedCharacter?.id ?? null
+          if (!character.is_added_by_user) {
+            setCommunityCharacterOptions((previous) =>
+              previous.map((item) =>
+                item.id === character.id ? { ...item, is_added_by_user: true } : item,
+              ),
+            )
+          }
+        }
+
+        const card = toEditableCharacterFromCommunity(character, profileCharacterId)
+        if (characterPickerTarget === 'main_hero') {
+          setMainHero((previous) => (previous ? { ...card, id: previous.id } : card))
+        } else {
+          setNpcs((previous) => [...previous, card])
+        }
+        setCharacterPickerTarget(null)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Failed to open character editor'
+        setErrorMessage(detail)
+      } finally {
+        setSavingCommunityCharacterId((previous) => (previous === character.id ? null : previous))
+      }
+    },
+    [authToken, characterPickerTarget, characters, getCommunityTemplateDisabledReason, savingCommunityCharacterId],
+  )
+
+  const buildOpeningSceneTag = useCallback(
+    (kind: 'gg_name' | 'gg_speech' | 'gg_thought' | 'npc_speech' | 'npc_thought'): string => {
+      const normalizedNpcName =
+        openingSceneNpcName.replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH) ||
+        OPENING_SCENE_NPC_FALLBACK_NAME
+      if (kind === 'gg_name') {
+        return `[[GG:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+      }
+      if (kind === 'gg_speech') {
+        return `[[GG_REPLICK:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+      }
+      if (kind === 'gg_thought') {
+        return `[[GG_THOUGHT:${OPENING_SCENE_GG_FALLBACK_NAME}]] `
+      }
+      if (kind === 'npc_speech') {
+        return `[[NPC:${normalizedNpcName}]] `
+      }
+      return `[[NPC_THOUGHT:${normalizedNpcName}]] `
+    },
+    [openingSceneNpcName],
+  )
+
+  const insertOpeningSceneTag = useCallback(
+    (kind: 'gg_name' | 'gg_speech' | 'gg_thought' | 'npc_speech' | 'npc_thought') => {
+      const tag = buildOpeningSceneTag(kind)
+      const textarea = openingSceneInputRef.current
+
+      if (!textarea) {
+        setOpeningScene((previous) => {
+          const trimmed = previous.replace(/\s+$/g, '')
+          return trimmed.length > 0 ? `${trimmed}\n${tag}` : tag
+        })
+        return
+      }
+
+      setOpeningScene((previous) => {
+        const selectionStart = textarea.selectionStart ?? previous.length
+        const selectionEnd = textarea.selectionEnd ?? selectionStart
+        const before = previous.slice(0, selectionStart)
+        const after = previous.slice(selectionEnd)
+        const shouldAddLeadingBreak = before.length > 0 && !before.endsWith('\n')
+        const shouldAddTrailingBreak = after.length > 0 && !after.startsWith('\n')
+        const insertedTag = `${shouldAddLeadingBreak ? '\n' : ''}${tag}${shouldAddTrailingBreak ? '\n' : ''}`
+        const nextValue = `${before}${insertedTag}${after}`
+        const cursorPosition = before.length + insertedTag.length
+        window.setTimeout(() => {
+          textarea.focus()
+          textarea.setSelectionRange(cursorPosition, cursorPosition)
+        }, 0)
+        return nextValue
+      })
+    },
+    [buildOpeningSceneTag],
+  )
 
   const handleSaveWorld = useCallback(async () => {
     if (!canSubmit) return
@@ -656,7 +1265,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           title: normalizedTitle,
           description: normalizedDescription,
           opening_scene: normalizedOpeningScene,
-          visibility,
+          visibility: 'private',
           age_rating: ageRating,
           genres,
           cover_image_url: preparedCoverImageUrl,
@@ -665,20 +1274,6 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
           cover_position_y: coverPositionY,
         })
         gameId = created.id
-      } else {
-        await updateStoryGameMeta({
-          token: authToken,
-          gameId,
-          title: normalizedTitle,
-          description: normalizedDescription,
-          visibility,
-          age_rating: ageRating,
-          genres,
-          cover_image_url: preparedCoverImageUrl,
-          cover_scale: coverScale,
-          cover_position_x: coverPositionX,
-          cover_position_y: coverPositionY,
-        })
       }
       const latest = await getStoryGame({ token: authToken, gameId })
       const existingInstructionById = new Map(latest.instruction_cards.map((card) => [card.id, card]))
@@ -716,6 +1311,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         }
       }
       for (const npc of existingNpcs) if (!npcs.some((item) => item.id === npc.id)) await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
+      await updateStoryGameMeta({
+        token: authToken,
+        gameId,
+        title: normalizedTitle,
+        description: normalizedDescription,
+        opening_scene: normalizedOpeningScene,
+        visibility,
+        age_rating: ageRating,
+        genres,
+        cover_image_url: preparedCoverImageUrl,
+        cover_scale: coverScale,
+        cover_position_x: coverPositionX,
+        cover_position_y: coverPositionY,
+      })
       persistTitleForGame(gameId, normalizedTitle)
       localStorage.setItem(
         QUICK_START_WORLD_STORAGE_KEY,
@@ -746,7 +1355,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
-          { key: 'world-create', label: isEditMode ? 'Редактирование мира' : 'Создание мира', isActive: true, onClick: () => onNavigate('/worlds/new') },
+          {
+            key: isEditMode ? 'community-worlds' : 'world-create',
+            label: isEditMode ? '\u0421\u043e\u043e\u0431\u0449\u0435\u0441\u0442\u0432\u043e' : '\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u043c\u0438\u0440\u0430',
+            isActive: !isEditMode,
+            onClick: () => onNavigate(isEditMode ? '/games/all' : '/worlds/new'),
+          },
         ]}
         pageMenuLabels={{ expanded: 'Свернуть меню', collapsed: 'Открыть меню' }}
         isRightPanelOpen={isHeaderActionsOpen}
@@ -891,7 +1505,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                 ) : null}
               </Box>
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                Не больше 360кб (изображение будет автоматически сжато для экономии)
+                Не больше 1 МБ (изображение будет автоматически сжато для экономии)
               </Typography>
             </Stack>
 
@@ -918,20 +1532,134 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                 helperText={<TextLimitIndicator currentLength={description.length} maxLength={1000} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
-              {!isEditMode ? (
-                <TextField
-                  label="Вступительная сцена"
-                  value={openingScene}
-                  onChange={(e) => setOpeningScene(e.target.value)}
-                  fullWidth
-                  multiline
-                  minRows={3}
-                  maxRows={8}
-                  inputProps={{ maxLength: OPENING_SCENE_MAX_LENGTH }}
-                  helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={OPENING_SCENE_MAX_LENGTH} />}
-                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                />
-              ) : null}
+              {
+                <Stack spacing={0.75}>
+                  <TextField
+                    label="Вступительная сцена"
+                    value={openingScene}
+                    onChange={(e) => setOpeningScene(e.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={3}
+                    maxRows={8}
+                    inputRef={openingSceneInputRef}
+                    inputProps={{ maxLength: OPENING_SCENE_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={openingScene.length} maxLength={OPENING_SCENE_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                  />
+                  <Box
+                    sx={{
+                      borderRadius: '12px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
+                      px: 1,
+                      py: 0.9,
+                    }}
+                  >
+                    <Stack spacing={0.75}>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.81rem' }}>
+                        Быстрые теги: выберите тип реплики, и тег вставится в курсор.
+                      </Typography>
+                      <TextField
+                        label="Имя NPC для тегов"
+                        value={openingSceneNpcName}
+                        onChange={(event) => setOpeningSceneNpcName(event.target.value.slice(0, OPENING_SCENE_NPC_NAME_MAX_LENGTH))}
+                        placeholder={OPENING_SCENE_NPC_FALLBACK_NAME}
+                        fullWidth
+                        size="small"
+                      />
+                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 0.6 }}>
+                        <Button
+                          size="small"
+                          onClick={() => insertOpeningSceneTag('gg_name')}
+                          sx={{
+                            minHeight: 30,
+                            borderRadius: '10px',
+                            textTransform: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            backgroundColor: APP_BUTTON_ACTIVE,
+                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                          }}
+                        >
+                          ГГ
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => insertOpeningSceneTag('gg_speech')}
+                          sx={{
+                            minHeight: 30,
+                            borderRadius: '10px',
+                            textTransform: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            backgroundColor: APP_BUTTON_ACTIVE,
+                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                          }}
+                        >
+                          GG реплика
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => insertOpeningSceneTag('gg_thought')}
+                          sx={{
+                            minHeight: 30,
+                            borderRadius: '10px',
+                            textTransform: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            backgroundColor: APP_BUTTON_ACTIVE,
+                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                          }}
+                        >
+                          GG мысли
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => insertOpeningSceneTag('npc_speech')}
+                          sx={{
+                            minHeight: 30,
+                            borderRadius: '10px',
+                            textTransform: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            backgroundColor: APP_BUTTON_ACTIVE,
+                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                          }}
+                        >
+                          NPC реплика
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => insertOpeningSceneTag('npc_thought')}
+                          sx={{
+                            minHeight: 30,
+                            borderRadius: '10px',
+                            textTransform: 'none',
+                            fontSize: '0.8rem',
+                            fontWeight: 700,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            backgroundColor: APP_BUTTON_ACTIVE,
+                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                          }}
+                        >
+                          NPC мысли
+                        </Button>
+                      </Box>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
+                        Кнопка «ГГ» вставляет имя главного героя. Пока ГГ не назначен, будет отображаться «Главный герой».
+                      </Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
+                        Обычный текст можно писать как есть, он автоматически пойдет в повествование.
+                      </Typography>
+                    </Stack>
+                  </Box>
+                </Stack>
+              }
             </Stack>
 
             <Stack spacing={1}>
@@ -945,7 +1673,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                   InputProps={{
                     endAdornment: (
                       <InputAdornment position="end">
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1 }}>⌕</Typography>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1 }}>{'\u2022'}</Typography>
                       </InputAdornment>
                     ),
                   }}
@@ -997,22 +1725,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
             <Stack spacing={0.85}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Инструкции</Typography>
-              {instructionCards.length === 0 ? (
-                <EmptyAddCard
-                  onClick={() => openCardDialog('instruction')}
-                  label="Добавить инструкцию"
-                  actions={[
-                    { label: 'Новая', onClick: () => openCardDialog('instruction') },
-                    { label: 'Из шаблона', onClick: () => setInstructionTemplateDialogOpen(true) },
-                  ]}
-                />
-              ) : (
+              {instructionCards.length > 0 ? (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                   {instructionCards.map((card) => (
                     <CompactCard
                       key={card.localId}
                       title={card.title}
-                      content={card.content}
+                      content={replacePlotMainHeroTags(card.content, mainHero?.name)}
                       badge="активна"
                       actions={
                         <>
@@ -1023,13 +1742,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                     />
                   ))}
                 </Box>
-              )}
-              {instructionCards.length > 0 ? (
-                <Stack direction="row" spacing={0.7}>
-                  <Button onClick={() => openCardDialog('instruction')} sx={{ minHeight: 34 }}>Добавить</Button>
-                  <Button onClick={() => setInstructionTemplateDialogOpen(true)} sx={{ minHeight: 34 }}>Из шаблона</Button>
-                </Stack>
               ) : null}
+              <TemplateButtonsCard
+                title="Карточки инструкций"
+                subtitle="Слева — новая карточка, справа — выбор из шаблонов."
+                onCreate={() => openCardDialog('instruction')}
+                onTemplate={() => setInstructionTemplateDialogOpen(true)}
+              />
             </Stack>
 
             <Stack spacing={0.85}>
@@ -1066,44 +1785,27 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                     title={mainHero.name}
                     content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
                     badge="гг"
+                    noteBadge={mainHero.note}
                     avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
                     actions={
                       <>
-                        <Button onClick={() => openCharacterDialog('main_hero', mainHero)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                        <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
                         <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
                       </>
                     }
                   />
-                ) : (
-                  <EmptyAddCard
-                    onClick={() => openCharacterDialog('main_hero')}
-                    label="Добавить героя"
-                    actions={[
-                      { label: 'Новый герой', onClick: () => openCharacterDialog('main_hero') },
-                      { label: 'Из «Мои персонажи»', onClick: () => setCharacterPickerTarget('main_hero') },
-                    ]}
+                ) : null}
+                {!mainHero ? (
+                  <StandardCreateButtonsRow
+                    onCreate={() => openCharacterManagerForCreate('main_hero')}
+                    onTemplate={() => setCharacterPickerTarget('main_hero')}
                   />
-                )}
-                {mainHero ? (
-                  <Stack direction="row" spacing={0.7}>
-                    <Button onClick={() => setCharacterPickerTarget('main_hero')} sx={{ minHeight: 34 }}>Из «Мои персонажи»</Button>
-                    <Button onClick={() => openCharacterDialog('main_hero', mainHero ?? undefined)} sx={{ minHeight: 34 }}>Редактировать вручную</Button>
-                  </Stack>
                 ) : null}
               </Stack>
 
               <Stack spacing={0.7}>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>
-                {npcs.length === 0 ? (
-                  <EmptyAddCard
-                    onClick={() => openCharacterDialog('npc')}
-                    label="Добавить NPC"
-                    actions={[
-                      { label: 'Новый NPC', onClick: () => openCharacterDialog('npc') },
-                      { label: 'Из «Мои персонажи»', onClick: () => setCharacterPickerTarget('npc') },
-                    ]}
-                  />
-                ) : (
+                {npcs.length > 0 ? (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                     {npcs.map((npc) => (
                       <CompactCard
@@ -1111,23 +1813,22 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                         title={npc.name}
                         content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`}
                         badge="npc"
+                        noteBadge={npc.note}
                         avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />}
                         actions={
                           <>
-                            <Button onClick={() => openCharacterDialog('npc', npc)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                            <Button onClick={() => void openCharacterManagerForEdit('npc', npc)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
                             <Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
                           </>
                         }
                       />
                     ))}
                   </Box>
-                )}
-                {npcs.length > 0 ? (
-                  <Stack direction="row" spacing={0.7}>
-                    <Button onClick={() => setCharacterPickerTarget('npc')} sx={{ minHeight: 34 }}>Из «Мои персонажи»</Button>
-                    <Button onClick={() => openCharacterDialog('npc')} sx={{ minHeight: 34 }}>Добавить вручную</Button>
-                  </Stack>
                 ) : null}
+                <StandardCreateButtonsRow
+                  onCreate={() => openCharacterManagerForCreate('npc')}
+                  onTemplate={() => setCharacterPickerTarget('npc')}
+                />
               </Stack>
             </Stack>
 
@@ -1232,224 +1933,359 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         }
         actions={
 
-          <Button onClick={() => setCharacterPickerTarget(null)} sx={{ color: APP_TEXT_SECONDARY }}>Закрыть</Button>
+          <Button onClick={() => setCharacterPickerTarget(null)} disabled={savingCommunityCharacterId !== null} sx={{ color: APP_TEXT_SECONDARY }}>Закрыть</Button>
         
         }
       >
 
           <Stack spacing={0.8}>
-            {sortedCharacters.length === 0 ? helpEmpty('У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».') : sortedCharacters.map((character) => {
-              const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character, characterPickerTarget) : null
-              return (
-                <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', px: 0.85, py: 0.75 }}>
-                  <Button onClick={() => applyTemplate(character)} disabled={Boolean(disabledReason)} sx={{ width: '100%', p: 0, textTransform: 'none', justifyContent: 'flex-start', border: 'none', '&:hover': { background: 'transparent' } }}>
-                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', textAlign: 'left' }}>
-                      <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={42} />
-                      <Stack sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '0.98rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.name}</Typography>
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.description}</Typography>
-                      </Stack>
-                    </Stack>
-                  </Button>
-                  {disabledReason ? <Typography sx={{ color: 'rgba(240, 176, 176, 0.92)', fontSize: '0.76rem', mt: 0.55 }}>{disabledReason}</Typography> : null}
-                </Box>
-              )
-            })}
-          </Stack>
-        
-      </BaseDialog>
+            <Stack direction="row" spacing={0.8}>
+              <Button
+                onClick={() => setCharacterPickerSourceTab('my')}
+                disabled={savingCommunityCharacterId !== null}
+                sx={{
+                  minHeight: 34,
+                  borderRadius: '10px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: characterPickerSourceTab === 'my' ? APP_BUTTON_ACTIVE : 'var(--morius-elevated-bg)',
+                  color: APP_TEXT_PRIMARY,
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                }}
+              >
+                Мои персонажи
+              </Button>
+              <Button
+                onClick={() => setCharacterPickerSourceTab('community')}
+                disabled={savingCommunityCharacterId !== null}
+                sx={{
+                  minHeight: 34,
+                  borderRadius: '10px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: characterPickerSourceTab === 'community' ? APP_BUTTON_ACTIVE : 'var(--morius-elevated-bg)',
+                  color: APP_TEXT_PRIMARY,
+                  textTransform: 'none',
+                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                }}
+              >
+                Сообщество
+              </Button>
+            </Stack>
 
-      <FormDialog
-        open={characterDialogOpen}
-        onClose={() => setCharacterDialogOpen(false)}
-        onSubmit={saveCharacterDialog}
-        title={characterDialogTarget === 'main_hero' ? 'Главный герой' : 'NPC'}
-        description="Если не загрузить изображение, будет использована заглушка."
-        maxWidth="sm"
-        paperSx={dialogPaperSx}
-        titleSx={{ pb: 0.8 }}
-        contentSx={{ pt: 0.35 }}
-        actionsSx={{ px: 3, pb: 2.2 }}
-        cancelButtonSx={{ color: APP_TEXT_SECONDARY }}
-        submitButtonSx={{
-          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          backgroundColor: APP_BUTTON_ACTIVE,
-          '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-        }}
-        submitDisabled={!characterNameDraft.trim() || !characterDescriptionDraft.trim()}
-      >
-
-          <Stack spacing={1}>
             <Box
+              component="input"
+              value={characterPickerSearchQuery}
+              placeholder="Поиск по имени, описанию и автору"
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterPickerSearchQuery(event.target.value.slice(0, 240))}
               sx={{
-                borderRadius: '12px',
+                width: '100%',
+                minHeight: 38,
+                borderRadius: 'var(--morius-radius)',
                 border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: 'var(--morius-card-bg)',
+                backgroundColor: APP_CARD_BACKGROUND,
+                color: APP_TEXT_PRIMARY,
                 px: 1.1,
-                py: 1.1,
+                outline: 'none',
+                fontSize: '0.9rem',
               }}
-            >
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Box
-                    role="button"
-                    tabIndex={0}
-                    aria-label="Изменить аватар персонажа"
-                    onClick={() => characterAvatarInputRef.current?.click()}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault()
-                        characterAvatarInputRef.current?.click()
-                      }
-                    }}
-                    sx={{
-                      position: 'relative',
-                      width: 64,
-                      height: 64,
-                      borderRadius: '50%',
-                      overflow: 'hidden',
-                      cursor: 'pointer',
-                      outline: 'none',
-                      '&:hover .world-character-avatar-overlay': {
-                        opacity: 1,
-                      },
-                      '&:focus-visible .world-character-avatar-overlay': {
-                        opacity: 1,
-                      },
-                    }}
-                  >
-                    <MiniAvatar
-                      avatarUrl={characterAvatarDraft}
-                      avatarScale={characterAvatarScaleDraft}
-                      label={characterNameDraft || 'Персонаж'}
-                      size={64}
-                    />
-                    <Box
-                      className="world-character-avatar-overlay"
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: 'rgba(23, 23, 22, 0.72)',
-                        opacity: 0,
-                        transition: 'opacity 180ms ease',
-                      }}
-                    >
+            />
+
+            {characterPickerSourceTab === 'community' ? (
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                <Box
+                  component="select"
+                  value={characterPickerAddedFilter}
+                  onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                    setCharacterPickerAddedFilter(event.target.value as CommunityAddedFilter)
+                  }
+                  sx={{
+                    flex: 1,
+                    minHeight: 36,
+                    borderRadius: '10px',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: APP_TEXT_PRIMARY,
+                    px: 1,
+                    fontSize: '0.84rem',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="all">Все</option>
+                  <option value="added">Сохраненные</option>
+                  <option value="not_added">Не сохраненные</option>
+                </Box>
+                <Box
+                  component="select"
+                  value={characterPickerSortMode}
+                  onChange={(event: ChangeEvent<HTMLSelectElement>) =>
+                    setCharacterPickerSortMode(event.target.value as CommunitySortMode)
+                  }
+                  sx={{
+                    flex: 1,
+                    minHeight: 36,
+                    borderRadius: '10px',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: APP_TEXT_PRIMARY,
+                    px: 1,
+                    fontSize: '0.84rem',
+                    outline: 'none',
+                  }}
+                >
+                  <option value="updated_desc">Сначала новые</option>
+                  <option value="rating_desc">По рейтингу</option>
+                  <option value="additions_desc">По добавлениям</option>
+                </Box>
+              </Stack>
+            ) : null}
+
+            <Box className="morius-scrollbar" sx={{ maxHeight: 390, overflowY: 'auto', pr: 0.2 }}>
+              {characterPickerSourceTab === 'my' ? (
+                <Stack spacing={0.75}>
+                  {filteredOwnCharacterOptions.length === 0
+                    ? helpEmpty(characterPickerSearchQuery ? 'Персонажи не найдены.' : 'У вас пока нет сохранённых персонажей. Сначала добавьте их в разделе «Мои персонажи».')
+                    : filteredOwnCharacterOptions.map((character) => {
+                        const disabledReason = characterPickerTarget ? getTemplateDisabledReason(character, characterPickerTarget) : null
+                        return (
+                          <Box key={character.id} sx={{ borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', px: 0.85, py: 0.75 }}>
+                            <Button
+                              onClick={() => applyTemplate(character)}
+                              disabled={Boolean(disabledReason) || savingCommunityCharacterId !== null}
+                              sx={{ width: '100%', p: 0, textTransform: 'none', justifyContent: 'flex-start', border: 'none', '&:hover': { background: 'transparent' } }}
+                            >
+                              <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', textAlign: 'left' }}>
+                                <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={42} />
+                                <Stack sx={{ minWidth: 0, flex: 1 }}>
+                                  <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '0.98rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>{character.name}</Typography>
+                                    {character.note ? (
+                                      <Typography
+                                        sx={{
+                                          color: 'rgba(184, 218, 247, 0.96)',
+                                          fontSize: '0.62rem',
+                                          lineHeight: 1.2,
+                                          fontWeight: 700,
+                                          border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                          borderRadius: '999px',
+                                          px: 0.5,
+                                          py: 0.08,
+                                          maxWidth: 100,
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          flexShrink: 0,
+                                        }}
+                                        title={character.note}
+                                      >
+                                        {character.note}
+                                      </Typography>
+                                    ) : null}
+                                  </Stack>
+                                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.description}</Typography>
+                                </Stack>
+                              </Stack>
+                            </Button>
+                            {disabledReason ? <Typography sx={{ color: 'rgba(240, 176, 176, 0.92)', fontSize: '0.76rem', mt: 0.55 }}>{disabledReason}</Typography> : null}
+                          </Box>
+                        )
+                      })}
+                </Stack>
+              ) : isLoadingCommunityCharacterOptions ? (
+                <Stack alignItems="center" justifyContent="center" sx={{ py: 3 }}>
+                  <CircularProgress size={24} />
+                </Stack>
+              ) : filteredCommunityCharacterOptions.length === 0 ? (
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>
+                  Персонажи сообщества не найдены.
+                </Typography>
+              ) : (
+                <Stack spacing={0.75}>
+                  {filteredCommunityCharacterOptions.map((character) => {
+                    const disabledReason = characterPickerTarget ? getCommunityTemplateDisabledReason(character, characterPickerTarget) : null
+                    const isExpanded = expandedCommunityCharacterId === character.id
+                    const isLoadingDetails = loadingCommunityCharacterId === character.id
+                    const isSavingCommunityCharacter = savingCommunityCharacterId === character.id
+                    return (
                       <Box
+                        key={character.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void handleToggleCommunityCharacterCard(character.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            void handleToggleCommunityCharacterCard(character.id)
+                          }
+                        }}
                         sx={{
-                          width: 30,
-                          height: 30,
-                          borderRadius: '50%',
-                          border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.5)',
-                          backgroundColor: 'var(--morius-elevated-bg)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'var(--morius-text-primary)',
-                          fontSize: '1.02rem',
-                          fontWeight: 700,
+                          borderRadius: '12px',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: isExpanded ? APP_BUTTON_HOVER : 'var(--morius-elevated-bg)',
+                          px: 0.9,
+                          py: 0.75,
+                          cursor: 'pointer',
                         }}
                       >
-                        {'\u270E'}
+                        <Stack spacing={0.35}>
+                          <Stack direction="row" spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
+                            <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={34} />
+                            <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1 }}>
+                              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Typography
+                                  sx={{
+                                    color: APP_TEXT_PRIMARY,
+                                    fontWeight: 700,
+                                    fontSize: '0.94rem',
+                                    lineHeight: 1.2,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    minWidth: 0,
+                                    flex: 1,
+                                  }}
+                                >
+                                  {character.name}
+                                </Typography>
+                                {character.note ? (
+                                  <Typography
+                                    sx={{
+                                      color: 'rgba(184, 218, 247, 0.96)',
+                                      fontSize: '0.62rem',
+                                      lineHeight: 1.2,
+                                      fontWeight: 700,
+                                      border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
+                                      borderRadius: '999px',
+                                      px: 0.5,
+                                      py: 0.08,
+                                      maxWidth: 98,
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      flexShrink: 0,
+                                    }}
+                                    title={character.note}
+                                  >
+                                    {character.note}
+                                  </Typography>
+                                ) : null}
+                              </Stack>
+                              <Typography sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                                Автор: {character.author_name || 'Неизвестно'}
+                              </Typography>
+                            </Stack>
+                            {isLoadingDetails ? (
+                              <CircularProgress size={14} sx={{ color: 'rgba(208, 219, 235, 0.84)' }} />
+                            ) : null}
+                          </Stack>
+                          <Typography
+                            sx={{
+                              color: 'rgba(207, 217, 232, 0.86)',
+                              fontSize: '0.84rem',
+                              lineHeight: 1.36,
+                              whiteSpace: isExpanded ? 'pre-wrap' : 'normal',
+                              display: isExpanded ? 'block' : '-webkit-box',
+                              WebkitLineClamp: isExpanded ? 'none' : 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {character.description}
+                          </Typography>
+                          <Stack direction="row" spacing={0.9} alignItems="center" sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
+                            <Typography sx={{ fontSize: 'inherit' }}>
+                              {character.community_additions_count} + / {character.community_rating_avg.toFixed(1)} ★
+                            </Typography>
+                            <Typography sx={{ fontSize: 'inherit', fontWeight: 700 }}>
+                              {disabledReason ? disabledReason : character.is_added_by_user ? 'Сохранено' : 'Не сохранено'}
+                            </Typography>
+                          </Stack>
+                          {isExpanded ? (
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} sx={{ pt: 0.35 }}>
+                              <Button
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  setExpandedCommunityCharacterId(null)
+                                }}
+                                disabled={isSavingCommunityCharacter}
+                                sx={{
+                                  textTransform: 'none',
+                                  minHeight: 34,
+                                  borderRadius: '10px',
+                                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                  backgroundColor: 'transparent',
+                                  color: APP_TEXT_SECONDARY,
+                                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                                }}
+                              >
+                                Свернуть
+                              </Button>
+                              <Button
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleApplyCommunityTemplate(character, { saveToProfile: false })
+                                }}
+                                disabled={Boolean(disabledReason) || savingCommunityCharacterId !== null}
+                                sx={{
+                                  textTransform: 'none',
+                                  minHeight: 34,
+                                  borderRadius: '10px',
+                                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                  backgroundColor: 'transparent',
+                                  color: APP_TEXT_PRIMARY,
+                                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                                }}
+                              >
+                                {isSavingCommunityCharacter ? (
+                                  <CircularProgress size={14} sx={{ color: APP_TEXT_PRIMARY }} />
+                                ) : (
+                                  'Добавить'
+                                )}
+                              </Button>
+                              <Button
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  void handleApplyCommunityTemplate(character, { saveToProfile: true })
+                                }}
+                                disabled={Boolean(disabledReason) || savingCommunityCharacterId !== null}
+                                sx={{
+                                  textTransform: 'none',
+                                  minHeight: 34,
+                                  borderRadius: '10px',
+                                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                                  backgroundColor: 'transparent',
+                                  color: APP_TEXT_PRIMARY,
+                                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                                }}
+                              >
+                                Сохранить
+                              </Button>
+                            </Stack>
+                          ) : null}
+                        </Stack>
                       </Box>
-                    </Box>
-                  </Box>
-                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                    Нажмите на аватар, чтобы заменить изображение
-                  </Typography>
+                    )
+                  })}
                 </Stack>
-
-                <Box>
-                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                    Масштаб аватара: {characterAvatarScaleDraft.toFixed(2)}x
-                  </Typography>
-                  <Slider
-                    min={AVATAR_SCALE_MIN}
-                    max={AVATAR_SCALE_MAX}
-                    step={0.05}
-                    value={characterAvatarScaleDraft}
-                    onChange={(_, value) => setCharacterAvatarScaleDraft(value as number)}
-                  />
-                </Box>
-
-                <input
-                  ref={characterAvatarInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  onChange={handleCharacterAvatarUpload}
-                  style={{ display: 'none' }}
-                />
-
-                <Stack direction="row" spacing={0.8}>
-                  <Button onClick={openCharacterAvatarCrop} disabled={!characterAvatarDraft} sx={{ minHeight: 34 }}>
-                    Настроить кадр
-                  </Button>
-                  <Button onClick={() => setCharacterAvatarDraft(null)} sx={{ minHeight: 34, color: APP_TEXT_SECONDARY }}>
-                    Удалить аватар
-                  </Button>
-                </Stack>
-
-                <TextField
-                  label="Имя"
-                  value={characterNameDraft}
-                  onChange={(e) => setCharacterNameDraft(e.target.value)}
-                  fullWidth
-                  inputProps={{ maxLength: 140 }}
-                  helperText={<TextLimitIndicator currentLength={characterNameDraft.length} maxLength={140} />}
-                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                />
-                <TextField
-                  label="Описание"
-                  value={characterDescriptionDraft}
-                  onChange={(e) => setCharacterDescriptionDraft(e.target.value)}
-                  fullWidth
-                  multiline
-                  minRows={4}
-                  maxRows={8}
-                  inputProps={{ maxLength: 6000 }}
-                  helperText={<TextLimitIndicator currentLength={characterDescriptionDraft.length} maxLength={6000} />}
-                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                />
-                <TextField
-                  label="Триггеры"
-                  value={characterTriggersDraft}
-                  onChange={(e) => setCharacterTriggersDraft(e.target.value)}
-                  fullWidth
-                  multiline
-                  minRows={2}
-                  maxRows={5}
-                  placeholder="через запятую"
-                  inputProps={{ maxLength: 600 }}
-                  helperText={<TextLimitIndicator currentLength={characterTriggersDraft.length} maxLength={600} />}
-                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                />
-                {!characterNameDraft.trim() || !characterDescriptionDraft.trim() ? (
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>
-                    Имя и описание обязательны для сохранения персонажа.
-                  </Typography>
-                ) : null}
-              </Stack>
+              )}
             </Box>
           </Stack>
         
-      </FormDialog>
-
+      </BaseDialog>
+      <CharacterManagerDialog
+        open={characterManagerOpen}
+        authToken={authToken}
+        initialMode={characterManagerInitialMode}
+        initialCharacterId={characterManagerInitialCharacterId}
+        onClose={handleCloseCharacterManager}
+      />
       <InstructionTemplateDialog
         open={instructionTemplateDialogOpen}
         authToken={authToken}
         mode="picker"
+        enableCommunityPicker
         selectedTemplateSignatures={selectedInstructionTemplateSignatures}
         onClose={() => setInstructionTemplateDialogOpen(false)}
         onSelectTemplate={(template) => handleApplyInstructionTemplate(template)}
-      />
-
-      <AvatarCropDialog
-        open={Boolean(characterAvatarCropSource)}
-        imageSrc={characterAvatarCropSource}
-        onCancel={handleCancelCharacterAvatarCrop}
-        onSave={handleSaveCharacterAvatarCrop}
       />
 
       {coverCropSource ? (
@@ -1467,4 +2303,5 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 }
 
 export default WorldCreatePage
+
 

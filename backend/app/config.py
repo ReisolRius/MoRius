@@ -171,6 +171,8 @@ class Settings:
     openrouter_image_size: str
     openrouter_site_url: str
     openrouter_app_name: str
+    xai_image_api_key: str
+    xai_image_url: str
     story_translation_enabled: bool
     story_user_language: str
     story_model_language: str
@@ -232,8 +234,8 @@ settings = Settings(
     smtp_from_name=os.getenv("SMTP_FROM_NAME", "MoRius").strip(),
     smtp_use_tls=_to_bool(os.getenv("SMTP_USE_TLS"), default=True),
     smtp_use_ssl=_to_bool(os.getenv("SMTP_USE_SSL"), default=False),
-    avatar_max_bytes=int(os.getenv("AVATAR_MAX_BYTES", str(2 * 1024 * 1024))),
-    character_avatar_max_bytes=int(os.getenv("CHARACTER_AVATAR_MAX_BYTES", str(500 * 1024))),
+    avatar_max_bytes=int(os.getenv("AVATAR_MAX_BYTES", str(1 * 1024 * 1024))),
+    character_avatar_max_bytes=int(os.getenv("CHARACTER_AVATAR_MAX_BYTES", str(1 * 1024 * 1024))),
     yookassa_shop_id=os.getenv("YOOKASSA_SHOP_ID", "").strip(),
     yookassa_secret_key=os.getenv("YOOKASSA_SECRET_KEY", "").strip(),
     yookassa_api_url=os.getenv("YOOKASSA_API_URL", "https://api.yookassa.ru/v3").strip(),
@@ -254,7 +256,7 @@ settings = Settings(
     gigachat_verify_ssl=_to_bool(os.getenv("GIGACHAT_VERIFY_SSL"), default=True),
     openrouter_api_key=os.getenv("OPENROUTER_API_KEY", "").strip(),
     openrouter_chat_url=os.getenv("OPENROUTER_CHAT_URL", "https://openrouter.ai/api/v1/chat/completions").strip(),
-    openrouter_model=os.getenv("OPENROUTER_MODEL", "z-ai/glm-5").strip(),
+    openrouter_model=os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v3.2").strip(),
     openrouter_world_card_model=os.getenv(
         "OPENROUTER_WORLD_CARD_MODEL",
         OPENROUTER_GEMMA_FREE_MODEL,
@@ -281,6 +283,8 @@ settings = Settings(
     ).strip(),
     openrouter_site_url=os.getenv("OPENROUTER_SITE_URL", "").strip(),
     openrouter_app_name=os.getenv("OPENROUTER_APP_NAME", "MoRius").strip(),
+    xai_image_api_key=os.getenv("XAI_IMAGE_API_KEY", "").strip(),
+    xai_image_url=os.getenv("XAI_IMAGE_URL", "https://api.x.ai/v1/images/generations").strip(),
     story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=False),
     story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
     story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
