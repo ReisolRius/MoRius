@@ -39,6 +39,11 @@ import {
   type SelectChangeEvent,
 } from '@mui/material'
 import { icons } from '../assets'
+import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
+import narratorIlonPortrait from '../assets/images/narrators/ilon.svg'
+import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
+import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
+import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
@@ -244,36 +249,87 @@ const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-f
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image-pro'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
-const STORY_NARRATOR_MODEL_OPTIONS: Array<{
+type StoryNarratorStat = {
+  label: string
+  value: number
+}
+
+type StoryNarratorModelOption = {
   id: StoryNarratorModelId
   title: string
   description: string
-}> = [
+  portraitSrc: string
+  portraitAlt: string
+  stats: StoryNarratorStat[]
+}
+
+const NARRATOR_STAT_DOT_COUNT = 5
+
+const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
   {
     id: 'z-ai/glm-5',
     title: 'Огма',
     description:
-      'Идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом.',
+      'Баланс. Медленнее чем Велес, не такой живой, но идеально следует инструкциям. Русский хороший, но не без огрехов.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Огма',
+    stats: [
+      { label: 'Разум', value: 4 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 3 },
+    ],
   },
   {
     id: 'z-ai/glm-4.7',
     title: 'Фрейя',
-    description: 'GLM 4.7 для альтернативного стиля повествования.',
+    description:
+      'Сестра Огмы. Чуть помедленнее, с другим стилем рассказа, но в целом стабильная. С русским справляется чуть лучше Огмы, но с инструкциями наоборот, похуже.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'Фрейя',
+    stats: [
+      { label: 'Разум', value: 3 },
+      { label: 'Скорость', value: 2 },
+      { label: 'Глубина', value: 3 },
+    ],
   },
   {
     id: 'deepseek/deepseek-v3.2',
     title: 'Велес',
-    description: 'Быстрый, живой, отлично толкает сюжет, но может плохо следовать правилам.',
+    description:
+      'Стандартная модель. Быстрая, очень хорошо справляется с русским языком, живые диалоги, умная, но порой может забить на ваши инструкции.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Велес',
+    stats: [
+      { label: 'Разум', value: 3 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
+    ],
   },
   {
     id: 'x-ai/grok-4.1-fast',
     title: 'Илон',
-    description: 'Слушает инструкции, очень быстрый, но сюжет выходит поверхностным.',
+    description:
+      'Настолько гениален, что совсем не думает вглубь. Будет следовать всем вашим инструкциям, но в моменте зациклится на одном шаблоне ответов, сюжет с ним выйдет плоским.',
+    portraitSrc: narratorIlonPortrait,
+    portraitAlt: 'Илон',
+    stats: [
+      { label: 'Разум', value: 5 },
+      { label: 'Скорость', value: 5 },
+      { label: 'Глубина', value: 1 },
+    ],
   },
   {
     id: 'arcee-ai/trinity-large-preview:free',
     title: 'Исида',
-    description: 'Быстрая, немного глупая модель со своим стилем.',
+    description:
+      'Быстрая, но глупая. Может игнорировать правила, путать факты, при том сюжет в целом не такой плоский, как у Илона.',
+    portraitSrc: narratorIsidaPortrait,
+    portraitAlt: 'Исида',
+    stats: [
+      { label: 'Разум', value: 2 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 3 },
+    ],
   },
 ]
 const STORY_IMAGE_MODEL_OPTIONS: Array<{
@@ -2817,6 +2873,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       fontWeight: storyHistoryTextFontWeight,
     }),
     [storyHistoryTextFontFamily, storyHistoryTextFontWeight],
+  )
+  const selectedNarratorOption = useMemo(
+    () => STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ?? STORY_NARRATOR_MODEL_OPTIONS[0],
+    [storyLlmModel],
   )
 
   const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
@@ -8732,6 +8792,113 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             ))}
                           </Select>
                         </FormControl>
+                        <Box
+                          sx={{
+                            mt: 0.95,
+                            borderRadius: '16px',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                            backgroundColor: 'var(--morius-card-bg)',
+                            boxShadow: '0 10px 24px color-mix(in srgb, var(--morius-app-base) 48%, transparent)',
+                            px: 1,
+                            pb: 1.05,
+                            pt: 0.9,
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              borderRadius: '12px',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                              background:
+                                'radial-gradient(114% 88% at 50% 8%, color-mix(in srgb, var(--morius-accent) 16%, transparent) 0%, transparent 74%), var(--morius-elevated-bg)',
+                              minHeight: 228,
+                              px: 0.65,
+                              pt: 0.45,
+                              display: 'flex',
+                              alignItems: 'flex-end',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <Box
+                              role="img"
+                              aria-label={selectedNarratorOption.portraitAlt}
+                              sx={{
+                                width: '100%',
+                                maxWidth: 286,
+                                height: 226,
+                                backgroundColor: 'var(--morius-text-secondary)',
+                                WebkitMaskImage: `url(${selectedNarratorOption.portraitSrc})`,
+                                WebkitMaskRepeat: 'no-repeat',
+                                WebkitMaskPosition: 'center bottom',
+                                WebkitMaskSize: 'contain',
+                                maskImage: `url(${selectedNarratorOption.portraitSrc})`,
+                                maskRepeat: 'no-repeat',
+                                maskPosition: 'center bottom',
+                                maskSize: 'contain',
+                              }}
+                            />
+                          </Box>
+
+                          <Typography
+                            sx={{
+                              mt: 0.9,
+                              color: 'var(--morius-title-text)',
+                              fontSize: '2.45rem',
+                              fontWeight: 800,
+                              letterSpacing: '-0.03em',
+                              lineHeight: 1,
+                            }}
+                          >
+                            {selectedNarratorOption.title}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              mt: 0.65,
+                              color: 'var(--morius-text-secondary)',
+                              fontSize: '0.94rem',
+                              fontWeight: 600,
+                              lineHeight: 1.34,
+                            }}
+                          >
+                            {selectedNarratorOption.description}
+                          </Typography>
+
+                          <Stack spacing={0.52} sx={{ mt: 0.9 }}>
+                            {selectedNarratorOption.stats.map((stat) => (
+                              <Stack key={stat.label} direction="row" alignItems="center" justifyContent="space-between">
+                                <Typography
+                                  sx={{
+                                    color: 'var(--morius-title-text)',
+                                    fontSize: '1.02rem',
+                                    fontWeight: 600,
+                                    lineHeight: 1.1,
+                                  }}
+                                >
+                                  {stat.label}
+                                </Typography>
+                                <Stack direction="row" spacing={0.42}>
+                                  {Array.from({ length: NARRATOR_STAT_DOT_COUNT }).map((_, dotIndex) => {
+                                    const isActiveDot = dotIndex < stat.value
+                                    return (
+                                      <Box
+                                        key={`${stat.label}-${dotIndex}`}
+                                        sx={{
+                                          width: 11,
+                                          height: 11,
+                                          borderRadius: '50%',
+                                          backgroundColor: isActiveDot
+                                            ? 'color-mix(in srgb, var(--morius-accent) 82%, var(--morius-title-text))'
+                                            : 'color-mix(in srgb, var(--morius-app-base) 84%, var(--morius-card-border))',
+                                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 64%, transparent)',
+                                        }}
+                                      />
+                                    )
+                                  })}
+                                </Stack>
+                              </Stack>
+                            ))}
+                          </Stack>
+                        </Box>
                       </Box>
                     </Collapse>
                   </Box>
