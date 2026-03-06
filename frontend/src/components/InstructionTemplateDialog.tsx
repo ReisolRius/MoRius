@@ -45,6 +45,7 @@ type InstructionTemplateDialogProps = {
   initialMode?: 'list' | 'create'
   initialTemplateId?: number | null
   enableCommunityPicker?: boolean
+  includePublicationCopies?: boolean
 }
 
 function createInstructionTemplateSignature(title: string, content: string): string {
@@ -85,6 +86,7 @@ function InstructionTemplateDialog({
   initialMode = 'list',
   initialTemplateId = null,
   enableCommunityPicker = false,
+  includePublicationCopies = false,
 }: InstructionTemplateDialogProps) {
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
@@ -175,12 +177,25 @@ function InstructionTemplateDialog({
     void loadTemplates()
   }, [loadTemplates, open])
 
-  const sortedTemplates = useMemo(
+  const managedTemplates = useMemo(
     () =>
       templates
         .filter((item): item is StoryInstructionTemplate => Boolean(item) && typeof item.id === 'number')
-        .sort((left, right) => left.id - right.id),
-    [templates],
+        .filter((template) => {
+          if (includePublicationCopies) {
+            return true
+          }
+          if (template.visibility !== 'public' || template.source_template_id === null) {
+            return true
+          }
+          const sourceTemplate = templates.find((candidate) => candidate.id === template.source_template_id)
+          return !sourceTemplate || sourceTemplate.user_id !== template.user_id
+        }),
+    [includePublicationCopies, templates],
+  )
+  const sortedTemplates = useMemo(
+    () => [...managedTemplates].sort((left, right) => left.id - right.id),
+    [managedTemplates],
   )
   const selectedTemplateSignatureSet = useMemo(
     () => new Set(selectedTemplateSignatures.map((signature) => signature.trim()).filter(Boolean)),

@@ -122,7 +122,7 @@ def _split_story_plot_trigger_candidates(value: str) -> list[str]:
     return [part.strip() for part in parts if part.strip()]
 
 
-def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
+def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str | None = None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values:
@@ -138,12 +138,6 @@ def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str
                 continue
             seen.add(trigger_key)
             normalized.append(trigger)
-
-    fallback_trigger = normalize_story_plot_card_trigger(fallback_title)
-    if fallback_trigger:
-        fallback_key = fallback_trigger.casefold()
-        if fallback_key not in seen:
-            normalized.insert(0, fallback_trigger)
 
     return normalized[:40]
 

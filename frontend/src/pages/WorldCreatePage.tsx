@@ -39,6 +39,7 @@ import {
   updateStoryGameMeta,
   updateStoryInstructionCard,
   updateStoryPlotCard,
+  updateStoryPlotCardEnabled,
   updateStoryWorldCard,
   updateStoryWorldCardAvatar,
 } from '../services/storyApi'
@@ -65,6 +66,8 @@ type EditableCard = {
   id?: number
   title: string
   content: string
+  triggers?: string
+  is_enabled?: boolean
 }
 
 type EditableCharacterCard = {
@@ -107,6 +110,7 @@ const OPENING_SCENE_MAX_LENGTH = 4_000
 const OPENING_SCENE_NPC_NAME_MAX_LENGTH = 120
 const OPENING_SCENE_NPC_FALLBACK_NAME = 'NPC'
 const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный герой'
+const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
 const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const CHARACTER_NOTE_MAX_LENGTH = 20
 const WORLD_GENRE_OPTIONS = [
@@ -150,6 +154,10 @@ function parseTriggers(value: string, fallback: string): string[] {
     return unique
   }
   return fallback.trim() ? [fallback.trim()] : []
+}
+
+function parseOptionalTriggers(value: string): string[] {
+  return Array.from(new Set(value.split(/[\n,;]+/g).map((item) => item.trim()).filter(Boolean)))
 }
 
 function normalizeCharacterNote(value: string): string {
@@ -518,6 +526,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
   const [cardDialogTargetLocalId, setCardDialogTargetLocalId] = useState<string | null>(null)
   const [cardTitleDraft, setCardTitleDraft] = useState('')
   const [cardContentDraft, setCardContentDraft] = useState('')
+  const [cardTriggersDraft, setCardTriggersDraft] = useState('')
+  const [cardIsEnabledDraft, setCardIsEnabledDraft] = useState(false)
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
 
   const [characterPickerTarget, setCharacterPickerTarget] = useState<'main_hero' | 'npc' | null>(null)
@@ -711,8 +721,15 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         ...item,
         note: normalizeCharacterNote(item.note ?? ''),
       }))
-      setCharacters(normalizedItems)
-      return normalizedItems
+      const filteredItems = normalizedItems.filter((character) => {
+        if (character.visibility !== 'public' || character.source_character_id === null) {
+          return true
+        }
+        const sourceCharacter = normalizedItems.find((candidate) => candidate.id === character.source_character_id)
+        return !sourceCharacter || sourceCharacter.user_id !== character.user_id
+      })
+      setCharacters(filteredItems)
+      return filteredItems
     } catch {
       setCharacters([])
       return []
@@ -839,7 +856,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         setCoverPositionX(payload.game.cover_position_x ?? 50)
         setCoverPositionY(payload.game.cover_position_y ?? 50)
         setInstructionCards(payload.instruction_cards.map((card) => ({ localId: makeLocalId(), id: card.id, title: card.title, content: card.content })))
-        setPlotCards(payload.plot_cards.map((card) => ({ localId: makeLocalId(), id: card.id, title: card.title, content: card.content })))
+        setPlotCards(
+          payload.plot_cards.map((card) => ({
+            localId: makeLocalId(),
+            id: card.id,
+            title: card.title,
+            content: card.content,
+            triggers: card.triggers.join(', '),
+            is_enabled: Boolean(card.is_enabled),
+          })),
+        )
         const hero = payload.world_cards.find((card) => card.kind === 'main_hero') ?? null
         setMainHero(hero ? toEditableCharacterFromWorldCard(hero) : null)
         setNpcs(payload.world_cards.filter((card) => card.kind === 'npc').map(toEditableCharacterFromWorldCard))
@@ -899,11 +925,21 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     setCardDialogTargetLocalId(card?.localId ?? null)
     setCardTitleDraft(card?.title ?? '')
     setCardContentDraft(card?.content ?? '')
+    setCardTriggersDraft(kind === 'plot' ? card?.triggers ?? '' : '')
+    setCardIsEnabledDraft(kind === 'plot' ? Boolean(card?.is_enabled) : false)
     setCardDialogOpen(true)
   }, [])
 
   const saveCardDialog = useCallback(() => {
-    const next: EditableCard = { localId: cardDialogTargetLocalId ?? makeLocalId(), title: cardTitleDraft.trim(), content: cardContentDraft.trim() }
+    const baseNext: EditableCard = {
+      localId: cardDialogTargetLocalId ?? makeLocalId(),
+      title: cardTitleDraft.trim(),
+      content: cardContentDraft.trim(),
+    }
+    const next: EditableCard =
+      cardDialogKind === 'plot'
+        ? { ...baseNext, triggers: cardTriggersDraft, is_enabled: cardIsEnabledDraft }
+        : baseNext
     if (!next.title || !next.content) return
     const setter = cardDialogKind === 'instruction' ? setInstructionCards : setPlotCards
     setter((prev) => {
@@ -914,7 +950,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       return copy
     })
     setCardDialogOpen(false)
-  }, [cardContentDraft, cardDialogKind, cardDialogTargetLocalId, cardTitleDraft])
+  }, [cardContentDraft, cardDialogKind, cardDialogTargetLocalId, cardIsEnabledDraft, cardTitleDraft, cardTriggersDraft])
 
   const handleApplyInstructionTemplate = useCallback(async (template: { title: string; content: string }) => {
     const normalizedTitle = template.title.replace(/\s+/g, ' ').trim()
@@ -1284,8 +1320,42 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
       for (const card of latest.instruction_cards) if (!instructionCards.some((item) => item.id === card.id)) await deleteStoryInstructionCard({ token: authToken, gameId, instructionId: card.id })
       const existingPlotById = new Map(latest.plot_cards.map((card) => [card.id, card]))
       for (const card of plotCards) {
-        if (card.id && existingPlotById.has(card.id)) await updateStoryPlotCard({ token: authToken, gameId, cardId: card.id, title: card.title, content: card.content })
-        else await createStoryPlotCard({ token: authToken, gameId, title: card.title, content: card.content })
+        const desiredEnabled = Boolean(card.is_enabled)
+        const normalizedTriggers = parseOptionalTriggers(card.triggers ?? '')
+        if (card.id && existingPlotById.has(card.id)) {
+          const updatedCard = await updateStoryPlotCard({
+            token: authToken,
+            gameId,
+            cardId: card.id,
+            title: card.title,
+            content: card.content,
+            triggers: normalizedTriggers,
+          })
+          if (updatedCard.is_enabled !== desiredEnabled) {
+            await updateStoryPlotCardEnabled({
+              token: authToken,
+              gameId,
+              cardId: updatedCard.id,
+              is_enabled: desiredEnabled,
+            })
+          }
+        } else {
+          const createdCard = await createStoryPlotCard({
+            token: authToken,
+            gameId,
+            title: card.title,
+            content: card.content,
+            triggers: normalizedTriggers,
+          })
+          if (createdCard.is_enabled !== desiredEnabled) {
+            await updateStoryPlotCardEnabled({
+              token: authToken,
+              gameId,
+              cardId: createdCard.id,
+              is_enabled: desiredEnabled,
+            })
+          }
+        }
       }
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
       const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
@@ -1355,6 +1425,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
+          { key: 'games-publications', label: 'Мои публикации', isActive: false, onClick: () => onNavigate('/games/publications') },
           {
             key: isEditMode ? 'community-worlds' : 'world-create',
             label: isEditMode ? '\u0421\u043e\u043e\u0431\u0449\u0435\u0441\u0442\u0432\u043e' : '\u0421\u043e\u0437\u0434\u0430\u043d\u0438\u0435 \u043c\u0438\u0440\u0430',
@@ -1761,8 +1832,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
                     <CompactCard
                       key={card.localId}
                       title={card.title}
-                      content={card.content}
-                      badge="активна"
+                      content={`${card.content}${card.triggers?.trim() ? `\nТриггеры: ${card.triggers.trim()}` : ''}`}
+                      badge={card.is_enabled ? 'активна' : 'выключена'}
                       actions={
                         <>
                           <Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
@@ -1862,7 +1933,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
             <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.6 }}>
               <Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button>
-              <Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : 'Создать'}</Button>
+              <Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}</Button>
             </Stack>
           </Stack>}
         </Box>
@@ -1910,6 +1981,33 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
               helperText={<TextLimitIndicator currentLength={cardContentDraft.length} maxLength={6000} />}
               FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
             />
+            {cardDialogKind === 'plot' ? (
+              <TextField
+                label="Триггеры (необязательно)"
+                value={cardTriggersDraft}
+                onChange={(e) => setCardTriggersDraft(e.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))}
+                fullWidth
+                inputProps={{ maxLength: STORY_TRIGGER_INPUT_MAX_LENGTH }}
+                placeholder="Через запятую: артефакт, клятва, договор"
+                helperText={<TextLimitIndicator currentLength={cardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
+                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+              />
+            ) : null}
+            {cardDialogKind === 'plot' ? (
+              <Button
+                type="button"
+                onClick={() => setCardIsEnabledDraft((prev) => !prev)}
+                sx={{
+                  minHeight: 38,
+                  width: 'fit-content',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: cardIsEnabledDraft ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                  '&:hover': { backgroundColor: cardIsEnabledDraft ? APP_BUTTON_HOVER : 'var(--morius-elevated-bg)' },
+                }}
+              >
+                {`Активно по умолчанию: ${cardIsEnabledDraft ? 'включено' : 'выключено'}`}
+              </Button>
+            ) : null}
             {!cardTitleDraft.trim() || !cardContentDraft.trim() ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.83rem' }}>Введите заголовок и текст карточки, чтобы кнопка сохранения стала доступна.</Typography> : null}
           </Stack>
         

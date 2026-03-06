@@ -841,6 +841,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
+          { key: 'games-publications', label: 'Мои публикации', onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{

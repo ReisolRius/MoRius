@@ -1751,6 +1751,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
+          { key: 'games-publications', label: 'Мои публикации', onClick: () => onNavigate('/games/publications') },
           { key: 'community-worlds', label: 'Сообщество', isActive: true, onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{

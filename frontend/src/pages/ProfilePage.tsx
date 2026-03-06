@@ -329,20 +329,44 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     ]
   }, [isOwnProfile, subscriptionsCount])
 
+  const managedCharacters = useMemo(
+    () =>
+      characters.filter((character) => {
+        if (character.visibility !== 'public' || character.source_character_id === null) {
+          return true
+        }
+        const sourceCharacter = characters.find((candidate) => candidate.id === character.source_character_id)
+        return !sourceCharacter || sourceCharacter.user_id !== character.user_id
+      }),
+    [characters],
+  )
+
   const sortedCharacters = useMemo(
     () =>
-      [...characters].sort(
+      [...managedCharacters].sort(
         (left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id,
       ),
-    [characters],
+    [managedCharacters],
+  )
+
+  const managedTemplates = useMemo(
+    () =>
+      templates.filter((template) => {
+        if (template.visibility !== 'public' || template.source_template_id === null) {
+          return true
+        }
+        const sourceTemplate = templates.find((candidate) => candidate.id === template.source_template_id)
+        return !sourceTemplate || sourceTemplate.user_id !== template.user_id
+      }),
+    [templates],
   )
 
   const sortedTemplates = useMemo(
     () =>
-      [...templates].sort(
+      [...managedTemplates].sort(
         (left, right) => parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id,
       ),
-    [templates],
+    [managedTemplates],
   )
   const selectedContentCharacterMenuItem = useMemo(
     () =>
@@ -1509,7 +1533,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   key={item.id}
                   world={item}
                   onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                  onClick={() => onNavigate(isOwnProfile ? `/home/${item.id}` : `/games/all?worldId=${item.id}`)}
+                  onClick={() => onNavigate(item.author_id === user.id ? `/home/${item.id}` : `/games/all?worldId=${item.id}`)}
                 />
               ))}
             </Box>
@@ -1626,6 +1650,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
+          { key: 'games-publications', label: 'Мои публикации', onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{

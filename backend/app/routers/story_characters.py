@@ -32,6 +32,7 @@ from app.services.concurrency import (
 from app.services.auth_identity import get_current_user
 from app.services.story_characters import (
     STORY_CHARACTER_VISIBILITY_PRIVATE,
+    STORY_CHARACTER_VISIBILITY_PUBLIC,
     coerce_story_character_visibility,
     deserialize_triggers,
     normalize_story_avatar_scale,
@@ -124,6 +125,53 @@ def _build_story_community_character_summary(
     )
 
 
+def _create_story_character_publication_copy_from_source(
+    db: Session,
+    *,
+    source_character: StoryCharacter,
+) -> StoryCharacter:
+    publication = StoryCharacter(
+        user_id=source_character.user_id,
+        name=source_character.name,
+        description=source_character.description,
+        note=normalize_story_character_note(source_character.note),
+        triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
+        avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
+        avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
+        source=normalize_story_character_source(source_character.source),
+        visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
+        source_character_id=source_character.id,
+        community_rating_sum=0,
+        community_rating_count=0,
+        community_additions_count=0,
+    )
+    db.add(publication)
+    db.flush()
+    return publication
+
+
+def _delete_story_character_with_relations(db: Session, *, character_id: int) -> None:
+    db.execute(
+        sa_delete(StoryCommunityCharacterRating).where(
+            StoryCommunityCharacterRating.character_id == character_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityCharacterAddition).where(
+            StoryCommunityCharacterAddition.character_id == character_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityCharacterReport).where(
+            StoryCommunityCharacterReport.character_id == character_id,
+        )
+    )
+    unlink_story_character_from_world_cards(db, character_id=character_id)
+    character = db.scalar(select(StoryCharacter).where(StoryCharacter.id == character_id))
+    if character is not None:
+        db.delete(character)
+
+
 @router.get("/api/story/characters", response_model=list[StoryCharacterOut])
 def list_story_characters_route(
     authorization: str | None = Header(default=None),
@@ -144,7 +192,6 @@ def list_story_community_characters(
         select(StoryCharacter)
         .where(
             StoryCharacter.visibility == "public",
-            StoryCharacter.source_character_id.is_(None),
         )
         .order_by(
             StoryCharacter.community_additions_count.desc(),
@@ -443,7 +490,7 @@ def create_story_character(
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
-    visibility = normalize_story_character_visibility(payload.visibility)
+    requested_visibility = normalize_story_character_visibility(payload.visibility)
     character = StoryCharacter(
         user_id=user.id,
         name=normalized_name,
@@ -453,13 +500,19 @@ def create_story_character(
         avatar_url=avatar_url,
         avatar_scale=avatar_scale,
         source="user",
-        visibility=visibility,
+        visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
         source_character_id=None,
         community_rating_sum=0,
         community_rating_count=0,
         community_additions_count=0,
     )
     db.add(character)
+    db.flush()
+    if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
+        _create_story_character_publication_copy_from_source(
+            db,
+            source_character=character,
+        )
     db.commit()
     db.refresh(character)
     return story_character_to_out(character)
@@ -487,8 +540,18 @@ def update_story_character(
     character.avatar_url = avatar_url
     character.avatar_scale = avatar_scale
     character.source = normalize_story_character_source(character.source)
+    requested_visibility: str | None = None
     if payload.visibility is not None:
-        character.visibility = normalize_story_character_visibility(payload.visibility)
+        requested_visibility = normalize_story_character_visibility(payload.visibility)
+    if requested_visibility is not None:
+        if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC and character.visibility != STORY_CHARACTER_VISIBILITY_PUBLIC:
+            _create_story_character_publication_copy_from_source(
+                db,
+                source_character=character,
+            )
+            character.visibility = STORY_CHARACTER_VISIBILITY_PRIVATE
+        else:
+            character.visibility = requested_visibility
     db.commit()
     db.refresh(character)
     return story_character_to_out(character)
@@ -502,22 +565,6 @@ def delete_story_character(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     character = get_story_character_for_user_or_404(db, user.id, character_id)
-    db.execute(
-        sa_delete(StoryCommunityCharacterRating).where(
-            StoryCommunityCharacterRating.character_id == character.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityCharacterAddition).where(
-            StoryCommunityCharacterAddition.character_id == character.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityCharacterReport).where(
-            StoryCommunityCharacterReport.character_id == character.id,
-        )
-    )
-    unlink_story_character_from_world_cards(db, character_id=character.id)
-    db.delete(character)
+    _delete_story_character_with_relations(db, character_id=character.id)
     db.commit()
     return MessageResponse(message="Character deleted")

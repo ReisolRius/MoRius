@@ -157,6 +157,17 @@ function SidebarLibraryIcon() {
   )
 }
 
+function SidebarPublicationsIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+      <path
+        d="M4 5.5A2.5 2.5 0 0 1 6.5 3H17a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2H10l-3.7 3.1c-.8.7-2 .1-2-.9V5.5zm4 2.5h8v2H8zm0 4h5v2H8z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 function SidebarBugReportIcon() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
@@ -228,6 +239,7 @@ function AppHeader({
   const primaryMenuIconByKey: Record<string, SidebarIconComponent> = {
     dashboard: SidebarHomeIcon,
     'games-my': SidebarLibraryIcon,
+    'games-publications': SidebarPublicationsIcon,
     'games-all': SidebarCommunityIcon,
     'community-worlds': SidebarCommunityIcon,
     'world-create': SidebarLibraryIcon,

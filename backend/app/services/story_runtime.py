@@ -61,6 +61,7 @@ class StoryRuntimeDeps:
     upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
     list_story_prompt_memory_cards: Callable[[Session, StoryGame, bool, list[StoryMessage] | None], list[dict[str, str]]]
     list_story_memory_blocks: Callable[[Session, int], list[Any]]
+    seed_opening_scene_memory_block: Callable[..., bool]
     memory_block_to_out: Callable[[Any], Any]
     plot_card_to_out: Callable[[Any], Any]
     world_card_to_out: Callable[[Any], Any]
@@ -613,11 +614,11 @@ def generate_story_response(
     if payload.story_temperature is not None:
         story_temperature = normalize_story_temperature(payload.story_temperature)
     raw_show_gg_thoughts = getattr(game, "show_gg_thoughts", None)
-    show_gg_thoughts = True if raw_show_gg_thoughts is None else bool(raw_show_gg_thoughts)
+    show_gg_thoughts = False if raw_show_gg_thoughts is None else bool(raw_show_gg_thoughts)
     if payload.show_gg_thoughts is not None:
         show_gg_thoughts = bool(payload.show_gg_thoughts)
     raw_show_npc_thoughts = getattr(game, "show_npc_thoughts", None)
-    show_npc_thoughts = True if raw_show_npc_thoughts is None else bool(raw_show_npc_thoughts)
+    show_npc_thoughts = False if raw_show_npc_thoughts is None else bool(raw_show_npc_thoughts)
     if payload.show_npc_thoughts is not None:
         show_npc_thoughts = bool(payload.show_npc_thoughts)
     story_response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
@@ -638,16 +639,52 @@ def generate_story_response(
 
     def _seed_opening_scene_message_if_needed(current_messages: list[StoryMessage]) -> list[StoryMessage]:
         opening_scene = str(getattr(game, "opening_scene", "") or "").replace("\r\n", "\n").strip()
-        if not opening_scene or current_messages:
+        if not opening_scene:
             return current_messages
-        try:
-            db.add(
-                StoryMessage(
-                    game_id=game.id,
-                    role=deps.story_assistant_role,
-                    content=opening_scene,
-                )
+        if current_messages:
+            if not memory_optimization_enabled:
+                return current_messages
+            first_assistant_message = next(
+                (message for message in current_messages if message.role == deps.story_assistant_role),
+                None,
             )
+            if first_assistant_message is None:
+                return current_messages
+            first_assistant_text = first_assistant_message.content.replace("\r\n", "\n").strip()
+            if first_assistant_text != opening_scene:
+                return current_messages
+            try:
+                created = deps.seed_opening_scene_memory_block(
+                    db=db,
+                    game=game,
+                    assistant_message=first_assistant_message,
+                    opening_scene_text=opening_scene,
+                )
+                if created:
+                    db.commit()
+            except Exception as exc:
+                db.rollback()
+                logger.exception("Failed to backfill opening scene memory: game_id=%s", game.id)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to prepare opening scene memory: {_public_story_error_detail(exc)}",
+                ) from exc
+            return deps.list_story_messages(db, game.id) if created else current_messages
+        try:
+            opening_scene_message = StoryMessage(
+                game_id=game.id,
+                role=deps.story_assistant_role,
+                content=opening_scene,
+            )
+            db.add(opening_scene_message)
+            db.flush()
+            if memory_optimization_enabled:
+                deps.seed_opening_scene_memory_block(
+                    db=db,
+                    game=game,
+                    assistant_message=opening_scene_message,
+                    opening_scene_text=opening_scene,
+                )
             deps.touch_story_game(game)
             db.commit()
         except Exception as exc:

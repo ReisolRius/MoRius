@@ -35,6 +35,7 @@ type CharacterManagerDialogProps = {
   onClose: () => void
   initialMode?: 'list' | 'create'
   initialCharacterId?: number | null
+  includePublicationCopies?: boolean
 }
 
 type CharacterDraftMode = 'create' | 'edit'
@@ -447,6 +448,7 @@ function CharacterManagerDialog({
   onClose,
   initialMode = 'list',
   initialCharacterId = null,
+  includePublicationCopies = false,
 }: CharacterManagerDialogProps) {
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [isLoadingCharacters, setIsLoadingCharacters] = useState(false)
@@ -477,19 +479,32 @@ function CharacterManagerDialog({
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
 
-  const sortedCharacters = useMemo(
+  const managedCharacters = useMemo(
     () =>
       characters
         .filter((item): item is StoryCharacter => Boolean(item) && typeof item.id === 'number')
-        .sort((left, right) => left.id - right.id),
-    [characters],
+        .filter((character) => {
+          if (includePublicationCopies) {
+            return true
+          }
+          if (character.visibility !== 'public' || character.source_character_id === null) {
+            return true
+          }
+          const sourceCharacter = characters.find((candidate) => candidate.id === character.source_character_id)
+          return !sourceCharacter || sourceCharacter.user_id !== character.user_id
+        }),
+    [characters, includePublicationCopies],
+  )
+  const sortedCharacters = useMemo(
+    () => [...managedCharacters].sort((left, right) => left.id - right.id),
+    [managedCharacters],
   )
   const selectedCharacterMenuItem = useMemo(
     () =>
       characterMenuCharacterId !== null
-        ? characters.find((character) => character.id === characterMenuCharacterId) ?? null
+        ? sortedCharacters.find((character) => character.id === characterMenuCharacterId) ?? null
         : null,
-    [characterMenuCharacterId, characters],
+    [characterMenuCharacterId, sortedCharacters],
   )
   const hasAvatarDraft = Boolean((avatarDraft ?? '').trim())
   const isAvatarActionsLocked = isSavingCharacter || isGeneratingAiAvatar

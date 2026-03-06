@@ -141,14 +141,14 @@ class StoryGame(Base):
     show_gg_thoughts: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
-        server_default="1",
+        default=False,
+        server_default="0",
     )
     show_npc_thoughts: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
-        server_default="1",
+        default=False,
+        server_default="0",
     )
     ambient_enabled: Mapped[bool] = mapped_column(
         Boolean,

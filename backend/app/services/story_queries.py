@@ -50,7 +50,6 @@ def get_public_story_world_or_404(db: Session, world_id: int) -> StoryGame:
         select(StoryGame).where(
             StoryGame.id == world_id,
             StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
-            StoryGame.source_world_id.is_(None),
         )
     )
     if world is not None:
@@ -63,7 +62,6 @@ def get_public_story_character_or_404(db: Session, character_id: int) -> StoryCh
         select(StoryCharacter).where(
             StoryCharacter.id == character_id,
             StoryCharacter.visibility == STORY_CARD_VISIBILITY_PUBLIC,
-            StoryCharacter.source_character_id.is_(None),
         )
     )
     if character is not None:
@@ -76,7 +74,6 @@ def get_public_story_instruction_template_or_404(db: Session, template_id: int) 
         select(StoryInstructionTemplate).where(
             StoryInstructionTemplate.id == template_id,
             StoryInstructionTemplate.visibility == STORY_CARD_VISIBILITY_PUBLIC,
-            StoryInstructionTemplate.source_template_id.is_(None),
         )
     )
     if template is not None:

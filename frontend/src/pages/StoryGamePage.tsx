@@ -253,7 +253,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: Array<{
     id: 'z-ai/glm-5',
     title: 'Огма',
     description:
-      'деальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом.',
+      'Идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом.',
   },
   {
     id: 'z-ai/glm-4.7',
@@ -267,12 +267,12 @@ const STORY_NARRATOR_MODEL_OPTIONS: Array<{
   },
   {
     id: 'x-ai/grok-4.1-fast',
-    title: 'лон',
+    title: 'Илон',
     description: 'Слушает инструкции, очень быстрый, но сюжет выходит поверхностным.',
   },
   {
     id: 'arcee-ai/trinity-large-preview:free',
-    title: 'сида',
+    title: 'Исида',
     description: 'Быстрая, немного глупая модель со своим стилем.',
   },
 ]
@@ -315,21 +315,21 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите -модель, которая будет вести историю. Велес — быстрый, живой, отлично толкает сюжет, но может плохо следовать правилам. Огма — идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом. лон — слушает инструкции, очень быстрый, но сюжет выходит поверхностным. сида — быстрая, немного глупая модель со своим стилем. Фрейя (GLM 4.7) — альтернативный стиль повествования.',
+    'Выберите ИИ-модель, которая будет вести историю. Велес — быстрый, живой, отлично толкает сюжет, но может плохо следовать правилам. Огма — идеальный среднячок, дольше отвечает, не такой живой, но следует инструкциям четко и не так спешит с сюжетом. Илон — слушает инструкции, очень быстрый, но сюжет выходит поверхностным. Исида — быстрая, немного глупая модель со своим стилем. Фрейя (GLM 4.7) — альтернативный стиль повествования.',
   artist:
-    'Выберите  модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
+    'Выберите ИИ-модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
   contextLimit:
-    'Ограничение памяти истории . Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов.',
-  responseTokens: 'Ограничьте объем  точечно в токенах.',
-  showGgThoughts: 'Настройка того, будет ли  генерировать и транслировать мысли вашего ГГ',
-  showNpcThoughts: 'Настройка того, будет ли  генерировать и траснлировать мысли NPC',
+    'Ограничение памяти истории ИИ. Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов.',
+  responseTokens: 'Ограничьте объем ответа ИИ точечно в токенах.',
+  showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ',
+  showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC',
   memoryOptimization:
     'Помогает дольше помнить старые события, ужимая память без потери смысла и важных деталей.',
   ambient:
     'БЕТА. Подсветка вокруг поля ввода меняется по окружению сцены (фон, свет, погода, локация) и использует 2-3 цвета. Включение стоит +1 сол за каждый ход, а ответ может генерироваться дольше.',
   temperature:
-    'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать .',
-  contextUsage: 'Следите за тем сколько у вас осталось места в памяти истории для .',
+    'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать ИИ.',
+  contextUsage: 'Следите за тем сколько у вас осталось места в памяти истории для ИИ.',
 } as const
 
 function formatStoryImageModelLabel(option: { title: string; priceLabel: string }): string {
@@ -1650,7 +1650,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
-function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle: string): string[] {
+function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle?: string): string[] {
   const seen = new Set<string>()
   const normalized: string[] = []
 
@@ -1668,9 +1668,15 @@ function normalizeWorldCardTriggersDraft(draft: string, fallbackTitle: string): 
   }
 
   splitStoryTriggerCandidates(draft).forEach((part) => pushTrigger(part))
-  pushTrigger(fallbackTitle)
+  if (fallbackTitle) {
+    pushTrigger(fallbackTitle)
+  }
 
   return normalized.slice(0, 40)
+}
+
+function normalizePlotCardTriggersDraft(draft: string): string[] {
+  return normalizeWorldCardTriggersDraft(draft).slice(0, 40)
 }
 
 function normalizeCharacterTriggersDraft(draft: string, fallbackName: string): string[] {
@@ -2297,16 +2303,32 @@ function buildPlotCardContextStateById(plotCards: StoryPlotCard[], messages: Sto
   const stateById = new Map<number, PlotCardContextState>()
   plotCards.forEach((card) => {
     const memoryTurns = resolvePlotCardMemoryTurns(card)
-    const fallbackTrigger = card.title.replace(/\s+/g, ' ').trim()
     const triggers = card.triggers
       .flatMap((trigger) => splitStoryTriggerCandidates(trigger))
       .map((trigger) => trigger.replace(/\s+/g, ' ').trim())
       .filter(Boolean)
-    if (fallbackTrigger.length > 0 && !triggers.some((trigger) => trigger.toLowerCase() === fallbackTrigger.toLowerCase())) {
-      triggers.unshift(fallbackTrigger)
-    }
 
-    if (!card.is_enabled || memoryTurns === null || triggers.length === 0 || currentTurnIndex <= 0) {
+    if (!card.is_enabled) {
+      stateById.set(card.id, {
+        isActive: false,
+        memoryTurns,
+        turnsRemaining: 0,
+        lastTriggerTurn: null,
+        isTriggeredThisTurn: false,
+      })
+      return
+    }
+    if (triggers.length === 0) {
+      stateById.set(card.id, {
+        isActive: true,
+        memoryTurns,
+        turnsRemaining: 0,
+        lastTriggerTurn: null,
+        isTriggeredThisTurn: false,
+      })
+      return
+    }
+    if (memoryTurns === null || currentTurnIndex <= 0) {
       stateById.set(card.id, {
         isActive: false,
         memoryTurns,
@@ -2655,11 +2677,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [storyTemperature, setStoryTemperature] = useState(STORY_DEFAULT_TEMPERATURE)
   const [storyTopK, setStoryTopK] = useState(STORY_DEFAULT_TOP_K)
   const [storyTopR, setStoryTopR] = useState(STORY_DEFAULT_TOP_R)
-  const [showGgThoughts, setShowGgThoughts] = useState(true)
-  const [showNpcThoughts, setShowNpcThoughts] = useState(true)
+  const [showGgThoughts, setShowGgThoughts] = useState(false)
+  const [showNpcThoughts, setShowNpcThoughts] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
+  const storySettingsOverridesRef = useRef<Record<number, StorySettingsOverride>>({})
   const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
   const [isSavingStoryImageModel, setIsSavingStoryImageModel] = useState(false)
   const [isSavingImageStylePrompt, setIsSavingImageStylePrompt] = useState(false)
@@ -2704,6 +2727,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => getDisplayStoryTitle(activeGameId, customTitleMap),
     [activeGameId, customTitleMap],
   )
+
+  useEffect(() => {
+    storySettingsOverridesRef.current = storySettingsOverrides
+  }, [storySettingsOverrides])
 
   useEffect(() => {
     activeGameIdRef.current = activeGameId
@@ -2819,7 +2846,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } else {
       setPersistedAmbientProfile(null)
     }
-    const override = storySettingsOverrides[game.id]
+    const override = storySettingsOverridesRef.current[game.id]
     if (override) {
       setStoryLlmModel(override.storyLlmModel)
       setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
@@ -2855,19 +2882,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (typeof runtimeGame.show_gg_thoughts === 'boolean') {
       setShowGgThoughts(runtimeGame.show_gg_thoughts)
     } else {
-      setShowGgThoughts(true)
+      setShowGgThoughts(false)
     }
     if (typeof runtimeGame.show_npc_thoughts === 'boolean') {
       setShowNpcThoughts(runtimeGame.show_npc_thoughts)
     } else {
-      setShowNpcThoughts(true)
+      setShowNpcThoughts(false)
     }
     if (typeof runtimeGame.ambient_enabled === 'boolean') {
       setAmbientEnabled(runtimeGame.ambient_enabled)
     } else {
       setAmbientEnabled(false)
     }
-  }, [storySettingsOverrides])
+  }, [])
 
   const hasMessages = messages.length > 0
   const shouldShowStoryTitleLoadingSkeleton = isBootstrappingGameData
@@ -2926,7 +2953,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isLatestTurnImageLoading
   const leftPanelTabLabel =
     rightPanelMode === 'ai'
-      ? 'нструкции'
+      ? 'Инструкции'
       : rightPanelMode === 'world'
         ? 'Сюжет'
         : 'Память'
@@ -4362,7 +4389,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       try {
         const payload = await getStoryGame({ token: authToken, gameId })
         const serverOpeningScene = (payload.game.opening_scene ?? '').trim()
-        setQuickStartIntro((previousIntro) => (serverOpeningScene.length > 0 ? serverOpeningScene : previousIntro))
+        setQuickStartIntro(serverOpeningScene)
         setMessages(payload.messages)
         const restoredTurnImages = (payload.turn_images ?? []).reduce<Record<number, StoryTurnImageEntry[]>>(
           (accumulator, item) => {
@@ -4558,9 +4585,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [])
 
   useEffect(() => {
-    setQuickStartIntro('')
     setPersistedAmbientProfile(null)
     if (!activeGameId) {
+      setQuickStartIntro('')
       setStoryImageModel(STORY_DEFAULT_IMAGE_MODEL_ID)
       setImageStylePromptDraft('')
     }
@@ -5235,7 +5262,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const normalizedTitle = plotCardTitleDraft.replace(/\s+/g, ' ').trim()
     const normalizedContent = plotCardContentDraft.replace(/\r\n/g, '\n').trim()
-    const normalizedTriggers = normalizeWorldCardTriggersDraft(plotCardTriggersDraft, normalizedTitle)
+    const normalizedTriggers = normalizePlotCardTriggersDraft(plotCardTriggersDraft)
     const normalizedMemoryTurns = plotCardMemoryTurnsDraft
 
     if (!normalizedTitle) {
@@ -5803,7 +5830,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'instruction',
         targetId: targetCardId,
         title: 'Удалить инструкцию?',
-        message: `нструкция В«${normalizedTitle}В» будет удалена без возможности восстановления.`,
+        message: `Инструкция «${normalizedTitle}» будет удалена без возможности восстановления.`,
       })
       return
     }
@@ -8144,7 +8171,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <RightPanelWorldIcon />
             </IconButton>
             <IconButton
-              aria-label="нструкции и настройки"
+              aria-label="Инструкции и настройки"
               onClick={() => {
                 setRightPanelMode('ai')
                 setActiveAiPanelTab('instructions')
@@ -8415,13 +8442,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         },
                       }}
                     >
-                      з шаблона
+                      Из шаблона
                     </Button>
                   </Stack>
                   <RightPanelEmptyState
                     iconSrc={icons.communityCards}
-                    title="нструкции"
-                    description="Задавайте свои шаблоны и ограничения, которым будет следовать . Например: отвечай максимум 5 небольшими абзацами, в художественном стиле"
+                    title="Инструкции"
+                    description="Задавайте свои шаблоны и ограничения, которым будет следовать ИИ. Например: отвечай максимум 5 небольшими абзацами, в художественном стиле"
                   />
                 </>
               ) : (
@@ -8573,7 +8600,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         },
                       }}
                     >
-                      з шаблона
+                      Из шаблона
                     </Button>
                   </Box>
                 </>
@@ -9218,7 +9245,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               </Stack>
 
                               <Typography sx={{ mt: 0.72, color: 'var(--morius-text-secondary)', fontSize: '0.73rem', lineHeight: 1.36 }}>
-                                {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length}, ии-память{' '}
+                                {storyMemoryHint} Карточек в контексте: инструкции {normalizedInstructionCardsForContext.length}, ИИ-память{' '}
                                 {normalizedAiMemoryCardsForContext.length}, сюжет {normalizedPlotCardsForContext.length}, мир{' '}
                                 {normalizedWorldCardsForContext.length} из {worldCards.length}.
                               </Typography>
@@ -9712,7 +9739,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <RightPanelEmptyState
                     iconSrc={icons.communityInfo}
                     title="Сюжет"
-                    description="Карточки сюжета создаются только вручную.  их не создает и не редактирует."
+                    description="Карточки сюжета создаются только вручную. ИИ их не создает и не редактирует."
                   />
                 </>
               ) : (
@@ -10012,7 +10039,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и . У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
+                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
               </Typography>
 
               {displayedWorldCards.length === 0 ? (
@@ -10137,7 +10164,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     flexShrink: 0,
                                   }}
                                 >
-                                  ии
+                                  ИИ
                                 </Typography>
                               ) : null}
                               <IconButton
@@ -13693,3 +13720,4 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+

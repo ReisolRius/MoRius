@@ -52,7 +52,7 @@ import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/stor
 type MyGamesPageProps = {
   user: AuthUser
   authToken: string
-  mode: 'my' | 'all'
+  mode: 'my' | 'all' | 'publications'
   onNavigate: (path: string) => void
   onUserUpdate: (user: AuthUser) => void
   onLogout: () => void
@@ -318,6 +318,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     const missingSourceWorldIds = Array.from(
       new Set(
         games
+          .filter((game) => game.visibility !== 'public')
           .map((game) => game.source_world_id)
           .filter((worldId): worldId is number => typeof worldId === 'number' && worldId > 0)
           .filter((worldId) => !communityWorldById[worldId]),
@@ -731,24 +732,44 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   )
 
   const visibleGames = useMemo(() => {
+    const modeFilteredGames =
+      mode === 'my'
+        ? games.filter((game) => game.visibility !== 'public')
+        : mode === 'publications'
+          ? games.filter((game) => game.visibility === 'public')
+          : games
     const normalizedSearch = searchQuery.trim().toLowerCase()
     const filtered = normalizedSearch
-      ? games.filter((game) => {
+      ? modeFilteredGames.filter((game) => {
           const title = resolveDisplayTitle(game.id).toLowerCase()
           const preview = (gamePreviews[game.id] ?? '').toLowerCase()
           return title.includes(normalizedSearch) || preview.includes(normalizedSearch)
         })
-      : games
+      : modeFilteredGames
 
     return sortGames(filtered, sortMode)
-  }, [gamePreviews, games, resolveDisplayTitle, searchQuery, sortMode])
+  }, [gamePreviews, games, mode, resolveDisplayTitle, searchQuery, sortMode])
+  const publicationSourceWorldIds = useMemo(
+    () =>
+      new Set(
+        games
+          .filter(
+            (game) =>
+              game.visibility === 'public' &&
+              typeof game.source_world_id === 'number' &&
+              Number.isFinite(game.source_world_id),
+          )
+          .map((game) => game.source_world_id as number),
+      ),
+    [games],
+  )
   const gameMenuTarget = useMemo(() => {
     if (!gameMenuGameId) {
       return null
     }
     return games.find((game) => game.id === gameMenuGameId) ?? null
   }, [gameMenuGameId, games])
-  const pageTitle = mode === 'all' ? 'Сообщество' : 'Мои игры'
+  const pageTitle = mode === 'all' ? 'Сообщество' : mode === 'publications' ? 'Мои публикации' : 'Мои игры'
   const profileName = user.display_name || 'Игрок'
 
   return (
@@ -768,6 +789,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
+          {
+            key: 'games-publications',
+            label: 'Мои публикации',
+            isActive: mode === 'publications',
+            onClick: () => onNavigate('/games/publications'),
+          },
           { key: 'games-all', label: 'Сообщество', isActive: mode === 'all', onClick: () => onNavigate('/games/all') },
         ]}
         pageMenuLabels={{
@@ -1071,7 +1098,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                     <CommunityWorldCard
                       world={{
                         id: game.id,
-                        title: resolveDisplayTitle(game.id),
+                        title: `${resolveDisplayTitle(game.id)}${publicationSourceWorldIds.has(game.id) ? ' (Частный)' : ''}`,
                         description: cardDescription || 'Описание пока не указано.',
                         author_id: sourceWorld?.author_id ?? (game.source_world_id ? 0 : user.id),
                         author_name: sourceWorld?.author_name ?? (game.source_world_id ? 'Автор сообщества' : profileName),

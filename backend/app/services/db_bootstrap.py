@@ -268,12 +268,12 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "show_gg_thoughts" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN show_gg_thoughts INTEGER NOT NULL DEFAULT 1"
+            "ADD COLUMN show_gg_thoughts INTEGER NOT NULL DEFAULT 0"
         )
     if "show_npc_thoughts" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN show_npc_thoughts INTEGER NOT NULL DEFAULT 1"
+            "ADD COLUMN show_npc_thoughts INTEGER NOT NULL DEFAULT 0"
         )
     if "ambient_enabled" not in existing_columns:
         alter_statements.append(

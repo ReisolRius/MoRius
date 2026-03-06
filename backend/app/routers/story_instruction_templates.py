@@ -28,6 +28,7 @@ from app.services.concurrency import (
 )
 from app.services.story_cards import (
     STORY_TEMPLATE_VISIBILITY_PRIVATE,
+    STORY_TEMPLATE_VISIBILITY_PUBLIC,
     coerce_story_instruction_template_visibility,
     normalize_story_instruction_content,
     normalize_story_instruction_template_visibility,
@@ -108,6 +109,47 @@ def _build_story_community_instruction_template_summary(
     )
 
 
+def _create_story_instruction_template_publication_copy_from_source(
+    db: Session,
+    *,
+    source_template: StoryInstructionTemplate,
+) -> StoryInstructionTemplate:
+    publication = StoryInstructionTemplate(
+        user_id=source_template.user_id,
+        title=source_template.title,
+        content=source_template.content,
+        visibility=STORY_TEMPLATE_VISIBILITY_PUBLIC,
+        source_template_id=source_template.id,
+        community_rating_sum=0,
+        community_rating_count=0,
+        community_additions_count=0,
+    )
+    db.add(publication)
+    db.flush()
+    return publication
+
+
+def _delete_story_instruction_template_with_relations(db: Session, *, template_id: int) -> None:
+    db.execute(
+        sa_delete(StoryCommunityInstructionTemplateRating).where(
+            StoryCommunityInstructionTemplateRating.template_id == template_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityInstructionTemplateAddition).where(
+            StoryCommunityInstructionTemplateAddition.template_id == template_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityInstructionTemplateReport).where(
+            StoryCommunityInstructionTemplateReport.template_id == template_id,
+        )
+    )
+    template = db.scalar(select(StoryInstructionTemplate).where(StoryInstructionTemplate.id == template_id))
+    if template is not None:
+        db.delete(template)
+
+
 @router.get("/api/story/instruction-templates", response_model=list[StoryInstructionTemplateOut])
 def list_story_instruction_templates_route(
     authorization: str | None = Header(default=None),
@@ -128,7 +170,6 @@ def list_story_community_instruction_templates(
         select(StoryInstructionTemplate)
         .where(
             StoryInstructionTemplate.visibility == "public",
-            StoryInstructionTemplate.source_template_id.is_(None),
         )
         .order_by(
             StoryInstructionTemplate.community_additions_count.desc(),
@@ -397,17 +438,24 @@ def create_story_instruction_template(
     db: Session = Depends(get_db),
 ) -> StoryInstructionTemplateOut:
     user = get_current_user(db, authorization)
+    requested_visibility = normalize_story_instruction_template_visibility(payload.visibility)
     template = StoryInstructionTemplate(
         user_id=user.id,
         title=normalize_story_instruction_title(payload.title),
         content=normalize_story_instruction_content(payload.content),
-        visibility=normalize_story_instruction_template_visibility(payload.visibility),
+        visibility=STORY_TEMPLATE_VISIBILITY_PRIVATE,
         source_template_id=None,
         community_rating_sum=0,
         community_rating_count=0,
         community_additions_count=0,
     )
     db.add(template)
+    db.flush()
+    if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC:
+        _create_story_instruction_template_publication_copy_from_source(
+            db,
+            source_template=template,
+        )
     db.commit()
     db.refresh(template)
     return story_instruction_template_to_out(template)
@@ -424,8 +472,18 @@ def update_story_instruction_template(
     template = get_story_instruction_template_for_user_or_404(db, user.id, template_id)
     template.title = normalize_story_instruction_title(payload.title)
     template.content = normalize_story_instruction_content(payload.content)
+    requested_visibility: str | None = None
     if payload.visibility is not None:
-        template.visibility = normalize_story_instruction_template_visibility(payload.visibility)
+        requested_visibility = normalize_story_instruction_template_visibility(payload.visibility)
+    if requested_visibility is not None:
+        if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC and template.visibility != STORY_TEMPLATE_VISIBILITY_PUBLIC:
+            _create_story_instruction_template_publication_copy_from_source(
+                db,
+                source_template=template,
+            )
+            template.visibility = STORY_TEMPLATE_VISIBILITY_PRIVATE
+        else:
+            template.visibility = requested_visibility
     db.commit()
     db.refresh(template)
     return story_instruction_template_to_out(template)
@@ -439,21 +497,6 @@ def delete_story_instruction_template(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     template = get_story_instruction_template_for_user_or_404(db, user.id, template_id)
-    db.execute(
-        sa_delete(StoryCommunityInstructionTemplateRating).where(
-            StoryCommunityInstructionTemplateRating.template_id == template.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityInstructionTemplateAddition).where(
-            StoryCommunityInstructionTemplateAddition.template_id == template.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityInstructionTemplateReport).where(
-            StoryCommunityInstructionTemplateReport.template_id == template.id,
-        )
-    )
-    db.delete(template)
+    _delete_story_instruction_template_with_relations(db, template_id=template.id)
     db.commit()
     return MessageResponse(message="Instruction template deleted")

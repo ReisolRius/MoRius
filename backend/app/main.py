@@ -702,6 +702,7 @@ STORY_LATIN_LETTER_PATTERN = re.compile(r"[A-Za-z]")
 STORY_CYRILLIC_LETTER_PATTERN = re.compile(r"[А-Яа-яЁё]")
 STORY_LATIN_WORD_PATTERN = re.compile(r"\b[A-Za-z]{3,}\b")
 STORY_CYRILLIC_WORD_PATTERN = re.compile(r"\b[А-Яа-яЁё]{3,}\b")
+STORY_NON_RUSSIAN_SYMBOL_PATTERN = re.compile(r"[^0-9А-Яа-яЁё\s\.,!?:;…\-—–«»\"'()\[\]/%№]+")
 STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
     r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
@@ -818,8 +819,14 @@ STORY_STREAM_HTTP_CHUNK_SIZE_BYTES = 256
 STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS = 0.0
 STORY_STREAM_TRANSLATION_MIN_CHARS = 24
 STORY_STREAM_TRANSLATION_MAX_CHARS = 180
-STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = set()
-STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {}
+STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
+    "z-ai/glm-5",
+    "z-ai/glm-4.7",
+}
+STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
+    "z-ai/glm-5": "z-ai/glm-5",
+    "z-ai/glm-4.7": "z-ai/glm-4.7",
+}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-v3.2",
 }
@@ -3297,14 +3304,17 @@ def _select_story_plot_cards_for_prompt(
         if not title or not content:
             continue
 
-        triggers = _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or ""))
+        triggers = _normalize_story_plot_card_triggers(
+            _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+            fallback_title=title,
+        )
         if not triggers:
-            triggers = _normalize_story_plot_card_triggers([], fallback_title=title)
-        if not triggers:
+            rank_key = (0, 0, card.id)
+            ranked_cards.append((rank_key, {"title": title, "content": content}))
             continue
 
         memory_turns = _serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None))
-        if memory_turns is None:
+        if memory_turns is None or current_turn_index <= 0:
             continue
 
         last_trigger_turn = 0
@@ -3431,8 +3441,8 @@ def _build_story_system_prompt(
     *,
     model_name: str | None = None,
     response_max_tokens: int | None = None,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ) -> str:
     # Story cards must be passed in full for all text models.
     compact_mode = False
@@ -3545,9 +3555,13 @@ def _build_story_system_prompt(
                 lines.append(f"Тип: {kind_label}")
 
     normalized_model_name = _normalize_story_model_id(model_name)
+    use_english_language_contract = (
+        not _is_story_output_translation_model(normalized_model_name)
+        and _story_user_language_code() != "ru"
+    )
     language_contract_rules = (
         STORY_STRICT_ENGLISH_OUTPUT_RULES
-        if _is_story_output_translation_model(normalized_model_name)
+        if use_english_language_contract
         else STORY_STRICT_RUSSIAN_OUTPUT_RULES
     )
     lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES, "", *language_contract_rules])
@@ -4166,8 +4180,8 @@ def _normalize_generated_story_output(
     text_value: str,
     world_cards: list[dict[str, Any]],
     model_name: str | None = None,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ) -> str:
     normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     normalized_text = _canonicalize_story_markup_markers(normalized_text)
@@ -4349,6 +4363,10 @@ def _normalize_story_language_code(value: str | None, *, fallback: str = "") -> 
     normalized = normalized.replace(" ", "")
     normalized = normalized.split("-", 1)[0]
     normalized = normalized.split("_", 1)[0]
+    if normalized in {"ru", "rus", "russian"}:
+        return "ru"
+    if normalized in {"en", "eng", "english"}:
+        return "en"
     return normalized or fallback
 
 
@@ -4408,8 +4426,6 @@ def _can_force_story_output_translation(model_name: str | None = None) -> bool:
 
 def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
     if not _is_story_output_translation_model(model_name):
-        return False
-    if _story_user_language_code() != "ru":
         return False
     return _can_force_story_output_translation(model_name)
 
@@ -4690,10 +4706,11 @@ def _force_translate_story_model_output_to_user(
         return text_value
     if not _can_force_story_output_translation(source_model_name):
         return text_value
+    target_language = "ru" if _is_story_output_translation_model(source_model_name) else _story_user_language_code()
     translated = _translate_text_batch_with_openrouter(
         [text_value],
         source_language="auto",
-        target_language=_story_user_language_code(),
+        target_language=target_language,
         translation_model_name=_story_output_translation_model_name(source_model_name),
     )
     return translated[0] if translated else text_value
@@ -4742,15 +4759,26 @@ def _translate_story_stream_output_chunk(
 ) -> str:
     if not text_value:
         return text_value
+    should_apply_russian_contract = _story_user_language_code() == "ru" or _is_story_output_translation_model(source_model_name)
     try:
         if force_output_translation and not _is_story_translation_enabled():
-            return _force_translate_story_model_output_to_user(
+            translated = _force_translate_story_model_output_to_user(
                 text_value,
                 source_model_name=source_model_name,
             )
-        return _translate_story_model_output_to_user(text_value)
+            if should_apply_russian_contract:
+                translated = _sanitize_story_russian_output_contract(translated)
+            return translated
+        translated = _translate_story_model_output_to_user(text_value)
+        if should_apply_russian_contract:
+            translated = _sanitize_story_russian_output_contract(translated)
+        return translated
     except Exception as exc:
         logger.warning("Story output streaming translation failed: %s", exc)
+        if should_apply_russian_contract:
+            fallback = _sanitize_story_russian_output_contract(text_value)
+            if fallback:
+                return fallback
         return text_value
 
 
@@ -4820,8 +4848,6 @@ def _strip_story_markup_for_language_detection(text_value: str) -> str:
 def _should_force_story_output_to_russian(text_value: str, *, model_name: str | None = None) -> bool:
     if not _is_story_output_translation_model(model_name):
         return False
-    if _story_user_language_code() != "ru":
-        return False
     if not _can_force_story_output_translation(model_name):
         return False
 
@@ -4834,13 +4860,15 @@ def _should_force_story_output_to_russian(text_value: str, *, model_name: str | 
     cyrillic_letters = len(STORY_CYRILLIC_LETTER_PATTERN.findall(stripped))
     latin_letters = len(STORY_LATIN_LETTER_PATTERN.findall(stripped))
     latin_words = len(STORY_LATIN_WORD_PATTERN.findall(stripped))
-    cyrillic_words = len(STORY_CYRILLIC_WORD_PATTERN.findall(stripped))
 
-    if cyrillic_letters == 0 and latin_letters >= 6:
+    if cyrillic_letters == 0 and latin_letters >= 2:
         return True
-    if latin_letters >= 12 and latin_letters > cyrillic_letters * 0.35:
+    # For force-listed models we aggressively translate on any meaningful Latin leakage.
+    if latin_words >= 1:
         return True
-    if latin_words >= 4 and latin_words > max(cyrillic_words, 1):
+    if latin_letters >= 4 and latin_letters > cyrillic_letters * 0.08:
+        return True
+    if latin_letters >= 1 and latin_letters > max(cyrillic_letters, 1) * 0.25:
         return True
     return False
 
@@ -4852,18 +4880,10 @@ def _sanitize_story_russian_output_segment(text_value: str) -> str:
 
     cleaned = STORY_CJK_CHARACTER_PATTERN.sub(" ", normalized)
     cleaned = cleaned.translate(STORY_LATIN_TO_CYRILLIC_LOOKALIKE_TABLE)
-
-    def transliterate_latin_word(match: re.Match[str]) -> str:
-        token = match.group(0)
-        transliterated = _transliterate_story_latin_name_to_cyrillic(token)
-        if not transliterated:
-            return ""
-        if token[:1].isupper():
-            return transliterated[:1].upper() + transliterated[1:]
-        return transliterated
-
-    cleaned = re.sub(r"\b[A-Za-z][A-Za-z'-]{1,32}\b", transliterate_latin_word, cleaned)
-    cleaned = re.sub(r"[A-Za-z]{2,}", "", cleaned)
+    cleaned = re.sub(r"\b[A-Za-z][A-Za-z0-9'-]{0,48}\b", " ", cleaned)
+    cleaned = re.sub(r"[A-Za-z]+", " ", cleaned)
+    cleaned = STORY_NON_RUSSIAN_SYMBOL_PATTERN.sub(" ", cleaned)
+    cleaned = re.sub(r"([.,!?;:])(?![\s\n»”\"')\]])", r"\1 ", cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -4900,12 +4920,15 @@ def _enforce_story_output_language(text_value: str, *, model_name: str | None = 
     if not normalized:
         return normalized
 
-    if _story_user_language_code() == "ru":
+    should_force_russian = _should_force_story_output_to_russian(normalized, model_name=model_name)
+    should_apply_russian_contract = _story_user_language_code() == "ru" or _is_story_output_translation_model(model_name)
+
+    if should_apply_russian_contract:
         normalized = _sanitize_story_russian_output_contract(normalized)
         if not normalized:
             return normalized
 
-    if not _should_force_story_output_to_russian(normalized, model_name=model_name):
+    if not should_force_russian:
         return normalized
 
     try:
@@ -4917,7 +4940,7 @@ def _enforce_story_output_language(text_value: str, *, model_name: str | None = 
     translated_normalized = translated.replace("\r\n", "\n").strip()
     if not translated_normalized:
         return normalized
-    if _story_user_language_code() == "ru":
+    if should_apply_russian_contract:
         translated_normalized = _sanitize_story_russian_output_contract(translated_normalized)
         if not translated_normalized:
             return normalized
@@ -4981,14 +5004,39 @@ def _select_story_history_source(
         return history
 
     # When plot-memory optimization is enabled, do not send dialogue history.
-    # Keep only the latest user turn so the model can answer the current request.
-    for item in reversed(history):
+    # Keep only the latest user turn, except turn 1 where opening scene context
+    # (seeded as the first assistant message) must be preserved.
+    latest_user_index: int | None = None
+    latest_user_content = ""
+    user_turn_count = 0
+    for index, item in enumerate(history):
         role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
         content = str(item.get("content", "")).strip()
         if role != STORY_USER_ROLE or not content:
             continue
-        return [{"role": STORY_USER_ROLE, "content": content}]
-    return []
+        user_turn_count += 1
+        latest_user_index = index
+        latest_user_content = content
+
+    if latest_user_index is None:
+        return []
+
+    latest_user_turn = {"role": STORY_USER_ROLE, "content": latest_user_content}
+
+    # Ensure the opening scene is present for the very first user turn.
+    # Runtime seeds opening_scene as the first assistant message before turn 1.
+    if user_turn_count == 1:
+        for item in reversed(history[:latest_user_index]):
+            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+            content = str(item.get("content", "")).strip()
+            if role != STORY_ASSISTANT_ROLE or not content:
+                continue
+            return [
+                {"role": STORY_ASSISTANT_ROLE, "content": content},
+                latest_user_turn,
+            ]
+
+    return [latest_user_turn]
 
 
 def _build_story_provider_messages(
@@ -5002,8 +5050,8 @@ def _build_story_provider_messages(
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
     model_name: str | None = None,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ) -> list[dict[str, str]]:
     full_history = [
         {"role": message.role, "content": message.content.strip()}
@@ -7805,6 +7853,53 @@ def _list_story_prompt_memory_cards(
     ]
 
 
+def _seed_story_opening_scene_memory_block(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    opening_scene_text: str,
+) -> bool:
+    if assistant_message.game_id != game.id or assistant_message.role != STORY_ASSISTANT_ROLE:
+        return False
+
+    normalized_opening_scene = opening_scene_text.replace("\r\n", "\n").strip()
+    if not normalized_opening_scene:
+        return False
+
+    existing_block_id = db.scalar(
+        select(StoryMemoryBlock.id)
+        .where(
+            StoryMemoryBlock.game_id == game.id,
+            StoryMemoryBlock.assistant_message_id == assistant_message.id,
+            StoryMemoryBlock.undone_at.is_(None),
+        )
+        .limit(1)
+    )
+    if existing_block_id is not None:
+        return False
+
+    raw_block_content = _build_story_raw_memory_block_content(
+        latest_user_prompt="",
+        latest_assistant_text=normalized_opening_scene,
+        preserve_assistant_text=True,
+    )
+    if not raw_block_content:
+        return False
+
+    _create_story_memory_block(
+        db=db,
+        game_id=game.id,
+        assistant_message_id=assistant_message.id,
+        layer=STORY_MEMORY_LAYER_RAW,
+        title=_build_story_memory_block_title(raw_block_content, fallback_prefix="Свежая память"),
+        content=raw_block_content,
+        preserve_content=True,
+    )
+    _rebalance_story_memory_layers(db=db, game=game)
+    return True
+
+
 def _upsert_story_plot_memory_card(
     *,
     db: Session,
@@ -8001,8 +8096,8 @@ def _iter_gigachat_story_stream_chunks(
     context_limit_chars: int,
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ):
     access_token = _get_gigachat_access_token()
     request_started_at = time.monotonic()
@@ -8139,8 +8234,8 @@ def _iter_openrouter_story_stream_chunks(
     top_p: float | None = None,
     max_tokens: int | None = None,
     translate_for_model: bool = False,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
 ):
     request_started_at = time.monotonic()
     messages_payload = _build_story_provider_messages(
@@ -9901,8 +9996,8 @@ def _iter_story_provider_stream_chunks(
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
     use_plot_memory: bool = False,
-    show_gg_thoughts: bool = True,
-    show_npc_thoughts: bool = True,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
     raw_output_collector: dict[str, str] | None = None,
 ):
     provider = _effective_story_llm_provider()
@@ -9958,8 +10053,7 @@ def _iter_story_provider_stream_chunks(
             story_temperature=story_temperature,
         )
         translation_enabled = _is_story_translation_enabled()
-        force_output_translation = _should_force_openrouter_story_output_translation(selected_model_name)
-        if translation_enabled or force_output_translation:
+        if translation_enabled:
             raw_chunk_stream = _iter_openrouter_story_stream_chunks(
                 context_messages,
                 instruction_cards,
@@ -9979,11 +10073,13 @@ def _iter_story_provider_stream_chunks(
             yield from _yield_story_translated_stream_chunks(
                 raw_chunk_stream,
                 source_model_name=selected_model_name,
-                force_output_translation=force_output_translation and not translation_enabled,
+                force_output_translation=False,
                 raw_output_collector=raw_output_collector,
             )
             return
 
+        # Important: do not force-translate each stream chunk for force models.
+        # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
         for chunk in _iter_openrouter_story_stream_chunks(
             context_messages,
@@ -10035,6 +10131,7 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
         list_story_memory_blocks=_list_story_memory_blocks,
+        seed_opening_scene_memory_block=_seed_story_opening_scene_memory_block,
         memory_block_to_out=_story_memory_block_to_out,
         plot_card_to_out=_story_plot_card_to_out,
         world_card_to_out=_story_world_card_to_out,

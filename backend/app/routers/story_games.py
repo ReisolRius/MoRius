@@ -60,7 +60,6 @@ from app.services.story_games import (
     STORY_GAME_VISIBILITY_PRIVATE,
     STORY_GAME_VISIBILITY_PUBLIC,
     clone_story_world_cards_to_game,
-    coerce_story_game_visibility,
     coerce_story_llm_model,
     coerce_story_image_model,
     coerce_story_game_age_rating,
@@ -291,6 +290,135 @@ def _build_story_community_world_summary(
     )
 
 
+def _create_story_game_publication_copy_from_source(
+    db: Session,
+    *,
+    source_game: StoryGame,
+    copy_cards: bool,
+) -> StoryGame:
+    publication = StoryGame(
+        user_id=source_game.user_id,
+        title=source_game.title,
+        description=source_game.description,
+        opening_scene=source_game.opening_scene,
+        visibility=STORY_GAME_VISIBILITY_PUBLIC,
+        age_rating=source_game.age_rating,
+        genres=source_game.genres,
+        cover_image_url=source_game.cover_image_url,
+        cover_scale=source_game.cover_scale,
+        cover_position_x=source_game.cover_position_x,
+        cover_position_y=source_game.cover_position_y,
+        source_world_id=source_game.id,
+        community_views=0,
+        community_launches=0,
+        community_rating_sum=0,
+        community_rating_count=0,
+        context_limit_chars=source_game.context_limit_chars,
+        response_max_tokens=source_game.response_max_tokens,
+        response_max_tokens_enabled=source_game.response_max_tokens_enabled,
+        story_llm_model=source_game.story_llm_model,
+        image_model=source_game.image_model,
+        image_style_prompt=source_game.image_style_prompt,
+        memory_optimization_enabled=source_game.memory_optimization_enabled,
+        story_top_k=source_game.story_top_k,
+        story_top_r=source_game.story_top_r,
+        story_temperature=source_game.story_temperature,
+        show_gg_thoughts=source_game.show_gg_thoughts,
+        show_npc_thoughts=source_game.show_npc_thoughts,
+        ambient_enabled=source_game.ambient_enabled,
+        ambient_profile=source_game.ambient_profile,
+        last_activity_at=_utcnow(),
+    )
+    db.add(publication)
+    db.flush()
+
+    if copy_cards:
+        clone_story_world_cards_to_game(
+            db,
+            source_world_id=source_game.id,
+            target_game_id=publication.id,
+        )
+        refresh_story_game_public_card_snapshots(db, publication)
+
+    return publication
+
+
+def _delete_story_game_with_relations(db: Session, *, game_id: int) -> None:
+    db.execute(
+        sa_delete(StoryWorldCardChangeEvent).where(
+            StoryWorldCardChangeEvent.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryPlotCardChangeEvent).where(
+            StoryPlotCardChangeEvent.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryTurnImage).where(
+            StoryTurnImage.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryMemoryBlock).where(
+            StoryMemoryBlock.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryMessage).where(
+            StoryMessage.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryInstructionCard).where(
+            StoryInstructionCard.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryPlotCard).where(
+            StoryPlotCard.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryWorldCard).where(
+            StoryWorldCard.game_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldComment).where(
+            StoryCommunityWorldComment.world_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldRating).where(
+            StoryCommunityWorldRating.world_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldView).where(
+            StoryCommunityWorldView.world_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldLaunch).where(
+            StoryCommunityWorldLaunch.world_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldFavorite).where(
+            StoryCommunityWorldFavorite.world_id == game_id,
+        )
+    )
+    db.execute(
+        sa_delete(StoryCommunityWorldReport).where(
+            StoryCommunityWorldReport.world_id == game_id,
+        )
+    )
+    game = db.scalar(select(StoryGame).where(StoryGame.id == game_id))
+    if game is not None:
+        db.delete(game)
+
+
 @router.get("/api/story/games", response_model=list[StoryGameSummaryOut])
 def list_story_games(
     compact: bool = False,
@@ -365,7 +493,6 @@ def list_story_community_worlds(
         select(StoryGame)
         .where(
             StoryGame.visibility == "public",
-            StoryGame.source_world_id.is_(None),
         )
         .order_by(
             StoryGame.community_launches.desc(),
@@ -448,7 +575,6 @@ def list_story_community_favorites(
         select(StoryGame).where(
             StoryGame.id.in_(ordered_world_ids),
             StoryGame.visibility == "public",
-            StoryGame.source_world_id.is_(None),
         )
     ).all()
     if not worlds:
@@ -868,7 +994,7 @@ def create_story_game(
         title = STORY_DEFAULT_TITLE
     description = normalize_story_game_description(payload.description)
     opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
-    visibility = normalize_story_game_visibility(payload.visibility)
+    requested_visibility = normalize_story_game_visibility(payload.visibility)
     age_rating = normalize_story_game_age_rating(payload.age_rating)
     genres = normalize_story_game_genres(payload.genres)
     cover_image_url = normalize_story_cover_image_url(payload.cover_image_url)
@@ -894,7 +1020,7 @@ def create_story_game(
         title=title,
         description=description,
         opening_scene=opening_scene,
-        visibility=visibility,
+        visibility=STORY_GAME_VISIBILITY_PRIVATE,
         age_rating=age_rating,
         genres=serialize_story_game_genres(genres),
         cover_image_url=cover_image_url,
@@ -924,8 +1050,12 @@ def create_story_game(
     )
     db.add(game)
     db.flush()
-    if game.visibility == STORY_GAME_VISIBILITY_PUBLIC:
-        refresh_story_game_public_card_snapshots(db, game)
+    if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC:
+        _create_story_game_publication_copy_from_source(
+            db,
+            source_game=game,
+            copy_cards=True,
+        )
     db.commit()
     db.refresh(game)
     return story_game_summary_to_out(game)
@@ -1109,6 +1239,7 @@ def update_story_game_meta(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    requested_visibility: str | None = None
     if payload.title is not None:
         normalized_title = payload.title.strip()
         game.title = normalized_title or STORY_DEFAULT_TITLE
@@ -1117,7 +1248,7 @@ def update_story_game_meta(
     if payload.opening_scene is not None:
         game.opening_scene = normalize_story_game_opening_scene(payload.opening_scene)
     if payload.visibility is not None:
-        game.visibility = normalize_story_game_visibility(payload.visibility)
+        requested_visibility = normalize_story_game_visibility(payload.visibility)
     if payload.age_rating is not None:
         game.age_rating = normalize_story_game_age_rating(payload.age_rating)
     if payload.genres is not None:
@@ -1130,14 +1261,16 @@ def update_story_game_meta(
         game.cover_position_x = normalize_story_cover_position(payload.cover_position_x)
     if payload.cover_position_y is not None:
         game.cover_position_y = normalize_story_cover_position(payload.cover_position_y)
-
-    next_visibility = coerce_story_game_visibility(game.visibility)
-    should_refresh_public_snapshot = (
-        next_visibility == STORY_GAME_VISIBILITY_PUBLIC
-        and payload.visibility is not None
-    )
-    if should_refresh_public_snapshot:
-        refresh_story_game_public_card_snapshots(db, game)
+    if requested_visibility is not None:
+        if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC and game.visibility != STORY_GAME_VISIBILITY_PUBLIC:
+            _create_story_game_publication_copy_from_source(
+                db,
+                source_game=game,
+                copy_cards=True,
+            )
+            game.visibility = STORY_GAME_VISIBILITY_PRIVATE
+        else:
+            game.visibility = requested_visibility
 
     touch_story_game(game)
     db.commit()
@@ -1153,77 +1286,6 @@ def delete_story_game(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-
-    db.execute(
-        sa_delete(StoryWorldCardChangeEvent).where(
-            StoryWorldCardChangeEvent.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryPlotCardChangeEvent).where(
-            StoryPlotCardChangeEvent.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryTurnImage).where(
-            StoryTurnImage.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryMemoryBlock).where(
-            StoryMemoryBlock.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryMessage).where(
-            StoryMessage.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryInstructionCard).where(
-            StoryInstructionCard.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryPlotCard).where(
-            StoryPlotCard.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryWorldCard).where(
-            StoryWorldCard.game_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldComment).where(
-            StoryCommunityWorldComment.world_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldRating).where(
-            StoryCommunityWorldRating.world_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldView).where(
-            StoryCommunityWorldView.world_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldLaunch).where(
-            StoryCommunityWorldLaunch.world_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldFavorite).where(
-            StoryCommunityWorldFavorite.world_id == game.id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldReport).where(
-            StoryCommunityWorldReport.world_id == game.id,
-        )
-    )
-    db.delete(game)
+    _delete_story_game_with_relations(db, game_id=game.id)
     db.commit()
     return MessageResponse(message="Game deleted")

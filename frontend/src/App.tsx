@@ -31,12 +31,27 @@ function normalizePath(pathname: string): string {
   return normalized || '/'
 }
 
+function normalizeNavigationTarget(targetPath: string): { pathname: string; href: string } {
+  const parsedTarget = new URL(targetPath, window.location.origin)
+  const normalizedPathname = normalizePath(parsedTarget.pathname)
+  return {
+    pathname: normalizedPathname,
+    href: `${normalizedPathname}${parsedTarget.search}${parsedTarget.hash}`,
+  }
+}
+
+function getCurrentNavigationHref(): string {
+  const currentPathname = normalizePath(window.location.pathname)
+  return `${currentPathname}${window.location.search}${window.location.hash}`
+}
+
 function isAuthenticatedPath(pathname: string): boolean {
   return (
     pathname === '/home' ||
     pathname.startsWith('/home/') ||
     pathname === '/dashboard' ||
     pathname === '/games' ||
+    pathname === '/games/publications' ||
     pathname.startsWith('/games/') ||
     pathname === '/profile' ||
     /^\/profile\/\d+$/.test(pathname) ||
@@ -154,6 +169,7 @@ const AuthenticatedHomePage = lazy(() => import('./pages/AuthenticatedHomePage')
 const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
 const AdminBugReportPage = lazy(() => import('./pages/AdminBugReportPage'))
 const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
+const MyPublicationsPage = lazy(() => import('./pages/MyPublicationsPage'))
 const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
 const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
 const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'))
@@ -228,16 +244,16 @@ function App() {
   }, [])
 
   const navigate = useCallback((targetPath: string, options?: { replace?: boolean }) => {
-    const normalizedTarget = normalizePath(targetPath)
-    if (normalizePath(window.location.pathname) !== normalizedTarget) {
+    const normalizedTarget = normalizeNavigationTarget(targetPath)
+    if (getCurrentNavigationHref() !== normalizedTarget.href) {
       if (options?.replace) {
-        window.history.replaceState({}, '', normalizedTarget)
+        window.history.replaceState({}, '', normalizedTarget.href)
       } else {
-        window.history.pushState({}, '', normalizedTarget)
+        window.history.pushState({}, '', normalizedTarget.href)
       }
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
-    setPath(normalizedTarget)
+    setPath(normalizedTarget.pathname)
   }, [])
 
   const resetSession = useCallback(() => {
@@ -338,6 +354,7 @@ function App() {
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/')) && !shouldShowBugReportPage
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
   const shouldShowMyGamesPage = isAuthenticated && path === '/games'
+  const shouldShowMyPublicationsPage = isAuthenticated && path === '/games/publications'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
   const shouldShowProfilePage = isAuthenticated && (path === '/profile' || profileUserId !== null)
@@ -433,6 +450,18 @@ function App() {
           user={authUser}
           authToken={authToken!}
           editingGameId={worldEditGameId}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  }
+
+  if (shouldShowMyPublicationsPage && authUser) {
+    return (
+      <Suspense fallback={null}>
+        <MyPublicationsPage
+          user={authUser}
+          authToken={authToken!}
           onNavigate={navigate}
         />
       </Suspense>

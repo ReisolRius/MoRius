@@ -150,7 +150,6 @@ def _list_published_worlds(
         .where(
             StoryGame.user_id == owner_user.id,
             StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC,
-            StoryGame.source_world_id.is_(None),
         )
         .order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
         .limit(PROFILE_LIST_LIMIT)
