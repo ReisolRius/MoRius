@@ -1527,14 +1527,14 @@ function CharacterManagerDialog({
       <BaseDialog
         open={Boolean(characterAvatarPreview)}
         onClose={handleCloseCharacterAvatarPreview}
-        maxWidth="md"
+        maxWidth="lg"
         header={characterAvatarPreview?.name || 'Аватар персонажа'}
         actions={
           <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
         }
-        contentSx={{ px: 1.2, pt: 0.6, pb: 0.7 }}
+        contentSx={{ px: 1, pt: 0.5, pb: 0.7 }}
       >
         {characterAvatarPreview ? (
           <Box
@@ -1543,7 +1543,7 @@ function CharacterManagerDialog({
             alt={characterAvatarPreview.name || 'Character avatar'}
             sx={{
               width: '100%',
-              maxHeight: '75vh',
+              maxHeight: '82vh',
               objectFit: 'contain',
               borderRadius: '10px',
               border: 'var(--morius-border-width) solid var(--morius-card-border)',

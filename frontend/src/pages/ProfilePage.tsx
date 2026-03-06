@@ -2627,7 +2627,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         open={Boolean(characterAvatarPreview)}
         onClose={handleCloseCharacterAvatarPreview}
         fullWidth
-        maxWidth="md"
+        maxWidth="lg"
         PaperProps={{
           sx: {
             borderRadius: 'var(--morius-radius)',
@@ -2637,7 +2637,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           },
         }}
       >
-        <DialogContent sx={{ px: 1.2, pt: 1.2, pb: 0.5, display: 'flex', justifyContent: 'center' }}>
+        <DialogContent sx={{ px: 1, pt: 0.8, pb: 0.5, display: 'flex', justifyContent: 'center' }}>
           {characterAvatarPreview ? (
             <Box
               component="img"
@@ -2645,7 +2645,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               alt={characterAvatarPreview.name || 'Character avatar'}
               sx={{
                 width: '100%',
-                maxHeight: '80vh',
+                maxHeight: '82vh',
                 objectFit: 'contain',
                 borderRadius: '10px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',

@@ -2756,6 +2756,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [updatingWorldCardAiEditId, setUpdatingWorldCardAiEditId] = useState<number | null>(null)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
+  const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [isNarratorSettingsExpanded, setIsNarratorSettingsExpanded] = useState(false)
@@ -2825,6 +2826,60 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const activeDisplayTitle = useMemo(
     () => getDisplayStoryTitle(activeGameId, customTitleMap),
     [activeGameId, customTitleMap],
+  )
+
+  const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, avatarUrl: string | null, fallbackName: string) => {
+    if (!avatarUrl) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    setCharacterAvatarPreview({
+      url: avatarUrl,
+      name: fallbackName,
+    })
+  }, [])
+
+  const handleCloseCharacterAvatarPreview = useCallback(() => {
+    setCharacterAvatarPreview(null)
+  }, [])
+
+  const renderPreviewableCharacterAvatar = useCallback(
+    (options: {
+      avatarUrl: string | null
+      avatarScale?: number
+      fallbackLabel: string
+      size?: number
+    }) => {
+      const avatarNode = (
+        <CharacterAvatar
+          avatarUrl={options.avatarUrl}
+          avatarScale={options.avatarScale}
+          fallbackLabel={options.fallbackLabel}
+          size={options.size}
+        />
+      )
+
+      if (!options.avatarUrl) {
+        return avatarNode
+      }
+
+      return (
+        <Box
+          component="span"
+          onClick={(event) => handleOpenCharacterAvatarPreview(event, options.avatarUrl, options.fallbackLabel)}
+          sx={{
+            display: 'inline-flex',
+            borderRadius: '50%',
+            cursor: 'zoom-in',
+            flexShrink: 0,
+          }}
+        >
+          {avatarNode}
+        </Box>
+      )
+    },
+    [handleOpenCharacterAvatarPreview],
   )
 
   useEffect(() => {
@@ -10354,7 +10409,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       },
                     }}
                   >
-                    <CharacterAvatar avatarUrl={mainHeroAvatarUrl} avatarScale={mainHeroCard.avatar_scale} fallbackLabel={mainHeroCard.title} size={28} />
+                    {renderPreviewableCharacterAvatar({
+                      avatarUrl: mainHeroAvatarUrl,
+                      avatarScale: mainHeroCard.avatar_scale,
+                      fallbackLabel: mainHeroCard.title,
+                      size: 28,
+                    })}
                     <Stack spacing={0.05} sx={{ minWidth: 0 }}>
                       <Typography
                         sx={{
@@ -10765,11 +10825,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               py: 0.05,
                             }}
                           >
-                            <CharacterAvatar
-                              avatarUrl={speakerAvatar}
-                              fallbackLabel={resolvedSpeakerName}
-                              size={ASSISTANT_DIALOGUE_AVATAR_SIZE}
-                            />
+                            {renderPreviewableCharacterAvatar({
+                              avatarUrl: speakerAvatar,
+                              fallbackLabel: resolvedSpeakerName,
+                              size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                            })}
                             <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                               <Typography
                                 sx={{
@@ -11045,11 +11105,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     py: 0.05,
                                   }}
                                 >
-                                  <CharacterAvatar
-                                    avatarUrl={speakerAvatar}
-                                    fallbackLabel={resolvedSpeakerName}
-                                    size={ASSISTANT_DIALOGUE_AVATAR_SIZE}
-                                  />
+                                  {renderPreviewableCharacterAvatar({
+                                    avatarUrl: speakerAvatar,
+                                    fallbackLabel: resolvedSpeakerName,
+                                    size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                  })}
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
                                       sx={{
@@ -11635,11 +11695,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         '&:hover::before, &:hover::after': isGenerating ? {} : { opacity: 0.9 },
                       }}
                     >
-                      <CharacterAvatar
-                        avatarUrl={mainHeroAvatarUrl}
-                        fallbackLabel={mainHeroCard?.title || user.display_name || 'грок'}
-                        size={28}
-                      />
+                      {renderPreviewableCharacterAvatar({
+                        avatarUrl: mainHeroAvatarUrl,
+                        fallbackLabel: mainHeroCard?.title || user.display_name || 'грок',
+                        size: 28,
+                      })}
                       <Box
                         component="div"
                         contentEditable={!isGenerating && !isSavingMessage}
@@ -13478,7 +13538,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       }}
                     >
                       <Stack direction="row" spacing={0.7} alignItems="flex-start">
-                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                        {renderPreviewableCharacterAvatar({
+                          avatarUrl: character.avatar_url,
+                          avatarScale: character.avatar_scale,
+                          fallbackLabel: character.name,
+                          size: 34,
+                        })}
                         <Stack sx={{ flex: 1, minWidth: 0 }} spacing={0.28}>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
                             <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 700, fontSize: '0.94rem', minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.name}</Typography>
@@ -13724,7 +13789,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           }}
                         >
                           <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
-                            <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                            {renderPreviewableCharacterAvatar({
+                              avatarUrl: character.avatar_url,
+                              avatarScale: character.avatar_scale,
+                              fallbackLabel: character.name,
+                              size: 34,
+                            })}
                             <Stack spacing={0.25} sx={{ minWidth: 0 }}>
                               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
                                 <Typography sx={{ fontWeight: 700, fontSize: '0.94rem', color: 'var(--morius-title-text)', minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -13820,12 +13890,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         >
                           <Stack spacing={0.35}>
                             <Stack direction="row" spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
-                              <CharacterAvatar
-                                avatarUrl={character.avatar_url}
-                                avatarScale={character.avatar_scale}
-                                fallbackLabel={character.name}
-                                size={34}
-                              />
+                              {renderPreviewableCharacterAvatar({
+                                avatarUrl: character.avatar_url,
+                                avatarScale: character.avatar_scale,
+                                fallbackLabel: character.name,
+                                size: 34,
+                              })}
                               <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1 }}>
                                 <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
                                   <Typography
@@ -14094,6 +14164,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Stack>
         </MenuItem>
       </Menu>
+
+      <BaseDialog
+        open={Boolean(characterAvatarPreview)}
+        onClose={handleCloseCharacterAvatarPreview}
+        maxWidth="lg"
+        header={characterAvatarPreview?.name || 'Аватар персонажа'}
+        actions={
+          <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
+            Закрыть
+          </Button>
+        }
+        contentSx={{ px: 1, pt: 0.5, pb: 0.7 }}
+      >
+        {characterAvatarPreview ? (
+          <Box
+            component="img"
+            src={characterAvatarPreview.url}
+            alt={characterAvatarPreview.name || 'Character avatar'}
+            sx={{
+              width: '100%',
+              maxHeight: '82vh',
+              objectFit: 'contain',
+              borderRadius: '10px',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-elevated-bg)',
+              display: 'block',
+              mx: 'auto',
+            }}
+          />
+        ) : null}
+      </BaseDialog>
+
       <ProfileDialog
         open={profileDialogOpen}
         user={user}
