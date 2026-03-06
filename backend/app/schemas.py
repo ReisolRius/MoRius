@@ -412,6 +412,7 @@ class StoryPlotCardCreateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=32_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     memory_turns: int | None = Field(default=None)
+    is_enabled: bool | None = Field(default=None)
 
 
 class StoryPlotCardUpdateRequest(BaseModel):
@@ -419,6 +420,7 @@ class StoryPlotCardUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=32_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     memory_turns: int | None = Field(default=None)
+    is_enabled: bool | None = Field(default=None)
 
 
 class StoryMemoryBlockCreateRequest(BaseModel):

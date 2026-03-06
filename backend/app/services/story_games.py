@@ -148,7 +148,8 @@ STORY_WORLD_CARD_KINDS = {
     STORY_WORLD_CARD_KIND_MAIN_HERO,
 }
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
-STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
+STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 3
+STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
@@ -616,16 +617,24 @@ def _normalize_story_world_card_memory_turns_for_storage(raw_value: int | None, 
     normalized_kind = _normalize_story_world_card_kind(kind)
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
-    if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
-        default_value = STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS
-    else:
-        default_value = STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS
     if raw_value is None:
-        return default_value
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
     parsed_value = int(raw_value)
-    if parsed_value <= 0:
-        return default_value
+    if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
+        return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+    if parsed_value <= STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+        return STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
     return parsed_value
+
+
+def _coerce_story_plot_card_enabled(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return True
 
 
 def _serialize_story_public_cards_snapshot(items: list[dict[str, Any]]) -> str:
@@ -801,13 +810,12 @@ def clone_story_world_cards_to_game(
                         current_value=getattr(card, "memory_turns", None),
                     ),
                     ai_edit_enabled=bool(getattr(card, "ai_edit_enabled", True)),
-                    is_enabled=bool(getattr(card, "is_enabled", True)),
+                    is_enabled=_coerce_story_plot_card_enabled(getattr(card, "is_enabled", True)),
                     source=normalize_story_plot_card_source(getattr(card, "source", "")),
                 )
                 db.add(cloned_plot)
         else:
             for card in source_plot_cards_out:
-                snapshot_memory_turns = 0 if card.memory_turns is None else int(card.memory_turns)
                 cloned_plot = StoryPlotCard(
                     game_id=target_game_id,
                     title=card.title,
@@ -819,12 +827,12 @@ def clone_story_world_cards_to_game(
                         )
                     ),
                     memory_turns=normalize_story_plot_card_memory_turns_for_storage(
-                        snapshot_memory_turns,
-                        explicit=False,
-                        current_value=snapshot_memory_turns,
+                        card.memory_turns,
+                        explicit=True,
+                        current_value=None,
                     ),
                     ai_edit_enabled=bool(card.ai_edit_enabled),
-                    is_enabled=bool(card.is_enabled),
+                    is_enabled=_coerce_story_plot_card_enabled(card.is_enabled),
                     source=normalize_story_plot_card_source(card.source),
                 )
                 db.add(cloned_plot)

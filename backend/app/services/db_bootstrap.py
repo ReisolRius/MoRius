@@ -429,7 +429,7 @@ def _ensure_story_plot_card_extended_columns_exist() -> None:
     if "memory_turns" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryPlotCard.__tablename__} "
-            "ADD COLUMN memory_turns INTEGER NOT NULL DEFAULT 10"
+            "ADD COLUMN memory_turns INTEGER NOT NULL DEFAULT 2"
         )
 
     if not alter_statements:

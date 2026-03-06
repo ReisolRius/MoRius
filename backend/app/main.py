@@ -320,7 +320,7 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
     STORY_TURN_IMAGE_MODEL_GROK: 180,
 }
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 2_600
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
     (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
@@ -482,8 +482,9 @@ STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
-STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
-STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {5, 10, 15}
+STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 3
+STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {3, 5, 10}
+STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_PROMPT_MAX_CARDS = 10
 STORY_PLOT_CARD_PROMPT_MAX_CARDS = 20
@@ -1551,8 +1552,10 @@ def _normalize_story_world_card_memory_turns_for_storage(
         parsed_value = int(raw_value)
     elif isinstance(raw_value, str):
         cleaned = raw_value.strip().lower()
-        if cleaned in {"always", "forever", "infinite", "never"}:
+        if cleaned in {"always", "forever", "infinite"}:
             parsed_value = STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+        elif cleaned in {"off", "disabled", "disable", "none", "never"}:
+            parsed_value = STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
         elif cleaned.lstrip("-").isdigit():
             parsed_value = int(cleaned)
 
@@ -1560,6 +1563,8 @@ def _normalize_story_world_card_memory_turns_for_storage(
         return fallback_value
     if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+    if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+        return STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
     if parsed_value in STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS:
         return parsed_value
     return fallback_value
@@ -1577,6 +1582,8 @@ def _serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str
         return None
     if normalized_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return None
+    if normalized_value <= STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+        return STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
     return normalized_value
 
 
@@ -3231,6 +3238,8 @@ def _select_story_world_cards_for_prompt(
                 )
             )
             continue
+        if memory_turns <= STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+            continue
 
         last_trigger_turn = 0
         for turn_index, prompt_tokens in turn_token_entries:
@@ -3375,6 +3384,8 @@ def _select_story_world_cards_triggered_by_text(
             continue
 
         memory_turns = _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind)
+        if memory_turns is not None and memory_turns <= STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+            continue
         ranked_cards.append(
             (
                 (kind_rank.get(card_kind, 3), card.id),
@@ -8713,15 +8724,6 @@ def _limit_story_turn_image_request_prompt(prompt: str, *, model_name: str | Non
     max_chars = max(_get_story_turn_image_request_prompt_max_chars(model_name), 1)
     if len(normalized_prompt) <= max_chars:
         return normalized_prompt
-    if "CHARACTER_CARD_LOCK_BEGIN:" in normalized_prompt:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Character card locks exceed image prompt limit "
-                f"({len(normalized_prompt)} > {max_chars} chars). "
-                "Shorten character cards to keep full locks intact."
-            ),
-        )
     return normalized_prompt[:max_chars].rstrip()
 
 
@@ -8772,7 +8774,7 @@ def _append_story_turn_image_optional_context_part(
         return
     join_overhead = 1 if prompt_parts else 0
     body_budget = remaining_chars - join_overhead - len(part_prefix) - len(part_suffix)
-    if body_budget < 40:
+    if body_budget < 12:
         return
 
     if prefer_fresh_tail:
@@ -9199,13 +9201,11 @@ def _validate_story_turn_image_character_card_lock_budget(card_blocks: list[str]
     if total_tokens <= STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS:
         return
 
-    raise HTTPException(
-        status_code=status.HTTP_400_BAD_REQUEST,
-        detail=(
-            "Full character cards do not fit into image prompt budget "
-            f"({total_tokens} > {STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS} tokens). "
-            "Shorten character cards or reduce the number of visible characters."
-        ),
+    logger.warning(
+        "Story turn image character card locks exceed token budget: %s > %s. "
+        "Prompt builder will trim non-critical context to fit request limits.",
+        total_tokens,
+        STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS,
     )
 
 
@@ -9337,11 +9337,9 @@ def _build_story_turn_image_prompt(
             assistant_text=assistant_text,
             world_cards=effective_character_world_cards,
         )
-    has_full_character_card_lock = bool(full_character_card_locks)
     has_main_hero_line = any(line.startswith("main_hero:") for line in character_lines)
     has_gender_lock_line = any("gender-lock" in line for line in character_lines)
     has_appearance_lock_line = any("appearance-lock" in line for line in character_lines)
-    has_hair_length_lock = _story_turn_image_has_hair_length_lock(full_character_card_locks)
     style_instructions = _build_story_turn_image_style_instructions(normalized_image_style_prompt)
     scene_focus_text = _build_story_turn_image_latest_scene_focus_text(
         assistant_text,
@@ -9351,32 +9349,39 @@ def _build_story_turn_image_prompt(
     if not assistant_context_text and scene_focus_text:
         assistant_context_text = scene_focus_text
 
-    mandatory_prompt_parts = [
+    prompt_parts = [
         "Single cinematic frame from one interactive RPG scene.",
         "Keep one coherent location and one coherent moment.",
     ]
-    if has_full_character_card_lock:
-        mandatory_prompt_parts.append(
-            "CHARACTER_CARD_LOCKS (FULL, STRICT, MANDATORY):\n"
-            + "\n\n".join(full_character_card_locks)
-        )
-        mandatory_prompt_parts.append(
-            "CHARACTER_CARD_LOCK priority is absolute: "
-            "CHARACTER_CARD_LOCK > appearance-lock > scene state."
-        )
 
-    mandatory_prompt = _join_story_turn_image_prompt_parts(mandatory_prompt_parts)
-    if len(mandatory_prompt) > prompt_max_chars:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "Character card locks exceed image prompt limit "
-                f"({len(mandatory_prompt)} > {prompt_max_chars} chars). "
-                "Shorten character cards so full locks fit."
-            ),
-        )
+    def _append_part_if_fit(value: str) -> bool:
+        normalized_value = str(value or "").strip()
+        if not normalized_value:
+            return False
+        candidate_prompt = _join_story_turn_image_prompt_parts([*prompt_parts, normalized_value])
+        if len(candidate_prompt) > prompt_max_chars:
+            return False
+        prompt_parts.append(normalized_value)
+        return True
 
-    prompt_parts = list(mandatory_prompt_parts)
+    def _append_full_character_locks() -> list[str]:
+        appended_locks: list[str] = []
+        if not full_character_card_locks:
+            return appended_locks
+        _append_part_if_fit("CHARACTER_CARD_LOCKS (FULL, STRICT, MANDATORY):")
+        for card_lock in full_character_card_locks:
+            if _append_part_if_fit(card_lock):
+                appended_locks.append(card_lock)
+        return appended_locks
+
+    effective_full_character_card_locks = _append_full_character_locks()
+    if full_character_card_locks and not effective_full_character_card_locks:
+        # Keep active character locks above all other context if the prompt budget is too tight.
+        prompt_parts = []
+        effective_full_character_card_locks = _append_full_character_locks()
+
+    has_full_character_card_lock = bool(effective_full_character_card_locks)
+    has_hair_length_lock = _story_turn_image_has_hair_length_lock(effective_full_character_card_locks)
 
     def _try_append_optional_line(value: str) -> None:
         normalized_value = str(value or "").strip()
@@ -9392,7 +9397,7 @@ def _build_story_turn_image_prompt(
         part_body=normalized_user_prompt,
         part_suffix=".",
         prompt_max_chars=prompt_max_chars,
-        prefer_fresh_tail=False,
+        prefer_fresh_tail=True,
     )
     _append_story_turn_image_optional_context_part(
         prompt_parts,
@@ -9405,6 +9410,11 @@ def _build_story_turn_image_prompt(
     _try_append_optional_line(
         "No text, UI, watermark, logo, captions, speech bubbles, signs, letters, words, or numbers."
     )
+    if has_full_character_card_lock:
+        _try_append_optional_line(
+            "CHARACTER_CARD_LOCK priority is absolute: "
+            "CHARACTER_CARD_LOCK > appearance-lock > scene state."
+        )
     _try_append_optional_line(style_instructions)
 
     if character_lines:

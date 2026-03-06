@@ -27,8 +27,9 @@ STORY_WORLD_CARD_KINDS = {
 }
 STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 6_000
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
-STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 10
-STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {5, 10, 15}
+STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 3
+STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {3, 5, 10}
+STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_TRIGGER_MAX_LENGTH = 80
 
@@ -183,8 +184,10 @@ def normalize_story_world_card_memory_turns_for_storage(
         parsed_value = int(raw_value)
     elif isinstance(raw_value, str):
         cleaned = raw_value.strip().lower()
-        if cleaned in {"always", "forever", "infinite", "never"}:
+        if cleaned in {"always", "forever", "infinite"}:
             parsed_value = STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+        elif cleaned in {"off", "disabled", "disable", "none", "never"}:
+            parsed_value = STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
         elif cleaned.lstrip("-").isdigit():
             parsed_value = int(cleaned)
 
@@ -192,6 +195,8 @@ def normalize_story_world_card_memory_turns_for_storage(
         return fallback_value
     if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
+    if parsed_value == STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+        return STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
     if parsed_value in STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS:
         return parsed_value
     return fallback_value
@@ -209,6 +214,8 @@ def serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str)
         return None
     if normalized_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return None
+    if normalized_value <= STORY_WORLD_CARD_MEMORY_TURNS_DISABLED:
+        return STORY_WORLD_CARD_MEMORY_TURNS_DISABLED
     return normalized_value
 
 

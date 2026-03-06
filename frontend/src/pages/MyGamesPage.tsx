@@ -384,7 +384,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     if (!gameMenuGameId) {
       return
     }
-    onNavigate(`/worlds/${gameMenuGameId}/edit`)
+    onNavigate(`/worlds/${gameMenuGameId}/edit?source=my-games`)
     handleCloseGameMenu()
   }, [gameMenuGameId, handleCloseGameMenu, onNavigate])
 

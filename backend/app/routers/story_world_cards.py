@@ -20,6 +20,7 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_url,
 )
+from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC
 from app.services.story_queries import (
     get_story_character_for_user_or_404,
     get_story_main_hero_card,
@@ -348,6 +349,7 @@ def update_story_world_card(
 def delete_story_world_card(
     game_id: int,
     card_id: int,
+    allow_main_hero_delete: bool = False,
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> MessageResponse:
@@ -362,10 +364,15 @@ def delete_story_world_card(
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
     if normalize_story_world_card_kind(world_card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Main hero cannot be removed once selected",
+        can_delete_main_hero = (
+            allow_main_hero_delete
+            and (game.visibility or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC
         )
+        if not can_delete_main_hero:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Main hero cannot be removed once selected",
+            )
 
     db.execute(
         sa_update(StoryWorldCardChangeEvent)

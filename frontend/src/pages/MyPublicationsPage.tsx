@@ -515,7 +515,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleEditFromCardMenu = useCallback(() => {
     if (cardMenuType === 'world' && selectedPublicationWorld) {
-      onNavigate(`/worlds/${selectedPublicationWorld.id}/edit`)
+      onNavigate(`/worlds/${selectedPublicationWorld.id}/edit?source=my-publications`)
     }
     if (cardMenuType === 'character' && selectedPublicationCharacter) {
       openCharacterEdit(selectedPublicationCharacter.id)
@@ -634,7 +634,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                         '&:hover .publication-card-menu-trigger, &:focus-within .publication-card-menu-trigger': { opacity: 1, pointerEvents: 'auto' },
                       }}
                     >
-                      <CommunityWorldCard world={world} onAuthorClick={() => undefined} onClick={() => onNavigate(`/worlds/${game.id}/edit`)} />
+                      <CommunityWorldCard world={world} onAuthorClick={() => undefined} onClick={() => onNavigate(`/worlds/${game.id}/edit?source=my-publications`)} />
                       <IconButton
                         onClick={(event) => handleOpenCardMenu(event, 'world', game.id)}
                         className="publication-card-menu-trigger"

@@ -270,11 +270,11 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-5',
     title: 'Огма',
     description:
-      'Баланс. Медленнее чем Велес, не такой живой, но идеально следует инструкциям. Русский хороший, но не без огрехов.',
+      'Сбалансированная модель. Более вдумчивая и на генерации требует больше времени. Отлично подойдет для тех, кто хочет умеренного повествования и стандартного отыгрыша.',
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'Огма',
     stats: [
-      { label: 'Разум', value: 4 },
+      { label: 'Интеллект', value: 4 },
       { label: 'Скорость', value: 3 },
       { label: 'Глубина', value: 3 },
     ],
@@ -283,11 +283,11 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-4.7',
     title: 'Фрейя',
     description:
-      'Сестра Огмы. Чуть помедленнее, с другим стилем рассказа, но в целом стабильная. С русским справляется чуть лучше Огмы, но с инструкциями наоборот, похуже.',
+      'Младшая сестра Огмы. Более эмоциональная, слегка своенравная, вдумчивая. Хорошо знает русский язык, прислушивается к установленным инструкциям.',
     portraitSrc: narratorFreyaPortrait,
     portraitAlt: 'Фрейя',
     stats: [
-      { label: 'Разум', value: 3 },
+      { label: 'Интеллект', value: 3 },
       { label: 'Скорость', value: 2 },
       { label: 'Глубина', value: 3 },
     ],
@@ -296,11 +296,11 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'deepseek/deepseek-v3.2',
     title: 'Велес',
     description:
-      'Стандартная модель. Быстрая, очень хорошо справляется с русским языком, живые диалоги, умная, но порой может забить на ваши инструкции.',
+      'Наш золотой стандарт для долгих и продуманных ролевых игр. Быстрый, хорошо знает русский язык, собранный, генерирует случайные события, бросает вызов для тех, кто привык к мягкому геймплею.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'Велес',
     stats: [
-      { label: 'Разум', value: 3 },
+      { label: 'Интеллект', value: 3 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 4 },
     ],
@@ -309,11 +309,11 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'x-ai/grok-4.1-fast',
     title: 'Илон',
     description:
-      'Настолько гениален, что совсем не думает вглубь. Будет следовать всем вашим инструкциям, но в моменте зациклится на одном шаблоне ответов, сюжет с ним выйдет плоским.',
+      'Эмоциональная и активная модель. Для тех, кто хочет привнести хаоса в игру. Хороша для романтических и меланхолических сцен. Любит выходить за правила, чтобы удивить своим видением сюжета.',
     portraitSrc: narratorIlonPortrait,
     portraitAlt: 'Илон',
     stats: [
-      { label: 'Разум', value: 5 },
+      { label: 'Интеллект', value: 5 },
       { label: 'Скорость', value: 5 },
       { label: 'Глубина', value: 1 },
     ],
@@ -322,11 +322,11 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'arcee-ai/trinity-large-preview:free',
     title: 'Исида',
     description:
-      'Быстрая, но глупая. Может игнорировать правила, путать факты, при том сюжет в целом не такой плоский, как у Илона.',
+      'Дешевая модель для того, чтобы попробовать себя в ролевых текстовых играх. Не требует много ресурсов, своенравная, ведет игры по своим рельсам. Рекомендуется для игр с минимальными правилами. Хорошо отыгрывает небольшие сцены с диалогами и взаимоотношениями между персонажами.',
     portraitSrc: narratorIsidaPortrait,
     portraitAlt: 'Исида',
     stats: [
-      { label: 'Разум', value: 2 },
+      { label: 'Интеллект', value: 2 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 3 },
     ],
@@ -734,11 +734,12 @@ const STORY_RUSSIAN_INFLECTION_ENDINGS = [
 ] as const
 const INLINE_EDIT_RAIL_COLOR = 'color-mix(in srgb, var(--morius-title-text) 76%, transparent)'
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
-const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 10
-const NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS = [5, 10, 15] as const
+const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 3
+const NPC_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
+const NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS = [NPC_WORLD_CARD_MEMORY_TURNS_DISABLED, 3, 5, 10] as const
 type NpcMemoryTurnsOption = (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number] | null
-const PLOT_CARD_TRIGGER_ACTIVE_TURNS = 10
-const PLOT_CARD_MEMORY_TURNS_OPTIONS = [3, 5, 10, 15] as const
+const PLOT_CARD_TRIGGER_ACTIVE_TURNS = 2
+const PLOT_CARD_MEMORY_TURNS_OPTIONS = [2, 3, 5, 10, 15] as const
 type PlotMemoryTurnsOption = (typeof PLOT_CARD_MEMORY_TURNS_OPTIONS)[number] | null
 const CONTEXT_NUMBER_FORMATTER = new Intl.NumberFormat('ru-RU')
 const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', string> = {
@@ -2174,8 +2175,12 @@ function resolveWorldCardMemoryTurns(card: Pick<StoryWorldCard, 'kind' | 'memory
   if (card.memory_turns === null) {
     return null
   }
-  if (typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) && card.memory_turns > 0) {
-    return Math.round(card.memory_turns)
+  if (typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns)) {
+    const roundedTurns = Math.round(card.memory_turns)
+    if (roundedTurns <= NPC_WORLD_CARD_MEMORY_TURNS_DISABLED) {
+      return NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
+    }
+    return roundedTurns
   }
   if (card.kind === 'npc') {
     return NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS
@@ -2187,12 +2192,18 @@ function formatWorldCardMemoryLabel(memoryTurns: number | null): string {
   if (memoryTurns === null) {
     return 'Помнить всегда'
   }
+  if (memoryTurns <= NPC_WORLD_CARD_MEMORY_TURNS_DISABLED) {
+    return 'выключено'
+  }
   return `${memoryTurns} ${formatTurnsWord(memoryTurns)}`
 }
 
 function toNpcMemoryTurnsOption(memoryTurns: number | null): NpcMemoryTurnsOption {
   if (memoryTurns === null) {
     return null
+  }
+  if (memoryTurns <= NPC_WORLD_CARD_MEMORY_TURNS_DISABLED) {
+    return NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
   }
   if (NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS.includes(memoryTurns as (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number])) {
     return memoryTurns as (typeof NPC_WORLD_CARD_MEMORY_TURNS_OPTIONS)[number]
@@ -2204,8 +2215,12 @@ function resolvePlotCardMemoryTurns(card: Pick<StoryPlotCard, 'memory_turns'>): 
   if (card.memory_turns === null) {
     return null
   }
-  if (typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) && card.memory_turns > 0) {
-    return Math.round(card.memory_turns)
+  if (typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns)) {
+    const roundedTurns = Math.round(card.memory_turns)
+    if (roundedTurns <= 0) {
+      return null
+    }
+    return roundedTurns
   }
   return PLOT_CARD_TRIGGER_ACTIVE_TURNS
 }
@@ -2237,6 +2252,9 @@ function formatWorldCardContextStatus(state: WorldCardContextState | undefined):
 function formatPlotCardContextStatus(state: PlotCardContextState | undefined): string {
   if (!state || !state.isActive) {
     return 'неактивна'
+  }
+  if (state.lastTriggerTurn === null) {
+    return 'активна'
   }
   const memoryTurns = state.memoryTurns ?? PLOT_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
@@ -2294,6 +2312,17 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
         isActive: true,
         isAlwaysActive: true,
         memoryTurns: null,
+        turnsRemaining: 0,
+        lastTriggerTurn: null,
+        isTriggeredThisTurn: false,
+      })
+      return
+    }
+    if (memoryTurns <= NPC_WORLD_CARD_MEMORY_TURNS_DISABLED) {
+      stateById.set(card.id, {
+        isActive: false,
+        isAlwaysActive: false,
+        memoryTurns,
         turnsRemaining: 0,
         lastTriggerTurn: null,
         isTriggeredThisTurn: false,
@@ -2394,7 +2423,6 @@ function buildPlotCardContextStateById(plotCards: StoryPlotCard[], messages: Sto
       })
       return
     }
-
     let lastTriggerTurn = 0
     turnTokenEntries.forEach(({ turnIndex, tokens }) => {
       const matched = triggers.some((trigger) => isStoryTriggerMatch(trigger, tokens))
@@ -2709,7 +2737,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardTitleDraft, setWorldCardTitleDraft] = useState('')
   const [worldCardContentDraft, setWorldCardContentDraft] = useState('')
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
-  const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+  const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
   const [updatingWorldCardAiEditId, setUpdatingWorldCardAiEditId] = useState<number | null>(null)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
@@ -4187,6 +4215,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           return [...previousCards, createdCard]
         })
         setCharacterDialogOpen(false)
+        if (characterDialogMode === 'select-npc') {
+          setEditingWorldCardId(createdCard.id)
+          setEditingWorldCardKind(createdCard.kind)
+          setWorldCardTitleDraft(createdCard.title)
+          setWorldCardContentDraft(createdCard.content)
+          setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+          setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
+          setWorldCardDialogOpen(true)
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось применить персонажа'
         setErrorMessage(detail)
@@ -4304,6 +4341,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           return [...previousCards, createdCard]
         })
         setCharacterDialogOpen(false)
+        if (characterDialogMode === 'select-npc') {
+          setEditingWorldCardId(createdCard.id)
+          setEditingWorldCardKind(createdCard.kind)
+          setWorldCardTitleDraft(createdCard.title)
+          setWorldCardContentDraft(createdCard.content)
+          setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+          setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
+          setWorldCardDialogOpen(true)
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось применить персонажа из сообщества'
         setErrorMessage(detail)
@@ -4717,7 +4763,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
-    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setDeletingWorldCardId(null)
   }, [activeGameId, isCreatingGame, isSavingWorldCard])
 
@@ -5459,7 +5505,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
-    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardDialogOpen(true)
   }
 
@@ -5467,7 +5513,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
     }
-    if (card.kind === 'main_hero' || card.kind === 'npc') {
+    if (card.kind === 'main_hero') {
       const linkedCharacterId =
         typeof card.character_id === 'number' && card.character_id > 0
           ? card.character_id
@@ -5539,7 +5585,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
-    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   }
 
   const handleSaveWorldCard = useCallback(async () => {
@@ -5624,7 +5670,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setWorldCardTitleDraft('')
       setWorldCardContentDraft('')
       setWorldCardTriggersDraft('')
-      setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+      setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить карточку мира'
       setErrorMessage(detail)
@@ -5679,7 +5725,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCardTitleDraft('')
           setWorldCardContentDraft('')
           setWorldCardTriggersDraft('')
-          setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+          setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось удалить карточку мира'
@@ -8796,7 +8842,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           sx={{
                             mt: 0.95,
                             borderRadius: '16px',
-                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
                             backgroundColor: 'var(--morius-card-bg)',
                             boxShadow: '0 10px 24px color-mix(in srgb, var(--morius-app-base) 48%, transparent)',
                             px: 1,
@@ -8808,8 +8853,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             sx={{
                               borderRadius: '12px',
                               border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                              background:
-                                'radial-gradient(114% 88% at 50% 8%, color-mix(in srgb, var(--morius-accent) 16%, transparent) 0%, transparent 74%), var(--morius-elevated-bg)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 80%, var(--morius-card-border))',
                               minHeight: 228,
                               px: 0.65,
                               pt: 0.45,
@@ -8843,7 +8887,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             sx={{
                               mt: 0.9,
                               color: 'var(--morius-title-text)',
-                              fontSize: '2.45rem',
+                              fontSize: '2.2rem',
                               fontWeight: 800,
                               letterSpacing: '-0.03em',
                               lineHeight: 1,
@@ -8855,7 +8899,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             sx={{
                               mt: 0.65,
                               color: 'var(--morius-text-secondary)',
-                              fontSize: '0.94rem',
+                              fontSize: '0.9rem',
                               fontWeight: 600,
                               lineHeight: 1.34,
                             }}
@@ -9931,24 +9975,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Stack direction="row" spacing={0.45} sx={{ flexWrap: 'wrap', px: 0 }}>
                             <Typography
                               sx={{
-                                color: card.is_enabled ? 'rgba(170, 238, 191, 0.96)' : 'rgba(248, 176, 176, 0.88)',
-                                fontSize: '0.64rem',
-                                lineHeight: 1,
-                                letterSpacing: 0.22,
-                                textTransform: 'uppercase',
-                                fontWeight: 700,
-                                border: card.is_enabled
-                                  ? 'var(--morius-border-width) solid rgba(128, 213, 162, 0.48)'
-                                  : 'var(--morius-border-width) solid rgba(236, 148, 148, 0.46)',
-                                borderRadius: '999px',
-                                px: 0.55,
-                                py: 0.18,
-                              }}
-                            >
-                              {card.is_enabled ? 'АКТВНА' : 'ВЫКЛЮЧЕНА'}
-                            </Typography>
-                            <Typography
-                              sx={{
                                 color: isCardContextActive ? 'rgba(170, 238, 191, 0.96)' : 'rgba(155, 172, 196, 0.84)',
                                 fontSize: '0.64rem',
                                 lineHeight: 1,
@@ -10206,7 +10232,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 10 ходов, её можно менять в профиле NPC.
+                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 3 хода, её можно менять при редактировании карточки NPC.
               </Typography>
 
               {displayedWorldCards.length === 0 ? (
@@ -12286,10 +12312,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Typography>
                   <Box
                     component="select"
-                    value={worldCardMemoryTurnsDraft === null ? 'always' : String(worldCardMemoryTurnsDraft)}
+                    value={
+                      worldCardMemoryTurnsDraft === null
+                        ? 'always'
+                        : worldCardMemoryTurnsDraft === NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
+                          ? 'off'
+                          : String(worldCardMemoryTurnsDraft)
+                    }
                     onChange={(event: ChangeEvent<HTMLSelectElement>) => {
                       const nextValue = event.target.value
-                      setWorldCardMemoryTurnsDraft(nextValue === 'always' ? null : (Number(nextValue) as NpcMemoryTurnsOption))
+                      if (nextValue === 'always') {
+                        setWorldCardMemoryTurnsDraft(null)
+                        return
+                      }
+                      if (nextValue === 'off') {
+                        setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_MEMORY_TURNS_DISABLED)
+                        return
+                      }
+                      setWorldCardMemoryTurnsDraft(Number(nextValue) as NpcMemoryTurnsOption)
                     }}
                     sx={{
                       width: '100%',
@@ -12303,9 +12343,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       fontSize: '0.9rem',
                     }}
                   >
+                    <option value="off">Отключено</option>
+                    <option value="3">3 хода</option>
                     <option value="5">5 ходов</option>
                     <option value="10">10 ходов</option>
-                    <option value="15">15 ходов</option>
                     <option value="always">Помнить всегда</option>
                   </Box>
                 </Stack>
@@ -12534,6 +12575,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 }}
               >
                 <option value="off">Выключить</option>
+                <option value="2">2 хода</option>
                 <option value="3">3 хода</option>
                 <option value="5">5 ходов</option>
                 <option value="10">10 ходов</option>
@@ -12865,10 +12907,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Typography>
                 <Box
                   component="select"
-                  value={worldCardMemoryTurnsDraft === null ? 'always' : String(worldCardMemoryTurnsDraft)}
+                  value={
+                    worldCardMemoryTurnsDraft === null
+                      ? 'always'
+                      : worldCardMemoryTurnsDraft === NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
+                        ? 'off'
+                        : String(worldCardMemoryTurnsDraft)
+                  }
                   onChange={(event: ChangeEvent<HTMLSelectElement>) => {
                     const nextValue = event.target.value
-                    setWorldCardMemoryTurnsDraft(nextValue === 'always' ? null : (Number(nextValue) as NpcMemoryTurnsOption))
+                    if (nextValue === 'always') {
+                      setWorldCardMemoryTurnsDraft(null)
+                      return
+                    }
+                    if (nextValue === 'off') {
+                      setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_MEMORY_TURNS_DISABLED)
+                      return
+                    }
+                    setWorldCardMemoryTurnsDraft(Number(nextValue) as NpcMemoryTurnsOption)
                   }}
                   sx={{
                     width: '100%',
@@ -12882,9 +12938,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     fontSize: '0.9rem',
                   }}
                 >
+                  <option value="off">Отключено</option>
+                  <option value="3">3 хода</option>
                   <option value="5">5 ходов</option>
                   <option value="10">10 ходов</option>
-                  <option value="15">15 ходов</option>
                   <option value="always">Помнить всегда</option>
                 </Box>
               </Stack>

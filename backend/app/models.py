@@ -533,7 +533,7 @@ class StoryPlotCard(Base):
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
-    memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")

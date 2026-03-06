@@ -1200,6 +1200,7 @@ export async function createStoryPlotCard(payload: {
   content: string
   triggers?: string[]
   memory_turns?: number | null
+  is_enabled?: boolean
 }): Promise<StoryPlotCard> {
   const body: Record<string, unknown> = {
     title: payload.title,
@@ -1208,6 +1209,9 @@ export async function createStoryPlotCard(payload: {
   }
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns
+  }
+  if (payload.is_enabled !== undefined) {
+    body.is_enabled = payload.is_enabled
   }
   return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards`, {
     method: 'POST',
@@ -1226,6 +1230,7 @@ export async function updateStoryPlotCard(payload: {
   content: string
   triggers?: string[]
   memory_turns?: number | null
+  is_enabled?: boolean
 }): Promise<StoryPlotCard> {
   const body: Record<string, unknown> = {
     title: payload.title,
@@ -1234,6 +1239,9 @@ export async function updateStoryPlotCard(payload: {
   }
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns
+  }
+  if (payload.is_enabled !== undefined) {
+    body.is_enabled = payload.is_enabled
   }
   return request<StoryPlotCard>(`/api/story/games/${payload.gameId}/plot-cards/${payload.cardId}`, {
     method: 'PATCH',
@@ -1482,8 +1490,10 @@ export async function deleteStoryWorldCard(payload: {
   token: string
   gameId: number
   cardId: number
+  allowMainHeroDelete?: boolean
 }): Promise<void> {
-  return requestNoContent(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
+  const search = payload.allowMainHeroDelete ? '?allow_main_hero_delete=1' : ''
+  return requestNoContent(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}${search}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${payload.token}`,

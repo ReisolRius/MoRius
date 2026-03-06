@@ -15,6 +15,8 @@ type AuthSession = {
   user: AuthUser | null
 }
 
+type WorldEditSource = 'my-games' | 'my-publications'
+
 function resolveScrollTargetElement(target: EventTarget | null): HTMLElement | null {
   if (target instanceof HTMLElement) {
     return target
@@ -101,6 +103,15 @@ function extractWorldEditGameId(pathname: string): number | null {
     return null
   }
   return parsed
+}
+
+function extractWorldEditSource(search: string): WorldEditSource | null {
+  const params = new URLSearchParams(search)
+  const source = params.get('source')
+  if (source === 'my-games' || source === 'my-publications') {
+    return source
+  }
+  return null
 }
 
 function extractProfileUserId(pathname: string): number | null {
@@ -349,6 +360,7 @@ function App() {
   const adminBugReportId = extractAdminBugReportId(path)
   const initialGameId = extractStoryGameId(path)
   const worldEditGameId = extractWorldEditGameId(path)
+  const worldEditSource = worldEditGameId !== null ? extractWorldEditSource(window.location.search) : null
   const profileUserId = extractProfileUserId(path)
   const shouldShowBugReportPage = isAuthenticated && adminBugReportId !== null
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/')) && !shouldShowBugReportPage
@@ -450,6 +462,7 @@ function App() {
           user={authUser}
           authToken={authToken!}
           editingGameId={worldEditGameId}
+          editSource={worldEditSource}
           onNavigate={navigate}
         />
       </Suspense>

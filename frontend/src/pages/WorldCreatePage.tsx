@@ -39,7 +39,6 @@ import {
   updateStoryGameMeta,
   updateStoryInstructionCard,
   updateStoryPlotCard,
-  updateStoryPlotCardEnabled,
   updateStoryWorldCard,
   updateStoryWorldCardAvatar,
 } from '../services/storyApi'
@@ -58,6 +57,7 @@ type WorldCreatePageProps = {
   user: AuthUser
   authToken: string
   editingGameId?: number | null
+  editSource?: 'my-games' | 'my-publications' | null
   onNavigate: (path: string) => void
 }
 
@@ -493,8 +493,10 @@ function StandardCreateButtonsRow({ onCreate, onTemplate }: { onCreate: () => vo
   )
 }
 
-function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: WorldCreatePageProps) {
+function WorldCreatePage({ user, authToken, editingGameId = null, editSource = null, onNavigate }: WorldCreatePageProps) {
   const isEditMode = editingGameId !== null
+  const isMyGamesEdit = isEditMode && editSource === 'my-games'
+  const isMyPublicationsEdit = isEditMode && editSource === 'my-publications'
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [isLoading, setIsLoading] = useState(Boolean(isEditMode))
@@ -1269,7 +1271,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
   const handleSaveWorld = useCallback(async () => {
     if (!canSubmit) return
-    if (hasTemplateConflicts(mainHero, npcs)) {
+    if (!isMyGamesEdit && hasTemplateConflicts(mainHero, npcs)) {
       setErrorMessage('Удалите дубли персонажей: ГГ и NPC не могут ссылаться на одного персонажа, а NPC не должны повторяться.')
       return
     }
@@ -1323,52 +1325,45 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
         const desiredEnabled = Boolean(card.is_enabled)
         const normalizedTriggers = parseOptionalTriggers(card.triggers ?? '')
         if (card.id && existingPlotById.has(card.id)) {
-          const updatedCard = await updateStoryPlotCard({
+          await updateStoryPlotCard({
             token: authToken,
             gameId,
             cardId: card.id,
             title: card.title,
             content: card.content,
             triggers: normalizedTriggers,
+            is_enabled: desiredEnabled,
           })
-          if (updatedCard.is_enabled !== desiredEnabled) {
-            await updateStoryPlotCardEnabled({
-              token: authToken,
-              gameId,
-              cardId: updatedCard.id,
-              is_enabled: desiredEnabled,
-            })
-          }
         } else {
-          const createdCard = await createStoryPlotCard({
+          await createStoryPlotCard({
             token: authToken,
             gameId,
             title: card.title,
             content: card.content,
             triggers: normalizedTriggers,
+            is_enabled: desiredEnabled,
           })
-          if (createdCard.is_enabled !== desiredEnabled) {
-            await updateStoryPlotCardEnabled({
-              token: authToken,
-              gameId,
-              cardId: createdCard.id,
-              is_enabled: desiredEnabled,
-            })
-          }
         }
       }
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
-      const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
-      if (mainHero) {
-        const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(mainHero.avatar_url)
-        if (existingMainHero) {
-          await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
-          await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
-        } else {
-          await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
+      if (!isMyGamesEdit) {
+        const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
+        if (mainHero) {
+          const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(mainHero.avatar_url)
+          if (existingMainHero) {
+            await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
+            await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
+          } else {
+            await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
+          }
+        } else if (existingMainHero) {
+          await deleteStoryWorldCard({
+            token: authToken,
+            gameId,
+            cardId: existingMainHero.id,
+            allowMainHeroDelete: isMyPublicationsEdit,
+          })
         }
-      } else if (existingMainHero) {
-        await deleteStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id })
       }
       const existingNpcs = latest.world_cards.filter((card) => card.kind === 'npc')
       for (const npc of npcs) {
@@ -1411,7 +1406,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
     } finally {
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, title, visibility])
+  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, title, visibility])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -1849,30 +1844,32 @@ function WorldCreatePage({ user, authToken, editingGameId = null, onNavigate }: 
 
             <Stack spacing={0.9}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
-              <Stack spacing={0.7}>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
-                {mainHero ? (
-                  <CompactCard
-                    title={mainHero.name}
-                    content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
-                    badge="гг"
-                    noteBadge={mainHero.note}
-                    avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
-                    actions={
-                      <>
-                        <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                        <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
-                      </>
-                    }
-                  />
-                ) : null}
-                {!mainHero ? (
-                  <StandardCreateButtonsRow
-                    onCreate={() => openCharacterManagerForCreate('main_hero')}
-                    onTemplate={() => setCharacterPickerTarget('main_hero')}
-                  />
-                ) : null}
-              </Stack>
+              {!isMyGamesEdit ? (
+                <Stack spacing={0.7}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
+                  {mainHero ? (
+                    <CompactCard
+                      title={mainHero.name}
+                      content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
+                      badge="гг"
+                      noteBadge={mainHero.note}
+                      avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
+                      actions={
+                        <>
+                          <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                          <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
+                        </>
+                      }
+                    />
+                  ) : null}
+                  {!mainHero ? (
+                    <StandardCreateButtonsRow
+                      onCreate={() => openCharacterManagerForCreate('main_hero')}
+                      onTemplate={() => setCharacterPickerTarget('main_hero')}
+                    />
+                  ) : null}
+                </Stack>
+              ) : null}
 
               <Stack spacing={0.7}>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>

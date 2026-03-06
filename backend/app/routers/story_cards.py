@@ -155,6 +155,11 @@ def create_story_plot_card(
         explicit="memory_turns" in payload.model_fields_set,
         current_value=None,
     )
+    normalized_is_enabled = (
+        bool(payload.is_enabled)
+        if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None
+        else True
+    )
     plot_card = StoryPlotCard(
         game_id=game.id,
         title=normalized_title,
@@ -162,7 +167,7 @@ def create_story_plot_card(
         triggers=serialize_story_plot_card_triggers(normalized_triggers),
         memory_turns=normalized_memory_turns,
         ai_edit_enabled=True,
-        is_enabled=True,
+        is_enabled=normalized_is_enabled,
         source=STORY_PLOT_CARD_SOURCE_USER,
     )
     db.add(plot_card)
@@ -214,6 +219,8 @@ def update_story_plot_card(
     plot_card.content = normalized_content
     plot_card.triggers = serialize_story_plot_card_triggers(normalized_triggers)
     plot_card.memory_turns = normalized_memory_turns
+    if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None:
+        plot_card.is_enabled = bool(payload.is_enabled)
     touch_story_game(game)
     db.commit()
     db.refresh(plot_card)
