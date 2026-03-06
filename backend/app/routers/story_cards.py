@@ -29,6 +29,7 @@ from app.services.story_cards import (
     normalize_story_plot_card_title,
     story_plot_card_to_out,
 )
+from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
 from app.services.story_queries import (
     get_user_story_game_or_404,
     list_story_instruction_cards,
@@ -37,6 +38,12 @@ from app.services.story_queries import (
 )
 
 router = APIRouter()
+
+
+def _refresh_public_story_game_snapshots_if_needed(db: Session, game) -> None:
+    if (str(getattr(game, "visibility", "") or "").strip().lower() != STORY_GAME_VISIBILITY_PUBLIC):
+        return
+    refresh_story_game_public_card_snapshots(db, game)
 
 
 @router.get("/api/story/games/{game_id}/instructions", response_model=list[StoryInstructionCardOut])
@@ -67,6 +74,7 @@ def create_story_instruction_card(
     )
     db.add(instruction_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(instruction_card)
     return StoryInstructionCardOut.model_validate(instruction_card)
@@ -94,6 +102,7 @@ def update_story_instruction_card(
     instruction_card.title = normalize_story_instruction_title(payload.title)
     instruction_card.content = normalize_story_instruction_content(payload.content)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(instruction_card)
     return StoryInstructionCardOut.model_validate(instruction_card)
@@ -119,6 +128,7 @@ def delete_story_instruction_card(
 
     db.delete(instruction_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     return MessageResponse(message="Instruction card deleted")
 
@@ -172,6 +182,7 @@ def create_story_plot_card(
     )
     db.add(plot_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(plot_card)
     return story_plot_card_to_out(plot_card)
@@ -222,6 +233,7 @@ def update_story_plot_card(
     if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None:
         plot_card.is_enabled = bool(payload.is_enabled)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(plot_card)
     return story_plot_card_to_out(plot_card)
@@ -248,6 +260,7 @@ def update_story_plot_card_ai_edit(
 
     plot_card.ai_edit_enabled = bool(payload.ai_edit_enabled)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(plot_card)
     return story_plot_card_to_out(plot_card)
@@ -274,6 +287,7 @@ def update_story_plot_card_enabled(
 
     plot_card.is_enabled = bool(payload.is_enabled)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(plot_card)
     return story_plot_card_to_out(plot_card)
@@ -306,5 +320,6 @@ def delete_story_plot_card(
     )
     db.delete(plot_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     return MessageResponse(message="Plot card deleted")

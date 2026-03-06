@@ -75,7 +75,7 @@ STORY_GAME_GENRE_VALUES = {
     "Повседневность",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 10_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 15_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -86,6 +86,9 @@ STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX = 4_000
 STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX = 5_500
 STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX = 7_000
 STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX = 8_500
+STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX = 10_000
+STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX = 11_500
+STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX = 13_000
 STORY_TURN_COST_STAGE_1 = 1
 STORY_TURN_COST_STAGE_2 = 2
 STORY_TURN_COST_STAGE_3 = 3
@@ -93,6 +96,9 @@ STORY_TURN_COST_STAGE_4 = 4
 STORY_TURN_COST_STAGE_5 = 5
 STORY_TURN_COST_STAGE_6 = 6
 STORY_TURN_COST_STAGE_7 = 7
+STORY_TURN_COST_STAGE_8 = 8
+STORY_TURN_COST_STAGE_9 = 9
+STORY_TURN_COST_STAGE_10 = 10
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
@@ -137,7 +143,7 @@ STORY_COVER_SCALE_DEFAULT = 1.0
 STORY_IMAGE_POSITION_MIN = 0.0
 STORY_IMAGE_POSITION_MAX = 100.0
 STORY_IMAGE_POSITION_DEFAULT = 50.0
-STORY_COVER_MAX_BYTES = 1 * 1024 * 1024
+STORY_COVER_MAX_BYTES = 2 * 1024 * 1024
 STORY_OPENING_SCENE_MAX_LENGTH = 12_000
 STORY_WORLD_CARD_KIND_WORLD = "world"
 STORY_WORLD_CARD_KIND_NPC = "npc"
@@ -316,7 +322,13 @@ def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
         return STORY_TURN_COST_STAGE_5
     if normalized_usage <= STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX:
         return STORY_TURN_COST_STAGE_6
-    return STORY_TURN_COST_STAGE_7
+    if normalized_usage <= STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_7
+    if normalized_usage <= STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_8
+    if normalized_usage <= STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_9
+    return STORY_TURN_COST_STAGE_10
 
 
 def coerce_story_llm_model(value: str | None) -> str:
@@ -685,6 +697,20 @@ def _load_story_public_world_cards_snapshot(raw_value: str | None) -> list[Story
         return None
 
 
+def _filter_story_public_world_cards_for_publication(
+    cards: list[StoryWorldCardOut],
+    *,
+    is_public_world: bool,
+) -> list[StoryWorldCardOut]:
+    if not is_public_world:
+        return cards
+    return [
+        card
+        for card in cards
+        if _normalize_story_world_card_kind(getattr(card, "kind", None)) != STORY_WORLD_CARD_KIND_MAIN_HERO
+    ]
+
+
 def refresh_story_game_public_card_snapshots(db: Session, game: StoryGame) -> None:
     instruction_cards_snapshot = [
         StoryInstructionCardOut.model_validate(card).model_dump(mode="json")
@@ -694,9 +720,14 @@ def refresh_story_game_public_card_snapshots(db: Session, game: StoryGame) -> No
         story_plot_card_to_out(card).model_dump(mode="json")
         for card in list_story_plot_cards(db, game.id)
     ]
+    is_public_world = coerce_story_game_visibility(getattr(game, "visibility", None)) == STORY_GAME_VISIBILITY_PUBLIC
+    world_cards_out = _filter_story_public_world_cards_for_publication(
+        [story_world_card_to_out(card) for card in list_story_world_cards(db, game.id)],
+        is_public_world=is_public_world,
+    )
     world_cards_snapshot = [
-        story_world_card_to_out(card).model_dump(mode="json")
-        for card in list_story_world_cards(db, game.id)
+        card.model_dump(mode="json")
+        for card in world_cards_out
     ]
     game.published_instruction_cards_snapshot = _serialize_story_public_cards_snapshot(instruction_cards_snapshot)
     game.published_plot_cards_snapshot = _serialize_story_public_cards_snapshot(plot_cards_snapshot)
@@ -707,6 +738,7 @@ def get_story_game_public_cards_out(
     db: Session,
     game: StoryGame,
 ) -> tuple[list[StoryInstructionCardOut], list[StoryPlotCardOut], list[StoryWorldCardOut]]:
+    is_public_world = coerce_story_game_visibility(getattr(game, "visibility", None)) == STORY_GAME_VISIBILITY_PUBLIC
     instruction_cards_snapshot = _load_story_public_instruction_cards_snapshot(
         getattr(game, "published_instruction_cards_snapshot", None)
     )
@@ -721,7 +753,11 @@ def get_story_game_public_cards_out(
         and plot_cards_snapshot is not None
         and world_cards_snapshot is not None
     ):
-        return instruction_cards_snapshot, plot_cards_snapshot, world_cards_snapshot
+        return (
+            instruction_cards_snapshot,
+            plot_cards_snapshot,
+            _filter_story_public_world_cards_for_publication(world_cards_snapshot, is_public_world=is_public_world),
+        )
 
     instruction_cards = [
         StoryInstructionCardOut.model_validate(card)
@@ -731,14 +767,15 @@ def get_story_game_public_cards_out(
         story_plot_card_to_out(card)
         for card in list_story_plot_cards(db, game.id)
     ]
-    world_cards = [
-        story_world_card_to_out(card)
-        for card in list_story_world_cards(db, game.id)
-    ]
+    world_cards = _filter_story_public_world_cards_for_publication(
+        [story_world_card_to_out(card) for card in list_story_world_cards(db, game.id)],
+        is_public_world=is_public_world,
+    )
     return instruction_cards, plot_cards, world_cards
 
 
 def ensure_story_game_public_card_snapshots(db: Session, game: StoryGame) -> bool:
+    is_public_world = coerce_story_game_visibility(getattr(game, "visibility", None)) == STORY_GAME_VISIBILITY_PUBLIC
     instruction_cards_snapshot = _load_story_public_instruction_cards_snapshot(
         getattr(game, "published_instruction_cards_snapshot", None)
     )
@@ -753,6 +790,27 @@ def ensure_story_game_public_card_snapshots(db: Session, game: StoryGame) -> boo
         and plot_cards_snapshot is not None
         and world_cards_snapshot is not None
     ):
+        filtered_world_cards_snapshot = _filter_story_public_world_cards_for_publication(
+            world_cards_snapshot,
+            is_public_world=is_public_world,
+        )
+        if (
+            len(instruction_cards_snapshot) == 0
+            and len(plot_cards_snapshot) == 0
+            and len(filtered_world_cards_snapshot) == 0
+        ):
+            has_live_instruction_cards = len(list_story_instruction_cards(db, game.id)) > 0
+            has_live_plot_cards = len(list_story_plot_cards(db, game.id)) > 0
+            if is_public_world:
+                has_live_world_cards = any(
+                    _normalize_story_world_card_kind(getattr(card, "kind", None)) != STORY_WORLD_CARD_KIND_MAIN_HERO
+                    for card in list_story_world_cards(db, game.id)
+                )
+            else:
+                has_live_world_cards = len(list_story_world_cards(db, game.id)) > 0
+            if has_live_instruction_cards or has_live_plot_cards or has_live_world_cards:
+                refresh_story_game_public_card_snapshots(db, game)
+                return True
         return False
     refresh_story_game_public_card_snapshots(db, game)
     return True

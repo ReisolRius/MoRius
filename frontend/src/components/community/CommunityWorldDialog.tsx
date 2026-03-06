@@ -349,12 +349,18 @@ function CommunityWorldDialog({
   const [editingCommentDraft, setEditingCommentDraft] = useState('')
 
   const world = worldPayload?.world ?? null
+  const worldCardsWithoutMainHero = useMemo(() => {
+    if (!worldPayload) {
+      return []
+    }
+    return worldPayload.world_cards.filter((card) => card.kind !== 'main_hero')
+  }, [worldPayload])
   const cardsCount = useMemo(() => {
     if (!worldPayload) {
       return 0
     }
-    return worldPayload.instruction_cards.length + worldPayload.plot_cards.length + worldPayload.world_cards.length
-  }, [worldPayload])
+    return worldPayload.instruction_cards.length + worldPayload.plot_cards.length + worldCardsWithoutMainHero.length
+  }, [worldCardsWithoutMainHero.length, worldPayload])
   const authorName = world?.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world?.author_avatar_url ?? null
   const authorInitials = resolveAuthorInitials(authorName)
@@ -1115,7 +1121,12 @@ function CommunityWorldDialog({
                     ) : (
                       <Box sx={{ display: 'grid', gap: BASE_GAP, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
                         {worldPayload.plot_cards.map((card) => (
-                          <CommunityPreviewCard key={card.id} title={card.title} content={card.content} badge="СЮЖЕТ" />
+                          <CommunityPreviewCard
+                            key={card.id}
+                            title={card.title}
+                            content={card.triggers.length > 0 ? `${card.content}\nТриггеры: ${card.triggers.join(', ')}` : card.content}
+                            badge="СЮЖЕТ"
+                          />
                         ))}
                       </Box>
                     )}
@@ -1123,11 +1134,11 @@ function CommunityWorldDialog({
 
                   <Stack spacing={BASE_GAP}>
                     <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 700, fontSize: SUBHEADING_FONT_SIZE }}>Карточки мира и персонажей</Typography>
-                    {worldPayload.world_cards.length === 0 ? (
+                    {worldCardsWithoutMainHero.length === 0 ? (
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem' }}>Нет карточек мира.</Typography>
                     ) : (
                       <Box sx={{ display: 'grid', gap: BASE_GAP, gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' } }}>
-                        {worldPayload.world_cards.map((card) => (
+                        {worldCardsWithoutMainHero.map((card) => (
                           <CommunityPreviewCard
                             key={card.id}
                             title={card.title}

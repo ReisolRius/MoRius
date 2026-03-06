@@ -80,7 +80,7 @@ type TabId = 'characters' | 'instructions' | 'favorites' | 'plots' | 'subscripti
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
 const PROFILE_CONTENT_SEARCH_MAX = 120
-const AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const PROFILE_AVATAR_SIZE = 96
 const CARD_MIN_HEIGHT = 174
@@ -231,6 +231,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [characterDialogOpen, setCharacterDialogOpen] = useState(false)
   const [characterDialogMode, setCharacterDialogMode] = useState<'list' | 'create'>('list')
   const [characterEditId, setCharacterEditId] = useState<number | null>(null)
+  const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [instructionDialogMode, setInstructionDialogMode] = useState<'list' | 'create'>('list')
   const [instructionEditId, setInstructionEditId] = useState<number | null>(null)
@@ -623,7 +624,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       return
     }
     if (file.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Максимальный размер аватара: 1 МБ')
+      setAvatarError('Максимальный размер аватара: 2 МБ')
       return
     }
 
@@ -910,6 +911,22 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     void loadCharactersOnly()
   }, [loadCharactersOnly])
 
+  const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, character: StoryCharacter) => {
+    if (!character.avatar_url) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    setCharacterAvatarPreview({
+      url: character.avatar_url,
+      name: character.name,
+    })
+  }, [])
+
+  const handleCloseCharacterAvatarPreview = useCallback(() => {
+    setCharacterAvatarPreview(null)
+  }, [])
+
   const openInstructionCreate = useCallback(() => {
     setInstructionDialogMode('create')
     setInstructionEditId(null)
@@ -1021,7 +1038,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const renderCharacterAvatar = (character: StoryCharacter) => {
     const fallbackLetter = resolveFirstLetter(character.name)
-    return (
+    const avatarNode = (
       <Box
         sx={{
           position: 'relative',
@@ -1056,6 +1073,25 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             }}
           />
         ) : null}
+      </Box>
+    )
+
+    if (!character.avatar_url) {
+      return avatarNode
+    }
+
+    return (
+      <Box
+        component="span"
+        onClick={(event) => handleOpenCharacterAvatarPreview(event, character)}
+        sx={{
+          display: 'inline-flex',
+          borderRadius: '50%',
+          cursor: 'zoom-in',
+          flexShrink: 0,
+        }}
+      >
+        {avatarNode}
       </Box>
     )
   }
@@ -2586,6 +2622,44 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Stack>
         </MenuItem>
       </Menu>
+
+      <Dialog
+        open={Boolean(characterAvatarPreview)}
+        onClose={handleCloseCharacterAvatarPreview}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ px: 1.2, pt: 1.2, pb: 0.5, display: 'flex', justifyContent: 'center' }}>
+          {characterAvatarPreview ? (
+            <Box
+              component="img"
+              src={characterAvatarPreview.url}
+              alt={characterAvatarPreview.name || 'Character avatar'}
+              sx={{
+                width: '100%',
+                maxHeight: '80vh',
+                objectFit: 'contain',
+                borderRadius: '10px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-elevated-bg)',
+              }}
+            />
+          ) : null}
+        </DialogContent>
+        <DialogActions sx={{ px: 1.2, pb: 1.2 }}>
+          <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <input
         ref={avatarInputRef}

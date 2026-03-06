@@ -1,4 +1,4 @@
-import {
+﻿import {
   forwardRef,
   useCallback,
   useEffect,
@@ -203,7 +203,7 @@ const STORY_PROMPT_MAX_LENGTH = 4000
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
 const STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8000
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-const CHARACTER_AVATAR_MAX_BYTES = 500 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
@@ -219,10 +219,10 @@ const STORY_CHARACTER_NAME_MAX_LENGTH = 120
 const STORY_CHARACTER_NOTE_MAX_LENGTH = 20
 const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 32000
-const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 2500
+const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
 const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 500
-const STORY_CONTEXT_LIMIT_MAX = 10000
+const STORY_CONTEXT_LIMIT_MAX = 15000
 const STORY_DEFAULT_CONTEXT_LIMIT = 1500
 const STORY_RESPONSE_MAX_TOKENS_MIN = 200
 const STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -233,6 +233,9 @@ const STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX = 4000
 const STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX = 5500
 const STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX = 7000
 const STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX = 8500
+const STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX = 10000
+const STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX = 11500
+const STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX = 13000
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
 const STORY_DEFAULT_TOP_K = 0
@@ -249,6 +252,8 @@ const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-f
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image-pro'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
+const STORY_AUTOSCROLL_BOTTOM_THRESHOLD = 72
+const STORY_CONTINUE_PROMPT = 'Продолжай'
 type StoryNarratorStat = {
   label: string
   value: number
@@ -375,17 +380,17 @@ const STORY_SETTINGS_INFO_TEXT = {
   artist:
     'Выберите ИИ-модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
   contextLimit:
-    'Ограничение памяти истории ИИ. Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов.',
+    'Ограничение памяти истории ИИ. Чем больше ограничение, тем дороже ход. Текущие списания: до 1500 — 1 сол, 1500–3000 — 2 сола, 3000–4000 — 3 сола, 4000–5500 — 4 сола, 5500–7000 — 5 солов, 7000–8500 — 6 солов, 8500–10000 — 7 солов, 10000–11500 — 8 солов, 11500–13000 — 9 солов, 13000–15000 — 10 солов.',
   responseTokens: 'Ограничьте объем ответа ИИ точечно в токенах.',
-  showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ',
-  showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC',
+  showGgThoughts: 'Настройка того, будет Р»и ИИ генерировать и транслировать мысли вашего Р“Р“',
+  showNpcThoughts: 'Настройка того, будет Р»и ИИ генерировать и транслировать мысли NPC',
   memoryOptimization:
     'Помогает дольше помнить старые события, ужимая память без потери смысла и важных деталей.',
   ambient:
     'БЕТА. Подсветка вокруг поля ввода меняется по окружению сцены (фон, свет, погода, локация) и использует 2-3 цвета. Включение стоит +1 сол за каждый ход, а ответ может генерироваться дольше.',
   temperature:
     'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать ИИ.',
-  contextUsage: 'Следите за тем сколько у вас осталось места в памяти истории для ИИ.',
+  contextUsage: 'Следите Р·Р° тем сколько у вас осталось места в памяти истории для ИИ.',
 } as const
 
 function formatStoryImageModelLabel(option: { title: string; priceLabel: string }): string {
@@ -656,7 +661,7 @@ const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^>]+
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
 const MAIN_HERO_SPEAKER_ALIASES = ['ГГ', 'Главный герой', 'Main hero', 'Main character', 'MC', 'Hero'] as const
 const MAIN_HERO_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
-const MAIN_HERO_FALLBACK_NAME = '\u0413\u043b\u0430\u0432\u043d\u044b\u0439 \u0433\u0435\u0440\u043e\u0439'
+const MAIN_HERO_FALLBACK_NAME = 'Главный Герой'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
 const STORY_SENTENCE_MATCH_PATTERN = /[^.!?…]+[.!?…]?/gu
@@ -928,14 +933,14 @@ function normalizeAssistantMarkerKey(value: string): string {
     narrator: 'narrator',
     narration: 'narration',
     narrative: 'narrative',
-    рассказчик: 'narrator',
-    нарратор: 'narrator',
-    повествование: 'narration',
+    '\u0440\u0430\u0441\u0441\u043a\u0430\u0437\u0447\u0438\u043a': 'narrator',
+    '\u043d\u0430\u0440\u0440\u0430\u0442\u043e\u0440': 'narrator',
+    '\u043f\u043e\u0432\u0435\u0441\u0442\u0432\u043e\u0432\u0430\u043d\u0438\u0435': 'narration',
     npc: 'npc',
-    нпс: 'npc',
-    нпк: 'npc',
+    '\u043d\u043f\u0441': 'npc',
+    '\u043d\u043f\u043a': 'npc',
     gg: 'gg',
-    гг: 'gg',
+    '\u0433\u0433': 'gg',
     mc: 'mc',
     mainhero: 'mainhero',
     maincharacter: 'mainhero',
@@ -947,12 +952,12 @@ function normalizeAssistantMarkerKey(value: string): string {
     ggthink: 'gg_thought',
     thought: 'thought',
     think: 'think',
-    нпсмысль: 'npc_thought',
-    нпсмысли: 'npc_thought',
-    нпкмысль: 'npc_thought',
-    нпкмысли: 'npc_thought',
-    ггмысль: 'gg_thought',
-    ггмысли: 'gg_thought',
+    '\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u044c': 'npc_thought',
+    '\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u0438': 'npc_thought',
+    '\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u044c': 'npc_thought',
+    '\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u0438': 'npc_thought',
+    '\u0433\u0433\u043c\u044b\u0441\u043b\u044c': 'gg_thought',
+    '\u0433\u0433\u043c\u044b\u0441\u043b\u0438': 'gg_thought',
   }
   return aliasKeyByCompact[compactKey] ?? normalizedKey
 }
@@ -1770,7 +1775,7 @@ function normalizeStoryImageStylePrompt(value: string | null | undefined): strin
 
 function getStoryTurnCostTokens(contextUsageTokens: number, ambientEnabled: boolean): number {
   const normalizedUsage = Math.max(0, Math.round(contextUsageTokens))
-  let baseCost = 7
+  let baseCost = 10
   if (normalizedUsage <= STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX) {
     baseCost = 1
   } else if (normalizedUsage <= STORY_TURN_COST_STAGE_2_CONTEXT_LIMIT_MAX) {
@@ -1783,6 +1788,12 @@ function getStoryTurnCostTokens(contextUsageTokens: number, ambientEnabled: bool
     baseCost = 5
   } else if (normalizedUsage <= STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX) {
     baseCost = 6
+  } else if (normalizedUsage <= STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX) {
+    baseCost = 7
+  } else if (normalizedUsage <= STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX) {
+    baseCost = 8
+  } else if (normalizedUsage <= STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX) {
+    baseCost = 9
   }
   return ambientEnabled ? baseCost + 1 : baseCost
 }
@@ -2631,6 +2642,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isBootstrappingGameData, setIsBootstrappingGameData] = useState(true)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false)
+  const [continueHiddenForMessageId, setContinueHiddenForMessageId] = useState<number | null>(null)
+  const [hiddenUserMessageIds, setHiddenUserMessageIds] = useState<number[]>([])
   const [turnImageByAssistantMessageId, setTurnImageByAssistantMessageId] = useState<
     Record<number, StoryTurnImageEntry[]>
   >({})
@@ -2786,6 +2800,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
+  const hiddenContinueTempUserMessageIdRef = useRef<number | null>(null)
   const turnImageAbortControllersRef = useRef<Map<number, AbortController>>(new Map())
   const imageStylePromptByGameRef = useRef<Record<number, string>>({})
   const activeGameIdRef = useRef<number | null>(null)
@@ -2819,6 +2834,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     activeGameIdRef.current = activeGameId
   }, [activeGameId])
+
+  useEffect(() => {
+    setIsAutoScrollPaused(false)
+    setContinueHiddenForMessageId(null)
+    setHiddenUserMessageIds([])
+    hiddenContinueTempUserMessageIdRef.current = null
+  }, [activeGameId])
+
+  useEffect(() => {
+    if (hiddenUserMessageIds.length === 0) {
+      return
+    }
+    const messageIdSet = new Set(messages.map((message) => message.id))
+    setHiddenUserMessageIds((previousIds) => {
+      const nextIds = previousIds.filter((messageId) => messageIdSet.has(messageId))
+      if (nextIds.length === previousIds.length && nextIds.every((messageId, index) => messageId === previousIds[index])) {
+        return previousIds
+      }
+      return nextIds
+    })
+  }, [hiddenUserMessageIds, messages])
   const activeAmbientProfile = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index]
@@ -3039,6 +3075,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     Boolean(activeGameId) &&
     currentRerollAssistantMessage !== null &&
     !isLatestTurnImageLoading
+  const canViewDevMemoryTab = user.role === 'administrator'
+  const isRightPanelSecondTabVisible = rightPanelMode !== 'memory' || canViewDevMemoryTab
   const leftPanelTabLabel =
     rightPanelMode === 'ai'
       ? 'Инструкции'
@@ -3063,6 +3101,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       : rightPanelMode === 'world'
         ? `world-${activeWorldPanelTab}`
         : `memory-${activeMemoryPanelTab}`
+  useEffect(() => {
+    if (!canViewDevMemoryTab && activeMemoryPanelTab === 'dev') {
+      setActiveMemoryPanelTab('memory')
+    }
+  }, [activeMemoryPanelTab, canViewDevMemoryTab])
   const visibleWorldCardEvents = useMemo(
     () => worldCardEvents.filter((event) => !dismissedWorldCardEventIds.includes(event.id)),
     [dismissedWorldCardEventIds, worldCardEvents],
@@ -4003,7 +4046,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
       if (estimateDataUrlBytes(croppedDataUrl) > CHARACTER_AVATAR_MAX_BYTES) {
-        setCharacterAvatarError('Avatar is too large after crop. Maximum is 500 KB.')
+        setCharacterAvatarError('Avatar is too large after crop. Maximum is 2 MB.')
         return
       }
       setCharacterAvatarDraft(croppedDataUrl)
@@ -4936,13 +4979,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     return () => window.removeEventListener('resize', measureComposerHeight)
   }, [])
 
+  const handleMessagesViewportScroll = useCallback(() => {
+    if (isAutoScrollPaused || !isGenerating) {
+      return
+    }
+    const viewport = messagesViewportRef.current
+    if (!viewport) {
+      return
+    }
+    const distanceFromBottom = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight)
+    if (distanceFromBottom > STORY_AUTOSCROLL_BOTTOM_THRESHOLD) {
+      setIsAutoScrollPaused(true)
+    }
+  }, [isAutoScrollPaused, isGenerating])
+
   useEffect(() => {
+    if (isAutoScrollPaused) {
+      return
+    }
     const viewport = messagesViewportRef.current
     if (!viewport) {
       return
     }
     viewport.scrollTop = viewport.scrollHeight
-  }, [messages, isGenerating, messagesViewportBottomPadding])
+  }, [messages, isAutoScrollPaused, isGenerating, messagesViewportBottomPadding])
 
   useEffect(() => {
     if (!errorMessage) {
@@ -5936,7 +5996,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'instruction',
         targetId: targetCardId,
         title: 'Удалить инструкцию?',
-        message: `Инструкция «${normalizedTitle}» будет удалена без возможности восстановления.`,
+        message: `Инструкция В«${normalizedTitle}В» будет удалена Р±РµР· возможности восстановления.`,
       })
       return
     }
@@ -7410,6 +7470,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       discardLastAssistantSteps?: number
       instructionCards?: StoryInstructionCard[]
     }) => {
+      setIsAutoScrollPaused(false)
       setErrorMessage('')
       setIsGenerating(true)
       setActiveAssistantMessageId(null)
@@ -7452,11 +7513,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             setMessages((previousMessages) => {
               const nextMessages = [...previousMessages]
               if (payload.user_message_id !== null) {
+                const persistedUserMessageId = payload.user_message_id
                 const firstTempUserIndex = nextMessages.findIndex((message) => message.id < 0 && message.role === 'user')
                 if (firstTempUserIndex >= 0) {
+                  const replacedTempUserMessageId = nextMessages[firstTempUserIndex].id
                   nextMessages[firstTempUserIndex] = {
                     ...nextMessages[firstTempUserIndex],
-                    id: payload.user_message_id,
+                    id: persistedUserMessageId,
+                  }
+                  if (hiddenContinueTempUserMessageIdRef.current === replacedTempUserMessageId) {
+                    setHiddenUserMessageIds((previousIds) =>
+                      previousIds.map((messageId) => (messageId === replacedTempUserMessageId ? persistedUserMessageId : messageId)),
+                    )
+                    hiddenContinueTempUserMessageIdRef.current = null
                   }
                 }
               }
@@ -7787,6 +7856,105 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [canUseVoiceInput, hasPromptText, inputValue, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor])
 
+  const sendStoryPrompt = useCallback(
+    async (rawPrompt: string, options?: { clearComposer?: boolean; hideUserMessage?: boolean }) => {
+      if (isGenerating) {
+        return null
+      }
+
+      if (hasInsufficientTokensForTurn) {
+        if (options?.clearComposer) {
+          setInputValue('')
+        }
+        setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
+        setTopUpError('')
+        setTopUpDialogOpen(true)
+        setProfileDialogOpen(false)
+        setConfirmLogoutOpen(false)
+        return null
+      }
+
+      const normalizedPrompt = rawPrompt.replace(/\r\n/g, '\n').trim()
+      if (!normalizedPrompt) {
+        return null
+      }
+
+      let targetGameId = activeGameId
+      if (!targetGameId) {
+        try {
+          setIsCreatingGame(true)
+          const newGame = await createStoryGame({ token: authToken })
+          setGames((previousGames) =>
+            sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
+          )
+          setActiveGameId(newGame.id)
+          applyStoryGameSettings(newGame)
+          setInstructionCards([])
+          setPlotCards([])
+          setAiMemoryBlocks([])
+          setWorldCards([])
+          applyPlotCardEvents([])
+          applyWorldCardEvents([])
+          onNavigate(`/home/${newGame.id}`)
+          targetGameId = newGame.id
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : 'Не удалось создать игру'
+          setErrorMessage(detail)
+          return null
+        }
+      }
+
+      if (!targetGameId) {
+        return null
+      }
+
+      setIsAutoScrollPaused(false)
+      const now = new Date().toISOString()
+      const temporaryUserMessageId = -Date.now()
+      setMessages((previousMessages) => [
+        ...previousMessages,
+        {
+          id: temporaryUserMessageId,
+          game_id: targetGameId,
+          role: 'user',
+          content: normalizedPrompt,
+          created_at: now,
+          updated_at: now,
+        },
+      ])
+      if (options?.hideUserMessage) {
+        hiddenContinueTempUserMessageIdRef.current = temporaryUserMessageId
+        setHiddenUserMessageIds((previousIds) =>
+          previousIds.includes(temporaryUserMessageId) ? previousIds : [...previousIds, temporaryUserMessageId],
+        )
+      } else {
+        hiddenContinueTempUserMessageIdRef.current = null
+      }
+      if (options?.clearComposer) {
+        setInputValue('')
+      }
+
+      return runStoryGeneration({
+        gameId: targetGameId,
+        prompt: normalizedPrompt,
+        instructionCards,
+      })
+    },
+    [
+      activeGameId,
+      applyPlotCardEvents,
+      applyStoryGameSettings,
+      applyWorldCardEvents,
+      authToken,
+      currentTurnCostTokens,
+      hasInsufficientTokensForTurn,
+      instructionCards,
+      isGenerating,
+      onNavigate,
+      runStoryGeneration,
+    ],
+  )
+
   const handleSendPrompt = useCallback(async () => {
     if (isVoiceInputActive) {
       voiceSessionRequestedRef.current = false
@@ -7870,6 +8038,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       instructionCards,
     })
   }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isGenerating, isVoiceInputActive, onNavigate, runStoryGeneration])
+
+  const handleContinueStory = useCallback(
+    async (assistantMessageId: number) => {
+      if (isGenerating || isCreatingGame) {
+        return
+      }
+      setContinueHiddenForMessageId(assistantMessageId)
+      const generationResult = await sendStoryPrompt(STORY_CONTINUE_PROMPT, { hideUserMessage: true })
+      if (!generationResult?.streamStarted) {
+        setContinueHiddenForMessageId(null)
+      }
+    },
+    [isCreatingGame, isGenerating, sendStoryPrompt],
+  )
 
   const handleVoiceActionClick = useCallback(() => {
     if (isGenerating) {
@@ -8366,7 +8548,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: isRightPanelSecondTabVisible ? '1fr 1fr' : '1fr',
               alignItems: 'center',
               gap: 0.2,
             }}
@@ -8403,38 +8585,40 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             >
               {leftPanelTabLabel}
             </Button>
-            <Button
-              onClick={() =>
-                rightPanelMode === 'ai'
-                  ? setActiveAiPanelTab('settings')
-                  : rightPanelMode === 'world'
-                    ? setActiveWorldPanelTab('world')
-                    : setActiveMemoryPanelTab('dev')
-              }
-              sx={{
-                color: isLeftPanelTabActive ? 'var(--morius-text-secondary)' : rightPanelActiveTabColor,
-                fontSize: 'var(--morius-body-size)',
-                fontWeight: isLeftPanelTabActive ? 500 : 700,
-                lineHeight: 1.1,
-                textAlign: 'center',
-                py: 0.65,
-                minHeight: 0,
-                borderRadius: 'var(--morius-radius)',
-                textTransform: 'none',
-                backgroundColor: 'transparent',
-                border: 'none',
-                boxShadow: 'none',
-                '&:hover': {
-                  backgroundColor: rightPanelTabHoverBackground,
+            {isRightPanelSecondTabVisible ? (
+              <Button
+                onClick={() =>
+                  rightPanelMode === 'ai'
+                    ? setActiveAiPanelTab('settings')
+                    : rightPanelMode === 'world'
+                      ? setActiveWorldPanelTab('world')
+                      : setActiveMemoryPanelTab('dev')
+                }
+                sx={{
                   color: isLeftPanelTabActive ? 'var(--morius-text-secondary)' : rightPanelActiveTabColor,
-                },
-                '&:active': {
-                  backgroundColor: rightPanelTabHoverBackground,
-                },
-              }}
-            >
-              {rightPanelTabLabel}
-            </Button>
+                  fontSize: 'var(--morius-body-size)',
+                  fontWeight: isLeftPanelTabActive ? 500 : 700,
+                  lineHeight: 1.1,
+                  textAlign: 'center',
+                  py: 0.65,
+                  minHeight: 0,
+                  borderRadius: 'var(--morius-radius)',
+                  textTransform: 'none',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  boxShadow: 'none',
+                  '&:hover': {
+                    backgroundColor: rightPanelTabHoverBackground,
+                    color: isLeftPanelTabActive ? 'var(--morius-text-secondary)' : rightPanelActiveTabColor,
+                  },
+                  '&:active': {
+                    backgroundColor: rightPanelTabHoverBackground,
+                  },
+                }}
+              >
+                {rightPanelTabLabel}
+              </Button>
+            ) : null}
           </Box>
           <Box
             sx={{
@@ -8446,10 +8630,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           >
             <Box
               sx={{
-                width: '50%',
+                width: isRightPanelSecondTabVisible ? '50%' : '100%',
                 height: '100%',
                 backgroundColor: 'var(--morius-accent)',
-                transform: isLeftPanelTabActive ? 'translateX(0)' : 'translateX(100%)',
+                transform: isRightPanelSecondTabVisible
+                  ? isLeftPanelTabActive
+                    ? 'translateX(0)'
+                    : 'translateX(100%)'
+                  : 'translateX(0)',
                 transition: 'transform 220ms ease',
               }}
             />
@@ -9823,7 +10011,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'memory' && activeMemoryPanelTab === 'dev' ? (
+          {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'memory' && canViewDevMemoryTab && activeMemoryPanelTab === 'dev' ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
@@ -9950,7 +10138,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <RightPanelEmptyState
                     iconSrc={icons.communityInfo}
                     title="Сюжет"
-                    description="Карточки сюжета создаются только вручную. ИИ их не создает и не редактирует."
+                    description="Карточки сюжета создаются только вручную. ИИ РёС… не создает и не редактирует."
                   />
                 </>
               ) : (
@@ -10232,7 +10420,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Button>
               </Stack>
               <Typography sx={{ color: 'rgba(171, 189, 214, 0.66)', fontSize: '0.76rem', lineHeight: 1.35 }}>
-                Главный герой всегда активен. Остальные карточки активируются по триггерам из сообщений игрока и ИИ. У NPC по умолчанию память 3 хода, её можно менять при редактировании карточки NPC.
+                Главный герой всегда активен. Остальные карточки активируются по триггерам РёР· сообщений игрока и ИИ. У NPC по умолчанию память 3 хода, РµС‘ можно менять при редактировании карточки NPC.
               </Typography>
 
               {displayedWorldCards.length === 0 ? (
@@ -10449,6 +10637,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
       <Box
         ref={messagesViewportRef}
+        onScroll={handleMessagesViewportScroll}
         className="morius-scrollbar"
         sx={{
           position: 'fixed',
@@ -10649,6 +10838,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
             {!shouldShowStoryMessagesLoadingSkeleton && !isLoadingGameMessages
               ? messages.map((message) => {
+                  if (message.role === 'user') {
+                    const normalizedUserMessageContent = message.content.replace(/\r\n/g, '\n').trim()
+                    if (hiddenUserMessageIds.includes(message.id) || normalizedUserMessageContent === STORY_CONTINUE_PROMPT) {
+                      return null
+                    }
+                  }
+
                   if (editingMessageId === message.id) {
                     return (
                       <Box
@@ -10733,6 +10929,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
                     const assistantTurnImages = turnImageByAssistantMessageId[message.id] ?? []
+                    const shouldShowContinueButton =
+                      !isStreaming &&
+                      !isGenerating &&
+                      !isUndoingAssistantStep &&
+                      !isCreatingGame &&
+                      currentRerollAssistantMessage?.id === message.id &&
+                      continueHiddenForMessageId !== message.id
                     return (
                       <Box
                         key={message.id}
@@ -11363,6 +11566,36 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               ))}
                             </Stack>
                           ) : null}
+                          {shouldShowContinueButton ? (
+                            <Box sx={{ px: 0.05, py: 0.02 }}>
+                              <Button
+                                onClick={() => void handleContinueStory(message.id)}
+                                disabled={isGenerating}
+                                variant="text"
+                                sx={{
+                                  minHeight: 24,
+                                  minWidth: 0,
+                                  px: 1.05,
+                                  py: 0,
+                                  borderRadius: '8px',
+                                  backgroundColor: 'transparent',
+                                  textTransform: 'none',
+                                  fontSize: '0.8rem',
+                                  lineHeight: 1.2,
+                                  fontWeight: 600,
+                                  color: 'var(--morius-text-secondary)',
+                                  justifyContent: 'flex-start',
+                                  alignSelf: 'flex-start',
+                                  '&:hover': {
+                                    backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 18%, transparent)',
+                                    color: 'var(--morius-title-text)',
+                                  },
+                                }}
+                              >
+                                Продолжить
+                              </Button>
+                            </Box>
+                          ) : null}
                         </Stack>
                       </Box>
                     )
@@ -11740,7 +11973,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   title={
                     <Box sx={{ whiteSpace: 'pre-line' }}>
                       {
-                        'Стоимость хода зависит от использованного контекста:\nдо 1500 — 1 сол\n1500–3000 — 2 сола\n3000–4000 — 3 сола\n4000–5500 — 4 сола\n5500–7000 — 5 солов\n7000–8500 — 6 солов\n8500–10000 — 7 солов\nЭмбиент подсветка (если включена): +1 сол за ход'
+                        'Стоимость хода зависит от использованного контекста:\nдо 1500 — 1 сол\n1500–3000 — 2 сола\n3000–4000 — 3 сола\n4000–5500 — 4 сола\n5500–7000 — 5 солов\n7000–8500 — 6 солов\n8500–10000 — 7 солов\n10000–11500 — 8 солов\n11500–13000 — 9 солов\n13000–15000 — 10 солов\nЭмбиент подсветка (если включена): +1 сол за ход'
                       }
                     </Box>
                   }
@@ -11788,9 +12021,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     borderRadius: 'var(--morius-radius)',
                     opacity: canUndoAssistantStep ? 0.95 : 0.45,
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    backgroundColor: 'transparent',
                     '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -11815,9 +12047,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     borderRadius: 'var(--morius-radius)',
                     opacity: canRedoAssistantStep ? 0.95 : 0.45,
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    backgroundColor: 'transparent',
                     '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -11842,9 +12073,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     borderRadius: 'var(--morius-radius)',
                     opacity: canReroll ? 0.95 : 0.45,
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                    backgroundColor: 'transparent',
                     '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                    '&:active': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)' },
                   }}
                 >
                   <Box
@@ -11881,15 +12111,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       borderRadius: 'var(--morius-radius)',
                       color: hasLatestTurnImage ? 'var(--morius-accent)' : secondaryGameButtonColor,
                       border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+                      backgroundColor: 'transparent',
                       transition: 'color .15s ease, opacity .15s ease',
                       '&:hover': {
                         backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)',
                         color: 'var(--morius-accent)',
                         opacity: 1,
-                      },
-                      '&:active': {
-                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
                       },
                     }}
                   >
@@ -13111,7 +13338,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           fontWeight: 700,
                         }}
                       >
-                        вњЋ
+                        ✎
                       </Box>
                     </Box>
                   </Box>
@@ -13848,7 +14075,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>вњЋ</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
             <Box component="span">Редактировать</Box>
           </Stack>
         </MenuItem>
@@ -13862,7 +14089,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>вЊ¦</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
             <Box component="span">Удалить</Box>
           </Stack>
         </MenuItem>
@@ -13944,4 +14171,5 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 }
 
 export default StoryGamePage
+
 

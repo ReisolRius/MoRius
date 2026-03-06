@@ -1105,7 +1105,7 @@ function InstructionTemplateDialog({
             sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
           >
             <Stack direction="row" spacing={0.7} alignItems="center">
-              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
+              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
               <Box component="span">Редактировать</Box>
             </Stack>
           </MenuItem>
@@ -1115,7 +1115,7 @@ function InstructionTemplateDialog({
             sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
           >
             <Stack direction="row" spacing={0.7} alignItems="center">
-              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
+              <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
               <Box component="span">Удалить</Box>
             </Stack>
           </MenuItem>

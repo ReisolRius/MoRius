@@ -4,7 +4,7 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import delete as sa_delete, func, select
+from sqlalchemy import delete as sa_delete, func, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
@@ -59,6 +59,7 @@ from app.services.story_games import (
     STORY_DEFAULT_TITLE,
     STORY_GAME_VISIBILITY_PRIVATE,
     STORY_GAME_VISIBILITY_PUBLIC,
+    STORY_WORLD_CARD_KIND_MAIN_HERO,
     clone_story_world_cards_to_game,
     coerce_story_llm_model,
     coerce_story_image_model,
@@ -337,6 +338,7 @@ def _create_story_game_publication_copy_from_source(
             db,
             source_world_id=source_game.id,
             target_game_id=publication.id,
+            copy_main_hero=False,
         )
         refresh_story_game_public_card_snapshots(db, publication)
 
@@ -1271,6 +1273,26 @@ def update_story_game_meta(
             game.visibility = STORY_GAME_VISIBILITY_PRIVATE
         else:
             game.visibility = requested_visibility
+    if (str(game.visibility or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC):
+        main_hero_card_ids = db.scalars(
+            select(StoryWorldCard.id).where(
+                StoryWorldCard.game_id == game.id,
+                StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+            )
+        ).all()
+        if main_hero_card_ids:
+            db.execute(
+                sa_update(StoryWorldCardChangeEvent)
+                .where(StoryWorldCardChangeEvent.world_card_id.in_(main_hero_card_ids))
+                .values(world_card_id=None)
+            )
+        db.execute(
+            sa_delete(StoryWorldCard).where(
+                StoryWorldCard.game_id == game.id,
+                StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+            )
+        )
+        refresh_story_game_public_card_snapshots(db, game)
 
     touch_story_game(game)
     db.commit()

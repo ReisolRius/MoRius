@@ -93,7 +93,7 @@ class GoogleAuthRequest(BaseModel):
 
 
 class AvatarUpdateRequest(BaseModel):
-    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
@@ -217,11 +217,11 @@ class StoryGameCreateRequest(BaseModel):
     visibility: str | None = Field(default=None, max_length=16)
     age_rating: str | None = Field(default=None, max_length=8)
     genres: list[str] | None = Field(default=None, max_length=3)
-    cover_image_url: str | None = Field(default=None, max_length=2_000_000)
+    cover_image_url: str | None = Field(default=None, max_length=3_000_000)
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=500, le=10_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=15_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -245,7 +245,7 @@ class StoryGameCloneRequest(BaseModel):
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=500, le=10_000)
+    context_limit_chars: int | None = Field(default=None, ge=500, le=15_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -267,7 +267,7 @@ class StoryGameMetaUpdateRequest(BaseModel):
     visibility: str | None = Field(default=None, max_length=16)
     age_rating: str | None = Field(default=None, max_length=8)
     genres: list[str] | None = Field(default=None, max_length=3)
-    cover_image_url: str | None = Field(default=None, max_length=2_000_000)
+    cover_image_url: str | None = Field(default=None, max_length=3_000_000)
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -311,7 +311,7 @@ class StoryTurnImageGenerateOut(BaseModel):
 
 class StoryCharacterAvatarGenerateRequest(BaseModel):
     name: str | None = Field(default=None, max_length=120)
-    description: str | None = Field(default=None, max_length=2_500)
+    description: str | None = Field(default=None, max_length=6_000)
     style_prompt: str | None = Field(default=None, max_length=320)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     image_model: str | None = Field(default=None, max_length=120)
@@ -353,7 +353,7 @@ class StoryWorldCardCreateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
-    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
@@ -367,7 +367,7 @@ class StoryWorldCardUpdateRequest(BaseModel):
 
 
 class StoryWorldCardAvatarUpdateRequest(BaseModel):
-    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
@@ -385,20 +385,20 @@ class StoryPlotCardEnabledUpdateRequest(BaseModel):
 
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=2_500)
+    description: str = Field(min_length=1, max_length=6_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
-    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     visibility: str | None = Field(default=None, max_length=16)
 
 
 class StoryCharacterUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    description: str = Field(min_length=1, max_length=2_500)
+    description: str = Field(min_length=1, max_length=6_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
-    avatar_url: str | None = Field(default=None, max_length=2_000_000)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     visibility: str | None = Field(default=None, max_length=16)
 

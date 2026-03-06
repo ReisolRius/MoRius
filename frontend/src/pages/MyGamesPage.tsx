@@ -80,7 +80,7 @@ const TOP_FILTER_ICON_OFFSET_X = '12px'
 const CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const MY_GAMES_SEARCH_QUERY_MAX_LENGTH = 120
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
-const AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
@@ -544,7 +544,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 

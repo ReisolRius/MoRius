@@ -40,8 +40,9 @@ type CharacterManagerDialogProps = {
 
 type CharacterDraftMode = 'create' | 'edit'
 
-const CHARACTER_AVATAR_MAX_BYTES = 1 * 1024 * 1024
-const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 1 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
 const CHARACTER_TRIGGERS_MAX_LENGTH = 600
 const CHARACTER_NOTE_MAX_LENGTH = 20
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
@@ -476,6 +477,7 @@ function CharacterManagerDialog({
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const [characterDeleteTarget, setCharacterDeleteTarget] = useState<StoryCharacter | null>(null)
+  const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
   const [hasAppliedInitialAction, setHasAppliedInitialAction] = useState(false)
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
 
@@ -578,6 +580,7 @@ function CharacterManagerDialog({
       setCharacterMenuAnchorEl(null)
       setCharacterMenuCharacterId(null)
       setCharacterDeleteTarget(null)
+      setCharacterAvatarPreview(null)
       setAvatarCropSource(null)
       setIsAiAvatarDialogOpen(false)
       setIsGeneratingAiAvatar(false)
@@ -590,6 +593,7 @@ function CharacterManagerDialog({
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
     setCharacterDeleteTarget(null)
+    setCharacterAvatarPreview(null)
     setHasAppliedInitialAction(false)
     resetDraft()
     void loadCharacters()
@@ -602,10 +606,27 @@ function CharacterManagerDialog({
     setCharacterMenuAnchorEl(null)
     setCharacterMenuCharacterId(null)
     setCharacterDeleteTarget(null)
+    setCharacterAvatarPreview(null)
     setAvatarCropSource(null)
     setIsAiAvatarDialogOpen(false)
     onClose()
   }
+
+  const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, character: StoryCharacter) => {
+    if (!character.avatar_url) {
+      return
+    }
+    event.preventDefault()
+    event.stopPropagation()
+    setCharacterAvatarPreview({
+      url: character.avatar_url,
+      name: character.name,
+    })
+  }, [])
+
+  const handleCloseCharacterAvatarPreview = useCallback(() => {
+    setCharacterAvatarPreview(null)
+  }, [])
 
   const handleStartCreate = useCallback(() => {
     if (isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar) {
@@ -665,7 +686,7 @@ function CharacterManagerDialog({
     }
 
     if (selectedFile.size > CHARACTER_AVATAR_SOURCE_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 
@@ -692,7 +713,7 @@ function CharacterManagerDialog({
             maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
           })
           if (estimateDataUrlBytes(normalizedAvatar) > CHARACTER_AVATAR_MAX_BYTES) {
-            setAvatarError('Аватар слишком большой после кропа. Максимум 1 МБ.')
+            setAvatarError('Аватар слишком большой после кропа. Максимум 2 МБ.')
             return
           }
           setAvatarDraft(normalizedAvatar)
@@ -1174,8 +1195,8 @@ function CharacterManagerDialog({
                   minRows={4}
                   maxRows={8}
                   disabled={isAvatarActionsLocked}
-                  inputProps={{ maxLength: 2500 }}
-                  helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={2500} />}
+                  inputProps={{ maxLength: CHARACTER_DESCRIPTION_MAX_LENGTH }}
+                  helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={CHARACTER_DESCRIPTION_MAX_LENGTH} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
                 <TextField
@@ -1313,7 +1334,29 @@ function CharacterManagerDialog({
                   >
                     <Stack spacing={0.45}>
                       <Stack direction="row" spacing={0.8} alignItems="center">
-                        <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                        {character.avatar_url ? (
+                          <Box
+                            component="button"
+                            type="button"
+                            onClick={(event) => handleOpenCharacterAvatarPreview(event, character)}
+                            aria-label={`Открыть аватар персонажа ${character.name}`}
+                            sx={{
+                              p: 0,
+                              m: 0,
+                              border: 'none',
+                              outline: 'none',
+                              background: 'transparent',
+                              borderRadius: '50%',
+                              display: 'inline-flex',
+                              cursor: 'zoom-in',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                          </Box>
+                        ) : (
+                          <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
+                        )}
                         <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.08}>
                           <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
                             <Typography
@@ -1480,6 +1523,37 @@ function CharacterManagerDialog({
           </Stack>
         </MenuItem>
       </Menu>
+
+      <BaseDialog
+        open={Boolean(characterAvatarPreview)}
+        onClose={handleCloseCharacterAvatarPreview}
+        maxWidth="md"
+        header={characterAvatarPreview?.name || 'Аватар персонажа'}
+        actions={
+          <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
+            Закрыть
+          </Button>
+        }
+        contentSx={{ px: 1.2, pt: 0.6, pb: 0.7 }}
+      >
+        {characterAvatarPreview ? (
+          <Box
+            component="img"
+            src={characterAvatarPreview.url}
+            alt={characterAvatarPreview.name || 'Character avatar'}
+            sx={{
+              width: '100%',
+              maxHeight: '75vh',
+              objectFit: 'contain',
+              borderRadius: '10px',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-elevated-bg)',
+              display: 'block',
+              mx: 'auto',
+            }}
+          />
+        ) : null}
+      </BaseDialog>
 
       <BaseDialog
         open={Boolean(characterDeleteTarget)}

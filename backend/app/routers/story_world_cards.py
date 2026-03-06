@@ -20,7 +20,7 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_url,
 )
-from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC
+from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
 from app.services.story_queries import (
     get_story_character_for_user_or_404,
     get_story_main_hero_card,
@@ -57,6 +57,16 @@ def _is_same_character_identity(card: StoryWorldCard, *, character_id: int, norm
     return bool(card_name and card_name == normalized_name)
 
 
+def _refresh_public_story_game_snapshots_if_needed(db: Session, game) -> None:
+    if (str(getattr(game, "visibility", "") or "").strip().lower() != STORY_GAME_VISIBILITY_PUBLIC):
+        return
+    refresh_story_game_public_card_snapshots(db, game)
+
+
+def _is_public_story_game(game) -> bool:
+    return (str(getattr(game, "visibility", "") or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC)
+
+
 @router.get("/api/story/games/{game_id}/world-cards", response_model=list[StoryWorldCardOut])
 def list_story_world_cards_route(
     game_id: int,
@@ -78,6 +88,11 @@ def select_story_main_hero(
 ) -> StoryWorldCardOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    if _is_public_story_game(game):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Public worlds are published without a main hero",
+        )
     character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
     normalized_character_name = _normalize_character_identity_name(character.name)
     existing_cards = list_story_world_cards(db, game.id)
@@ -121,6 +136,7 @@ def select_story_main_hero(
     )
     db.add(main_hero_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(main_hero_card)
     return story_world_card_to_out(main_hero_card)
@@ -179,6 +195,7 @@ def create_story_npc_from_character(
     )
     db.add(npc_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(npc_card)
     return story_world_card_to_out(npc_card)
@@ -207,6 +224,7 @@ def update_story_world_card_avatar(
     if payload.avatar_scale is not None:
         world_card.avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(world_card)
     return story_world_card_to_out(world_card)
@@ -233,6 +251,7 @@ def update_story_world_card_ai_edit(
 
     world_card.ai_edit_enabled = bool(payload.ai_edit_enabled)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(world_card)
     return story_world_card_to_out(world_card)
@@ -251,6 +270,11 @@ def create_story_world_card(
     normalized_content = normalize_story_world_card_content(payload.content)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(payload.kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Public worlds are published without a main hero",
+        )
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         normalized_content = normalize_story_npc_profile_content(normalized_title, normalized_content)
     normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
@@ -285,6 +309,7 @@ def create_story_world_card(
     )
     db.add(world_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(world_card)
     return story_world_card_to_out(world_card)
@@ -318,6 +343,11 @@ def update_story_world_card(
     normalized_content = normalize_story_world_card_content(payload.content)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(world_card.kind)
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Public worlds are published without a main hero",
+        )
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         normalized_content = normalize_story_npc_profile_content(normalized_title, normalized_content)
     if "memory_turns" in payload.model_fields_set:
@@ -340,6 +370,7 @@ def update_story_world_card(
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
     world_card.memory_turns = normalized_memory_turns
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     db.refresh(world_card)
     return story_world_card_to_out(world_card)
@@ -383,5 +414,6 @@ def delete_story_world_card(
     )
     db.delete(world_card)
     touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
     return MessageResponse(message="World card deleted")

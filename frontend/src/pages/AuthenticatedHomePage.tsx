@@ -49,6 +49,7 @@ import {
   deleteCommunityWorldComment,
   deleteStoryGame,
   favoriteCommunityWorld,
+  getStoryGame,
   getCommunityWorld,
   launchCommunityWorld,
   listCommunityWorlds,
@@ -122,7 +123,7 @@ const DASHBOARD_NEWS: DashboardNewsItem[] = [
   },
 ]
 
-const AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -180,6 +181,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [favoriteWorldActionById, setFavoriteWorldActionById] = useState<Record<number, boolean>>({})
   const [storyGames, setStoryGames] = useState<StoryGameSummary[]>([])
   const [isDashboardDataLoading, setIsDashboardDataLoading] = useState(true)
+  const [isDashboardContinueResolving, setIsDashboardContinueResolving] = useState(false)
   const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -249,7 +251,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 
@@ -359,12 +361,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     })
   }, [communityWorlds, selectedCommunityWorld?.world.id])
 
+  const loadStoryGamesSnapshot = useCallback(async (): Promise<StoryGameSummary[]> => {
+    const games = await listStoryGames(authToken, { compact: true })
+    setStoryGames(games)
+    setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+    return games
+  }, [authToken])
+
   const syncCommunityWorldGameIds = useCallback(async () => {
     setIsDashboardDataLoading(true)
     try {
-      const games = await listStoryGames(authToken, { compact: true })
-      setStoryGames(games)
-      setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+      await loadStoryGamesSnapshot()
     } catch {
       // Optional metadata for UI; skip hard error when unavailable.
       setStoryGames([])
@@ -372,7 +379,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     } finally {
       setIsDashboardDataLoading(false)
     }
-  }, [authToken])
+  }, [loadStoryGamesSnapshot])
 
   useEffect(() => {
     void syncCommunityWorldGameIds()
@@ -824,6 +831,44 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 'Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.'
   const dashboardHeroButtonLabel = hasDashboardLastPlayedGame ? 'Продолжить' : 'Начать новую игру'
 
+  const handleDashboardContinue = useCallback(async () => {
+    if (isDashboardDataLoading || isDashboardContinueResolving) {
+      return
+    }
+    if (!dashboardLastPlayedGame) {
+      onNavigate('/worlds/new')
+      return
+    }
+
+    setIsDashboardContinueResolving(true)
+    try {
+      await getStoryGame({ token: authToken, gameId: dashboardLastPlayedGame.id })
+      onNavigate(`/home/${dashboardLastPlayedGame.id}`)
+      return
+    } catch {
+      try {
+        const refreshedGames = await loadStoryGamesSnapshot()
+        const fallbackGame = selectLastPlayedGame(refreshedGames)
+        if (fallbackGame) {
+          onNavigate(`/home/${fallbackGame.id}`)
+          return
+        }
+      } catch {
+        // Ignore refresh errors and fallback to world creation.
+      }
+      onNavigate('/worlds/new')
+    } finally {
+      setIsDashboardContinueResolving(false)
+    }
+  }, [
+    authToken,
+    dashboardLastPlayedGame,
+    isDashboardContinueResolving,
+    isDashboardDataLoading,
+    loadStoryGamesSnapshot,
+    onNavigate,
+  ])
+
   return (
     <Box
       className="morius-app-shell"
@@ -993,13 +1038,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         {dashboardHeroDescription}
                       </Typography>
                       <Button
-                        onClick={() => {
-                          if (dashboardLastPlayedGame) {
-                            onNavigate(`/home/${dashboardLastPlayedGame.id}`)
-                            return
-                          }
-                          onNavigate('/worlds/new')
-                        }}
+                        onClick={() => void handleDashboardContinue()}
+                        disabled={isDashboardDataLoading || isDashboardContinueResolving}
                         sx={{
                           mt: 0.6,
                           minHeight: 46,

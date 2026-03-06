@@ -101,16 +101,17 @@ const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
-const COVER_MAX_BYTES = 1 * 1024 * 1024
-const CHARACTER_AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const COVER_MAX_BYTES = 2 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const CARD_WIDTH = 286
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
 const OPENING_SCENE_MAX_LENGTH = 4_000
 const OPENING_SCENE_NPC_NAME_MAX_LENGTH = 120
 const OPENING_SCENE_NPC_FALLBACK_NAME = 'NPC'
-const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный герой'
+const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный Герой'
 const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
+const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
 const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const CHARACTER_NOTE_MAX_LENGTH = 20
 const WORLD_GENRE_OPTIONS = [
@@ -186,6 +187,10 @@ function createInstructionTemplateSignature(title: string, content: string): str
   const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
   const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
   return `${normalizedTitle}::${normalizedContent}`
+}
+
+function buildCommunityFeedCacheKey(userId: number): string {
+  return `${COMMUNITY_FEED_CACHE_KEY_PREFIX}:${userId}`
 }
 
 function normalizeCharacterIdentity(value: string): string {
@@ -501,6 +506,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [isLoading, setIsLoading] = useState(Boolean(isEditMode))
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isPublishWithoutMainHeroDialogOpen, setIsPublishWithoutMainHeroDialogOpen] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
 
   const [title, setTitle] = useState('')
@@ -553,6 +559,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
   const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
+  const publishWithoutMainHeroConfirmedRef = useRef(false)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
   const selectedInstructionTemplateSignatures = useMemo(
     () => instructionCards.map((card) => createInstructionTemplateSignature(card.title, card.content)),
@@ -582,6 +589,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const canSubmit = useMemo(
     () => !isSubmitting && !isLoading && Boolean(title.trim()),
     [isLoading, isSubmitting, title],
+  )
+  const shouldConfirmPublishWithoutMainHero = useMemo(
+    () => visibility === 'public' && !isMyGamesEdit && !isMyPublicationsEdit && Boolean(mainHero),
+    [isMyGamesEdit, isMyPublicationsEdit, mainHero, visibility],
   )
   const visibleGenres = useMemo(() => {
     const query = genreSearch.trim().toLowerCase()
@@ -869,13 +880,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           })),
         )
         const hero = payload.world_cards.find((card) => card.kind === 'main_hero') ?? null
-        setMainHero(hero ? toEditableCharacterFromWorldCard(hero) : null)
+        setMainHero(isMyPublicationsEdit ? null : hero ? toEditableCharacterFromWorldCard(hero) : null)
         setNpcs(payload.world_cards.filter((card) => card.kind === 'npc').map(toEditableCharacterFromWorldCard))
       })
       .catch((error) => active && setErrorMessage(error instanceof Error ? error.message : 'Не удалось загрузить мир'))
       .finally(() => active && setIsLoading(false))
     return () => { active = false }
-  }, [authToken, editingGameId, isEditMode])
+  }, [authToken, editingGameId, isEditMode, isMyPublicationsEdit])
 
   const handleCoverUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -1271,11 +1282,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const handleSaveWorld = useCallback(async () => {
     if (!canSubmit) return
+    if (shouldConfirmPublishWithoutMainHero && !publishWithoutMainHeroConfirmedRef.current) {
+      setIsPublishWithoutMainHeroDialogOpen(true)
+      return
+    }
+    publishWithoutMainHeroConfirmedRef.current = false
     if (!isMyGamesEdit && hasTemplateConflicts(mainHero, npcs)) {
       setErrorMessage('Удалите дубли персонажей: ГГ и NPC не могут ссылаться на одного персонажа, а NPC не должны повторяться.')
       return
     }
     setIsSubmitting(true)
+    setIsPublishWithoutMainHeroDialogOpen(false)
     setErrorMessage('')
     try {
       let gameId = editingGameId
@@ -1348,7 +1365,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
       if (!isMyGamesEdit) {
         const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
-        if (mainHero) {
+        if (isMyPublicationsEdit) {
+          if (existingMainHero) {
+            await deleteStoryWorldCard({
+              token: authToken,
+              gameId,
+              cardId: existingMainHero.id,
+              allowMainHeroDelete: true,
+            })
+          }
+        } else if (mainHero) {
           const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(mainHero.avatar_url)
           if (existingMainHero) {
             await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
@@ -1361,7 +1387,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             token: authToken,
             gameId,
             cardId: existingMainHero.id,
-            allowMainHeroDelete: isMyPublicationsEdit,
+            allowMainHeroDelete: false,
           })
         }
       }
@@ -1400,13 +1426,18 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           description: normalizedDescription,
         }),
       )
+      try {
+        localStorage.removeItem(buildCommunityFeedCacheKey(user.id))
+      } catch {
+        // Ignore storage restrictions.
+      }
       onNavigate(`/home/${gameId}`)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, title, visibility])
+  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, shouldConfirmPublishWithoutMainHero, title, user.id, visibility])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -1571,7 +1602,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 ) : null}
               </Box>
               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>
-                Не больше 1 МБ (изображение будет автоматически сжато для экономии)
+                Не больше 2 МБ (изображение будет автоматически сжато для экономии)
               </Typography>
             </Stack>
 
@@ -1717,7 +1748,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                         </Button>
                       </Box>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
-                        Кнопка «ГГ» вставляет имя главного героя. Пока ГГ не назначен, будет отображаться «Главный герой».
+                        Кнопка «ГГ» вставляет имя главного героя. Пока ГГ не назначен, будет отображаться «Главный Герой».
                       </Typography>
                       <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.77rem' }}>
                         Обычный текст можно писать как есть, он автоматически пойдет в повествование.
@@ -1827,7 +1858,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     <CompactCard
                       key={card.localId}
                       title={card.title}
-                      content={`${card.content}${card.triggers?.trim() ? `\nТриггеры: ${card.triggers.trim()}` : ''}`}
+                      content={`${replacePlotMainHeroTags(card.content, mainHero?.name)}${card.triggers?.trim() ? `\nТриггеры: ${card.triggers.trim()}` : ''}`}
                       badge={card.is_enabled ? 'активна' : 'выключена'}
                       actions={
                         <>
@@ -1844,7 +1875,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
             <Stack spacing={0.9}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
-              {!isMyGamesEdit ? (
+              {!isMyGamesEdit && !isMyPublicationsEdit ? (
                 <Stack spacing={0.7}>
                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
                   {mainHero ? (
@@ -1935,6 +1966,60 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           </Stack>}
         </Box>
       </Box>
+
+      <BaseDialog
+        open={isPublishWithoutMainHeroDialogOpen}
+        onClose={() => {
+          if (isSubmitting) {
+            return
+          }
+          setIsPublishWithoutMainHeroDialogOpen(false)
+          publishWithoutMainHeroConfirmedRef.current = false
+        }}
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        header={
+          <Stack spacing={0.5}>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.35rem' }}>Публикация без главного героя</Typography>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
+              В публичных мирах карточка ГГ не публикуется.
+            </Typography>
+          </Stack>
+        }
+        actions={
+          <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ width: '100%' }}>
+            <Button
+              onClick={() => {
+                setIsPublishWithoutMainHeroDialogOpen(false)
+                publishWithoutMainHeroConfirmedRef.current = false
+              }}
+              disabled={isSubmitting}
+              sx={{ color: APP_TEXT_SECONDARY }}
+            >
+              Отмена
+            </Button>
+            <Button
+              onClick={() => {
+                publishWithoutMainHeroConfirmedRef.current = true
+                setIsPublishWithoutMainHeroDialogOpen(false)
+                void handleSaveWorld()
+              }}
+              disabled={isSubmitting}
+              sx={{
+                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                backgroundColor: APP_BUTTON_ACTIVE,
+                '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+              }}
+            >
+              Ок
+            </Button>
+          </Stack>
+        }
+      >
+        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.5 }}>
+          Если продолжить, ГГ останется только в вашем приватном мире. В опубликованной версии он будет удален автоматически.
+        </Typography>
+      </BaseDialog>
 
       <FormDialog
         open={cardDialogOpen}

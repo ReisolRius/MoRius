@@ -168,13 +168,13 @@ type SpeakerAvatarEntry = {
   displayName: string
 }
 
-const AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STORY_TURN_IMAGE_TOGGLE_STORAGE_KEY = 'morius.story.turn-image.enabled'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_MS = 45_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-const CHARACTER_AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
@@ -2529,7 +2529,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
       if (estimateDataUrlBytes(croppedDataUrl) > CHARACTER_AVATAR_MAX_BYTES) {
-        setCharacterAvatarError('Avatar is too large after crop. Maximum is 1 MB.')
+        setCharacterAvatarError('Avatar is too large after crop. Maximum is 2 MB.')
         return
       }
       setCharacterAvatarDraft(croppedDataUrl)
@@ -5526,7 +5526,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 

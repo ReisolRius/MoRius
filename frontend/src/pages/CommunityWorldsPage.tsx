@@ -87,7 +87,7 @@ const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
-const AVATAR_MAX_BYTES = 1 * 1024 * 1024
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `community-world-skeleton-${index}`)
 const TOP_FILTER_CONTROL_HEIGHT = 46
 const TOP_FILTER_CONTROL_RADIUS = '12px'
@@ -1588,7 +1588,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
 
     if (selectedFile.size > AVATAR_MAX_BYTES) {
-      setAvatarError('Слишком большой файл. Максимум 1 МБ.')
+      setAvatarError('Слишком большой файл. Максимум 2 МБ.')
       return
     }
 
