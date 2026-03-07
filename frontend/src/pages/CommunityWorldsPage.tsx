@@ -1772,6 +1772,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               variant="text"
               onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
+              data-tour-id="header-profile-button"
               sx={{
                 minWidth: 0,
                 width: HEADER_AVATAR_SIZE,

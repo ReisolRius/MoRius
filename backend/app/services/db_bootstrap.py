@@ -105,6 +105,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN is_banned INTEGER NOT NULL DEFAULT 0")
     if "ban_expires_at" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN ban_expires_at TIMESTAMP WITH TIME ZONE")
+    if "onboarding_guide_state" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN onboarding_guide_state TEXT NOT NULL DEFAULT '{}'")
 
     if not alter_statements:
         return
@@ -353,6 +355,11 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN avatar_url VARCHAR(2048)"
         )
+    if "avatar_original_url" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN avatar_original_url VARCHAR(2048)"
+        )
     if "avatar_scale" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -386,6 +393,36 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+
+
+def _ensure_story_instruction_card_extended_columns_exist() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryInstructionCard.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryInstructionCard.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "is_active" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionCard.__tablename__} "
+            "ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+        if "avatar_original_url" not in existing_columns:
+            connection.execute(
+                text(
+                    f"UPDATE {StoryWorldCard.__tablename__} "
+                    "SET avatar_original_url = avatar_url "
+                    "WHERE avatar_original_url IS NULL AND avatar_url IS NOT NULL"
+                )
+            )
         if memory_turns_column_added:
             connection.execute(
                 text(
@@ -446,15 +483,31 @@ def _ensure_story_character_avatar_scale_column_exists() -> None:
         return
 
     existing_columns = {column["name"] for column in inspector.get_columns(StoryCharacter.__tablename__)}
-    if "avatar_scale" in existing_columns:
+    alter_statements: list[str] = []
+    if "avatar_scale" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0"
+        )
+    if "avatar_original_url" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN avatar_original_url VARCHAR(2048)"
+        )
+    if not alter_statements:
         return
 
     with engine.begin() as connection:
-        _execute_schema_statement(
-            connection,
-            f"ALTER TABLE {StoryCharacter.__tablename__} "
-            "ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0",
-        )
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+        if "avatar_original_url" not in existing_columns:
+            connection.execute(
+                text(
+                    f"UPDATE {StoryCharacter.__tablename__} "
+                    "SET avatar_original_url = avatar_url "
+                    "WHERE avatar_original_url IS NULL AND avatar_url IS NOT NULL"
+                )
+            )
 
 
 def _ensure_story_character_community_columns_exist(private_visibility: str) -> None:
@@ -807,6 +860,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
         defaults.private_visibility,
         defaults.response_max_tokens,
     )
+    _ensure_story_instruction_card_extended_columns_exist()
     _ensure_story_world_card_extended_columns_exist(defaults)
     _ensure_story_plot_card_extended_columns_exist()
     _ensure_story_character_avatar_scale_column_exists()

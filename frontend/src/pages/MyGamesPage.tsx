@@ -851,6 +851,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               variant="text"
               onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
+              data-tour-id="header-profile-button"
               sx={{
                 minWidth: 0,
                 width: HEADER_AVATAR_SIZE,
@@ -1030,6 +1031,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
 
             <Button
               onClick={handleOpenWorldCreator}
+              data-tour-id="my-games-create-button"
               sx={{
                 minHeight: TOP_FILTER_CONTROL_HEIGHT,
                 minWidth: 176,

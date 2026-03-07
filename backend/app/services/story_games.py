@@ -21,6 +21,7 @@ from app.services.media import (
 )
 from app.services.story_characters import (
     normalize_story_avatar_scale,
+    normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
 )
 from app.services.story_cards import (
@@ -127,13 +128,13 @@ STORY_SUPPORTED_IMAGE_MODELS = {
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
-STORY_DEFAULT_TOP_K = 0
+STORY_DEFAULT_TOP_K = 55
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
-STORY_DEFAULT_TOP_R = 1.0
+STORY_DEFAULT_TOP_R = 0.85
 STORY_TEMPERATURE_MIN = 0.0
 STORY_TEMPERATURE_MAX = 2.0
-STORY_DEFAULT_TEMPERATURE = 1.0
+STORY_DEFAULT_TEMPERATURE = 0.85
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
 STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
@@ -837,6 +838,7 @@ def clone_story_world_cards_to_game(
                     game_id=target_game_id,
                     title=card.title,
                     content=card.content,
+                    is_active=bool(getattr(card, "is_active", True)),
                 )
                 db.add(cloned_instruction)
         else:
@@ -845,6 +847,7 @@ def clone_story_world_cards_to_game(
                     game_id=target_game_id,
                     title=card.title,
                     content=card.content,
+                    is_active=bool(getattr(card, "is_active", True)),
                 )
                 db.add(cloned_instruction)
 
@@ -910,6 +913,11 @@ def clone_story_world_cards_to_game(
                 triggers=card.triggers,
                 kind=card_kind,
                 avatar_url=normalize_story_character_avatar_url(card.avatar_url),
+                avatar_original_url=(
+                    normalize_story_character_avatar_original_url(getattr(card, "avatar_original_url", None))
+                    if getattr(card, "avatar_url", None)
+                    else None
+                ),
                 avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
                 character_id=None,
                 memory_turns=_normalize_story_world_card_memory_turns_for_storage(card.memory_turns, kind=card_kind),
@@ -938,6 +946,11 @@ def clone_story_world_cards_to_game(
             ),
             kind=card_kind,
             avatar_url=normalize_story_character_avatar_url(card.avatar_url),
+            avatar_original_url=(
+                normalize_story_character_avatar_original_url(getattr(card, "avatar_original_url", None))
+                if getattr(card, "avatar_url", None)
+                else None
+            ),
             avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
             character_id=None,
             memory_turns=_normalize_story_world_card_memory_turns_for_storage(card.memory_turns, kind=card_kind),

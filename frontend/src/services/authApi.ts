@@ -49,6 +49,14 @@ export type ProfileFollowState = {
   subscriptions_count: number
 }
 
+export type OnboardingGuideStatus = 'pending' | 'completed' | 'skipped'
+
+export type OnboardingGuideState = {
+  status: OnboardingGuideStatus
+  current_step_id: string | null
+  tutorial_game_id: number | null
+}
+
 export type CoinTopUpPlan = {
   id: string
   title: string
@@ -214,6 +222,18 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
   }
 }
 
+function normalizeOnboardingGuideState(rawState: OnboardingGuideState | null | undefined): OnboardingGuideState {
+  const status = rawState?.status === 'completed' || rawState?.status === 'skipped' ? rawState.status : 'pending'
+  return {
+    status,
+    current_step_id: typeof rawState?.current_step_id === 'string' && rawState.current_step_id.trim() ? rawState.current_step_id.trim() : null,
+    tutorial_game_id:
+      typeof rawState?.tutorial_game_id === 'number' && Number.isFinite(rawState.tutorial_game_id) && rawState.tutorial_game_id > 0
+        ? Math.trunc(rawState.tutorial_game_id)
+        : null,
+  }
+}
+
 export async function registerWithEmail(payload: { email: string; password: string }): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     '/api/auth/register',
@@ -256,6 +276,49 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
     },
     AUTH_NETWORK_ERROR,
   )
+}
+
+export async function getOnboardingGuideState(token: string): Promise<OnboardingGuideState> {
+  const response = await requestJson<OnboardingGuideState>(
+    '/api/auth/me/onboarding-guide',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeOnboardingGuideState(response)
+}
+
+export async function updateOnboardingGuideState(
+  token: string,
+  payload: Partial<OnboardingGuideState>,
+): Promise<OnboardingGuideState> {
+  const requestPayload: Record<string, OnboardingGuideState[keyof OnboardingGuideState] | null | undefined> = {}
+  if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+    requestPayload.status = payload.status
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'current_step_id')) {
+    requestPayload.current_step_id = payload.current_step_id ?? null
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'tutorial_game_id')) {
+    requestPayload.tutorial_game_id = payload.tutorial_game_id ?? null
+  }
+  const response = await requestJson<OnboardingGuideState>(
+    '/api/auth/me/onboarding-guide',
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestPayload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeOnboardingGuideState(response)
 }
 
 export async function getCurrentUser(token: string): Promise<AuthUser> {

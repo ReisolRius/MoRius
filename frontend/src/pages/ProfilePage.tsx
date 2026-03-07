@@ -34,6 +34,7 @@ import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
+import { ONBOARDING_GUIDE_COMMAND_EVENT, type OnboardingGuideCommandDetail } from '../utils/onboardingGuide'
 import {
   createCoinTopUpPayment,
   followUserProfile,
@@ -911,14 +912,44 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     void loadCharactersOnly()
   }, [loadCharactersOnly])
 
+  useEffect(() => {
+    const handleOnboardingCommand = (event: Event) => {
+      const detail = (event as CustomEvent<OnboardingGuideCommandDetail>).detail
+      if (!detail || !isOwnProfile) {
+        return
+      }
+
+      if (detail.type === 'profile:show-characters') {
+        setTab('characters')
+        return
+      }
+
+      if (detail.type === 'profile:open-character-create') {
+        setTab('characters')
+        openCharacterCreate()
+        return
+      }
+
+      if (detail.type === 'profile:close-character-dialog') {
+        closeCharacterDialog()
+      }
+    }
+
+    window.addEventListener(ONBOARDING_GUIDE_COMMAND_EVENT, handleOnboardingCommand as EventListener)
+    return () => {
+      window.removeEventListener(ONBOARDING_GUIDE_COMMAND_EVENT, handleOnboardingCommand as EventListener)
+    }
+  }, [closeCharacterDialog, isOwnProfile, openCharacterCreate, setTab])
+
   const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, character: StoryCharacter) => {
-    if (!character.avatar_url) {
+    const previewUrl = character.avatar_original_url ?? character.avatar_url
+    if (!previewUrl) {
       return
     }
     event.preventDefault()
     event.stopPropagation()
     setCharacterAvatarPreview({
-      url: character.avatar_url,
+      url: previewUrl,
       name: character.name,
     })
   }, [])
@@ -1096,10 +1127,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
   }
 
-  const renderCreatePlaceholderCard = (options: { onClick: () => void; ariaLabel: string }) => (
+  const renderCreatePlaceholderCard = (options: { onClick: () => void; ariaLabel: string; tourId?: string }) => (
     <ButtonBase
       onClick={options.onClick}
       aria-label={options.ariaLabel}
+      data-tour-id={options.tourId}
       sx={{
         width: '100%',
         maxWidth: '100%',
@@ -1146,12 +1178,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
 
     return (
-      <Stack spacing={1} sx={{ width: '100%', minWidth: 0 }}>
+      <Stack data-tour-id="profile-characters-section" spacing={1} sx={{ width: '100%', minWidth: 0, scrollMarginTop: '120px' }}>
         <Typography sx={{ fontSize: { xs: '1.03rem', md: '1.14rem' }, fontWeight: 800 }}>Мои персонажи</Typography>
 
         {!filteredCharacters.length ? (
           <>
-            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character' })}
+            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character', tourId: 'profile-characters-create-card' })}
           <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет персонажей.</Typography>
           </>
         ) : (
@@ -1164,7 +1196,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               minWidth: 0,
             }}
           >
-            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character' })}
+            {renderCreatePlaceholderCard({ onClick: openCharacterCreate, ariaLabel: 'Create character', tourId: 'profile-characters-create-card' })}
             {filteredCharacters.map((item) => (
               <ButtonBase
                 key={item.id}
@@ -1706,6 +1738,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             variant="text"
             onClick={() => onNavigate('/profile')}
             aria-label="Открыть профиль"
+            data-tour-id="header-profile-button"
             sx={{
               display: { xs: 'none', md: 'inline-flex' },
               minWidth: 0,
@@ -2255,6 +2288,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       <Button
                         key={`mobile-content-tab-${item.id}`}
                         onClick={() => setTab(item.id)}
+                        data-tour-id={
+                          item.id === 'characters'
+                            ? 'profile-tab-characters'
+                            : item.id === 'instructions'
+                              ? 'profile-tab-instructions'
+                              : item.id === 'plots'
+                                ? 'profile-tab-plots'
+                                : undefined
+                        }
                         sx={{
                           flexShrink: 0,
                           minHeight: 34,
@@ -2339,6 +2381,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       <Button
                         key={item.id}
                         onClick={() => setTab(item.id)}
+                        data-tour-id={
+                          item.id === 'characters'
+                            ? 'profile-tab-characters'
+                            : item.id === 'instructions'
+                              ? 'profile-tab-instructions'
+                              : item.id === 'plots'
+                                ? 'profile-tab-plots'
+                                : undefined
+                        }
                         sx={{
                           minHeight: 38,
                           justifyContent: 'flex-start',
@@ -2626,10 +2677,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       <Dialog
         open={Boolean(characterAvatarPreview)}
         onClose={handleCloseCharacterAvatarPreview}
-        fullWidth
-        maxWidth="lg"
+        fullWidth={false}
+        maxWidth={false}
         PaperProps={{
           sx: {
+            width: 'min(96vw, 1600px)',
+            maxWidth: 'none',
+            maxHeight: '96vh',
             borderRadius: 'var(--morius-radius)',
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
@@ -2637,19 +2691,31 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           },
         }}
       >
-        <DialogContent sx={{ px: 1, pt: 0.8, pb: 0.5, display: 'flex', justifyContent: 'center' }}>
+        <DialogContent
+          sx={{
+            px: 1,
+            pt: 0.8,
+            pb: 0.5,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'flex-start',
+            overflow: 'auto',
+          }}
+        >
           {characterAvatarPreview ? (
             <Box
               component="img"
               src={characterAvatarPreview.url}
               alt={characterAvatarPreview.name || 'Character avatar'}
               sx={{
-                width: '100%',
-                maxHeight: '82vh',
-                objectFit: 'contain',
+                width: 'auto',
+                height: 'auto',
+                maxWidth: 'none',
+                maxHeight: 'none',
                 borderRadius: '10px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 backgroundColor: 'var(--morius-elevated-bg)',
+                display: 'block',
               }}
             />
           ) : null}

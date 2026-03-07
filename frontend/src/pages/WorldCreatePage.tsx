@@ -169,6 +169,16 @@ function normalizeCharacterNote(value: string): string {
     .slice(0, CHARACTER_NOTE_MAX_LENGTH)
 }
 
+function normalizeMainHeroInlineFallbackName(rawValue: string | null | undefined): string {
+  const normalizedValue = (rawValue ?? '').replace(/\s+/g, ' ').trim()
+  if (!normalizedValue) {
+    return OPENING_SCENE_GG_FALLBACK_NAME
+  }
+  return normalizedValue.toLowerCase().replace(/ё/g, 'е') === 'главный герой'
+    ? OPENING_SCENE_GG_FALLBACK_NAME
+    : normalizedValue
+}
+
 function replacePlotMainHeroTags(value: string, rawMainHeroName: string | null | undefined): string {
   if (!value || !value.includes('[[')) {
     return value
@@ -178,8 +188,7 @@ function replacePlotMainHeroTags(value: string, rawMainHeroName: string | null |
     if (normalizedMainHeroName) {
       return normalizedMainHeroName
     }
-    const normalizedFallbackName = (inlineFallbackName ?? '').replace(/\s+/g, ' ').trim()
-    return normalizedFallbackName || OPENING_SCENE_GG_FALLBACK_NAME
+    return normalizeMainHeroInlineFallbackName(inlineFallbackName)
   })
 }
 
@@ -1465,7 +1474,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
         onOpenTopUpDialog={() => onNavigate('/profile')}
         rightActions={
-          <Button onClick={() => onNavigate('/profile')} sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
+          <Button data-tour-id="header-profile-button" onClick={() => onNavigate('/profile')} sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
             <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
           </Button>
         }
@@ -1474,7 +1483,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={2.2}>
-            <Stack spacing={0.95}>
+            <Stack data-tour-id="world-create-cover" spacing={0.95} sx={{ scrollMarginTop: '120px' }}>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
               <Box
                 sx={{
@@ -1606,14 +1615,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               </Typography>
             </Stack>
 
-            <Stack spacing={1.05}>
+            <Stack data-tour-id="world-create-main-info" spacing={1.05} sx={{ scrollMarginTop: '120px' }}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>О мире</Typography>
               <TextField
                 label={<><Box component="span">Название мира</Box><Box component="span" sx={{ color: '#f05454' }}>*</Box></>}
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 fullWidth
-                inputProps={{ maxLength: 140 }}
+                inputProps={{ maxLength: 140, 'data-tour-id': 'world-create-title-input' }}
                 helperText={<TextLimitIndicator currentLength={title.length} maxLength={140} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
@@ -1630,7 +1639,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
               {
-                <Stack spacing={0.75}>
+                <Stack data-tour-id="world-create-opening-scene" spacing={0.75} sx={{ scrollMarginTop: '120px' }}>
                   <TextField
                     label="Вступительная сцена"
                     value={openingScene}
@@ -1759,7 +1768,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               }
             </Stack>
 
-            <Stack spacing={1}>
+            <Stack data-tour-id="world-create-genres" spacing={1} sx={{ scrollMarginTop: '120px' }}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Дополнительно</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7}>
                 <TextField
@@ -1820,118 +1829,120 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               </Typography>
             </Stack>
 
-            <Stack spacing={0.85}>
-              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Инструкции</Typography>
-              {instructionCards.length > 0 ? (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {instructionCards.map((card) => (
-                    <CompactCard
-                      key={card.localId}
-                      title={card.title}
-                      content={replacePlotMainHeroTags(card.content, mainHero?.name)}
-                      badge="активна"
-                      actions={
-                        <>
-                          <Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                          <Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
-                        </>
-                      }
-                    />
-                  ))}
-                </Box>
-              ) : null}
-              <TemplateButtonsCard
-                title="Карточки инструкций"
-                subtitle="Слева — новая карточка, справа — выбор из шаблонов."
-                onCreate={() => openCardDialog('instruction')}
-                onTemplate={() => setInstructionTemplateDialogOpen(true)}
-              />
-            </Stack>
-
-            <Stack spacing={0.85}>
-              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Сюжет</Typography>
-              {plotCards.length === 0 ? (
-                <EmptyAddCard onClick={() => openCardDialog('plot')} label="Добавить карточку" />
-              ) : (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {plotCards.map((card) => (
-                    <CompactCard
-                      key={card.localId}
-                      title={card.title}
-                      content={`${replacePlotMainHeroTags(card.content, mainHero?.name)}${card.triggers?.trim() ? `\nТриггеры: ${card.triggers.trim()}` : ''}`}
-                      badge={card.is_enabled ? 'активна' : 'выключена'}
-                      actions={
-                        <>
-                          <Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                          <Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
-                        </>
-                      }
-                    />
-                  ))}
-                </Box>
-              )}
-              {plotCards.length > 0 ? <Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 34, width: 'fit-content' }}>Добавить</Button> : null}
-            </Stack>
-
-            <Stack spacing={0.9}>
-              <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
-              {!isMyGamesEdit && !isMyPublicationsEdit ? (
-                <Stack spacing={0.7}>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
-                  {mainHero ? (
-                    <CompactCard
-                      title={mainHero.name}
-                      content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
-                      badge="гг"
-                      noteBadge={mainHero.note}
-                      avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
-                      actions={
-                        <>
-                          <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                          <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
-                        </>
-                      }
-                    />
-                  ) : null}
-                  {!mainHero ? (
-                    <StandardCreateButtonsRow
-                      onCreate={() => openCharacterManagerForCreate('main_hero')}
-                      onTemplate={() => setCharacterPickerTarget('main_hero')}
-                    />
-                  ) : null}
-                </Stack>
-              ) : null}
-
-              <Stack spacing={0.7}>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>
-                {npcs.length > 0 ? (
+            <Box data-tour-id="world-create-cards" sx={{ scrollMarginTop: '120px' }}>
+              <Stack spacing={0.85}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Инструкции</Typography>
+                {instructionCards.length > 0 ? (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                    {npcs.map((npc) => (
+                    {instructionCards.map((card) => (
                       <CompactCard
-                        key={npc.localId}
-                        title={npc.name}
-                        content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`}
-                        badge="npc"
-                        noteBadge={npc.note}
-                        avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />}
+                        key={card.localId}
+                        title={card.title}
+                        content={replacePlotMainHeroTags(card.content, mainHero?.name)}
+                        badge="активна"
                         actions={
                           <>
-                            <Button onClick={() => void openCharacterManagerForEdit('npc', npc)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
-                            <Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                            <Button onClick={() => openCardDialog('instruction', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                            <Button onClick={() => setInstructionCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
                           </>
                         }
                       />
                     ))}
                   </Box>
                 ) : null}
-                <StandardCreateButtonsRow
-                  onCreate={() => openCharacterManagerForCreate('npc')}
-                  onTemplate={() => setCharacterPickerTarget('npc')}
+                <TemplateButtonsCard
+                  title="Карточки инструкций"
+                  subtitle="Слева — новая карточка, справа — выбор из шаблонов."
+                  onCreate={() => openCardDialog('instruction')}
+                  onTemplate={() => setInstructionTemplateDialogOpen(true)}
                 />
               </Stack>
-            </Stack>
 
-            <Stack spacing={0.9}>
+              <Stack spacing={0.85} sx={{ mt: 2.2 }}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Сюжет</Typography>
+                {plotCards.length === 0 ? (
+                  <EmptyAddCard onClick={() => openCardDialog('plot')} label="Добавить карточку" />
+                ) : (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                    {plotCards.map((card) => (
+                      <CompactCard
+                        key={card.localId}
+                        title={card.title}
+                        content={`${replacePlotMainHeroTags(card.content, mainHero?.name)}${card.triggers?.trim() ? `\nТриггеры: ${card.triggers.trim()}` : ''}`}
+                        badge={card.is_enabled ? 'активна' : 'выключена'}
+                        actions={
+                          <>
+                            <Button onClick={() => openCardDialog('plot', card)} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                            <Button onClick={() => setPlotCards((p) => p.filter((i) => i.localId !== card.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                          </>
+                        }
+                      />
+                    ))}
+                  </Box>
+                )}
+                {plotCards.length > 0 ? <Button onClick={() => openCardDialog('plot')} sx={{ minHeight: 34, width: 'fit-content' }}>Добавить</Button> : null}
+              </Stack>
+
+              <Stack spacing={0.9} sx={{ mt: 2.2 }}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
+                {!isMyGamesEdit && !isMyPublicationsEdit ? (
+                  <Stack spacing={0.7}>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
+                    {mainHero ? (
+                      <CompactCard
+                        title={mainHero.name}
+                        content={`${mainHero.description}${mainHero.triggers.trim() ? `\nТриггеры: ${mainHero.triggers.trim()}` : ''}`}
+                        badge="гг"
+                        noteBadge={mainHero.note}
+                        avatar={<MiniAvatar avatarUrl={mainHero.avatar_url} avatarScale={mainHero.avatar_scale} label={mainHero.name} size={38} />}
+                        actions={
+                          <>
+                            <Button onClick={() => void openCharacterManagerForEdit('main_hero', mainHero)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                            <Button onClick={() => setMainHero(null)} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Убрать</Button>
+                          </>
+                        }
+                      />
+                    ) : null}
+                    {!mainHero ? (
+                      <StandardCreateButtonsRow
+                        onCreate={() => openCharacterManagerForCreate('main_hero')}
+                        onTemplate={() => setCharacterPickerTarget('main_hero')}
+                      />
+                    ) : null}
+                  </Stack>
+                ) : null}
+
+                <Stack spacing={0.7}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>NPC</Typography>
+                  {npcs.length > 0 ? (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {npcs.map((npc) => (
+                        <CompactCard
+                          key={npc.localId}
+                          title={npc.name}
+                          content={`${npc.description}${npc.triggers.trim() ? `\nТриггеры: ${npc.triggers.trim()}` : ''}`}
+                          badge="npc"
+                          noteBadge={npc.note}
+                          avatar={<MiniAvatar avatarUrl={npc.avatar_url} avatarScale={npc.avatar_scale} label={npc.name} size={38} />}
+                          actions={
+                            <>
+                              <Button onClick={() => void openCharacterManagerForEdit('npc', npc)} disabled={isOpeningCharacterManager} sx={{ minHeight: 30, px: 1.05 }}>Изменить</Button>
+                              <Button onClick={() => setNpcs((p) => p.filter((i) => i.localId !== npc.localId))} sx={{ minHeight: 30, px: 1.05, color: APP_TEXT_SECONDARY }}>Удалить</Button>
+                            </>
+                          }
+                        />
+                      ))}
+                    </Box>
+                  ) : null}
+                  <StandardCreateButtonsRow
+                    onCreate={() => openCharacterManagerForCreate('npc')}
+                    onTemplate={() => setCharacterPickerTarget('npc')}
+                  />
+                </Stack>
+              </Stack>
+            </Box>
+
+            <Stack data-tour-id="world-create-visibility" spacing={0.9} sx={{ scrollMarginTop: '120px' }}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
                 <Button
@@ -1961,7 +1972,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
             <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.6 }}>
               <Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button>
-              <Button onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}</Button>
+              <Button data-tour-id="world-create-submit" onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}</Button>
             </Stack>
           </Stack>}
         </Box>

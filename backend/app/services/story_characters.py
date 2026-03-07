@@ -131,6 +131,13 @@ def normalize_story_character_avatar_url(raw_value: str | None) -> str | None:
     return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
 
 
+def normalize_story_character_avatar_original_url(raw_value: str | None) -> str | None:
+    normalized = normalize_avatar_value(raw_value)
+    if normalized is None:
+        return None
+    return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
+
+
 def normalize_story_avatar_scale(raw_value: float | int | str | None) -> float:
     return normalize_media_scale(
         raw_value,
@@ -179,6 +186,11 @@ def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
         note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
         avatar_url=character.avatar_url,
+        avatar_original_url=(
+            normalize_avatar_value(getattr(character, "avatar_original_url", None))
+            if getattr(character, "avatar_url", None)
+            else None
+        ),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         source=normalize_story_character_source(character.source),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),

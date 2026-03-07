@@ -129,7 +129,7 @@ const advantageCards: AdvantageCard[] = [
     id: 'storytellers',
     title: 'Рассказчики',
     description:
-      'Мы подбираем, тестируем и оставляем только лучших ИИ на роль гейм-мастера. GLM 5.0, DeepSeek V3 и другие уже ждут, чтобы начать ваше приключение. Первые 20 ходов - бесплатно.',
+      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2, Trinity и Grok 4.1 Fast уже ждут, чтобы начать ваше приключение. Первые 20 ходов - бесплатно.',
     icon: advantageStorytellersIcon,
     preview: advantageTemplatesPreview,
     rowMinHeight: 228,

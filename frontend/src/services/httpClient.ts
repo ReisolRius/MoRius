@@ -84,7 +84,7 @@ export async function parseApiError(response: Response, fallbackDetail = 'Reques
   }
   if (detail === fallbackDetail) {
     if (response.status === 413) {
-      detail = 'Request is too large (HTTP 413)'
+      detail = 'Слишком большой запрос (HTTP 413). Обычно это значит, что изображение или аватар слишком большие.'
     } else {
       detail = `${fallbackDetail} (HTTP ${response.status})`
     }

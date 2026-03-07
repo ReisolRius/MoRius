@@ -39,6 +39,13 @@ type CompressOptions = {
   maxDimension?: number
 }
 
+type PrepareAvatarPayloadOptions = {
+  avatarUrl: string | null | undefined
+  avatarOriginalUrl?: string | null
+  maxBytes: number
+  maxDimension?: number
+}
+
 async function compressLoadedImageToDataUrl(image: HTMLImageElement, options: CompressOptions): Promise<string> {
   const canvas = document.createElement('canvas')
   const context = canvas.getContext('2d')
@@ -102,4 +109,45 @@ export async function compressImageDataUrl(dataUrl: string, options: CompressOpt
 export async function compressImageFileToDataUrl(file: File, options: CompressOptions): Promise<string> {
   const initialDataUrl = await readFileAsDataUrl(file)
   return compressImageDataUrl(initialDataUrl, options)
+}
+
+export async function prepareAvatarPayloadForRequest(
+  options: PrepareAvatarPayloadOptions,
+): Promise<{ avatarUrl: string | null; avatarOriginalUrl: string | null }> {
+  const normalizedAvatarUrl = (options.avatarUrl ?? '').trim()
+  if (!normalizedAvatarUrl) {
+    return {
+      avatarUrl: null,
+      avatarOriginalUrl: null,
+    }
+  }
+
+  const avatarUrl = normalizedAvatarUrl.startsWith('data:image/')
+    ? await compressImageDataUrl(normalizedAvatarUrl, {
+        maxBytes: options.maxBytes,
+        maxDimension: options.maxDimension,
+      })
+    : normalizedAvatarUrl
+
+  const normalizedAvatarOriginalUrl = (options.avatarOriginalUrl ?? '').trim()
+  if (!normalizedAvatarOriginalUrl) {
+    return {
+      avatarUrl,
+      avatarOriginalUrl: null,
+    }
+  }
+
+  // Do not resend large local source data URLs back to the API.
+  // They are only useful during editing and can trigger HTTP 413.
+  if (normalizedAvatarOriginalUrl.startsWith('data:image/')) {
+    return {
+      avatarUrl,
+      avatarOriginalUrl: null,
+    }
+  }
+
+  return {
+    avatarUrl,
+    avatarOriginalUrl: normalizedAvatarOriginalUrl,
+  }
 }

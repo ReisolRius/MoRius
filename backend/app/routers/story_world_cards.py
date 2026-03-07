@@ -18,6 +18,7 @@ from app.schemas import (
 from app.services.auth_identity import get_current_user
 from app.services.story_characters import (
     normalize_story_avatar_scale,
+    normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
@@ -220,7 +221,10 @@ def update_story_world_card_avatar(
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
 
-    world_card.avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
+    normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
+    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+    world_card.avatar_url = normalized_avatar
+    world_card.avatar_original_url = normalized_avatar_original if normalized_avatar else None
     if payload.avatar_scale is not None:
         world_card.avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     touch_story_game(game)
@@ -278,6 +282,7 @@ def create_story_world_card(
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         normalized_content = normalize_story_npc_profile_content(normalized_title, normalized_content)
     normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
+    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     normalized_avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
         payload.memory_turns,
@@ -300,6 +305,7 @@ def create_story_world_card(
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         avatar_url=normalized_avatar,
+        avatar_original_url=normalized_avatar_original if normalized_avatar else None,
         avatar_scale=normalized_avatar_scale,
         character_id=None,
         memory_turns=normalized_memory_turns,

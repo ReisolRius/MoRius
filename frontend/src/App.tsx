@@ -1,7 +1,9 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentUser } from './services/authApi'
+import OnboardingTour from './components/onboarding/OnboardingTour'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import ProfilePage from './pages/ProfilePage'
+import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
@@ -373,8 +375,10 @@ function App() {
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
 
+  let pageContent: ReactNode
+
   if (shouldShowPrivacyPolicyPage) {
-    return (
+    pageContent = (
       <Suspense fallback={null}>
         <LegalDocumentPage
           title="Политика конфиденциальности"
@@ -383,10 +387,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowTermsPage) {
-    return (
+  } else if (shouldShowTermsPage) {
+    pageContent = (
       <Suspense fallback={null}>
         <LegalDocumentPage
           title="Пользовательское соглашение"
@@ -395,10 +397,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowStoryGamePage && authUser) {
-    return (
+  } else if (shouldShowStoryGamePage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <StoryGamePage
           user={authUser}
@@ -410,10 +410,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowMyGamesPage && authUser) {
-    return (
+  } else if (shouldShowMyGamesPage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <MyGamesPage
           user={authUser}
@@ -425,10 +423,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowCommunityWorldsPage && authUser) {
-    return (
+  } else if (shouldShowCommunityWorldsPage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <CommunityWorldsPage
           user={authUser}
@@ -439,10 +435,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowDashboardPage && authUser) {
-    return (
+  } else if (shouldShowDashboardPage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <AuthenticatedHomePage
           user={authUser}
@@ -453,10 +447,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowWorldCreatePage && authUser) {
-    return (
+  } else if (shouldShowWorldCreatePage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <WorldCreatePage
           user={authUser}
@@ -467,10 +459,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowMyPublicationsPage && authUser) {
-    return (
+  } else if (shouldShowMyPublicationsPage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <MyPublicationsPage
           user={authUser}
@@ -479,10 +469,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowBugReportPage && authUser && adminBugReportId !== null) {
-    return (
+  } else if (shouldShowBugReportPage && authUser && adminBugReportId !== null) {
+    pageContent = (
       <Suspense fallback={null}>
         <AdminBugReportPage
           authToken={authToken!}
@@ -491,10 +479,8 @@ function App() {
         />
       </Suspense>
     )
-  }
-
-  if (shouldShowProfilePage && authUser) {
-    return (
+  } else if (shouldShowProfilePage && authUser) {
+    pageContent = (
       <Suspense fallback={null}>
         <ProfilePage
           user={authUser}
@@ -506,17 +492,26 @@ function App() {
         />
       </Suspense>
     )
+  } else {
+    pageContent = (
+      <Suspense fallback={null}>
+        <PublicLandingPage
+          isAuthenticated={isAuthenticated}
+          onNavigate={navigate}
+          onGoHome={() => navigate('/dashboard')}
+          onAuthSuccess={handleAuthSuccess}
+        />
+      </Suspense>
+    )
   }
 
   return (
-    <Suspense fallback={null}>
-      <PublicLandingPage
-        isAuthenticated={isAuthenticated}
-        onNavigate={navigate}
-        onGoHome={() => navigate('/dashboard')}
-        onAuthSuccess={handleAuthSuccess}
-      />
-    </Suspense>
+    <>
+      {pageContent}
+      {isAuthenticated && authUser && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
+        <OnboardingTour userId={authUser.id} authToken={authToken!} path={path} onNavigate={navigate} />
+      ) : null}
+    </>
   )
 }
 

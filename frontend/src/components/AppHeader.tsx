@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Box,
   Button,
@@ -17,6 +17,7 @@ import {
 import { brandLogo, icons } from '../assets'
 import BaseDialog from './dialogs/BaseDialog'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
+import { startOnboardingGuide } from '../utils/onboardingGuide'
 
 export type AppHeaderMenuItem = {
   key: string
@@ -179,6 +180,17 @@ function SidebarBugReportIcon() {
   )
 }
 
+function SidebarGuideIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+      <path
+        d="M6 4.5A2.5 2.5 0 0 1 8.5 2H19v17.5h-9.8a3.7 3.7 0 0 0-2.2.7V4.5Zm-1.2 0v15.7A3.5 3.5 0 0 0 2 23V6.5A2.5 2.5 0 0 1 4.5 4h.3c0 .17 0 .33 0 .5Zm6 1.2 1 2 2.2.3-1.6 1.6.4 2.2-2-1-2 1 .4-2.2-1.6-1.6 2.2-.3 1-2Z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 function AppHeader({
   isPageMenuOpen,
   onTogglePageMenu,
@@ -242,8 +254,30 @@ function AppHeader({
     'games-publications': SidebarPublicationsIcon,
     'games-all': SidebarCommunityIcon,
     'community-worlds': SidebarCommunityIcon,
+    guide: SidebarGuideIcon,
     'world-create': SidebarLibraryIcon,
   }
+  const resolvedMenuItems = useMemo(() => {
+    if (menuItems.some((item) => item.key === 'guide')) {
+      return menuItems
+    }
+
+    const guideItem: AppHeaderMenuItem = {
+      key: 'guide',
+      label: 'Гайд',
+      onClick: () => startOnboardingGuide('manual'),
+    }
+    const communityItemIndex = menuItems.findIndex((item) => item.key === 'games-all')
+    if (communityItemIndex >= 0) {
+      return [
+        ...menuItems.slice(0, communityItemIndex + 1),
+        guideItem,
+        ...menuItems.slice(communityItemIndex + 1),
+      ]
+    }
+
+    return [...menuItems, guideItem]
+  }, [menuItems])
   const showLogo = isPageMenuOpen || !isCompactSidebar
   const showPrimaryItems = isPageMenuOpen || !isCompactSidebar
   const showUtilityItems = isPageMenuOpen
@@ -437,13 +471,17 @@ function AppHeader({
                   transition: 'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
                 }}
               >
-                {menuItems.map((item, index) => {
+                {resolvedMenuItems.map((item, index) => {
                   const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
                   const isActive = Boolean(item.isActive)
 
                   return (
                     <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
-                      <Button sx={sidebarButtonSx(isActive, isPageMenuOpen, false, isGrayTheme)} onClick={item.onClick}>
+                      <Button
+                        data-tour-id={`sidebar-item-${item.key}`}
+                        sx={sidebarButtonSx(isActive, isPageMenuOpen, false, isGrayTheme)}
+                        onClick={item.onClick}
+                      >
                         <Box sx={sidebarIconWrapSx(isActive, isPageMenuOpen)}>
                           <MenuIcon />
                         </Box>
@@ -480,7 +518,11 @@ function AppHeader({
               >
                 {utilityMenuItems.map((item) => (
                   <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
-                    <Button sx={sidebarButtonSx(false, isPageMenuOpen, true)} onClick={item.onClick}>
+                    <Button
+                      data-tour-id={`sidebar-utility-${item.key}`}
+                      sx={sidebarButtonSx(false, isPageMenuOpen, true)}
+                      onClick={item.onClick}
+                    >
                       <Box sx={sidebarIconWrapSx(false, isPageMenuOpen)}>{item.icon}</Box>
                       <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
                         {item.label}
@@ -504,6 +546,7 @@ function AppHeader({
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
           {!hideRightToggle ? (
             <IconButton
+              data-tour-id="header-right-panel-toggle"
               aria-label={isRightPanelOpen ? rightToggleLabels.expanded : rightToggleLabels.collapsed}
               onClick={onToggleRightPanel}
               sx={shellButtonSx}

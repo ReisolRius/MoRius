@@ -27,7 +27,7 @@ import {
 } from '../services/storyApi'
 import type { StoryCharacter, StoryImageModelId } from '../types/story'
 import TextLimitIndicator from './TextLimitIndicator'
-import { compressImageDataUrl } from '../utils/avatar'
+import { compressImageDataUrl, prepareAvatarPayloadForRequest } from '../utils/avatar'
 
 type CharacterManagerDialogProps = {
   open: boolean
@@ -613,13 +613,14 @@ function CharacterManagerDialog({
   }
 
   const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, character: StoryCharacter) => {
-    if (!character.avatar_url) {
+    const previewUrl = character.avatar_original_url ?? character.avatar_url
+    if (!previewUrl) {
       return
     }
     event.preventDefault()
     event.stopPropagation()
     setCharacterAvatarPreview({
-      url: character.avatar_url,
+      url: previewUrl,
       name: character.name,
     })
   }, [])
@@ -647,7 +648,7 @@ function CharacterManagerDialog({
     setNoteDraft(character.note)
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
-    setAvatarSourceDraft(character.avatar_url)
+    setAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
     setVisibilityDraft(character.visibility === 'public' ? 'public' : 'private')
     setAvatarCropSource(null)
@@ -838,6 +839,12 @@ function CharacterManagerDialog({
     setErrorMessage('')
     setIsSavingCharacter(true)
     try {
+      const preparedAvatarPayload = await prepareAvatarPayloadForRequest({
+        avatarUrl: avatarDraft,
+        avatarOriginalUrl: avatarSourceDraft ?? avatarDraft,
+        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+        maxDimension: CHARACTER_AI_AVATAR_OUTPUT_SIZE,
+      })
       if (draftMode === 'create') {
         await createStoryCharacter({
           token: authToken,
@@ -846,7 +853,8 @@ function CharacterManagerDialog({
             description: normalizedDescription,
             note: normalizedNote,
             triggers: normalizedTriggers,
-            avatar_url: avatarDraft,
+            avatar_url: preparedAvatarPayload.avatarUrl,
+            avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             avatar_scale: avatarScaleDraft,
             visibility: visibilityDraft,
           },
@@ -860,7 +868,8 @@ function CharacterManagerDialog({
             description: normalizedDescription,
             note: normalizedNote,
             triggers: normalizedTriggers,
-            avatar_url: avatarDraft,
+            avatar_url: preparedAvatarPayload.avatarUrl,
+            avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             avatar_scale: avatarScaleDraft,
             visibility: visibilityDraft,
           },
@@ -1007,15 +1016,16 @@ function CharacterManagerDialog({
       maxWidth="sm"
       rawChildren
     >
-      <DialogTitle sx={{ pb: 1 }}>
+      <DialogTitle data-tour-id="character-manager-title" sx={{ pb: 1 }}>
         <Typography sx={{ fontWeight: 700, fontSize: '1.4rem' }}>Мои персонажи</Typography>
       </DialogTitle>
-      <DialogContent sx={{ pt: 0.6 }}>
+      <DialogContent data-tour-id="character-manager-dialog" sx={{ pt: 0.6 }}>
         <Stack spacing={1.1}>
           {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
 
           {isEditorOpen ? (
             <Box
+              data-tour-id="character-manager-editor"
               sx={{
                 borderRadius: '12px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -1025,7 +1035,7 @@ function CharacterManagerDialog({
               }}
             >
               <Stack spacing={1}>
-                <Stack spacing={0.7} alignItems="center">
+                <Stack data-tour-id="character-manager-avatar-section" spacing={0.7} alignItems="center">
                   <Box
                     role="button"
                     tabIndex={0}
@@ -1201,6 +1211,7 @@ function CharacterManagerDialog({
                 />
                 <TextField
                   label="Триггеры"
+                  data-tour-id="character-manager-triggers-section"
                   value={triggersDraft}
                   onChange={(event) => setTriggersDraft(event.target.value)}
                   fullWidth
@@ -1215,6 +1226,7 @@ function CharacterManagerDialog({
                 />
                 <TextField
                   label="Пометка"
+                  data-tour-id="character-manager-notes-section"
                   value={noteDraft}
                   onChange={(event) => setNoteDraft(event.target.value.slice(0, CHARACTER_NOTE_MAX_LENGTH))}
                   fullWidth
@@ -1334,7 +1346,7 @@ function CharacterManagerDialog({
                   >
                     <Stack spacing={0.45}>
                       <Stack direction="row" spacing={0.8} alignItems="center">
-                        {character.avatar_url ? (
+                        {(character.avatar_original_url ?? character.avatar_url) ? (
                           <Box
                             component="button"
                             type="button"
@@ -1527,14 +1539,28 @@ function CharacterManagerDialog({
       <BaseDialog
         open={Boolean(characterAvatarPreview)}
         onClose={handleCloseCharacterAvatarPreview}
-        maxWidth="lg"
+        maxWidth={false}
+        fullWidth={false}
         header={characterAvatarPreview?.name || 'Аватар персонажа'}
         actions={
           <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
         }
-        contentSx={{ px: 1, pt: 0.5, pb: 0.7 }}
+        paperSx={{
+          width: 'min(96vw, 1600px)',
+          maxWidth: 'none',
+          maxHeight: '96vh',
+        }}
+        contentSx={{
+          px: 1,
+          pt: 0.5,
+          pb: 0.7,
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          overflow: 'auto',
+        }}
       >
         {characterAvatarPreview ? (
           <Box
@@ -1542,9 +1568,10 @@ function CharacterManagerDialog({
             src={characterAvatarPreview.url}
             alt={characterAvatarPreview.name || 'Character avatar'}
             sx={{
-              width: '100%',
-              maxHeight: '82vh',
-              objectFit: 'contain',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: 'none',
+              maxHeight: 'none',
               borderRadius: '10px',
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
               backgroundColor: 'var(--morius-elevated-bg)',

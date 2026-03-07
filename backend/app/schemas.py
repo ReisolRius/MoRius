@@ -24,6 +24,18 @@ class UserOut(BaseModel):
     created_at: datetime
 
 
+class OnboardingGuideStateOut(BaseModel):
+    status: Literal["pending", "completed", "skipped"]
+    current_step_id: str | None
+    tutorial_game_id: int | None
+
+
+class OnboardingGuideStateUpdateRequest(BaseModel):
+    status: Literal["pending", "completed", "skipped"] | None = None
+    current_step_id: str | None = Field(default=None, max_length=120)
+    tutorial_game_id: int | None = Field(default=None, ge=1)
+
+
 class ProfilePrivacyOut(BaseModel):
     show_subscriptions: bool
     show_public_worlds: bool
@@ -276,6 +288,7 @@ class StoryGameMetaUpdateRequest(BaseModel):
 class StoryInstructionCardInput(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)
+    is_active: bool = True
 
 
 class StoryGenerateRequest(BaseModel):
@@ -336,6 +349,10 @@ class StoryInstructionCardUpdateRequest(BaseModel):
     content: str = Field(min_length=1, max_length=8_000)
 
 
+class StoryInstructionCardActiveUpdateRequest(BaseModel):
+    is_active: bool
+
+
 class StoryInstructionTemplateCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8_000)
@@ -354,6 +371,7 @@ class StoryWorldCardCreateRequest(BaseModel):
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
@@ -368,6 +386,7 @@ class StoryWorldCardUpdateRequest(BaseModel):
 
 class StoryWorldCardAvatarUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
 
 
@@ -389,6 +408,7 @@ class StoryCharacterCreateRequest(BaseModel):
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     visibility: str | None = Field(default=None, max_length=16)
 
@@ -399,6 +419,7 @@ class StoryCharacterUpdateRequest(BaseModel):
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     visibility: str | None = Field(default=None, max_length=16)
 
@@ -491,6 +512,7 @@ class StoryInstructionCardOut(BaseModel):
     game_id: int
     title: str
     content: str
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -519,6 +541,7 @@ class StoryWorldCardOut(BaseModel):
     triggers: list[str]
     kind: str
     avatar_url: str | None
+    avatar_original_url: str | None = None
     avatar_scale: float
     character_id: int | None
     memory_turns: int | None
@@ -537,6 +560,7 @@ class StoryCharacterOut(BaseModel):
     note: str
     triggers: list[str]
     avatar_url: str | None
+    avatar_original_url: str | None = None
     avatar_scale: float
     source: str
     visibility: str
@@ -607,6 +631,7 @@ class StoryWorldCardSnapshotOut(BaseModel):
     triggers: list[str]
     kind: str
     avatar_url: str | None
+    avatar_original_url: str | None = None
     avatar_scale: float
     character_id: int | None
     memory_turns: int | None
@@ -717,6 +742,7 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     note: str
     triggers: list[str]
     avatar_url: str | None
+    avatar_original_url: str | None = None
     avatar_scale: float
     visibility: str
     author_id: int

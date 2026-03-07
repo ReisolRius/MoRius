@@ -23,6 +23,8 @@ from app.schemas import (
     GoogleAuthRequest,
     LoginRequest,
     MessageResponse,
+    OnboardingGuideStateOut,
+    OnboardingGuideStateUpdateRequest,
     ProfileUpdateRequest,
     RegisterRequest,
     RegisterVerifyRequest,
@@ -62,6 +64,9 @@ AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0
 NEW_USER_STARTER_COINS = 20
+ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
+ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
+ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
 
 
 def _utcnow() -> datetime:
@@ -83,6 +88,79 @@ def _sync_user_display_name(user: User, *, fallback_email: str) -> bool:
         return False
     user.display_name = normalized_display_name
     return True
+
+
+def _normalize_onboarding_guide_status(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ONBOARDING_GUIDE_ALLOWED_STATUSES:
+            return normalized
+    return ONBOARDING_GUIDE_DEFAULT_STATUS
+
+
+def _normalize_onboarding_guide_step_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split()).strip()
+    if not normalized:
+        return None
+    return normalized[:ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH]
+
+
+def _normalize_onboarding_guide_tutorial_game_id(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, str) and value.strip().isdigit():
+        parsed = int(value.strip())
+        return parsed if parsed > 0 else None
+    return None
+
+
+def _read_onboarding_guide_state(user: User) -> dict[str, Any]:
+    raw_state = (user.onboarding_guide_state or "").strip()
+    parsed_state: dict[str, Any] = {}
+    if raw_state:
+        try:
+            candidate = json.loads(raw_state)
+            if isinstance(candidate, dict):
+                parsed_state = candidate
+        except Exception:
+            parsed_state = {}
+
+    normalized_status = _normalize_onboarding_guide_status(parsed_state.get("status"))
+    normalized_step_id = _normalize_onboarding_guide_step_id(parsed_state.get("current_step_id"))
+    normalized_tutorial_game_id = _normalize_onboarding_guide_tutorial_game_id(parsed_state.get("tutorial_game_id"))
+    if normalized_status in {"completed", "skipped"}:
+        normalized_step_id = None
+
+    return {
+        "status": normalized_status,
+        "current_step_id": normalized_step_id,
+        "tutorial_game_id": normalized_tutorial_game_id,
+    }
+
+
+def _store_onboarding_guide_state(user: User, state: dict[str, Any]) -> dict[str, Any]:
+    normalized_state = {
+        "status": _normalize_onboarding_guide_status(state.get("status")),
+        "current_step_id": _normalize_onboarding_guide_step_id(state.get("current_step_id")),
+        "tutorial_game_id": _normalize_onboarding_guide_tutorial_game_id(state.get("tutorial_game_id")),
+    }
+    if normalized_state["status"] in {"completed", "skipped"}:
+        normalized_state["current_step_id"] = None
+    user.onboarding_guide_state = json.dumps(normalized_state, ensure_ascii=False, separators=(",", ":"))
+    return normalized_state
+
+
+def _serialize_onboarding_guide_state(user: User) -> OnboardingGuideStateOut:
+    state = _read_onboarding_guide_state(user)
+    return OnboardingGuideStateOut(
+        status=state["status"],
+        current_step_id=state["current_step_id"],
+        tutorial_game_id=state["tutorial_game_id"],
+    )
 
 
 def _verify_google_token_with_tokeninfo(id_token_value: str) -> dict[str, Any] | None:
@@ -473,6 +551,43 @@ def me(
         db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.get("/api/auth/me/onboarding-guide", response_model=OnboardingGuideStateOut)
+def get_onboarding_guide_state(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> OnboardingGuideStateOut:
+    user = get_current_user(db, authorization)
+    current_state = _read_onboarding_guide_state(user)
+    if user.onboarding_guide_state != json.dumps(current_state, ensure_ascii=False, separators=(",", ":")):
+        _store_onboarding_guide_state(user, current_state)
+        db.commit()
+        db.refresh(user)
+    return _serialize_onboarding_guide_state(user)
+
+
+@router.patch("/api/auth/me/onboarding-guide", response_model=OnboardingGuideStateOut)
+def update_onboarding_guide_state(
+    payload: OnboardingGuideStateUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> OnboardingGuideStateOut:
+    user = get_current_user(db, authorization)
+    current_state = _read_onboarding_guide_state(user)
+    next_state = dict(current_state)
+
+    if "status" in payload.model_fields_set:
+        next_state["status"] = payload.status
+    if "current_step_id" in payload.model_fields_set:
+        next_state["current_step_id"] = payload.current_step_id
+    if "tutorial_game_id" in payload.model_fields_set:
+        next_state["tutorial_game_id"] = payload.tutorial_game_id
+
+    _store_onboarding_guide_state(user, next_state)
+    db.commit()
+    db.refresh(user)
+    return _serialize_onboarding_guide_state(user)
 
 
 @router.patch("/api/auth/me/avatar", response_model=UserOut)

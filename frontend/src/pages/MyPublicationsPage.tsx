@@ -584,7 +584,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         hideRightToggle
         onOpenTopUpDialog={() => onNavigate('/profile')}
         rightActions={
-          <Button variant="text" onClick={() => onNavigate('/profile')} aria-label="Открыть профиль" sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
+          <Button data-tour-id="header-profile-button" variant="text" onClick={() => onNavigate('/profile')} aria-label="Открыть профиль" sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
             <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
           </Button>
         }

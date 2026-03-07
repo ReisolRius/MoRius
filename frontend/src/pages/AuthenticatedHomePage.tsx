@@ -907,6 +907,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               variant="text"
               onClick={() => onNavigate('/profile')}
               aria-label="Открыть профиль"
+              data-tour-id="header-profile-button"
               sx={{
                 minWidth: 0,
                 width: HEADER_AVATAR_SIZE,
@@ -1164,101 +1165,103 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           )}
 
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
-            spacing={1}
-            sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}
-          >
-            <Stack spacing={0.45}>
-              <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-                Сообщество
-              </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
-                Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
-              </Typography>
+          <Box data-tour-id="home-community-section" sx={{ scrollMarginTop: '120px' }}>
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              justifyContent="space-between"
+              alignItems={{ xs: 'flex-start', md: 'flex-end' }}
+              spacing={1}
+              sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}
+            >
+              <Stack spacing={0.45}>
+                <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+                  Сообщество
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
+                  Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
+                </Typography>
+              </Stack>
+              <Stack direction="row" alignItems="center" sx={{ gap: 0.9 }}>
+                <Button
+                  onClick={() => onNavigate('/games/all')}
+                  sx={{
+                    minHeight: 'var(--morius-action-size)',
+                    px: 1.35,
+                    borderRadius: 'var(--morius-radius)',
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    border: 'var(--morius-border-width) solid transparent',
+                    backgroundColor: 'transparent',
+                    color: 'var(--morius-accent)',
+                    '&:hover': {
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_BUTTON_HOVER,
+                    },
+                    '&:active': {
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_BUTTON_ACTIVE,
+                    },
+                  }}
+                >
+                  Показать все
+                </Button>
+              </Stack>
             </Stack>
-            <Stack direction="row" alignItems="center" sx={{ gap: 0.9 }}>
-              <Button
-                onClick={() => onNavigate('/games/all')}
+
+            {communityWorldsError ? (
+              <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>
+                {communityWorldsError}
+              </Alert>
+            ) : null}
+
+            {isCommunityWorldsLoading ? (
+              <Box
                 sx={{
-                  minHeight: 'var(--morius-action-size)',
-                  px: 1.35,
-                  borderRadius: 'var(--morius-radius)',
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  border: 'var(--morius-border-width) solid transparent',
-                  backgroundColor: 'transparent',
-                  color: 'var(--morius-accent)',
-                  '&:hover': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_HOVER,
-                  },
-                  '&:active': {
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_BUTTON_ACTIVE,
-                  },
+                  display: 'grid',
+                  gap: 1.4,
+                  gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                 }}
               >
-                Показать все
-              </Button>
-            </Stack>
-          </Stack>
-
-          {communityWorldsError ? (
-            <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>
-              {communityWorldsError}
-            </Alert>
-          ) : null}
-
-          {isCommunityWorldsLoading ? (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-              }}
-            >
-              {HOME_COMMUNITY_SKELETON_CARD_KEYS.map((cardKey) => (
-                <Box key={cardKey}>
-                  <CommunityWorldCardSkeleton showFavoriteButton />
-                </Box>
-              ))}
-            </Box>
-          ) : communityWorlds.length === 0 ? (
-            <Box
-              sx={{
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                background: APP_CARD_BACKGROUND,
-                p: 1.4,
-              }}
-            >
-              <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
-            </Box>
-          ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-              }}
-            >
-              {communityWorldsPreview.map((world) => (
-                <CommunityWorldCard
-                  key={world.id}
-                  world={world}
-                  onClick={() => void handleOpenCommunityWorld(world.id)}
-                  onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                  disabled={isCommunityWorldDialogLoading}
-                  showFavoriteButton
-                  isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                  onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                />
-              ))}
-            </Box>
-          )}
+                {HOME_COMMUNITY_SKELETON_CARD_KEYS.map((cardKey) => (
+                  <Box key={cardKey}>
+                    <CommunityWorldCardSkeleton showFavoriteButton />
+                  </Box>
+                ))}
+              </Box>
+            ) : communityWorlds.length === 0 ? (
+              <Box
+                sx={{
+                  borderRadius: 'var(--morius-radius)',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  background: APP_CARD_BACKGROUND,
+                  p: 1.4,
+                }}
+              >
+                <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
+              </Box>
+            ) : (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1.4,
+                  gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
+                }}
+              >
+                {communityWorldsPreview.map((world) => (
+                  <CommunityWorldCard
+                    key={world.id}
+                    world={world}
+                    onClick={() => void handleOpenCommunityWorld(world.id)}
+                    onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                    disabled={isCommunityWorldDialogLoading}
+                    showFavoriteButton
+                    isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                    onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                  />
+                ))}
+              </Box>
+            )}
+          </Box>
 
           <Box component="footer" sx={{ mt: 2.8, pb: 0.3 }}>
             <Box

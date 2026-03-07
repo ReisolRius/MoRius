@@ -30,12 +30,14 @@ from app.services.concurrency import (
     increment_story_character_additions,
 )
 from app.services.auth_identity import get_current_user
+from app.services.media import normalize_avatar_value
 from app.services.story_characters import (
     STORY_CHARACTER_VISIBILITY_PRIVATE,
     STORY_CHARACTER_VISIBILITY_PUBLIC,
     coerce_story_character_visibility,
     deserialize_triggers,
     normalize_story_avatar_scale,
+    normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
     normalize_story_character_description,
     normalize_story_character_name,
@@ -109,6 +111,7 @@ def _build_story_community_character_summary(
         note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
         avatar_url=character.avatar_url,
+        avatar_original_url=normalize_avatar_value(getattr(character, "avatar_original_url", None)),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
         author_id=character.user_id,
@@ -137,6 +140,11 @@ def _create_story_character_publication_copy_from_source(
         note=normalize_story_character_note(source_character.note),
         triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
         avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
+        avatar_original_url=(
+            normalize_story_character_avatar_original_url(getattr(source_character, "avatar_original_url", None))
+            if getattr(source_character, "avatar_url", None)
+            else None
+        ),
         avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
         source=normalize_story_character_source(source_character.source),
         visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
@@ -245,6 +253,7 @@ def list_story_community_characters(
             note=normalize_story_character_note(getattr(character, "note", "")),
             triggers=deserialize_triggers(character.triggers),
             avatar_url=character.avatar_url,
+            avatar_original_url=normalize_avatar_value(getattr(character, "avatar_original_url", None)),
             avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
             visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
             author_id=character.user_id,
@@ -442,6 +451,11 @@ def add_story_community_character_to_account(
                 note=normalize_story_character_note(getattr(character, "note", "")),
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
                 avatar_url=normalize_story_character_avatar_url(character.avatar_url),
+                avatar_original_url=(
+                    normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None))
+                    if getattr(character, "avatar_url", None)
+                    else None
+                ),
                 avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
                 source=normalize_story_character_source(character.source),
                 visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
@@ -489,6 +503,7 @@ def create_story_character(
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
+    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     requested_visibility = normalize_story_character_visibility(payload.visibility)
     character = StoryCharacter(
@@ -498,6 +513,7 @@ def create_story_character(
         note=normalized_note,
         triggers=serialize_triggers(normalized_triggers),
         avatar_url=avatar_url,
+        avatar_original_url=avatar_original_url if avatar_url else None,
         avatar_scale=avatar_scale,
         source="user",
         visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
@@ -532,12 +548,14 @@ def update_story_character(
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
+    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     character.name = normalized_name
     character.description = normalized_description
     character.note = normalized_note
     character.triggers = serialize_triggers(normalized_triggers)
     character.avatar_url = avatar_url
+    character.avatar_original_url = avatar_original_url if avatar_url else None
     character.avatar_scale = avatar_scale
     character.source = normalize_story_character_source(character.source)
     requested_visibility: str | None = None

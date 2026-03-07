@@ -28,6 +28,7 @@ class User(Base):
     coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     ban_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    onboarding_guide_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -123,20 +124,20 @@ class StoryGame(Base):
     story_top_k: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        default=0,
-        server_default="0",
+        default=55,
+        server_default="55",
     )
     story_top_r: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=1.0,
-        server_default="1.0",
+        default=0.85,
+        server_default="0.85",
     )
     story_temperature: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=1.0,
-        server_default="1.0",
+        default=0.85,
+        server_default="0.85",
     )
     show_gg_thoughts: Mapped[bool] = mapped_column(
         Boolean,
@@ -388,6 +389,12 @@ class StoryInstructionCard(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -426,6 +433,7 @@ class StoryCharacter(Base):
     note: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
@@ -511,6 +519,7 @@ class StoryWorldCard(Base):
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="world", server_default="world")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     memory_turns: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")

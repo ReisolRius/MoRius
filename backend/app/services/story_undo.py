@@ -28,6 +28,7 @@ from app.services.story_cards import (
 )
 from app.services.story_characters import (
     normalize_story_avatar_scale,
+    normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
 )
 from app.services.story_events import (
@@ -101,6 +102,10 @@ def restore_story_world_card_from_snapshot(
     avatar_url = normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
     if avatar_url is not None and avatar_url.startswith("data:image/"):
         avatar_url = normalize_story_character_avatar_url(avatar_url)
+    raw_avatar_original = snapshot.get("avatar_original_url")
+    avatar_original_url = normalize_avatar_value(raw_avatar_original) if isinstance(raw_avatar_original, str) else None
+    if avatar_original_url is not None and avatar_original_url.startswith("data:image/"):
+        avatar_original_url = normalize_story_character_avatar_original_url(avatar_original_url)
     avatar_scale = normalize_story_avatar_scale(snapshot.get("avatar_scale"))
     raw_triggers = snapshot.get("triggers")
     trigger_values: list[str] = []
@@ -169,6 +174,7 @@ def restore_story_world_card_from_snapshot(
             triggers=serialize_story_world_card_triggers(triggers),
             kind=kind,
             avatar_url=avatar_url,
+            avatar_original_url=avatar_original_url if avatar_url else None,
             avatar_scale=avatar_scale,
             character_id=character_id,
             memory_turns=memory_turns,
@@ -185,6 +191,7 @@ def restore_story_world_card_from_snapshot(
     world_card.triggers = serialize_story_world_card_triggers(triggers)
     world_card.kind = kind
     world_card.avatar_url = avatar_url
+    world_card.avatar_original_url = avatar_original_url if avatar_url else None
     world_card.avatar_scale = avatar_scale
     world_card.character_id = character_id
     if has_memory_turns:

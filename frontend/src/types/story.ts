@@ -66,6 +66,7 @@ export type StoryInstructionCard = {
   game_id: number
   title: string
   content: string
+  is_active: boolean
   created_at: string
   updated_at: string
 }
@@ -151,6 +152,7 @@ export type StoryWorldCard = {
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale: number
   character_id: number | null
   memory_turns: number | null
@@ -170,6 +172,7 @@ export type StoryWorldCardSnapshot = {
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale: number
   character_id: number | null
   memory_turns: number | null
@@ -201,6 +204,7 @@ export type StoryCharacter = {
   note: string
   triggers: string[]
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale: number
   source: StoryCharacterSource
   visibility: StoryGameVisibility
@@ -219,6 +223,7 @@ export type StoryCommunityCharacterSummary = {
   note: string
   triggers: string[]
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale: number
   visibility: StoryGameVisibility
   author_id: number

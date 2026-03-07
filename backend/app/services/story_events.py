@@ -85,6 +85,8 @@ def deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, ob
     kind_value = normalize_story_world_card_kind(str(parsed.get("kind", "")))
     raw_avatar_value = parsed.get("avatar_url")
     avatar_value = normalize_avatar_value(raw_avatar_value) if isinstance(raw_avatar_value, str) else None
+    raw_avatar_original_value = parsed.get("avatar_original_url")
+    avatar_original_value = normalize_avatar_value(raw_avatar_original_value) if isinstance(raw_avatar_original_value, str) else None
     avatar_scale_value = normalize_story_avatar_scale(parsed.get("avatar_scale"))
     is_locked_value = _coerce_bool(parsed.get("is_locked"), default=False)
     ai_edit_enabled_value = _coerce_bool(parsed.get("ai_edit_enabled"), default=True)
@@ -121,6 +123,7 @@ def deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, ob
         "triggers": triggers_value,
         "kind": kind_value,
         "avatar_url": avatar_value,
+        "avatar_original_url": avatar_original_value or avatar_value,
         "avatar_scale": avatar_scale_value,
         "character_id": character_id,
         "memory_turns": serialize_story_world_card_memory_turns(memory_turns_value, kind=kind_value),

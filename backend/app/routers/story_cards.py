@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import StoryInstructionCard, StoryPlotCard, StoryPlotCardChangeEvent
 from app.schemas import (
     MessageResponse,
+    StoryInstructionCardActiveUpdateRequest,
     StoryInstructionCardCreateRequest,
     StoryInstructionCardOut,
     StoryInstructionCardUpdateRequest,
@@ -71,6 +72,7 @@ def create_story_instruction_card(
         game_id=game.id,
         title=normalize_story_instruction_title(payload.title),
         content=normalize_story_instruction_content(payload.content),
+        is_active=True,
     )
     db.add(instruction_card)
     touch_story_game(game)
@@ -101,6 +103,33 @@ def update_story_instruction_card(
 
     instruction_card.title = normalize_story_instruction_title(payload.title)
     instruction_card.content = normalize_story_instruction_content(payload.content)
+    touch_story_game(game)
+    _refresh_public_story_game_snapshots_if_needed(db, game)
+    db.commit()
+    db.refresh(instruction_card)
+    return StoryInstructionCardOut.model_validate(instruction_card)
+
+
+@router.patch("/api/story/games/{game_id}/instructions/{instruction_id}/active", response_model=StoryInstructionCardOut)
+def update_story_instruction_card_active(
+    game_id: int,
+    instruction_id: int,
+    payload: StoryInstructionCardActiveUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryInstructionCardOut:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+    instruction_card = db.scalar(
+        select(StoryInstructionCard).where(
+            StoryInstructionCard.id == instruction_id,
+            StoryInstructionCard.game_id == game.id,
+        )
+    )
+    if instruction_card is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instruction card not found")
+
+    instruction_card.is_active = bool(payload.is_active)
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()

@@ -82,6 +82,7 @@ export type StoryGenerationStreamOptions = {
 export type StoryInstructionCardInput = {
   title: string
   content: string
+  is_active?: boolean
 }
 
 export type StoryWorldCardInput = {
@@ -98,6 +99,7 @@ export type StoryCharacterInput = {
   note?: string
   triggers: string[]
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale?: number
   visibility?: StoryGameVisibility
 }
@@ -186,6 +188,7 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
+    avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
     avatar_scale:
       typeof character.avatar_scale === 'number' && Number.isFinite(character.avatar_scale)
         ? Math.max(1, Math.min(3, character.avatar_scale))
@@ -1369,6 +1372,7 @@ export async function createStoryWorldCard(payload: {
   triggers: string[]
   kind?: 'world' | 'npc' | 'main_hero'
   avatar_url?: string | null
+  avatar_original_url?: string | null
   avatar_scale?: number
   memory_turns?: number | null
 }): Promise<StoryWorldCard> {
@@ -1378,6 +1382,7 @@ export async function createStoryWorldCard(payload: {
     triggers: payload.triggers,
     kind: payload.kind ?? 'world',
     avatar_url: payload.avatar_url ?? null,
+    avatar_original_url: payload.avatar_original_url ?? null,
     avatar_scale: payload.avatar_scale ?? null,
   }
   if (payload.memory_turns !== undefined) {
@@ -1429,6 +1434,7 @@ export async function updateStoryWorldCardAvatar(payload: {
   gameId: number
   cardId: number
   avatar_url: string | null
+  avatar_original_url?: string | null
   avatar_scale?: number
 }): Promise<StoryWorldCard> {
   return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/avatar`, {
@@ -1438,7 +1444,25 @@ export async function updateStoryWorldCardAvatar(payload: {
     },
     body: JSON.stringify({
       avatar_url: payload.avatar_url,
+      avatar_original_url: payload.avatar_original_url ?? null,
       avatar_scale: payload.avatar_scale ?? null,
+    }),
+  })
+}
+
+export async function updateStoryInstructionCardActive(payload: {
+  token: string
+  gameId: number
+  instructionId: number
+  is_active: boolean
+}): Promise<StoryInstructionCard> {
+  return request<StoryInstructionCard>(`/api/story/games/${payload.gameId}/instructions/${payload.instructionId}/active`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      is_active: payload.is_active,
     }),
   })
 }

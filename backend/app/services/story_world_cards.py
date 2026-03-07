@@ -12,6 +12,7 @@ from app.services.media import normalize_avatar_value
 from app.services.story_characters import (
     deserialize_triggers,
     normalize_story_avatar_scale,
+    normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
 )
 
@@ -248,6 +249,11 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         triggers=deserialize_story_world_card_triggers(card.triggers),
         kind=normalized_kind,
         avatar_url=normalize_avatar_value(card.avatar_url),
+        avatar_original_url=(
+            normalize_avatar_value(getattr(card, "avatar_original_url", None))
+            if getattr(card, "avatar_url", None)
+            else None
+        ),
         avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
         character_id=card.character_id,
         memory_turns=serialize_story_world_card_memory_turns(card.memory_turns, kind=normalized_kind),
@@ -282,6 +288,11 @@ def build_story_world_card_from_character(
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         avatar_url=normalize_story_character_avatar_url(character.avatar_url),
+        avatar_original_url=(
+            normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None))
+            if getattr(character, "avatar_url", None)
+            else None
+        ),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         character_id=None,
         memory_turns=normalize_story_world_card_memory_turns_for_storage(

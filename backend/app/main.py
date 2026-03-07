@@ -315,10 +315,10 @@ STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_GROK: 30,
 }
 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
-STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 45
+STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 120
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 180,
-    STORY_TURN_IMAGE_MODEL_GROK: 180,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 120,
+    STORY_TURN_IMAGE_MODEL_GROK: 120,
 }
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
@@ -708,6 +708,10 @@ STORY_MARKUP_PARAGRAPH_PATTERN = re.compile(
     r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
+STORY_MARKUP_START_PATTERN = re.compile(
+    r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]",
+    re.IGNORECASE,
+)
 STORY_MARKUP_STANDALONE_PATTERN = re.compile(
     r"^\[\[\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^\]]+?))?\s*\]\]\s*$",
     re.IGNORECASE,
@@ -745,8 +749,16 @@ STORY_MARKUP_KEY_ALIAS_BY_COMPACT = {
     "npc": "npc",
     "\u043d\u043f\u0441": "npc",
     "\u043d\u043f\u043a": "npc",
+    "npcreplick": "npc",
+    "npcreplica": "npc",
+    "npcspeech": "npc",
+    "npcdialogue": "npc",
     "gg": "gg",
     "\u0433\u0433": "gg",
+    "ggreplick": "gg",
+    "ggreplica": "gg",
+    "ggspeech": "gg",
+    "ggdialogue": "gg",
     "mc": "mc",
     "mainhero": "mainhero",
     "maincharacter": "mainhero",
@@ -827,6 +839,9 @@ STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": "z-ai/glm-5",
     "z-ai/glm-4.7": "z-ai/glm-4.7",
+    "deepseek/deepseek-v3.2": "z-ai/glm-5",
+    "x-ai/grok-4.1-fast": "z-ai/glm-5",
+    "arcee-ai/trinity-large-preview:free": "z-ai/glm-5",
 }
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-v3.2",
@@ -1018,6 +1033,9 @@ STORY_STRICT_RUSSIAN_OUTPUT_RULES = (
     "3) Keep marker labels and character names unchanged.",
     "4) Chinese/Japanese/Korean characters are forbidden in output.",
     "5) Before finalizing, rewrite accidental non-Russian fragments into natural Russian.",
+    "6) Run a silent Russian quality check before every final answer: spelling, grammar, punctuation, morphology, style, and lexical purity.",
+    "7) If any phrase sounds machine-translated, broken, unnatural, or semantically awkward in Russian, rewrite it immediately into fluent literary Russian.",
+    "8) Prefer Russian wording for foreign terms whenever meaning can be preserved without loss.",
 )
 STORY_DIALOGUE_FORMAT_RULES = (
     "Следуй карточкам инструкций и мира молча, не перечисляй их.",
@@ -1394,6 +1412,8 @@ def _normalize_story_generation_instructions(
 ) -> list[dict[str, str]]:
     normalized_cards: list[dict[str, str]] = []
     for item in instructions:
+        if not bool(getattr(item, "is_active", True)):
+            continue
         title = " ".join(item.title.split()).strip()
         content = item.content.replace("\r\n", "\n").strip()
         if not title or not content:
@@ -2789,6 +2809,7 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
         "kind": card_kind,
         "avatar_url": _normalize_avatar_value(card.avatar_url),
+        "avatar_original_url": _normalize_avatar_value(getattr(card, "avatar_original_url", None)) or _normalize_avatar_value(card.avatar_url),
         "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
         "character_id": card.character_id,
         "memory_turns": _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind),
@@ -3507,6 +3528,16 @@ def _build_story_system_prompt(
             if not title or not content:
                 continue
             lines.append(f"{index}. {title}: {content}")
+        lines.extend(
+            [
+                "",
+                "PLAYER INSTRUCTION PRIORITY:",
+                "Active player instruction cards are hard constraints for this turn.",
+                "Follow every active instruction card strictly and literally whenever possible.",
+                "If an instruction card conflicts with your default habits, pacing, or stylistic preference, the instruction card wins.",
+                "Never ignore, weaken, or silently reinterpret player instruction cards for convenience.",
+            ]
+        )
     if plot_cards_for_prompt:
         lines.extend(["", "Карточки памяти сюжета:"])
         for index, card in enumerate(plot_cards_for_prompt, start=1):
@@ -3589,6 +3620,15 @@ def _build_story_system_prompt(
                 "Описывай только реакцию мира и NPC на уже совершенное действие игрока.",
             ]
         )
+    if "deepseek/" in normalized_model_name:
+        lines.extend(
+            [
+                "",
+                "DEEPSEEK INSTRUCTION OVERRIDE:",
+                "PLAYER INSTRUCTION CARDS are mandatory operating rules.",
+                "Do not bypass them even if they reduce drama, speed, or stylistic freedom.",
+            ]
+        )
     if not show_npc_thoughts:
         lines.extend(
             [
@@ -3646,6 +3686,33 @@ def _normalize_story_markup_key(raw_value: str) -> str:
     return normalized_key
 
 
+def _normalize_story_markup_speaker_name(raw_value: str) -> str:
+    speaker_name = " ".join(raw_value.split()).strip(" .,:;!?-\"'()[]")
+    if len(speaker_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
+        speaker_name = speaker_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    return speaker_name
+
+
+def _resolve_story_bare_speaker_marker_name(
+    raw_marker_name: str,
+    raw_speaker: str | None,
+    *,
+    marker_key: str | None = None,
+) -> str | None:
+    if isinstance(raw_speaker, str) and _normalize_story_markup_speaker_name(raw_speaker):
+        return None
+
+    speaker_name = _normalize_story_markup_speaker_name(raw_marker_name)
+    if not speaker_name:
+        return None
+
+    normalized_key = marker_key or _normalize_story_markup_key(speaker_name)
+    if _canonical_story_marker_token(normalized_key) is not None:
+        return None
+
+    return speaker_name
+
+
 def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
     paragraph_value = paragraph.strip()
     if not paragraph_value:
@@ -3655,7 +3722,8 @@ def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
     if marker_match is None:
         return None
 
-    marker_key = _normalize_story_markup_key(marker_match.group(1))
+    raw_marker_name = marker_match.group(1)
+    marker_key = _normalize_story_markup_key(raw_marker_name)
     raw_speaker = marker_match.group(2)
     text_value = marker_match.group(3).strip()
     if not text_value:
@@ -3668,15 +3736,18 @@ def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
         }
 
     if marker_key not in STORY_SPEECH_MARKER_KEYS and marker_key not in STORY_THOUGHT_MARKER_KEYS:
-        return None
+        bare_speaker_name = _resolve_story_bare_speaker_marker_name(raw_marker_name, raw_speaker, marker_key=marker_key)
+        if not bare_speaker_name:
+            return None
+        return {
+            "kind": "speech",
+            "speaker": bare_speaker_name,
+            "text": text_value,
+        }
     if not isinstance(raw_speaker, str):
         return None
 
-    speaker_name = " ".join(raw_speaker.split()).strip(" .,:;!?-\"'()[]")
-    if not speaker_name:
-        return None
-    if len(speaker_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
-        speaker_name = speaker_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    speaker_name = _normalize_story_markup_speaker_name(raw_speaker)
     if not speaker_name:
         return None
 
@@ -3709,26 +3780,27 @@ def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
     if marker_match is None:
         return None
 
-    marker_key = _normalize_story_markup_key(marker_match.group(1))
+    raw_marker_name = marker_match.group(1)
+    marker_key = _normalize_story_markup_key(raw_marker_name)
     marker_token = _canonical_story_marker_token(marker_key)
-    if marker_token is None:
-        return None
 
     raw_speaker = marker_match.group(2)
     text_value = marker_match.group(3).strip()
     if not text_value:
         return None
 
+    if marker_token is None:
+        bare_speaker_name = _resolve_story_bare_speaker_marker_name(raw_marker_name, raw_speaker, marker_key=marker_key)
+        if not bare_speaker_name:
+            return None
+        return f"[[NPC:{bare_speaker_name}]] {text_value}"
+
     if marker_token == "NARRATOR":
         return f"[[NARRATOR]] {text_value}"
 
     if not isinstance(raw_speaker, str):
         return None
-    speaker_name = " ".join(raw_speaker.split()).strip(" .,:;!?-\"'()[]")
-    if not speaker_name:
-        return None
-    if len(speaker_name) > STORY_CHARACTER_MAX_NAME_LENGTH:
-        speaker_name = speaker_name[:STORY_CHARACTER_MAX_NAME_LENGTH].rstrip()
+    speaker_name = _normalize_story_markup_speaker_name(raw_speaker)
     if not speaker_name:
         return None
     return f"[[{marker_token}:{speaker_name}]] {text_value}"
@@ -3825,9 +3897,7 @@ def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
 
         first_line = lines[0]
         if pending_marker:
-            if STORY_MARKUP_STANDALONE_PATTERN.match(first_line) is not None:
-                merged_paragraphs.append(pending_marker)
-            else:
+            if STORY_MARKUP_START_PATTERN.match(first_line) is None:
                 merged_paragraphs.append(f"{pending_marker} {' '.join(lines)}".strip())
                 pending_marker = ""
                 continue
@@ -3837,13 +3907,17 @@ def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
             if len(lines) == 1:
                 pending_marker = first_line
                 continue
-            merged_paragraphs.append(f"{first_line} {' '.join(lines[1:])}".strip())
+            trailing_text = " ".join(lines[1:]).strip()
+            if not trailing_text:
+                pending_marker = first_line
+                continue
+            if STORY_MARKUP_START_PATTERN.match(trailing_text) is not None:
+                merged_paragraphs.append(trailing_text)
+                continue
+            merged_paragraphs.append(f"{first_line} {trailing_text}".strip())
             continue
 
         merged_paragraphs.append("\n".join(lines))
-
-    if pending_marker:
-        merged_paragraphs.append(pending_marker)
 
     return "\n\n".join(paragraph for paragraph in merged_paragraphs if paragraph.strip())
 
@@ -4389,21 +4463,23 @@ def _story_model_language_code() -> str:
     return _normalize_story_language_code(settings.story_model_language, fallback="en")
 
 
-def _is_story_translation_enabled() -> bool:
-    provider = _effective_story_llm_provider()
+def _is_story_input_translation_enabled() -> bool:
     user_language = _story_user_language_code()
     model_language = _story_model_language_code()
-    # For Russian UI + OpenRouter we keep user input as-is and rely on
-    # post-translation for the model output.
-    if provider == "openrouter" and user_language == "ru":
-        return False
-
     return (
         settings.story_translation_enabled
         and bool(settings.openrouter_api_key)
         and bool(_story_output_translation_model_name())
         and user_language != model_language
     )
+
+
+def _is_story_output_translation_enabled() -> bool:
+    return _is_story_input_translation_enabled() and _story_user_language_code() != "ru"
+
+
+def _is_story_translation_enabled() -> bool:
+    return _is_story_input_translation_enabled()
 
 
 def _story_output_translation_model_name(model_name: str | None = None) -> str:
@@ -4436,9 +4512,7 @@ def _can_force_story_output_translation(model_name: str | None = None) -> bool:
 
 
 def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
-    if not _is_story_output_translation_model(model_name):
-        return False
-    return _can_force_story_output_translation(model_name)
+    return _story_user_language_code() == "ru" and _can_force_story_output_translation(model_name)
 
 
 def _build_openrouter_provider_payload(model_name: str | None) -> dict[str, Any] | None:
@@ -4565,6 +4639,9 @@ def _translate_text_batch_with_openrouter(
                 "Translate each input text to the target language while preserving meaning, tone, line breaks, and markup. "
                 "Never alter, translate, remove, or reorder any [[...]] markers. "
                 "Marker content inside [[...]] must remain exactly unchanged. "
+                "Do not translate or transliterate proper names, character names, card titles, or world-defined terms when they act as identifiers; keep their original spelling. "
+                "If the target language is Russian, output only natural Russian text with correct spelling, grammar, punctuation, morphology, and style. "
+                "If the target language is Russian, remove any accidental English or CJK leakage unless it is an explicitly fixed identifier that must stay unchanged. "
                 "Return strict JSON array of strings with the same order and same count as input. "
                 "Do not add comments. Do not wrap JSON in markdown."
             ),
@@ -4587,6 +4664,7 @@ def _translate_text_batch_with_openrouter(
         translation_messages,
         model_name=selected_translation_model,
         allow_free_fallback=False,
+        translate_input=False,
         temperature=0,
         max_tokens=translation_max_tokens,
         request_timeout=(
@@ -4628,8 +4706,6 @@ def _translate_texts_with_openrouter(
 ) -> list[str]:
     if not texts:
         return []
-    if not _is_story_translation_enabled():
-        return texts
     if source_language == target_language:
         return texts
 
@@ -4676,10 +4752,10 @@ def _translate_texts_with_openrouter(
 
 
 def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) -> list[dict[str, str]]:
-    if not _is_story_translation_enabled():
+    if not _is_story_input_translation_enabled():
         return messages_payload
 
-    source_language = _story_user_language_code()
+    source_language = "auto"
     target_language = _story_model_language_code()
     raw_texts = [message.get("content", "") for message in messages_payload]
     translated_texts = _translate_texts_with_openrouter(
@@ -4693,12 +4769,26 @@ def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) 
     return translated_messages
 
 
+def _prepare_story_messages_for_model(
+    messages_payload: list[dict[str, str]],
+    *,
+    translate_input: bool = True,
+) -> list[dict[str, str]]:
+    if not translate_input:
+        return messages_payload
+    try:
+        return _translate_story_messages_for_model(messages_payload)
+    except Exception as exc:
+        logger.warning("Story input translation failed: %s", exc)
+        return messages_payload
+
+
 def _translate_story_model_output_to_user(text_value: str) -> str:
     if not text_value.strip():
         return text_value
-    if not _is_story_translation_enabled():
+    if not _is_story_output_translation_enabled():
         return text_value
-    source_language = _story_model_language_code()
+    source_language = "auto"
     target_language = _story_user_language_code()
     translated = _translate_texts_with_openrouter(
         [text_value],
@@ -4770,9 +4860,9 @@ def _translate_story_stream_output_chunk(
 ) -> str:
     if not text_value:
         return text_value
-    should_apply_russian_contract = _story_user_language_code() == "ru" or _is_story_output_translation_model(source_model_name)
+    should_apply_russian_contract = _story_user_language_code() == "ru"
     try:
-        if force_output_translation and not _is_story_translation_enabled():
+        if force_output_translation and not _is_story_output_translation_enabled():
             translated = _force_translate_story_model_output_to_user(
                 text_value,
                 source_model_name=source_model_name,
@@ -4857,7 +4947,7 @@ def _strip_story_markup_for_language_detection(text_value: str) -> str:
 
 
 def _should_force_story_output_to_russian(text_value: str, *, model_name: str | None = None) -> bool:
-    if not _is_story_output_translation_model(model_name):
+    if _story_user_language_code() != "ru":
         return False
     if not _can_force_story_output_translation(model_name):
         return False
@@ -4874,12 +4964,13 @@ def _should_force_story_output_to_russian(text_value: str, *, model_name: str | 
 
     if cyrillic_letters == 0 and latin_letters >= 2:
         return True
-    # For force-listed models we aggressively translate on any meaningful Latin leakage.
     if latin_words >= 1:
         return True
-    if latin_letters >= 4 and latin_letters > cyrillic_letters * 0.08:
+    if latin_letters >= 2 and cyrillic_letters == 0:
         return True
-    if latin_letters >= 1 and latin_letters > max(cyrillic_letters, 1) * 0.25:
+    if latin_letters >= 2 and latin_letters > cyrillic_letters * 0.03:
+        return True
+    if latin_letters >= 1 and latin_letters > max(cyrillic_letters, 1) * 0.12:
         return True
     return False
 
@@ -4932,7 +5023,7 @@ def _enforce_story_output_language(text_value: str, *, model_name: str | None = 
         return normalized
 
     should_force_russian = _should_force_story_output_to_russian(normalized, model_name=model_name)
-    should_apply_russian_contract = _story_user_language_code() == "ru" or _is_story_output_translation_model(model_name)
+    should_apply_russian_contract = _story_user_language_code() == "ru"
 
     if should_apply_russian_contract:
         normalized = _sanitize_story_russian_output_contract(normalized)
@@ -5136,11 +5227,7 @@ def _build_story_provider_messages(
     if not translate_for_model:
         return messages_payload
 
-    try:
-        return _translate_story_messages_for_model(messages_payload)
-    except Exception as exc:
-        logger.warning("Story input translation failed: %s", exc)
-        return messages_payload
+    return _prepare_story_messages_for_model(messages_payload)
 
 
 def _extract_text_from_model_content(value: Any) -> str:
@@ -5981,9 +6068,10 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
     last_error: RuntimeError | None = None
 
     for model_name in candidate_models:
+        prepared_messages_payload = _prepare_story_messages_for_model(messages_payload)
         payload = {
             "model": model_name,
-            "messages": messages_payload,
+            "messages": prepared_messages_payload,
             "stream": False,
             "temperature": 0.1,
         }
@@ -6047,6 +6135,7 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
 
 def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
     access_token = _get_gigachat_access_token()
+    prepared_messages_payload = _prepare_story_messages_for_model(messages_payload)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
@@ -6054,7 +6143,7 @@ def _request_gigachat_world_card_candidates(messages_payload: list[dict[str, str
     }
     payload = {
         "model": settings.gigachat_model,
-        "messages": messages_payload,
+        "messages": prepared_messages_payload,
         "stream": False,
         "temperature": 0.1,
     }
@@ -8462,6 +8551,7 @@ def _request_gigachat_story_text(
     max_tokens: int | None = None,
 ) -> str:
     access_token = _get_gigachat_access_token()
+    prepared_messages_payload = _prepare_story_messages_for_model(messages_payload)
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
@@ -8469,7 +8559,7 @@ def _request_gigachat_story_text(
     }
     payload = {
         "model": settings.gigachat_model,
-        "messages": messages_payload,
+        "messages": prepared_messages_payload,
         "stream": False,
     }
     if max_tokens is not None:
@@ -8523,6 +8613,7 @@ def _request_openrouter_story_text(
     *,
     model_name: str | None = None,
     allow_free_fallback: bool = True,
+    translate_input: bool = True,
     fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
     top_k: int | None = None,
@@ -8557,10 +8648,14 @@ def _request_openrouter_story_text(
 
     last_error: RuntimeError | None = None
     timeout_value = request_timeout or (20, 120)
+    prepared_messages_payload = _prepare_story_messages_for_model(
+        messages_payload,
+        translate_input=translate_input,
+    )
     for candidate_model in candidate_models:
         payload = {
             "model": candidate_model,
-            "messages": messages_payload,
+            "messages": prepared_messages_payload,
             "stream": False,
         }
         provider_payload = _build_openrouter_provider_payload(candidate_model)
@@ -9972,7 +10067,7 @@ def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | N
             normalized_url,
             timeout=(
                 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                45,
+                STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT,
             ),
         )
     except requests.RequestException:
@@ -10017,7 +10112,8 @@ def _iter_story_provider_stream_chunks(
             story_response_max_tokens,
             model_name=settings.gigachat_model,
         )
-        translation_enabled = _is_story_translation_enabled()
+        input_translation_enabled = _is_story_input_translation_enabled()
+        output_translation_enabled = _is_story_output_translation_enabled()
         raw_chunk_stream = _iter_gigachat_story_stream_chunks(
             context_messages,
             instruction_cards,
@@ -10026,11 +10122,11 @@ def _iter_story_provider_stream_chunks(
             use_plot_memory=use_plot_memory,
             context_limit_chars=context_limit_chars,
             response_max_tokens=effective_response_max_tokens,
-            translate_for_model=translation_enabled,
+            translate_for_model=input_translation_enabled,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
-        if translation_enabled:
+        if output_translation_enabled:
             yield from _yield_story_translated_stream_chunks(
                 raw_chunk_stream,
                 source_model_name=settings.gigachat_model,
@@ -10062,8 +10158,9 @@ def _iter_story_provider_stream_chunks(
             model_name=selected_model_name,
             story_temperature=story_temperature,
         )
-        translation_enabled = _is_story_translation_enabled()
-        if translation_enabled:
+        input_translation_enabled = _is_story_input_translation_enabled()
+        output_translation_enabled = _is_story_output_translation_enabled()
+        if output_translation_enabled:
             raw_chunk_stream = _iter_openrouter_story_stream_chunks(
                 context_messages,
                 instruction_cards,
@@ -10076,7 +10173,7 @@ def _iter_story_provider_stream_chunks(
                 top_k=top_k_value,
                 top_p=top_p_value,
                 max_tokens=effective_response_max_tokens,
-                translate_for_model=translation_enabled,
+                translate_for_model=input_translation_enabled,
                 show_gg_thoughts=show_gg_thoughts,
                 show_npc_thoughts=show_npc_thoughts,
             )
@@ -10103,7 +10200,7 @@ def _iter_story_provider_stream_chunks(
             top_k=top_k_value,
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
-            translate_for_model=False,
+            translate_for_model=input_translation_enabled,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         ):
