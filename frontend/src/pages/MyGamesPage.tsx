@@ -157,6 +157,20 @@ function normalizeGamePreview(value: string | null | undefined): string {
   return `${compact.slice(0, 142)}...`
 }
 
+function formatTurnCountLabel(value: number): string {
+  const normalizedValue = Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0
+  const mod10 = normalizedValue % 10
+  const mod100 = normalizedValue % 100
+
+  if (mod10 === 1 && mod100 !== 11) {
+    return `${normalizedValue} \u0445\u043e\u0434`
+  }
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${normalizedValue} \u0445\u043e\u0434\u0430`
+  }
+  return `${normalizedValue} \u0445\u043e\u0434\u043e\u0432`
+}
+
 function SearchGlyph() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
@@ -1091,6 +1105,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 const hasCover = Boolean(game.cover_image_url)
                 const descriptionCandidate = (game.description || '').trim() || (gamePreviews[game.id] ?? 'Загружаем превью...')
                 const cardDescription = descriptionCandidate.replace(/\s+/g, ' ').trim()
+                const turnCountLabel = formatTurnCountLabel(game.turn_count)
                 const communityViews = sourceWorld?.community_views ?? game.community_views
                 const communityLaunches = sourceWorld?.community_launches ?? game.community_launches
                 const communityRatingAvg = sourceWorld?.community_rating_avg ?? game.community_rating_avg
@@ -1127,6 +1142,48 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                         }
                       }}
                       onClick={() => onNavigate(`/home/${game.id}`)}
+                      coverBadge={
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 0.8,
+                            minHeight: 32,
+                            px: 1.15,
+                            py: 0.7,
+                            borderRadius: '999px',
+                            border: '1px solid rgba(214, 226, 244, 0.2)',
+                            background:
+                              'linear-gradient(180deg, rgba(9, 14, 22, 0.86) 0%, rgba(12, 18, 28, 0.76) 100%)',
+                            color: 'rgba(236, 243, 252, 0.96)',
+                            backdropFilter: 'blur(12px)',
+                            boxShadow: '0 10px 28px rgba(0, 0, 0, 0.24)',
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: 7,
+                              height: 7,
+                              borderRadius: '50%',
+                              flexShrink: 0,
+                              background:
+                                'linear-gradient(180deg, rgba(214, 228, 247, 0.95) 0%, rgba(150, 184, 226, 0.88) 100%)',
+                              boxShadow: '0 0 0 4px rgba(197, 216, 241, 0.09)',
+                            }}
+                          />
+                          <Typography
+                            sx={{
+                              fontSize: { xs: '0.76rem', md: '0.8rem' },
+                              lineHeight: 1,
+                              fontWeight: 700,
+                              whiteSpace: 'nowrap',
+                              letterSpacing: '0.01em',
+                            }}
+                          >
+                            {turnCountLabel}
+                          </Typography>
+                        </Box>
+                      }
                     />
 
                     <IconButton

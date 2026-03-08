@@ -1,7 +1,7 @@
 import { Box, IconButton, Stack, SvgIcon, Typography } from '@mui/material'
 import type { SxProps } from '@mui/system'
 import type { Theme } from '@mui/material/styles'
-import type { KeyboardEvent, MouseEvent } from 'react'
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { icons } from '../../assets'
 import type { StoryCommunityWorldSummary } from '../../types/story'
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
@@ -15,6 +15,7 @@ type CommunityWorldCardProps = {
   showFavoriteButton?: boolean
   isFavoriteSaving?: boolean
   onToggleFavorite?: (world: StoryCommunityWorldSummary) => void
+  coverBadge?: ReactNode
 }
 
 const CARD_BACKGROUND = 'var(--morius-card-bg)'
@@ -65,6 +66,7 @@ function CommunityWorldCard({
   showFavoriteButton = false,
   isFavoriteSaving = false,
   onToggleFavorite,
+  coverBadge,
 }: CommunityWorldCardProps) {
   const authorName = world.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world.author_avatar_url
@@ -303,6 +305,21 @@ function CommunityWorldCard({
           >
             <FavoriteHeartIcon active={world.is_favorited_by_user} />
           </IconButton>
+        ) : null}
+
+        {coverBadge ? (
+          <Box
+            sx={{
+              position: 'absolute',
+              left: { xs: '12px', md: '14px' },
+              bottom: { xs: '12px', md: '14px' },
+              zIndex: 2,
+              maxWidth: 'calc(100% - 28px)',
+              pointerEvents: 'none',
+            }}
+          >
+            {coverBadge}
+          </Box>
         ) : null}
       </Box>
 

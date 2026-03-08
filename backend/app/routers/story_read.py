@@ -23,6 +23,7 @@ from app.services.story_events import (
     story_world_card_change_event_to_out,
 )
 from app.services.story_games import (
+    count_story_completed_turns,
     ensure_story_game_public_card_snapshots,
     get_story_game_public_cards_out,
     story_author_avatar_url,
@@ -137,7 +138,7 @@ def get_story_game(
     world_card_events = list_story_world_card_events(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     return StoryGameOut(
-        game=story_game_summary_to_out(game),
+        game=story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages)),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],

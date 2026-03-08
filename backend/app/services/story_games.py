@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import StoryGame, StoryInstructionCard, StoryPlotCard, StoryWorldCard, User
+from app.models import StoryGame, StoryInstructionCard, StoryMessage, StoryPlotCard, StoryWorldCard, User
 from app.schemas import (
     StoryCommunityWorldSummaryOut,
     StoryGameSummaryOut,
@@ -117,7 +117,8 @@ STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
-STORY_IMAGE_MODEL_GROK = "grok-imagine-image-pro"
+STORY_IMAGE_MODEL_GROK = "grok-imagine-image"
+STORY_IMAGE_MODEL_GROK_LEGACY = "grok-imagine-image-pro"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
 STORY_SUPPORTED_IMAGE_MODELS = {
     STORY_IMAGE_MODEL_FLUX,
@@ -355,6 +356,8 @@ def normalize_story_llm_model(value: str | None) -> str:
 
 def coerce_story_image_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
+    if normalized == STORY_IMAGE_MODEL_GROK_LEGACY:
+        normalized = STORY_IMAGE_MODEL_GROK
     if normalized in STORY_SUPPORTED_IMAGE_MODELS:
         return normalized
     return STORY_DEFAULT_IMAGE_MODEL
@@ -362,13 +365,15 @@ def coerce_story_image_model(value: str | None) -> str:
 
 def normalize_story_image_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
+    if normalized == STORY_IMAGE_MODEL_GROK_LEGACY:
+        normalized = STORY_IMAGE_MODEL_GROK
     if normalized not in STORY_SUPPORTED_IMAGE_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
                 "Use one of: black-forest-labs/flux.2-pro, bytedance-seed/seedream-4.5, "
-                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview, grok-imagine-image-pro"
+                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview, grok-imagine-image"
             ),
         )
     return normalized
@@ -472,16 +477,33 @@ def story_game_rating_average(game: StoryGame) -> float:
     return round(rating_sum / rating_count, 2)
 
 
+def count_story_completed_turns(messages: list[StoryMessage]) -> int:
+    completed_turns = 0
+    has_pending_user_turn = False
+
+    for message in messages:
+        if message.role == "user":
+            has_pending_user_turn = True
+            continue
+        if message.role == "assistant" and has_pending_user_turn:
+            completed_turns += 1
+            has_pending_user_turn = False
+
+    return completed_turns
+
+
 def story_game_summary_to_out(
     game: StoryGame,
     *,
     latest_message_preview: str | None = None,
+    turn_count: int = 0,
 ) -> StoryGameSummaryOut:
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
         description=(game.description or "").strip(),
         latest_message_preview=latest_message_preview,
+        turn_count=max(int(turn_count or 0), 0),
         opening_scene=(game.opening_scene or "").strip(),
         visibility=coerce_story_game_visibility(game.visibility),
         age_rating=coerce_story_game_age_rating(game.age_rating),
@@ -521,12 +543,14 @@ def story_game_summary_to_compact_out(
     game: StoryGame,
     *,
     latest_message_preview: str | None = None,
+    turn_count: int = 0,
 ) -> StoryGameSummaryOut:
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
         description=(game.description or "").strip(),
         latest_message_preview=latest_message_preview,
+        turn_count=max(int(turn_count or 0), 0),
         opening_scene="",
         visibility=coerce_story_game_visibility(game.visibility),
         age_rating=coerce_story_game_age_rating(game.age_rating),

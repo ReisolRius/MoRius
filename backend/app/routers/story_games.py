@@ -60,6 +60,7 @@ from app.services.story_games import (
     STORY_GAME_VISIBILITY_PRIVATE,
     STORY_GAME_VISIBILITY_PUBLIC,
     STORY_WORLD_CARD_KIND_MAIN_HERO,
+    count_story_completed_turns,
     clone_story_world_cards_to_game,
     coerce_story_llm_model,
     coerce_story_image_model,
@@ -186,7 +187,7 @@ def _build_story_game_snapshot_payload(db: Session, game: StoryGame) -> dict[str
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
 
     payload = StoryGameOut(
-        game=story_game_summary_to_out(game),
+        game=story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages)),
         messages=[StoryMessageOut.model_validate(message) for message in messages],
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
@@ -234,6 +235,45 @@ def _load_latest_story_message_preview_by_game_id(
         if preview:
             preview_by_game_id[int(game_id)] = preview
     return preview_by_game_id
+
+
+def _load_story_turn_count_by_game_id(
+    db: Session,
+    *,
+    game_ids: list[int],
+) -> dict[int, int]:
+    if not game_ids:
+        return {}
+
+    rows = db.execute(
+        select(StoryMessage.game_id, StoryMessage.role)
+        .where(
+            StoryMessage.game_id.in_(game_ids),
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.game_id.asc(), StoryMessage.id.asc())
+    ).all()
+
+    turn_count_by_game_id: dict[int, int] = {}
+    current_game_id: int | None = None
+    has_pending_user_turn = False
+
+    for raw_game_id, raw_role in rows:
+        game_id = int(raw_game_id)
+        if current_game_id != game_id:
+            current_game_id = game_id
+            has_pending_user_turn = False
+            turn_count_by_game_id.setdefault(game_id, 0)
+
+        role = str(raw_role or "").strip().lower()
+        if role == "user":
+            has_pending_user_turn = True
+            continue
+        if role == "assistant" and has_pending_user_turn:
+            turn_count_by_game_id[game_id] = turn_count_by_game_id.get(game_id, 0) + 1
+            has_pending_user_turn = False
+
+    return turn_count_by_game_id
 
 
 def _build_story_community_world_summary(
@@ -469,8 +509,18 @@ def list_story_games(
             )
         )
     games = db.scalars(query).all()
+    turn_count_by_game_id = _load_story_turn_count_by_game_id(
+        db,
+        game_ids=[game.id for game in games],
+    )
     if not compact:
-        return [story_game_summary_to_out(game) for game in games]
+        return [
+            story_game_summary_to_out(
+                game,
+                turn_count=turn_count_by_game_id.get(game.id, 0),
+            )
+            for game in games
+        ]
 
     preview_by_game_id = _load_latest_story_message_preview_by_game_id(
         db,
@@ -480,6 +530,7 @@ def list_story_games(
         story_game_summary_to_compact_out(
             game,
             latest_message_preview=preview_by_game_id.get(game.id),
+            turn_count=turn_count_by_game_id.get(game.id, 0),
         )
         for game in games
     ]

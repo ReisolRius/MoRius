@@ -13,6 +13,7 @@ export type StoryImageModelId =
   | 'bytedance-seed/seedream-4.5'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
+  | 'grok-imagine-image'
   | 'grok-imagine-image-pro'
 
 export type StoryGameSummary = {
@@ -20,6 +21,7 @@ export type StoryGameSummary = {
   title: string
   description: string
   latest_message_preview?: string | null
+  turn_count: number
   opening_scene: string
   visibility: StoryGameVisibility
   age_rating: '6+' | '16+' | '18+'

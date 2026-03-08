@@ -252,9 +252,12 @@ const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-p
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
-const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image-pro'
+const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image'
+const STORY_IMAGE_MODEL_GROK_LEGACY_ID: StoryImageModelId = 'grok-imagine-image-pro'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
 const STORY_AUTOSCROLL_BOTTOM_THRESHOLD = 72
+const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
+const COMPOSER_SEND_BUTTON_SIZE = 48
 const STORY_CONTINUE_PROMPT = 'Продолжай'
 type StoryNarratorStat = {
   label: string
@@ -524,6 +527,42 @@ function ComposerRegenerateImageIcon() {
   )
 }
 
+function ComposerContinueIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+      <path
+        d="M5 12H17"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12.75 7.75L17 12L12.75 16.25"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M5.25 7.75H9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M5.25 16.25H9" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </SvgIcon>
+  )
+}
+
+function ComposerBugReportIcon() {
+  return (
+    <SvgIcon viewBox="0 0 17 17" sx={{ width: 18, height: 18 }}>
+      <path
+        d="M8.5 13.2222C8.76759 13.2222 8.99206 13.1316 9.17339 12.9502C9.35472 12.7689 9.44507 12.5447 9.44444 12.2778C9.44381 12.0108 9.35315 11.7867 9.17244 11.6053C8.99174 11.424 8.76759 11.3333 8.5 11.3333C8.23241 11.3333 8.00826 11.424 7.82756 11.6053C7.64685 11.7867 7.55618 12.0108 7.55556 12.2778C7.55493 12.5447 7.64559 12.7692 7.82756 12.9512C8.00952 13.1331 8.23367 13.2235 8.5 13.2222ZM7.55556 9.44444H9.44444V3.77778H7.55556V9.44444ZM4.95833 17L0 12.0417V4.95833L4.95833 0H12.0417L17 4.95833V12.0417L12.0417 17H4.95833Z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 function ComposerMicIcon() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 'var(--morius-action-icon-size)', height: 'var(--morius-action-icon-size)' }}>
@@ -583,7 +622,11 @@ function RightPanelEmptyState({
 }
 
 function getStoryTurnImageRequestTimeoutMs(modelId: StoryImageModelId): number {
-  if (modelId === STORY_IMAGE_MODEL_GROK_ID || modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID) {
+  if (
+    modelId === STORY_IMAGE_MODEL_GROK_ID ||
+    modelId === STORY_IMAGE_MODEL_GROK_LEGACY_ID ||
+    modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID
+  ) {
     return STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS
   }
   return STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS
@@ -1934,6 +1977,9 @@ function normalizeStoryNarratorModelId(value: string | null | undefined): StoryN
 
 function normalizeStoryImageModelId(value: string | null | undefined): StoryImageModelId {
   const normalized = (value ?? '').trim() as StoryImageModelId
+  if (normalized === STORY_IMAGE_MODEL_GROK_LEGACY_ID) {
+    return STORY_IMAGE_MODEL_GROK_ID
+  }
   if (STORY_IMAGE_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }
@@ -2729,6 +2775,78 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const rightPanelModeInactiveColor = isYamiTheme ? 'var(--morius-text-secondary)' : secondaryGameButtonColor
   const sendButtonIconColor = isYamiTheme ? '#333333' : '#242424'
   const composerUtilityIconFilter = isGrayTheme ? 'grayscale(1) brightness(0.83)' : (isYamiTheme ? 'brightness(1.7) grayscale(1)' : 'none')
+  const composerActionSurface = 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)'
+  const composerActionHoverSurface = 'color-mix(in srgb, var(--morius-card-bg) 84%, #fff 16%)'
+  const composerActionHighlightSurface =
+    'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-active) 74%, transparent) 0%, color-mix(in srgb, var(--morius-card-bg) 92%, transparent) 100%)'
+  const getComposerTopActionButtonSx = (options?: { highlighted?: boolean }) => ({
+    width: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    minWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    minHeight: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    borderRadius: '16px',
+    border: `var(--morius-border-width) solid ${
+      options?.highlighted
+        ? 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))'
+        : 'color-mix(in srgb, var(--morius-card-border) 88%, transparent)'
+    }`,
+    background: options?.highlighted ? composerActionHighlightSurface : composerActionSurface,
+    color: options?.highlighted ? 'var(--morius-accent)' : secondaryGameButtonColor,
+    transition: 'background 160ms ease, color 160ms ease, border-color 160ms ease, opacity 160ms ease, transform 160ms ease',
+    '&:hover': {
+      background: options?.highlighted ? composerActionHighlightSurface : composerActionHoverSurface,
+      color: options?.highlighted ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+      borderColor: 'color-mix(in srgb, var(--morius-accent) 28%, var(--morius-card-border))',
+    },
+    '&:active': {
+      transform: 'translateY(1px)',
+    },
+    '&:disabled': {
+      opacity: 0.42,
+      color: options?.highlighted ? 'var(--morius-accent)' : secondaryGameButtonColor,
+      background: options?.highlighted ? composerActionHighlightSurface : composerActionSurface,
+      borderColor: options?.highlighted
+        ? 'color-mix(in srgb, var(--morius-accent) 32%, var(--morius-card-border))'
+        : 'color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+    },
+  })
+  const composerActionImageSx = {
+    width: 18,
+    height: 18,
+    opacity: 0.9,
+    filter: composerUtilityIconFilter,
+  }
+  const getComposerAiMenuActionButtonSx = (options?: { active?: boolean; separated?: boolean }) => ({
+    width: '100%',
+    height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    minWidth: '100%',
+    minHeight: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    p: 0,
+    m: 0,
+    appearance: 'none',
+    outline: 'none',
+    border: 'none',
+    borderRadius: 0,
+    borderTop: options?.separated
+      ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)'
+      : 'none',
+    backgroundColor: 'transparent',
+    color: options?.active ? 'var(--morius-accent)' : secondaryGameButtonColor,
+    cursor: 'pointer',
+    transition: 'background-color 160ms ease, color 160ms ease, opacity 160ms ease',
+    '&:hover': {
+      backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 16%, transparent)',
+      color: options?.active ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+    },
+    '&:disabled': {
+      opacity: 0.42,
+      cursor: 'default',
+      color: options?.active ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+    },
+  })
   const rightPanelModeButtonSx = (isActive: boolean) => ({
     width: 'var(--morius-action-size)',
     height: 'var(--morius-action-size)',
@@ -2757,6 +2875,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [ambientByAssistantMessageId, setAmbientByAssistantMessageId] = useState<Record<number, StoryAmbientProfile>>({})
   const [inputValue, setInputValue] = useState('')
   const [isMobileComposer, setIsMobileComposer] = useState<boolean>(() => isMobileComposerViewport())
+  const [isComposerAiMenuOpen, setIsComposerAiMenuOpen] = useState(false)
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false)
   const [quickStartIntro, setQuickStartIntro] = useState('')
   const [errorMessage, setErrorMessage] = useState('')
@@ -3263,6 +3382,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     Boolean(activeGameId) &&
     currentRerollAssistantMessage !== null &&
     !isLatestTurnImageLoading
+  const canContinueLatestTurn =
+    !isGenerating &&
+    !isUndoingAssistantStep &&
+    !isCreatingGame &&
+    currentRerollAssistantMessage !== null &&
+    continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const canViewDevMemoryTab = user.role === 'administrator'
   const isRightPanelSecondTabVisible = rightPanelMode !== 'memory' || canViewDevMemoryTab
   const leftPanelTabLabel =
@@ -3403,6 +3528,40 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const mainHero = worldCards.find((card) => card.kind === 'main_hero') ?? null
     return resolveMainHeroDisplayName(mainHero?.title)
   }, [worldCards])
+  const assistantBlocksCacheRef = useRef<Map<number, { source: string; blocks: AssistantMessageBlock[] }>>(new Map())
+  const assistantBlocksByMessageId = useMemo(() => {
+    const cache = assistantBlocksCacheRef.current
+    const nextAssistantMessageIds = new Set<number>()
+    const blocksByMessageId = new Map<number, AssistantMessageBlock[]>()
+
+    messages.forEach((message) => {
+      if (message.role !== 'assistant') {
+        return
+      }
+
+      const resolvedContent = replaceMainHeroInlineTags(message.content, mainHeroDisplayNameForTags)
+      const cachedEntry = cache.get(message.id)
+      const blocks =
+        cachedEntry?.source === resolvedContent
+          ? cachedEntry.blocks
+          : parseAssistantMessageBlocks(resolvedContent)
+
+      if (cachedEntry?.source !== resolvedContent) {
+        cache.set(message.id, { source: resolvedContent, blocks })
+      }
+
+      nextAssistantMessageIds.add(message.id)
+      blocksByMessageId.set(message.id, blocks)
+    })
+
+    for (const messageId of Array.from(cache.keys())) {
+      if (!nextAssistantMessageIds.has(messageId)) {
+        cache.delete(messageId)
+      }
+    }
+
+    return blocksByMessageId
+  }, [mainHeroDisplayNameForTags, messages])
   const normalizedPlotCardsForContext = useMemo(
     () => {
       if (!memoryOptimizationEnabled) {
@@ -7499,6 +7658,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!activeGameId || isCreatingGame || isGenerating) {
       return
     }
+    setIsComposerAiMenuOpen(false)
     setBugReportDialogOpen(true)
   }, [activeGameId, isCreatingGame, isGenerating])
 
@@ -7739,6 +7899,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (!activeGameId || !currentRerollAssistantMessage || isGenerating || isCreatingGame || isUndoingAssistantStep) {
       return
     }
+    setIsComposerAiMenuOpen(false)
     setErrorMessage('')
     void generateTurnImageAfterAssistantMessage({
       gameId: activeGameId,
@@ -7754,6 +7915,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isGenerating,
     isUndoingAssistantStep,
   ])
+
+  useEffect(() => {
+    if (isCreatingGame || isGenerating || isUndoingAssistantStep) {
+      setIsComposerAiMenuOpen(false)
+    }
+  }, [isCreatingGame, isGenerating, isUndoingAssistantStep])
 
   useEffect(() => {
     const assistantMessageIds = new Set(
@@ -8349,6 +8516,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       },
     ])
     setInputValue('')
+    setIsComposerAiMenuOpen(false)
     await runStoryGeneration({
       gameId: targetGameId,
       prompt: normalizedPrompt,
@@ -8361,6 +8529,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (isGenerating || isCreatingGame) {
         return
       }
+      setIsComposerAiMenuOpen(false)
       setContinueHiddenForMessageId(assistantMessageId)
       const generationResult = await sendStoryPrompt(STORY_CONTINUE_PROMPT, { hideUserMessage: true })
       if (!generationResult?.streamStarted) {
@@ -8369,6 +8538,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [isCreatingGame, isGenerating, sendStoryPrompt],
   )
+
+  const handleContinueLatestTurn = useCallback(() => {
+    if (!currentRerollAssistantMessage) {
+      return
+    }
+    void handleContinueStory(currentRerollAssistantMessage.id)
+  }, [currentRerollAssistantMessage, handleContinueStory])
+
+  const handleToggleComposerAiMenu = useCallback(() => {
+    setIsComposerAiMenuOpen((previousState) => !previousState)
+  }, [])
 
   const handleVoiceActionClick = useCallback(() => {
     if (isGenerating) {
@@ -11307,9 +11487,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }
 
                   if (message.role === 'assistant') {
-                    const blocks = parseAssistantMessageBlocks(
-                      replaceMainHeroInlineTags(message.content, mainHeroDisplayNameForTags),
-                    )
+                    const blocks = assistantBlocksByMessageId.get(message.id) ?? []
                     const isStreaming = activeAssistantMessageId === message.id && isGenerating
                     const messagePlotCardEvents = plotCardEventsByAssistantId.get(message.id) ?? []
                     const messageWorldCardEvents = worldCardEventsByAssistantId.get(message.id) ?? []
@@ -11907,6 +12085,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     src={assistantTurnImage.imageUrl}
                                     alt="Scene frame"
                                     loading="lazy"
+                                    decoding="async"
+                                    fetchPriority="low"
                                     sx={{
                                       width: '100%',
                                       height: 'auto',
@@ -12146,216 +12326,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             : {}),
         }}
       >
+        <Stack
+          spacing={0.72}
+          sx={{
+            position: 'relative',
+            zIndex: 1,
+          }}
+        >
           <Box
+            data-tour-id="story-composer-controls"
             sx={{
-              width: '100%',
-              borderRadius: 'var(--morius-radius)',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-              background: 'color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%)',
-              boxShadow: 'none',
-              transition: 'none',
-              overflow: 'hidden',
-              display: 'flex',
-              flexDirection: 'column',
-              position: 'relative',
-              zIndex: 1,
+              overflowX: 'auto',
+              overflowY: 'visible',
+              pb: 0.1,
+              '&::-webkit-scrollbar': {
+                display: 'none',
+              },
+              scrollbarWidth: 'none',
             }}
           >
             <Stack
-              data-tour-id="story-composer-input"
               direction="row"
-              alignItems="stretch"
-              spacing={0}
+              alignItems="flex-end"
+              spacing={0.82}
               sx={{
-                px: 1.1,
-                pt: 0.84,
-                pb: 0.72,
-                position: 'relative',
+                width: 'max-content',
+                minWidth: '100%',
               }}
             >
-              <Box
-                component="textarea"
-                ref={textAreaRef}
-                value={inputValue}
-                placeholder={inputPlaceholder}
-                maxLength={STORY_PROMPT_MAX_LENGTH}
-                disabled={isGenerating || hasInsufficientTokensForTurn}
-                onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Enter') {
-                    return
-                  }
-                  if (isMobileComposer) {
-                    return
-                  }
-                  if (!event.shiftKey) {
-                    event.preventDefault()
-                    void handleSendPrompt()
-                  }
-                }}
-                sx={{
-                  flex: 1,
-                  minHeight: 96,
-                  maxHeight: '34vh',
-                  resize: 'none',
-                  border: 'none',
-                  borderRadius: 'calc(var(--morius-radius) - 2px)',
-                  outline: 'none',
-                  background: 'transparent',
-                  color: 'var(--morius-title-text)',
-                  fontSize: { xs: '1.12rem', sm: 'var(--morius-body-size)' },
-                  lineHeight: 1.42,
-                  fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
-                  px: 1.2,
-                  py: 0.95,
-                  pr: 8.05,
-                  '&::placeholder': {
-                    color: 'var(--morius-text-secondary)',
-                  },
-                }}
-              />
-              <IconButton
-                aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
-                onClick={handleVoiceActionClick}
-                disabled={isGenerating ? false : (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText))}
-                sx={{
-                  '@keyframes morius-voice-pulse': {
-                    '0%, 100%': {
-                      transform: 'scale(1)',
-                      boxShadow: '0 0 0 0 color-mix(in srgb, var(--morius-accent) 34%, transparent)',
-                    },
-                    '50%': {
-                      transform: 'scale(1.03)',
-                      boxShadow: '0 0 0 7px color-mix(in srgb, var(--morius-accent) 0%, transparent)',
-                    },
-                  },
-                  position: 'absolute',
-                  top: 12,
-                  right: 12,
-                  width: 'var(--morius-action-size)',
-                  height: 'var(--morius-action-size)',
-                  borderRadius: 'var(--morius-radius)',
-                  backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
-                  border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
-                  color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
-                  ...(isVoiceInputActive && showMicAction
-                    ? {
-                        color: sendButtonIconColor,
-                        backgroundColor: 'color-mix(in srgb, var(--morius-send-button-bg) 78%, var(--morius-accent) 22%)',
-                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border) 42%)',
-                        animation: 'morius-voice-pulse 1.05s ease-in-out infinite',
-                      }
-                    : {}),
-                  '&:hover': {
-                    backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 92%, #fff 8%)',
-                  },
-                  '&:active': {
-                    backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 88%, #000 12%)',
-                  },
-                  '&:disabled': {
-                    opacity: isGenerating ? 0.7 : 0.62,
-                    color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
-                    backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
-                    border: isGenerating ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
-                  },
-                }}
-              >
-                {isGenerating ? (
-                  <Box
-                    className="morius-stop-indicator"
-                    sx={{
-                      width: 12,
-                      height: 12,
-                      borderRadius: '50%',
-                      backgroundColor: 'var(--morius-accent)',
-                    }}
-                  />
-                ) : showMicAction ? (
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      placeItems: 'center',
-                      transform: isVoiceInputActive ? 'scale(1.06)' : 'scale(1)',
-                      transition: 'transform 120ms ease',
-                    }}
-                  >
-                    <ComposerMicIcon />
-                  </Box>
-                ) : (
-                  <Box
-                    component="img"
-                    src={icons.send}
-                    alt=""
-                    sx={{
-                      width: 'var(--morius-action-icon-size)',
-                      height: 'var(--morius-action-icon-size)',
-                    }}
-                  />
-                )}
-              </IconButton>
-              {isVoiceInputActive && showMicAction ? (
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={0.45}
-                  sx={{
-                    position: 'absolute',
-                    left: 13,
-                    bottom: 9,
-                    color: 'var(--morius-accent)',
-                    '@keyframes morius-voice-dot': {
-                      '0%, 100%': {
-                        opacity: 0.45,
-                        transform: 'scale(0.88)',
-                      },
-                      '50%': {
-                        opacity: 1,
-                        transform: 'scale(1.2)',
-                      },
-                    },
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      backgroundColor: 'var(--morius-accent)',
-                      animation: 'morius-voice-dot 0.86s ease-in-out infinite',
-                    }}
-                  />
-                  <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
-                    дет запись...
-                  </Typography>
-                </Stack>
-              ) : null}
-            </Stack>
-
-            <Stack
-              data-tour-id="story-composer-controls"
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-              sx={{
-                borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
-                px: 1.1,
-                py: 0.78,
-                gap: 0.8,
-              }}
-            >
-              <Stack
-                direction="row"
-                alignItems="center"
-                sx={{
-                  gap: 0.74,
-                  flexWrap: 'nowrap',
-                  minWidth: 0,
-                  flex: 1,
-                  overflowX: 'auto',
-                  overflowY: 'hidden',
-                  whiteSpace: 'nowrap',
-                }}
-              >
+              <Stack direction="row" alignItems="flex-end" spacing={0.82}>
                 <Tooltip
                   arrow
                   placement="top"
@@ -12367,13 +12366,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Box>
                   }
                 >
-                  <Stack
-                    direction="row"
-                    spacing={0.42}
-                    alignItems="center"
+                  <Box
                     sx={{
+                      minWidth: 72,
+                      px: 0.85,
+                      height: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+                      borderRadius: '16px',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                      background: composerActionSurface,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 0.48,
                       cursor: 'help',
-                      px: 0.18,
+                      flexShrink: 0,
                     }}
                   >
                     <Box
@@ -12381,158 +12387,372 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       src={icons.coin}
                       alt=""
                       sx={{
-                        width: 15,
-                        height: 15,
-                        opacity: 0.96,
-                        filter: 'drop-shadow(0 0 4px color-mix(in srgb, var(--morius-accent) 38%, transparent))',
+                        width: 16,
+                        height: 16,
+                        opacity: 0.98,
+                        filter: 'drop-shadow(0 0 6px color-mix(in srgb, var(--morius-accent) 28%, transparent))',
                       }}
                     />
                     <Typography
                       sx={{
-                        color: 'var(--morius-accent)',
-                        fontSize: '1.02rem',
+                        color: 'var(--morius-title-text)',
+                        fontSize: '1.15rem',
                         lineHeight: 1,
-                        fontWeight: 800,
-                        letterSpacing: '0.01em',
+                        fontWeight: 700,
+                        fontVariantNumeric: 'tabular-nums',
+                        letterSpacing: '-0.01em',
                       }}
                     >
                       {currentTurnCostTokens}
                     </Typography>
-                  </Stack>
+                  </Box>
                 </Tooltip>
-                <IconButton
-                  aria-label="Назад"
-                  onClick={() => void handleUndoAssistantStep()}
-                  disabled={!canUndoAssistantStep}
-                  sx={{
-                    width: 'var(--morius-action-size)',
-                    height: 'var(--morius-action-size)',
-                    borderRadius: 'var(--morius-radius)',
-                    opacity: canUndoAssistantStep ? 0.95 : 0.45,
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'transparent',
-                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={icons.back}
-                    alt=""
-                    sx={{
-                      width: 'var(--morius-action-icon-size)',
-                      height: 'var(--morius-action-icon-size)',
-                      opacity: 0.9,
-                      filter: composerUtilityIconFilter,
-                    }}
-                  />
-                </IconButton>
-                <IconButton
-                  aria-label="Отменить"
-                  onClick={() => void handleRedoAssistantStep()}
-                  disabled={!canRedoAssistantStep}
-                  sx={{
-                    width: 'var(--morius-action-size)',
-                    height: 'var(--morius-action-size)',
-                    borderRadius: 'var(--morius-radius)',
-                    opacity: canRedoAssistantStep ? 0.95 : 0.45,
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'transparent',
-                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={icons.undo}
-                    alt=""
-                    sx={{
-                      width: 'var(--morius-action-icon-size)',
-                      height: 'var(--morius-action-icon-size)',
-                      opacity: 0.9,
-                      filter: composerUtilityIconFilter,
-                    }}
-                  />
-                </IconButton>
-                <IconButton
-                  aria-label="Перегенерировать"
-                  onClick={() => void handleRerollLastResponse()}
-                  disabled={!canReroll}
-                  sx={{
-                    width: 'var(--morius-action-size)',
-                    height: 'var(--morius-action-size)',
-                    borderRadius: 'var(--morius-radius)',
-                    opacity: canReroll ? 0.95 : 0.45,
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                    backgroundColor: 'transparent',
-                    '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)' },
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={icons.reload}
-                    alt=""
-                    sx={{
-                      width: 'var(--morius-action-icon-size)',
-                      height: 'var(--morius-action-icon-size)',
-                      opacity: 0.9,
-                      filter: composerUtilityIconFilter,
-                    }}
-                  />
-                </IconButton>
-                <Tooltip
-                  arrow
-                  placement="top"
-                  title={
-                    isLatestTurnImageLoading
-                      ? 'Генерируем кадр сцены'
-                      : hasLatestTurnImage
-                        ? 'Перегенерировать картинку'
-                        : 'Сгенерировать картинку'
-                  }
-                >
-                  <IconButton
-                    aria-label={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
-                    onClick={handleGenerateLatestTurnImage}
-                    disabled={!canGenerateLatestTurnImage}
-                    sx={{
-                      opacity: canGenerateLatestTurnImage ? 0.95 : 0.45,
-                      width: 'var(--morius-action-size)',
-                      height: 'var(--morius-action-size)',
-                      borderRadius: 'var(--morius-radius)',
-                      color: hasLatestTurnImage ? 'var(--morius-accent)' : secondaryGameButtonColor,
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
-                      backgroundColor: 'transparent',
-                      transition: 'color .15s ease, opacity .15s ease',
-                      '&:hover': {
-                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #fff 10%)',
-                        color: 'var(--morius-accent)',
-                        opacity: 1,
-                      },
-                    }}
-                  >
-                    {isLatestTurnImageLoading ? (
-                      <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
-                    ) : hasLatestTurnImage ? (
-                      <ComposerRegenerateImageIcon />
-                    ) : (
-                      <ComposerGenerateImageIcon />
-                    )}
-                  </IconButton>
+                <Tooltip arrow placement="top" title="Назад">
+                  <span>
+                    <IconButton
+                      aria-label="Назад"
+                      onClick={() => void handleUndoAssistantStep()}
+                      disabled={!canUndoAssistantStep}
+                      sx={getComposerTopActionButtonSx()}
+                    >
+                      <Box component="img" src={icons.back} alt="" sx={composerActionImageSx} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip arrow placement="top" title="Отменить">
+                  <span>
+                    <IconButton
+                      aria-label="Отменить"
+                      onClick={() => void handleRedoAssistantStep()}
+                      disabled={!canRedoAssistantStep}
+                      sx={getComposerTopActionButtonSx()}
+                    >
+                      <Box component="img" src={icons.undo} alt="" sx={composerActionImageSx} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip arrow placement="top" title="Перегенерировать">
+                  <span>
+                    <IconButton
+                      aria-label="Перегенерировать"
+                      onClick={() => void handleRerollLastResponse()}
+                      disabled={!canReroll}
+                      sx={getComposerTopActionButtonSx()}
+                    >
+                      <Box component="img" src={icons.reload} alt="" sx={composerActionImageSx} />
+                    </IconButton>
+                  </span>
                 </Tooltip>
               </Stack>
-              <Typography
-                sx={{
-                  color: 'var(--morius-text-secondary)',
-                  fontSize: '0.74rem',
-                  lineHeight: 1,
-                  flexShrink: 0,
-                  pr: 0.1,
-                }}
-              >
-                {`${inputValue.length}/${STORY_PROMPT_MAX_LENGTH}`}
-              </Typography>
-
+              <Stack direction="row" alignItems="flex-end" spacing={0.82} sx={{ ml: 'auto', pl: 0.82 }}>
+                <Box
+                  sx={{
+                    width: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+                    minWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+                    maxWidth: COMPOSER_TOP_ACTION_BUTTON_SIZE,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: '100%',
+                      borderRadius: '16px',
+                      border: `var(--morius-border-width) solid ${
+                        isComposerAiMenuOpen
+                          ? 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))'
+                          : 'color-mix(in srgb, var(--morius-card-border) 88%, transparent)'
+                      }`,
+                      background: isComposerAiMenuOpen
+                        ? 'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 100%)'
+                        : composerActionSurface,
+                      boxShadow: isComposerAiMenuOpen
+                        ? '0 10px 24px color-mix(in srgb, var(--morius-accent) 10%, transparent)'
+                        : 'none',
+                      overflow: 'hidden',
+                      transition: 'border-color 160ms ease, box-shadow 160ms ease, background 160ms ease',
+                    }}
+                  >
+                    <Tooltip arrow placement="top" title="ИИ-функции">
+                      <Box
+                        component="button"
+                        type="button"
+                        aria-label="ИИ-функции"
+                        onClick={handleToggleComposerAiMenu}
+                        sx={getComposerAiMenuActionButtonSx({ active: isComposerAiMenuOpen })}
+                      >
+                        <Box
+                          component="img"
+                          src={icons.ai}
+                          alt=""
+                          sx={{
+                            width: 20,
+                            height: 20,
+                            display: 'block',
+                            opacity: isComposerAiMenuOpen ? 1 : 0.92,
+                            objectFit: 'contain',
+                          }}
+                        />
+                      </Box>
+                    </Tooltip>
+                    <Collapse in={isComposerAiMenuOpen} timeout={180} unmountOnExit>
+                      <Stack
+                        spacing={0}
+                        sx={{
+                          borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
+                        }}
+                      >
+                        <Tooltip
+                          arrow
+                          placement="top"
+                          title={
+                            isLatestTurnImageLoading
+                              ? 'Генерируем кадр сцены'
+                              : hasLatestTurnImage
+                                ? 'Перегенерировать картинку'
+                                : 'Сгенерировать картинку'
+                          }
+                        >
+                          <span>
+                            <Box
+                              component="button"
+                              type="button"
+                              aria-label={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
+                              onClick={handleGenerateLatestTurnImage}
+                              disabled={!canGenerateLatestTurnImage}
+                              sx={getComposerAiMenuActionButtonSx({ active: hasLatestTurnImage })}
+                            >
+                              {isLatestTurnImageLoading ? (
+                                <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
+                              ) : hasLatestTurnImage ? (
+                                <ComposerRegenerateImageIcon />
+                              ) : (
+                                <ComposerGenerateImageIcon />
+                              )}
+                            </Box>
+                          </span>
+                        </Tooltip>
+                        <Tooltip arrow placement="top" title="Продолжить">
+                          <span>
+                            <Box
+                              component="button"
+                              type="button"
+                              aria-label="Продолжить"
+                              onClick={handleContinueLatestTurn}
+                              disabled={!canContinueLatestTurn}
+                              sx={getComposerAiMenuActionButtonSx({ separated: true })}
+                            >
+                              <ComposerContinueIcon />
+                            </Box>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                    </Collapse>
+                  </Box>
+                </Box>
+                <Tooltip arrow placement="top" title="Баг-репорт">
+                  <span>
+                    <IconButton
+                      aria-label="Баг-репорт"
+                      onClick={handleOpenBugReportDialog}
+                      disabled={!activeGameId || isCreatingGame || isGenerating}
+                      sx={getComposerTopActionButtonSx()}
+                    >
+                      <ComposerBugReportIcon />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
             </Stack>
           </Box>
+          <Box
+            data-tour-id="story-composer-input"
+            sx={{
+              width: '100%',
+              borderRadius: '20px',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+              background:
+                'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%) 0%, color-mix(in srgb, var(--morius-card-bg) 98%, #000 2%) 100%)',
+              position: 'relative',
+              overflow: 'hidden',
+              transition: 'border-color 160ms ease, box-shadow 160ms ease, background 160ms ease',
+              '&:focus-within': {
+                borderColor: 'color-mix(in srgb, var(--morius-accent) 46%, var(--morius-card-border))',
+                boxShadow: '0 0 0 1px color-mix(in srgb, var(--morius-accent) 14%, transparent)',
+              },
+            }}
+          >
+            <Box
+              component="textarea"
+              ref={textAreaRef}
+              value={inputValue}
+              placeholder={inputPlaceholder}
+              maxLength={STORY_PROMPT_MAX_LENGTH}
+              disabled={isGenerating || hasInsufficientTokensForTurn}
+              onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') {
+                  return
+                }
+                if (isMobileComposer) {
+                  return
+                }
+                if (!event.shiftKey) {
+                  event.preventDefault()
+                  void handleSendPrompt()
+                }
+              }}
+              sx={{
+                display: 'block',
+                width: '100%',
+                minHeight: 74,
+                maxHeight: '34vh',
+                resize: 'none',
+                border: 'none',
+                outline: 'none',
+                background: 'transparent',
+                color: 'var(--morius-title-text)',
+                fontSize: { xs: '1.08rem', sm: '1.12rem' },
+                lineHeight: 1.42,
+                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+                px: { xs: 1.35, sm: 1.55 },
+                py: { xs: 1.18, sm: 1.26 },
+                pr: { xs: 7.4, sm: 7.8 },
+                '&::placeholder': {
+                  color: 'var(--morius-text-secondary)',
+                },
+              }}
+            />
+            <IconButton
+              aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
+              onClick={handleVoiceActionClick}
+              disabled={isGenerating ? false : (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText))}
+              sx={{
+                '@keyframes morius-voice-pulse': {
+                  '0%, 100%': {
+                    transform: 'translateY(-50%) scale(1)',
+                    boxShadow: '0 0 0 0 color-mix(in srgb, var(--morius-accent) 34%, transparent)',
+                  },
+                  '50%': {
+                    transform: 'translateY(-50%) scale(1.03)',
+                    boxShadow: '0 0 0 8px color-mix(in srgb, var(--morius-accent) 0%, transparent)',
+                  },
+                },
+                position: 'absolute',
+                top: '50%',
+                right: 12,
+                transform: 'translateY(-50%)',
+                width: COMPOSER_SEND_BUTTON_SIZE,
+                height: COMPOSER_SEND_BUTTON_SIZE,
+                minWidth: COMPOSER_SEND_BUTTON_SIZE,
+                minHeight: COMPOSER_SEND_BUTTON_SIZE,
+                borderRadius: '18px',
+                backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
+                border: isGenerating ? 'none' : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 26%, var(--morius-card-border))',
+                color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                ...(isVoiceInputActive && showMicAction
+                  ? {
+                      color: sendButtonIconColor,
+                      backgroundColor: 'color-mix(in srgb, var(--morius-send-button-bg) 78%, var(--morius-accent) 22%)',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border) 42%)',
+                      animation: 'morius-voice-pulse 1.05s ease-in-out infinite',
+                    }
+                  : {}),
+                '&:hover': {
+                  backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 92%, #fff 8%)',
+                },
+                '&:active': {
+                  backgroundColor: isGenerating ? 'transparent' : 'color-mix(in srgb, var(--morius-send-button-bg) 88%, #000 12%)',
+                },
+                '&:disabled': {
+                  opacity: isGenerating ? 0.7 : 0.62,
+                  color: isGenerating ? 'var(--morius-accent)' : sendButtonIconColor,
+                  backgroundColor: isGenerating ? 'transparent' : 'var(--morius-send-button-bg)',
+                  border: isGenerating ? 'none' : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 26%, var(--morius-card-border))',
+                },
+              }}
+            >
+              {isGenerating ? (
+                <Box
+                  className="morius-stop-indicator"
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--morius-accent)',
+                  }}
+                />
+              ) : showMicAction ? (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    placeItems: 'center',
+                    transform: isVoiceInputActive ? 'scale(1.06)' : 'scale(1)',
+                    transition: 'transform 120ms ease',
+                  }}
+                >
+                  <ComposerMicIcon />
+                </Box>
+              ) : (
+                <Box
+                  component="img"
+                  src={icons.send}
+                  alt=""
+                  sx={{
+                    width: 'var(--morius-action-icon-size)',
+                    height: 'var(--morius-action-icon-size)',
+                  }}
+                />
+              )}
+            </IconButton>
+            {isVoiceInputActive && showMicAction ? (
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={0.45}
+                sx={{
+                  position: 'absolute',
+                  left: 14,
+                  bottom: 10,
+                  color: 'var(--morius-accent)',
+                  '@keyframes morius-voice-dot': {
+                    '0%, 100%': {
+                      opacity: 0.45,
+                      transform: 'scale(0.88)',
+                    },
+                    '50%': {
+                      opacity: 1,
+                      transform: 'scale(1.2)',
+                    },
+                  },
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--morius-accent)',
+                    animation: 'morius-voice-dot 0.86s ease-in-out infinite',
+                  }}
+                />
+                <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
+                  дет запись...
+                </Typography>
+              </Stack>
+            ) : null}
+          </Box>
+
+          <TextLimitIndicator
+            currentLength={inputValue.length}
+            maxLength={STORY_PROMPT_MAX_LENGTH}
+            sx={{
+              width: 'auto',
+              minWidth: 0,
+              alignSelf: 'flex-end',
+              mr: 0.3,
+            }}
+          />
+        </Stack>
       </Box>
 
       <BaseDialog

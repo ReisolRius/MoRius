@@ -21,7 +21,14 @@ export type MoriusThemePlaceholder = {
   description: string
 }
 
-const classicDarkColors: MoriusThemeColors = { ...moriusThemeTokens.colors }
+const classicDarkColors: MoriusThemeColors = {
+  ...moriusThemeTokens.colors,
+  accent: '#578EEE',
+  buttonHover: 'color-mix(in srgb, #578EEE 28%, #171716 72%)',
+  buttonActive: 'color-mix(in srgb, #578EEE 36%, #171716 64%)',
+  sendButton: 'color-mix(in srgb, #578EEE 30%, #FFFFFF 70%)',
+  panelGradient: 'linear-gradient(108deg, #31302E 0%, #578EEE 100%)',
+}
 
 const blueSteelColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,

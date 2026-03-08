@@ -658,6 +658,7 @@ class StoryGameSummaryOut(BaseModel):
     title: str
     description: str
     latest_message_preview: str | None = None
+    turn_count: int = 0
     opening_scene: str
     visibility: str
     age_rating: str

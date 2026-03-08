@@ -306,19 +306,22 @@ STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
-STORY_TURN_IMAGE_MODEL_GROK = "grok-imagine-image-pro"
+STORY_TURN_IMAGE_MODEL_GROK = "grok-imagine-image"
+STORY_TURN_IMAGE_MODEL_GROK_LEGACY = "grok-imagine-image-pro"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX: 3,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 30,
     STORY_TURN_IMAGE_MODEL_GROK: 30,
+    STORY_TURN_IMAGE_MODEL_GROK_LEGACY: 30,
 }
 STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 120
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 120,
     STORY_TURN_IMAGE_MODEL_GROK: 120,
+    STORY_TURN_IMAGE_MODEL_GROK_LEGACY: 120,
 }
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
@@ -8747,7 +8750,8 @@ def _request_openrouter_story_text(
 
 
 def _is_story_turn_image_xai_model(model_name: str | None) -> bool:
-    return str(model_name or "").strip() == STORY_TURN_IMAGE_MODEL_GROK
+    normalized_model = str(model_name or "").strip()
+    return normalized_model in {STORY_TURN_IMAGE_MODEL_GROK, STORY_TURN_IMAGE_MODEL_GROK_LEGACY}
 
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
@@ -9649,6 +9653,27 @@ def _resolve_story_turn_image_aspect_ratio(image_size: str) -> str | None:
     return closest_ratio
 
 
+def _resolve_story_turn_image_xai_aspect_ratio(image_size: str) -> str | None:
+    aspect_ratio = _resolve_story_turn_image_aspect_ratio(image_size)
+    if aspect_ratio in {"1:1", "4:3", "3:4", "16:9", "9:16"}:
+        return aspect_ratio
+    return None
+
+
+def _resolve_story_turn_image_xai_resolution(image_size: str) -> str | None:
+    normalized_size = str(image_size or "").strip().lower()
+    if not normalized_size:
+        return None
+
+    size_match = re.match(r"^\s*(\d{2,5})\s*[x:]\s*(\d{2,5})\s*$", normalized_size)
+    if size_match is None:
+        return None
+
+    width = max(int(size_match.group(1)), 1)
+    height = max(int(size_match.group(2)), 1)
+    return "2k" if max(width, height) >= 1536 else "1k"
+
+
 def _build_story_turn_image_openrouter_payload(
     *,
     prompt: str,
@@ -9922,6 +9947,8 @@ def _request_xai_story_turn_image(
     model_name: str | None = None,
 ) -> dict[str, str | None]:
     selected_model = (model_name or STORY_TURN_IMAGE_MODEL_GROK).strip()
+    if selected_model == STORY_TURN_IMAGE_MODEL_GROK_LEGACY:
+        selected_model = STORY_TURN_IMAGE_MODEL_GROK
     if not selected_model:
         raise RuntimeError("xAI image model is not configured")
 
@@ -9940,8 +9967,12 @@ def _request_xai_story_turn_image(
         "n": 1,
     }
     image_size = str(settings.openrouter_image_size or "").strip()
-    if image_size:
-        request_payload["size"] = image_size
+    aspect_ratio = _resolve_story_turn_image_xai_aspect_ratio(image_size)
+    if aspect_ratio:
+        request_payload["aspect_ratio"] = aspect_ratio
+    resolution = _resolve_story_turn_image_xai_resolution(image_size)
+    if resolution:
+        request_payload["resolution"] = resolution
 
     read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
     try:
