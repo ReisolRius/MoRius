@@ -138,6 +138,7 @@ STORY_TEMPERATURE_MAX = 2.0
 STORY_DEFAULT_TEMPERATURE = 0.85
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
+STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED = False
 STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 STORY_COVER_SCALE_MIN = 1.0
 STORY_COVER_SCALE_MAX = 3.0
@@ -423,6 +424,12 @@ def normalize_story_ambient_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def normalize_story_emotion_visualization_enabled(value: bool | None) -> bool:
+    if value is None:
+        return STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED
+    return bool(value)
+
+
 def serialize_story_ambient_profile(value: dict[str, Any] | None) -> str:
     if not isinstance(value, dict):
         return ""
@@ -532,6 +539,9 @@ def story_game_summary_to_out(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
+            getattr(game, "emotion_visualization_enabled", None)
+        ),
         ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
@@ -579,6 +589,9 @@ def story_game_summary_to_compact_out(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
+            getattr(game, "emotion_visualization_enabled", None)
+        ),
         ambient_profile=None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,

@@ -68,6 +68,7 @@ class StoryRuntimeDeps:
     world_card_event_to_out: Callable[[Any], Any]
     plot_card_event_to_out: Callable[[Any], Any]
     resolve_story_ambient_profile: Callable[..., dict[str, Any] | None]
+    resolve_story_scene_emotion_payload: Callable[..., str | None]
     serialize_story_ambient_profile: Callable[[dict[str, Any] | None], str]
     story_default_title: str
     story_user_role: str
@@ -250,6 +251,7 @@ def _stream_story_response(
     story_top_r: float,
     memory_optimization_enabled: bool,
     ambient_enabled: bool,
+    emotion_visualization_enabled: bool,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
 ):
@@ -411,6 +413,7 @@ def _stream_story_response(
             )
 
     ambient_payload: dict[str, Any] | None = None
+    scene_emotion_payload: str | None = None
     if ambient_enabled and not aborted and response_has_content:
         try:
             ambient_payload = deps.resolve_story_ambient_profile(
@@ -437,6 +440,36 @@ def _stream_story_response(
                 )
                 db.rollback()
                 ambient_payload = None
+
+    if emotion_visualization_enabled and not aborted and response_has_content:
+        try:
+            scene_emotion_payload = deps.resolve_story_scene_emotion_payload(
+                latest_user_prompt=prompt,
+                latest_assistant_text=assistant_text_for_postprocess,
+                world_cards=world_cards,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to resolve scene emotion payload: game_id=%s assistant_message_id=%s",
+                game.id,
+                assistant_message.id,
+            )
+            scene_emotion_payload = None
+
+        if scene_emotion_payload:
+            try:
+                assistant_message.scene_emotion_payload = scene_emotion_payload
+                deps.touch_story_game(game)
+                db.commit()
+                db.refresh(assistant_message)
+            except Exception:
+                logger.exception(
+                    "Failed to persist scene emotion payload: game_id=%s assistant_message_id=%s",
+                    game.id,
+                    assistant_message.id,
+                )
+                db.rollback()
+                scene_emotion_payload = None
 
     if response_has_content:
         logger.info(
@@ -502,6 +535,7 @@ def _stream_story_response(
                 "game_id": assistant_message.game_id,
                 "role": assistant_message.role,
                 "content": assistant_message.content,
+                "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
                 "created_at": assistant_message.created_at.isoformat(),
                 "updated_at": assistant_message.updated_at.isoformat(),
             },
@@ -541,6 +575,7 @@ def _stream_story_response(
             "game_id": assistant_message.game_id,
             "role": assistant_message.role,
             "content": assistant_message.content,
+            "scene_emotion_payload": str(getattr(assistant_message, "scene_emotion_payload", "") or "").strip() or None,
             "created_at": assistant_message.created_at.isoformat(),
             "updated_at": assistant_message.updated_at.isoformat(),
         },
@@ -594,8 +629,14 @@ def generate_story_response(
     ambient_enabled = bool(raw_ambient_enabled)
     if payload.ambient_enabled is not None:
         ambient_enabled = bool(payload.ambient_enabled)
+    raw_emotion_visualization_enabled = getattr(game, "emotion_visualization_enabled", None)
+    emotion_visualization_enabled = bool(raw_emotion_visualization_enabled)
+    if payload.emotion_visualization_enabled is not None:
+        emotion_visualization_enabled = bool(payload.emotion_visualization_enabled)
+    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
+        emotion_visualization_enabled = False
     logger.info(
-        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s",
+        "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",
         game.id,
         memory_optimization_enabled,
         payload.memory_optimization_enabled,
@@ -603,6 +644,9 @@ def generate_story_response(
         ambient_enabled,
         payload.ambient_enabled,
         raw_ambient_enabled,
+        emotion_visualization_enabled,
+        payload.emotion_visualization_enabled,
+        raw_emotion_visualization_enabled,
     )
     story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None))
     if payload.story_top_k is not None:
@@ -716,9 +760,12 @@ def generate_story_response(
             memory_optimization_enabled=memory_optimization_enabled,
         )
         base_turn_cost_tokens = max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
+        extra_turn_cost_tokens = 0
         if ambient_enabled:
-            return base_turn_cost_tokens + 1
-        return base_turn_cost_tokens
+            extra_turn_cost_tokens += 1
+        if emotion_visualization_enabled:
+            extra_turn_cost_tokens += 1
+        return base_turn_cost_tokens + extra_turn_cost_tokens
 
     def _drop_last_assistant_steps(
         *,
@@ -982,6 +1029,7 @@ def generate_story_response(
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
         ambient_enabled=ambient_enabled,
+        emotion_visualization_enabled=emotion_visualization_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )

@@ -1,6 +1,10 @@
 ﻿import type {
   StoryCharacter,
   StoryCharacterAvatarGenerationPayload,
+  StoryCharacterEmotionAssets,
+  StoryCharacterEmotionId,
+  StoryCharacterEmotionGenerationPayload,
+  StoryCharacterEmotionGenerationJobPayload,
   StoryCommunityCharacterSummary,
   StoryCommunityWorldComment,
   StoryCommunityInstructionTemplateSummary,
@@ -37,6 +41,8 @@ type StreamEvent = {
 const RETRYABLE_METHODS = new Set(['GET', 'HEAD'])
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
+const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
+const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
 
 function normalizeRequestMethod(method: string | undefined): string {
   return (method ?? 'GET').toUpperCase()
@@ -72,6 +78,7 @@ export type StoryGenerationStreamOptions = {
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
+  emotionVisualizationEnabled?: boolean
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
   onChunk?: (payload: StoryStreamChunkPayload) => void
@@ -101,8 +108,29 @@ export type StoryCharacterInput = {
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale?: number
+  emotion_assets?: StoryCharacterEmotionAssets
+  emotion_model?: string | null
+  emotion_prompt_lock?: string | null
+  emotion_generation_job_id?: number | null
+  preserve_existing_emotions?: boolean
   visibility?: StoryGameVisibility
 }
+
+const STORY_CHARACTER_EMOTION_IDS = [
+  'calm',
+  'angry',
+  'irritated',
+  'stern',
+  'cheerful',
+  'smiling',
+  'sly',
+  'alert',
+  'scared',
+  'happy',
+  'embarrassed',
+  'confused',
+  'thoughtful',
+] as const
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers = new Headers(options.headers ?? {})
@@ -173,6 +201,54 @@ function parseSseBlock(rawBlock: string): StreamEvent | null {
   }
 }
 
+function normalizeStoryCharacterEmotionAssets(rawValue: unknown): StoryCharacterEmotionAssets {
+  if (!rawValue || typeof rawValue !== 'object') {
+    return {}
+  }
+
+  const normalizedAssets: StoryCharacterEmotionAssets = {}
+  STORY_CHARACTER_EMOTION_IDS.forEach((emotionId) => {
+    const rawAsset = (rawValue as Record<string, unknown>)[emotionId]
+    if (typeof rawAsset === 'string' && rawAsset.trim().length > 0) {
+      normalizedAssets[emotionId] = rawAsset
+    }
+  })
+  return normalizedAssets
+}
+
+function countStoryCharacterEmotionAssets(value: StoryCharacterEmotionAssets | undefined): number {
+  return STORY_CHARACTER_EMOTION_IDS.reduce((count, emotionId) => {
+    return count + ((value?.[emotionId] ?? '').trim().length > 0 ? 1 : 0)
+  }, 0)
+}
+
+function normalizeStoryCharacterLinkName(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value
+    .toLocaleLowerCase()
+    .replace(/[.,!?()[\]{}"'`]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeStoryCharacterLinkAvatar(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value.trim()
+}
+
+function buildStoryCharacterLinkSignature(character: Pick<StoryCharacter, 'name' | 'avatar_url' | 'avatar_original_url'>): string {
+  const normalizedName = normalizeStoryCharacterLinkName(character.name)
+  const normalizedAvatar = normalizeStoryCharacterLinkAvatar(character.avatar_original_url ?? character.avatar_url)
+  if (!normalizedName) {
+    return ''
+  }
+  return `${normalizedName}|${normalizedAvatar}`
+}
+
 function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryCharacter {
   const character = rawCharacter as Partial<StoryCharacter>
   const normalizedTriggers = Array.isArray(character.triggers)
@@ -193,6 +269,9 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
       typeof character.avatar_scale === 'number' && Number.isFinite(character.avatar_scale)
         ? Math.max(1, Math.min(3, character.avatar_scale))
         : 1,
+    emotion_assets: normalizeStoryCharacterEmotionAssets(character.emotion_assets),
+    emotion_model: typeof character.emotion_model === 'string' ? character.emotion_model : '',
+    emotion_prompt_lock: typeof character.emotion_prompt_lock === 'string' ? character.emotion_prompt_lock : null,
     source: character.source === 'ai' ? 'ai' : 'user',
     visibility: character.visibility === 'public' ? 'public' : 'private',
     source_character_id:
@@ -220,10 +299,120 @@ function normalizeStoryCharacterListPayload(rawCharacters: StoryCharacter[]): St
   if (!Array.isArray(rawCharacters)) {
     return []
   }
-  return rawCharacters
+  const normalizedCharacters = rawCharacters
     .filter((item): item is StoryCharacter => Boolean(item) && typeof item === 'object')
     .map((item) => normalizeStoryCharacterPayload(item))
     .filter((item) => item.id > 0)
+
+  const donorById = new Map<number, StoryCharacter>()
+  const donorsBySignature = new Map<string, StoryCharacter[]>()
+  const donorsByName = new Map<string, StoryCharacter[]>()
+
+  normalizedCharacters.forEach((character) => {
+    if (countStoryCharacterEmotionAssets(character.emotion_assets) <= 0) {
+      return
+    }
+    donorById.set(character.id, character)
+
+    const signature = buildStoryCharacterLinkSignature(character)
+    if (signature) {
+      const signatureDonors = donorsBySignature.get(signature) ?? []
+      signatureDonors.push(character)
+      donorsBySignature.set(signature, signatureDonors)
+    }
+
+    const normalizedName = normalizeStoryCharacterLinkName(character.name)
+    if (normalizedName) {
+      const nameDonors = donorsByName.get(normalizedName) ?? []
+      nameDonors.push(character)
+      donorsByName.set(normalizedName, nameDonors)
+    }
+  })
+
+  return normalizedCharacters.map((character) => {
+    if (countStoryCharacterEmotionAssets(character.emotion_assets) > 0) {
+      return character
+    }
+
+    let donor: StoryCharacter | null = null
+    if (typeof character.source_character_id === 'number' && character.source_character_id > 0) {
+      donor = donorById.get(character.source_character_id) ?? null
+    }
+
+    if (!donor) {
+      const signatureDonors = donorsBySignature.get(buildStoryCharacterLinkSignature(character)) ?? []
+      donor = signatureDonors.find((candidate) => candidate.id !== character.id) ?? null
+    }
+
+    if (!donor) {
+      const nameDonors = donorsByName.get(normalizeStoryCharacterLinkName(character.name)) ?? []
+      if (nameDonors.length === 1 && nameDonors[0].id !== character.id) {
+        donor = nameDonors[0]
+      }
+    }
+
+    if (!donor) {
+      return character
+    }
+
+    return {
+      ...character,
+      emotion_assets: donor.emotion_assets,
+      emotion_model: character.emotion_model || donor.emotion_model,
+      emotion_prompt_lock: character.emotion_prompt_lock ?? donor.emotion_prompt_lock,
+    }
+  })
+}
+
+function normalizeStoryCommunityCharacterSummaryPayload(
+  rawCharacter: StoryCommunityCharacterSummary,
+): StoryCommunityCharacterSummary {
+  const character = rawCharacter as Partial<StoryCommunityCharacterSummary>
+  const normalizedTriggers = Array.isArray(character.triggers)
+    ? character.triggers.filter((value): value is string => typeof value === 'string').map((value) => value.trim()).filter(Boolean)
+    : []
+
+  return {
+    ...rawCharacter,
+    id: typeof character.id === 'number' && Number.isFinite(character.id) ? Math.trunc(character.id) : 0,
+    name: typeof character.name === 'string' ? character.name : '',
+    description: typeof character.description === 'string' ? character.description : '',
+    note: typeof character.note === 'string' ? character.note : '',
+    triggers: normalizedTriggers,
+    avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
+    avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
+    avatar_scale:
+      typeof character.avatar_scale === 'number' && Number.isFinite(character.avatar_scale)
+        ? Math.max(1, Math.min(3, character.avatar_scale))
+        : 1,
+    emotion_assets: normalizeStoryCharacterEmotionAssets(character.emotion_assets),
+    emotion_model: typeof character.emotion_model === 'string' ? character.emotion_model : '',
+    emotion_prompt_lock: typeof character.emotion_prompt_lock === 'string' ? character.emotion_prompt_lock : null,
+    visibility: character.visibility === 'public' ? 'public' : 'private',
+    author_id: typeof character.author_id === 'number' && Number.isFinite(character.author_id) ? Math.trunc(character.author_id) : 0,
+    author_name: typeof character.author_name === 'string' ? character.author_name : '',
+    author_avatar_url: typeof character.author_avatar_url === 'string' ? character.author_avatar_url : null,
+    community_rating_avg:
+      typeof character.community_rating_avg === 'number' && Number.isFinite(character.community_rating_avg)
+        ? character.community_rating_avg
+        : 0,
+    community_rating_count:
+      typeof character.community_rating_count === 'number' && Number.isFinite(character.community_rating_count)
+        ? Math.max(0, Math.trunc(character.community_rating_count))
+        : 0,
+    community_additions_count:
+      typeof character.community_additions_count === 'number' && Number.isFinite(character.community_additions_count)
+        ? Math.max(0, Math.trunc(character.community_additions_count))
+        : 0,
+    user_rating:
+      typeof character.user_rating === 'number' && Number.isFinite(character.user_rating)
+        ? Math.max(0, Math.trunc(character.user_rating))
+        : null,
+    is_added_by_user: Boolean(character.is_added_by_user),
+    is_reported_by_user: Boolean(character.is_reported_by_user),
+    created_at: typeof character.created_at === 'string' ? character.created_at : new Date(0).toISOString(),
+    updated_at: typeof character.updated_at === 'string' ? character.updated_at : new Date(0).toISOString(),
+  }
 }
 
 export async function listStoryGames(
@@ -408,26 +597,28 @@ export async function unfavoriteCommunityWorld(payload: {
 }
 
 export async function listCommunityCharacters(token: string): Promise<StoryCommunityCharacterSummary[]> {
-  return request<StoryCommunityCharacterSummary[]>('/api/story/community/characters', {
+  const response = await request<StoryCommunityCharacterSummary[]>('/api/story/community/characters', {
     method: 'GET',
     cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
     },
   })
+  return Array.isArray(response) ? response.map((item) => normalizeStoryCommunityCharacterSummaryPayload(item)) : []
 }
 
 export async function getCommunityCharacter(payload: {
   token: string
   characterId: number
 }): Promise<StoryCommunityCharacterSummary> {
-  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}`, {
+  const response = await request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}`, {
     method: 'GET',
     cache: 'no-store',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
+  return normalizeStoryCommunityCharacterSummaryPayload(response)
 }
 
 export async function rateCommunityCharacter(payload: {
@@ -435,7 +626,7 @@ export async function rateCommunityCharacter(payload: {
   characterId: number
   rating: number
 }): Promise<StoryCommunityCharacterSummary> {
-  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/rating`, {
+  const response = await request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/rating`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -444,6 +635,7 @@ export async function rateCommunityCharacter(payload: {
       rating: payload.rating,
     }),
   })
+  return normalizeStoryCommunityCharacterSummaryPayload(response)
 }
 
 export async function reportCommunityCharacter(payload: {
@@ -452,7 +644,7 @@ export async function reportCommunityCharacter(payload: {
   reason: StoryCommunityWorldReportReason
   description: string
 }): Promise<StoryCommunityCharacterSummary> {
-  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/report`, {
+  const response = await request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/report`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -462,18 +654,20 @@ export async function reportCommunityCharacter(payload: {
       description: payload.description,
     }),
   })
+  return normalizeStoryCommunityCharacterSummaryPayload(response)
 }
 
 export async function addCommunityCharacter(payload: {
   token: string
   characterId: number
 }): Promise<StoryCommunityCharacterSummary> {
-  return request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/add`, {
+  const response = await request<StoryCommunityCharacterSummary>(`/api/story/community/characters/${payload.characterId}/add`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
+  return normalizeStoryCommunityCharacterSummaryPayload(response)
 }
 
 export async function listCommunityInstructionTemplates(token: string): Promise<StoryCommunityInstructionTemplateSummary[]> {
@@ -610,6 +804,58 @@ function normalizeStoryCharacterAvatarGenerationPayload(
   }
 }
 
+function normalizeStoryCharacterEmotionGenerationPayload(
+  rawPayload: StoryCharacterEmotionGenerationPayload,
+): StoryCharacterEmotionGenerationPayload {
+  const payload = rawPayload as Partial<StoryCharacterEmotionGenerationPayload>
+  return {
+    model: typeof payload.model === 'string' ? payload.model : '',
+    avatar_prompt: typeof payload.avatar_prompt === 'string' ? payload.avatar_prompt : '',
+    emotion_prompt_lock: typeof payload.emotion_prompt_lock === 'string' ? payload.emotion_prompt_lock : null,
+    reference_image_url: typeof payload.reference_image_url === 'string' ? payload.reference_image_url : null,
+    reference_image_data_url: typeof payload.reference_image_data_url === 'string' ? payload.reference_image_data_url : null,
+    emotion_assets: normalizeStoryCharacterEmotionAssets(payload.emotion_assets),
+    user: payload.user,
+  }
+}
+
+function normalizeStoryCharacterEmotionGenerationJobPayload(
+  rawPayload: StoryCharacterEmotionGenerationJobPayload,
+): StoryCharacterEmotionGenerationJobPayload {
+  const payload = rawPayload as Partial<StoryCharacterEmotionGenerationJobPayload>
+  const status =
+    payload.status === 'queued' || payload.status === 'running' || payload.status === 'completed' || payload.status === 'failed'
+      ? payload.status
+      : 'failed'
+  const currentEmotionId =
+    typeof payload.current_emotion_id === 'string' &&
+    STORY_CHARACTER_EMOTION_IDS.includes(payload.current_emotion_id as (typeof STORY_CHARACTER_EMOTION_IDS)[number])
+      ? payload.current_emotion_id
+      : null
+
+  return {
+    id: typeof payload.id === 'number' && Number.isFinite(payload.id) ? Math.trunc(payload.id) : 0,
+    status,
+    image_model: typeof payload.image_model === 'string' ? payload.image_model : '',
+    completed_variants:
+      typeof payload.completed_variants === 'number' && Number.isFinite(payload.completed_variants)
+        ? Math.max(0, Math.trunc(payload.completed_variants))
+        : 0,
+    total_variants:
+      typeof payload.total_variants === 'number' && Number.isFinite(payload.total_variants)
+        ? Math.max(0, Math.trunc(payload.total_variants))
+        : 0,
+    current_emotion_id: currentEmotionId,
+    error_detail: typeof payload.error_detail === 'string' ? payload.error_detail : null,
+    result: payload.result ? normalizeStoryCharacterEmotionGenerationPayload(payload.result) : null,
+    user: payload.user,
+    created_at: typeof payload.created_at === 'string' ? payload.created_at : new Date(0).toISOString(),
+    updated_at: typeof payload.updated_at === 'string' ? payload.updated_at : new Date(0).toISOString(),
+    started_at: typeof payload.started_at === 'string' ? payload.started_at : null,
+    completed_at: typeof payload.completed_at === 'string' ? payload.completed_at : null,
+  }
+}
+
 export async function generateStoryCharacterAvatar(payload: {
   token: string
   imageModel?: StoryImageModelId
@@ -634,6 +880,83 @@ export async function generateStoryCharacterAvatar(payload: {
     }),
   })
   return normalizeStoryCharacterAvatarGenerationPayload(response)
+}
+
+export async function generateStoryCharacterEmotionPack(payload: {
+  token: string
+  imageModel?: StoryImageModelId
+  name?: string
+  description?: string
+  triggers?: string[]
+  stylePrompt?: string
+  referenceAvatarUrl?: string | null
+  emotionIds?: StoryCharacterEmotionId[]
+  pollTimeoutMs?: number
+  pollIntervalMs?: number
+  onProgress?: (job: StoryCharacterEmotionGenerationJobPayload) => void
+}): Promise<StoryCharacterEmotionGenerationPayload> {
+  const initialJobResponse = await request<StoryCharacterEmotionGenerationJobPayload>('/api/story/characters/emotions/generate', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      image_model: payload.imageModel ?? null,
+      name: payload.name ?? null,
+      description: payload.description ?? null,
+      style_prompt: payload.stylePrompt ?? null,
+      triggers: Array.isArray(payload.triggers)
+        ? payload.triggers.filter((value): value is string => typeof value === 'string')
+        : [],
+      reference_avatar_url: payload.referenceAvatarUrl ?? null,
+      emotion_ids: Array.isArray(payload.emotionIds)
+        ? payload.emotionIds.filter((value): value is StoryCharacterEmotionId => STORY_CHARACTER_EMOTION_IDS.includes(value))
+        : [],
+    }),
+  })
+  let job = normalizeStoryCharacterEmotionGenerationJobPayload(initialJobResponse)
+  payload.onProgress?.(job)
+
+  const timeoutMs =
+    typeof payload.pollTimeoutMs === 'number' && Number.isFinite(payload.pollTimeoutMs)
+      ? Math.max(5_000, Math.trunc(payload.pollTimeoutMs))
+      : STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS
+  const pollIntervalMs =
+    typeof payload.pollIntervalMs === 'number' && Number.isFinite(payload.pollIntervalMs)
+      ? Math.max(500, Math.trunc(payload.pollIntervalMs))
+      : STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS
+  const startedAt = Date.now()
+
+  while (true) {
+    if (job.status === 'completed') {
+      if (job.result) {
+        return job.result
+      }
+      throw new Error('Emotion generation finished without a result payload')
+    }
+
+    if (job.status === 'failed') {
+      throw new Error(job.error_detail?.trim() || 'Не удалось сгенерировать эмоции персонажа')
+    }
+
+    if (Date.now() - startedAt >= timeoutMs) {
+      throw new Error('Превышено ожидание генерации эмоций (10 минут)')
+    }
+
+    await delay(pollIntervalMs)
+    const nextJobResponse = await request<StoryCharacterEmotionGenerationJobPayload>(
+      `/api/story/characters/emotions/generate/${job.id}`,
+      {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          Authorization: `Bearer ${payload.token}`,
+        },
+      },
+    )
+    job = normalizeStoryCharacterEmotionGenerationJobPayload(nextJobResponse)
+    payload.onProgress?.(job)
+  }
 }
 
 export async function listStoryInstructionTemplates(token: string): Promise<StoryInstructionTemplate[]> {
@@ -806,6 +1129,7 @@ export async function updateStoryGameSettings(payload: {
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
+  emotionVisualizationEnabled?: boolean
 }): Promise<StoryGameSummary> {
   const requestPayload: Record<string, unknown> = {}
   if (typeof payload.contextLimitTokens === 'number') {
@@ -846,6 +1170,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
+  }
+  if (typeof payload.emotionVisualizationEnabled === 'boolean') {
+    requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
   }
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
@@ -917,6 +1244,19 @@ export async function updateStoryMessage(payload: {
   })
 }
 
+export async function refreshStoryMessageSceneEmotionCue(payload: {
+  token: string
+  gameId: number
+  messageId: number
+}): Promise<StoryMessage> {
+  return request<StoryMessage>(`/api/story/games/${payload.gameId}/messages/${payload.messageId}/scene-emotion/refresh`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
 export async function generateStoryResponseStream(options: StoryGenerationStreamOptions): Promise<void> {
   const targetUrl = buildApiUrl(`/api/story/games/${options.gameId}/generate`)
   const requestPayload: Record<string, unknown> = {
@@ -953,6 +1293,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = options.ambientEnabled
+  }
+  if (typeof options.emotionVisualizationEnabled === 'boolean') {
+    requestPayload.emotion_visualization_enabled = options.emotionVisualizationEnabled
   }
   let response: Response
   try {
@@ -1374,6 +1717,7 @@ export async function createStoryWorldCard(payload: {
   avatar_url?: string | null
   avatar_original_url?: string | null
   avatar_scale?: number
+  character_id?: number | null
   memory_turns?: number | null
 }): Promise<StoryWorldCard> {
   const body: Record<string, unknown> = {
@@ -1384,6 +1728,9 @@ export async function createStoryWorldCard(payload: {
     avatar_url: payload.avatar_url ?? null,
     avatar_original_url: payload.avatar_original_url ?? null,
     avatar_scale: payload.avatar_scale ?? null,
+  }
+  if (payload.character_id !== undefined) {
+    body.character_id = payload.character_id
   }
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns
@@ -1491,12 +1838,16 @@ export async function updateStoryWorldCard(payload: {
   title: string
   content: string
   triggers: string[]
+  character_id?: number | null
   memory_turns?: number | null
 }): Promise<StoryWorldCard> {
   const body: Record<string, unknown> = {
     title: payload.title,
     content: payload.content,
     triggers: payload.triggers,
+  }
+  if (payload.character_id !== undefined) {
+    body.character_id = payload.character_id
   }
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns

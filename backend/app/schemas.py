@@ -246,6 +246,7 @@ class StoryGameCreateRequest(BaseModel):
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
+    emotion_visualization_enabled: bool | None = None
 
 
 class StoryGameCloneRequest(BaseModel):
@@ -270,6 +271,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
+    emotion_visualization_enabled: bool | None = None
 
 
 class StoryGameMetaUpdateRequest(BaseModel):
@@ -305,6 +307,7 @@ class StoryGenerateRequest(BaseModel):
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
+    emotion_visualization_enabled: bool | None = None
 
 
 class StoryTurnImageGenerateRequest(BaseModel):
@@ -337,6 +340,45 @@ class StoryCharacterAvatarGenerateOut(BaseModel):
     image_url: str | None
     image_data_url: str | None
     user: UserOut | None = None
+
+
+class StoryCharacterEmotionGenerateRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=120)
+    description: str | None = Field(default=None, max_length=6_000)
+    style_prompt: str | None = Field(default=None, max_length=320)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    image_model: str | None = Field(default=None, max_length=120)
+    reference_avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    emotion_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class StoryCharacterEmotionGenerateOut(BaseModel):
+    model: str
+    avatar_prompt: str
+    emotion_prompt_lock: str | None
+    reference_image_url: str | None
+    reference_image_data_url: str | None
+    emotion_assets: dict[str, str] = Field(default_factory=dict)
+    user: UserOut | None = None
+
+
+StoryCharacterEmotionJobStatus = Literal["queued", "running", "completed", "failed"]
+
+
+class StoryCharacterEmotionGenerateJobOut(BaseModel):
+    id: int
+    status: StoryCharacterEmotionJobStatus
+    image_model: str
+    completed_variants: int
+    total_variants: int
+    current_emotion_id: str | None
+    error_detail: str | None
+    result: StoryCharacterEmotionGenerateOut | None = None
+    user: UserOut | None = None
+    created_at: datetime
+    updated_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
 
 
 class StoryInstructionCardCreateRequest(BaseModel):
@@ -381,6 +423,7 @@ class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=6_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
 
 
@@ -410,6 +453,11 @@ class StoryCharacterCreateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    emotion_assets: dict[str, str] = Field(default_factory=dict)
+    emotion_model: str | None = Field(default=None, max_length=120)
+    emotion_prompt_lock: str | None = Field(default=None, max_length=8_000)
+    emotion_generation_job_id: int | None = Field(default=None, ge=1)
+    preserve_existing_emotions: bool | None = None
     visibility: str | None = Field(default=None, max_length=16)
 
 
@@ -421,6 +469,11 @@ class StoryCharacterUpdateRequest(BaseModel):
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    emotion_assets: dict[str, str] = Field(default_factory=dict)
+    emotion_model: str | None = Field(default=None, max_length=120)
+    emotion_prompt_lock: str | None = Field(default=None, max_length=8_000)
+    emotion_generation_job_id: int | None = Field(default=None, ge=1)
+    preserve_existing_emotions: bool | None = None
     visibility: str | None = Field(default=None, max_length=16)
 
 
@@ -487,6 +540,7 @@ class StoryMessageOut(BaseModel):
     game_id: int
     role: str
     content: str
+    scene_emotion_payload: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -562,6 +616,9 @@ class StoryCharacterOut(BaseModel):
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
+    emotion_assets: dict[str, str] = Field(default_factory=dict)
+    emotion_model: str = ""
+    emotion_prompt_lock: str | None = None
     source: str
     visibility: str
     source_character_id: int | None
@@ -685,6 +742,7 @@ class StoryGameSummaryOut(BaseModel):
     show_gg_thoughts: bool
     show_npc_thoughts: bool
     ambient_enabled: bool
+    emotion_visualization_enabled: bool
     ambient_profile: dict[str, Any] | None
     last_activity_at: datetime
     created_at: datetime
@@ -745,6 +803,9 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
+    emotion_assets: dict[str, str] = Field(default_factory=dict)
+    emotion_model: str = ""
+    emotion_prompt_lock: str | None = None
     visibility: str
     author_id: int
     author_name: str

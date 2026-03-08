@@ -75,6 +75,7 @@ from app.services.story_games import (
     normalize_story_cover_scale,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
+    normalize_story_emotion_visualization_enabled,
     normalize_story_game_age_rating,
     normalize_story_game_description,
     normalize_story_game_genres,
@@ -103,6 +104,7 @@ from app.services.story_events import (
     story_world_card_change_event_to_out,
 )
 from app.services.story_memory import story_memory_block_to_out
+from app.services.story_messages import story_message_to_out
 from app.services.story_queries import (
     get_public_story_world_or_404,
     get_user_story_game_or_404,
@@ -188,7 +190,7 @@ def _build_story_game_snapshot_payload(db: Session, game: StoryGame) -> dict[str
 
     payload = StoryGameOut(
         game=story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages)),
-        messages=[StoryMessageOut.model_validate(message) for message in messages],
+        messages=[story_message_to_out(message) for message in messages],
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
@@ -367,6 +369,7 @@ def _create_story_game_publication_copy_from_source(
         show_gg_thoughts=source_game.show_gg_thoughts,
         show_npc_thoughts=source_game.show_npc_thoughts,
         ambient_enabled=source_game.ambient_enabled,
+        emotion_visualization_enabled=source_game.emotion_visualization_enabled,
         ambient_profile=source_game.ambient_profile,
         last_activity_at=_utcnow(),
     )
@@ -716,6 +719,9 @@ def launch_story_community_world(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(world, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(world, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
+        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
+            getattr(world, "emotion_visualization_enabled", None)
+        ),
         ambient_profile=str(getattr(world, "ambient_profile", "") or ""),
         last_activity_at=_utcnow(),
     )
@@ -1067,6 +1073,11 @@ def create_story_game(
     show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
+    emotion_visualization_enabled = (
+        normalize_story_emotion_visualization_enabled(payload.emotion_visualization_enabled)
+        if user.role == "administrator"
+        else False
+    )
 
     game = StoryGame(
         user_id=user.id,
@@ -1098,6 +1109,7 @@ def create_story_game(
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         ambient_enabled=ambient_enabled,
+        emotion_visualization_enabled=emotion_visualization_enabled,
         ambient_profile="",
         last_activity_at=_utcnow(),
     )
@@ -1156,6 +1168,9 @@ def clone_story_game(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
+        emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
+            getattr(source_game, "emotion_visualization_enabled", None)
+        ),
         ambient_profile=str(getattr(source_game, "ambient_profile", "") or ""),
         last_activity_at=_utcnow(),
     )
@@ -1277,6 +1292,10 @@ def update_story_game_settings(
         game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     if payload.ambient_enabled is not None:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
+    if payload.emotion_visualization_enabled is not None and user.role == "administrator":
+        game.emotion_visualization_enabled = normalize_story_emotion_visualization_enabled(
+            payload.emotion_visualization_enabled
+        )
     touch_story_game(game)
     db.commit()
     db.refresh(game)

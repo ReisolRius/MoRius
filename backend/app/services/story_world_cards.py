@@ -294,7 +294,7 @@ def build_story_world_card_from_character(
             else None
         ),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
-        character_id=None,
+        character_id=character.id,
         memory_turns=normalize_story_world_card_memory_turns_for_storage(
             None,
             kind=normalized_kind,

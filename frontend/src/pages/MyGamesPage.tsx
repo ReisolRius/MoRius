@@ -1468,6 +1468,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <CharacterManagerDialog
         open={characterManagerOpen}
         authToken={authToken}
+        showEmotionTools={user.role === 'administrator'}
         onClose={() => setCharacterManagerOpen(false)}
       />
 

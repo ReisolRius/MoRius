@@ -9,6 +9,7 @@
   type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type Ref,
 } from 'react'
@@ -116,6 +117,10 @@ import type { AuthUser } from '../types/auth'
 import type {
   StoryAmbientProfile,
   StoryCharacter,
+  StoryCharacterEmotionAssets,
+  StoryCharacterEmotionId,
+  StorySceneEmotionCue,
+  StorySceneEmotionCueParticipant,
   StoryCommunityCharacterSummary,
   StoryGameSummary,
   StoryInstructionCard,
@@ -130,7 +135,10 @@ import type {
   StoryWorldCardKind,
   StoryWorldCardEvent,
 } from '../types/story'
-import { compressImageFileToDataUrl, prepareAvatarPayloadForRequest } from '../utils/avatar'
+import {
+  compressImageFileToDataUrl,
+  prepareAvatarPayloadForRequest,
+} from '../utils/avatar'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
 
 type StoryGamePageProps = {
@@ -153,6 +161,7 @@ type StorySettingsOverride = {
   showGgThoughts: boolean
   showNpcThoughts: boolean
   ambientEnabled: boolean
+  emotionVisualizationEnabled?: boolean
 }
 
 
@@ -194,6 +203,17 @@ type SpeakerAvatarEntry = {
   avatar: string | null
   previewAvatar: string | null
   displayName: string
+}
+type SceneEmotionCharacterEntry = {
+  names: string[]
+  displayName: string
+  emotionAssets: StoryCharacterEmotionAssets
+  isMainHero: boolean
+}
+type VisualStageParticipant = StorySceneEmotionCueParticipant & {
+  assetUrl: string
+  displayName: string
+  isMainHero: boolean
 }
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
@@ -259,6 +279,67 @@ const STORY_AUTOSCROLL_BOTTOM_THRESHOLD = 72
 const COMPOSER_TOP_ACTION_BUTTON_SIZE = 46
 const COMPOSER_SEND_BUTTON_SIZE = 48
 const STORY_CONTINUE_PROMPT = 'Продолжай'
+const STORY_CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
+  'calm',
+  'angry',
+  'irritated',
+  'stern',
+  'cheerful',
+  'smiling',
+  'sly',
+  'alert',
+  'scared',
+  'happy',
+  'embarrassed',
+  'confused',
+  'thoughtful',
+]
+const STORY_CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, string> = {
+  calm: 'Спокойствие',
+  angry: 'Злость',
+  irritated: 'Раздражение',
+  stern: 'Строгость',
+  cheerful: 'Веселье',
+  smiling: 'Улыбка',
+  sly: 'Хитрость',
+  alert: 'Настороженность',
+  scared: 'Страх',
+  happy: 'Счастье',
+  embarrassed: 'Смущение',
+  confused: 'Растерянность',
+  thoughtful: 'Задумчивость',
+}
+const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
+  'гг',
+  'главный герой',
+  'герой',
+  'ты',
+  'тебя',
+  'тебе',
+  'тобой',
+  'вы',
+  'вас',
+  'вам',
+  'вами',
+  'я',
+  'меня',
+  'мне',
+  'мной',
+  'мы',
+  'нас',
+  'нам',
+  'нами',
+  'you',
+  'your',
+  'yours',
+  'player',
+  'protagonist',
+  'hero',
+  'mc',
+] as const
+const EMOTION_STAGE_MIN_HEIGHT_PX = 260
+const EMOTION_STAGE_DEFAULT_HEIGHT_RATIO = 0.54
+const EMOTION_STAGE_MAX_HEIGHT_RATIO = 0.72
 type StoryNarratorStat = {
   label: string
   value: number
@@ -1919,7 +2000,75 @@ function normalizeStoryImageStylePrompt(value: string | null | undefined): strin
   return sanitizeStoryImageStylePromptDraft(value ?? '').trim()
 }
 
-function getStoryTurnCostTokens(contextUsageTokens: number, ambientEnabled: boolean): number {
+function normalizeStoryCharacterEmotionAssets(value: unknown): StoryCharacterEmotionAssets {
+  if (!value || typeof value !== 'object') {
+    return {}
+  }
+
+  const normalizedAssets: StoryCharacterEmotionAssets = {}
+  STORY_CHARACTER_EMOTION_IDS.forEach((emotionId) => {
+    const rawAsset = (value as Record<string, unknown>)[emotionId]
+    if (typeof rawAsset === 'string' && rawAsset.trim().length > 0) {
+      normalizedAssets[emotionId] = rawAsset
+    }
+  })
+  return normalizedAssets
+}
+
+function parseStorySceneEmotionPayload(rawValue: string | null | undefined): StorySceneEmotionCue | null {
+  const normalizedValue = (rawValue ?? '').trim()
+  if (!normalizedValue) {
+    return null
+  }
+
+  let parsedValue: unknown
+  try {
+    parsedValue = JSON.parse(normalizedValue)
+  } catch {
+    return null
+  }
+
+  if (!parsedValue || typeof parsedValue !== 'object') {
+    return null
+  }
+
+  const payload = parsedValue as Record<string, unknown>
+  const rawParticipants = Array.isArray(payload.participants) ? payload.participants : []
+  const participants: StorySceneEmotionCueParticipant[] = []
+
+  rawParticipants.forEach((item, index) => {
+    if (!item || typeof item !== 'object') {
+      return
+    }
+    const participant = item as Record<string, unknown>
+    const name = typeof participant.name === 'string' ? participant.name.trim() : ''
+    const emotion = typeof participant.emotion === 'string' ? (participant.emotion as StoryCharacterEmotionId) : null
+    const importance = participant.importance === 'secondary' ? 'secondary' : 'primary'
+    if (!name || !emotion || !STORY_CHARACTER_EMOTION_IDS.includes(emotion)) {
+      return
+    }
+    participants.push({
+      name,
+      emotion,
+      importance: index === 0 ? 'primary' : importance,
+    })
+  })
+
+  const showVisualization = Boolean(payload.show_visualization) && participants.length > 0
+  const reason = typeof payload.reason === 'string' && payload.reason.trim().length > 0 ? payload.reason.trim() : 'no_interaction'
+
+  return {
+    show_visualization: showVisualization,
+    reason,
+    participants: showVisualization ? participants.slice(0, 4) : [],
+  }
+}
+
+function getStoryTurnCostTokens(
+  contextUsageTokens: number,
+  ambientEnabled: boolean,
+  emotionVisualizationEnabled = false,
+): number {
   const normalizedUsage = Math.max(0, Math.round(contextUsageTokens))
   let baseCost = 10
   if (normalizedUsage <= STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX) {
@@ -1941,7 +2090,14 @@ function getStoryTurnCostTokens(contextUsageTokens: number, ambientEnabled: bool
   } else if (normalizedUsage <= STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX) {
     baseCost = 9
   }
-  return ambientEnabled ? baseCost + 1 : baseCost
+  let totalCost = baseCost
+  if (ambientEnabled) {
+    totalCost += 1
+  }
+  if (emotionVisualizationEnabled) {
+    totalCost += 1
+  }
+  return totalCost
 }
 
 function clampStoryTopK(value: number): number {
@@ -3023,6 +3179,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [showGgThoughts, setShowGgThoughts] = useState(false)
   const [showNpcThoughts, setShowNpcThoughts] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
+  const [emotionVisualizationEnabled, setEmotionVisualizationEnabled] = useState(false)
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
   const storySettingsOverridesRef = useRef<Record<number, StorySettingsOverride>>({})
@@ -3034,6 +3191,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingShowGgThoughts, setIsSavingShowGgThoughts] = useState(false)
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
+  const [isSavingEmotionVisualizationEnabled, setIsSavingEmotionVisualizationEnabled] = useState(false)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
@@ -3057,6 +3215,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const emotionStagePanelRef = useRef<HTMLDivElement | null>(null)
+  const emotionStageResizingRef = useRef(false)
   const voiceRecognitionRef = useRef<BrowserSpeechRecognition | null>(null)
   const voiceSessionRequestedRef = useRef(false)
   const hasVoiceTranscriptRef = useRef(false)
@@ -3066,6 +3226,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const worldCardAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const [composerHeight, setComposerHeight] = useState(0)
+  const [emotionStageHeightPx, setEmotionStageHeightPx] = useState<number | null>(null)
 
   const activeDisplayTitle = useMemo(
     () => getDisplayStoryTitle(activeGameId, customTitleMap),
@@ -3177,7 +3338,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const storyStageSx = useMemo(
     () => ({
       width: '100%',
-      maxWidth: 980,
+      maxWidth: 1180,
       minHeight: 0,
       display: 'flex',
       flexDirection: 'column',
@@ -3190,6 +3351,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const measuredComposerHeight = composerHeight > 0 ? composerHeight : fallbackComposerHeight
     return measuredComposerHeight + moriusThemeTokens.layout.interfaceGap + 40
   }, [composerHeight])
+  const getEmotionStageHeightBounds = useCallback(() => {
+    const viewportHeight = Math.max(
+      540,
+      Math.round(messagesViewportRef.current?.clientHeight ?? window.innerHeight * 0.74),
+    )
+    const minHeight = Math.min(Math.max(EMOTION_STAGE_MIN_HEIGHT_PX, Math.round(viewportHeight * 0.28)), viewportHeight - 120)
+    const maxHeight = Math.max(minHeight + 40, Math.round(viewportHeight * EMOTION_STAGE_MAX_HEIGHT_RATIO))
+    const defaultHeight = Math.min(maxHeight, Math.max(minHeight, Math.round(viewportHeight * EMOTION_STAGE_DEFAULT_HEIGHT_RATIO)))
+    return { minHeight, maxHeight, defaultHeight }
+  }, [])
+  const clampEmotionStageHeight = useCallback(
+    (value: number) => {
+      const { minHeight, maxHeight } = getEmotionStageHeightBounds()
+      return Math.min(maxHeight, Math.max(minHeight, Math.round(value)))
+    },
+    [getEmotionStageHeightBounds],
+  )
   const composerAmbientVisual = useMemo(() => {
     if (!ambientEnabled) {
       return null
@@ -3284,6 +3462,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setShowGgThoughts(override.showGgThoughts)
       setShowNpcThoughts(override.showNpcThoughts)
       setAmbientEnabled(override.ambientEnabled)
+      if (typeof override.emotionVisualizationEnabled === 'boolean') {
+        setEmotionVisualizationEnabled(override.emotionVisualizationEnabled)
+      } else if (typeof runtimeGame.emotion_visualization_enabled === 'boolean') {
+        setEmotionVisualizationEnabled(runtimeGame.emotion_visualization_enabled)
+      } else {
+        setEmotionVisualizationEnabled(false)
+      }
       return
     }
     if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
@@ -3319,6 +3504,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setAmbientEnabled(runtimeGame.ambient_enabled)
     } else {
       setAmbientEnabled(false)
+    }
+    if (typeof runtimeGame.emotion_visualization_enabled === 'boolean') {
+      setEmotionVisualizationEnabled(runtimeGame.emotion_visualization_enabled)
+    } else {
+      setEmotionVisualizationEnabled(false)
     }
   }, [])
 
@@ -3388,7 +3578,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isCreatingGame &&
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
-  const canViewDevMemoryTab = user.role === 'administrator'
+  const isAdministrator = user.role === 'administrator'
+  const canViewDevMemoryTab = isAdministrator
   const isRightPanelSecondTabVisible = rightPanelMode !== 'memory' || canViewDevMemoryTab
   const leftPanelTabLabel =
     rightPanelMode === 'ai'
@@ -3687,8 +3878,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const cardsContextUsagePercent =
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
   const currentTurnCostTokens = useMemo(
-    () => getStoryTurnCostTokens(cardsContextCharsUsed, ambientEnabled),
-    [ambientEnabled, cardsContextCharsUsed],
+    () => getStoryTurnCostTokens(cardsContextCharsUsed, ambientEnabled, isAdministrator && emotionVisualizationEnabled),
+    [ambientEnabled, cardsContextCharsUsed, emotionVisualizationEnabled, isAdministrator],
   )
   const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
   const isSavingThoughtVisibility = isSavingShowGgThoughts || isSavingShowNpcThoughts
@@ -3717,7 +3908,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingMemoryOptimization ||
     isSavingStorySampling ||
     isSavingThoughtVisibility ||
-    isSavingAmbientEnabled
+    isSavingAmbientEnabled ||
+    isSavingEmotionVisualizationEnabled
   const isInstructionCardActionLocked =
     isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null || updatingInstructionActiveId !== null
   const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
@@ -3789,44 +3981,65 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
     return nextMap
   }, [characters])
-  const resolveLinkedCharacterPreviewAvatar = useCallback(
-    (card: StoryWorldCard | null): string | null => {
-      if (!card?.character_id || card.character_id <= 0) {
+  const resolveLinkedCharacterForWorldCard = useCallback(
+    (card: StoryWorldCard | null): StoryCharacter | null => {
+      if (!card) {
         return null
       }
-      const linkedCharacter = charactersById.get(card.character_id) ?? null
+      if (card.character_id && card.character_id > 0) {
+        return charactersById.get(card.character_id) ?? null
+      }
+
+      const normalizedTitle = normalizeCharacterIdentity(card.title)
+      const normalizedCardAvatar = (card.avatar_original_url ?? card.avatar_url ?? '').trim()
+      const titleMatches = characters.filter((character) => normalizeCharacterIdentity(character.name) === normalizedTitle)
+      if (titleMatches.length === 1) {
+        return titleMatches[0]
+      }
+      if (normalizedCardAvatar) {
+        const avatarMatch = titleMatches.find(
+          (character) => (character.avatar_original_url ?? character.avatar_url ?? '').trim() === normalizedCardAvatar,
+        )
+        if (avatarMatch) {
+          return avatarMatch
+        }
+      }
+      return null
+    },
+    [characters, charactersById],
+  )
+  const resolveLinkedCharacterPreviewAvatar = useCallback(
+    (card: StoryWorldCard | null): string | null => {
+      const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
       return linkedCharacter?.avatar_original_url ?? linkedCharacter?.avatar_url ?? null
     },
-    [charactersById],
+    [resolveLinkedCharacterForWorldCard],
   )
   const mainHeroPreviewAvatarUrl = useMemo(
     () => resolveWorldCardPreviewAvatar(mainHeroCard) ?? resolveLinkedCharacterPreviewAvatar(mainHeroCard),
     [mainHeroCard, resolveLinkedCharacterPreviewAvatar, resolveWorldCardPreviewAvatar],
   )
   const mainHeroSourceCharacterId = useMemo(() => {
-    if (!mainHeroCard?.character_id || mainHeroCard.character_id <= 0) {
-      return null
-    }
-    const linkedCharacter = charactersById.get(mainHeroCard.character_id) ?? null
+    const linkedCharacter = resolveLinkedCharacterForWorldCard(mainHeroCard)
     if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
       return null
     }
     return linkedCharacter.source_character_id
-  }, [charactersById, mainHeroCard])
+  }, [mainHeroCard, resolveLinkedCharacterForWorldCard])
   const npcSourceCharacterIds = useMemo(() => {
     const selectedIds = new Set<number>()
     worldCards.forEach((card) => {
-      if (card.kind !== 'npc' || !card.character_id || card.character_id <= 0) {
+      if (card.kind !== 'npc') {
         return
       }
-      const linkedCharacter = charactersById.get(card.character_id) ?? null
+      const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
       if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
         return
       }
       selectedIds.add(linkedCharacter.source_character_id)
     })
     return selectedIds
-  }, [charactersById, worldCards])
+  }, [resolveLinkedCharacterForWorldCard, worldCards])
   const getCharacterSelectionDisabledReason = useCallback(
     (character: StoryCharacter, mode: CharacterDialogMode): string | null => {
       if (mode === 'select-main-hero') {
@@ -3953,8 +4166,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         })
       }
 
-      const linkedCharacter =
-        card.character_id && card.character_id > 0 ? charactersById.get(card.character_id) ?? null : null
+      const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
       if (linkedCharacter) {
         buildCharacterAliases(linkedCharacter.name).forEach((alias) => aliasSet.add(alias))
       }
@@ -3978,7 +4190,66 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
 
     return entries
-  }, [characters, charactersById, resolveWorldCardAvatar, resolveWorldCardPreviewAvatar, worldCards])
+  }, [characters, resolveLinkedCharacterForWorldCard, resolveWorldCardAvatar, resolveWorldCardPreviewAvatar, worldCards])
+  const sceneEmotionEntries = useMemo(() => {
+    const entries: SceneEmotionCharacterEntry[] = []
+
+    const appendEntry = (
+      names: string[],
+      displayName: string,
+      emotionAssets: StoryCharacterEmotionAssets,
+      isMainHero: boolean,
+    ) => {
+      const normalizedNames = [...new Set(names.filter(Boolean))]
+      if (normalizedNames.length === 0) {
+        return
+      }
+      entries.push({
+        names: normalizedNames,
+        displayName: displayName.trim() || normalizedNames[0],
+        emotionAssets: normalizeStoryCharacterEmotionAssets(emotionAssets),
+        isMainHero,
+      })
+    }
+
+    worldCards.forEach((card) => {
+      if (card.kind !== 'npc' && card.kind !== 'main_hero') {
+        return
+      }
+
+      const aliasSet = new Set<string>()
+      buildCharacterAliases(card.title).forEach((alias) => aliasSet.add(alias))
+      buildIdentityTriggerAliases(card.title, card.triggers).forEach((alias) => aliasSet.add(alias))
+      if (card.kind === 'main_hero') {
+        MAIN_HERO_SPEAKER_ALIASES.forEach((alias) => {
+          const normalizedAlias = normalizeCharacterIdentity(alias)
+          if (normalizedAlias) {
+            aliasSet.add(normalizedAlias)
+          }
+        })
+        STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES.forEach((alias) => {
+          const normalizedAlias = normalizeCharacterIdentity(alias)
+          if (normalizedAlias) {
+            aliasSet.add(normalizedAlias)
+          }
+        })
+      }
+
+      const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
+      if (linkedCharacter) {
+        buildCharacterAliases(linkedCharacter.name).forEach((alias) => aliasSet.add(alias))
+      }
+
+      appendEntry(
+        [...aliasSet],
+        linkedCharacter?.name ?? card.title,
+        linkedCharacter?.emotion_assets ?? {},
+        card.kind === 'main_hero',
+      )
+    })
+
+    return entries
+  }, [resolveLinkedCharacterForWorldCard, worldCards])
   const genericDialogueSpeakerNames = useMemo(() => {
     const names = new Set<string>()
     const defaultSpeaker = normalizeCharacterIdentity(GENERIC_DIALOGUE_SPEAKER_DEFAULT)
@@ -4007,6 +4278,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return null
     },
     [speakerCardsForAvatar],
+  )
+  const findSceneEmotionEntryByName = useCallback(
+    (rawSpeakerName: string): SceneEmotionCharacterEntry | null => {
+      const lookupValues = extractSpeakerLookupValues(rawSpeakerName)
+      for (const lookupValue of lookupValues) {
+        const normalizedName = normalizeCharacterIdentity(lookupValue)
+        if (!normalizedName) {
+          continue
+        }
+
+        const exact = sceneEmotionEntries.find((entry) => entry.names.some((name) => name === normalizedName))
+        if (exact) {
+          return exact
+        }
+      }
+
+      return null
+    },
+    [sceneEmotionEntries],
   )
   const resolveDialogueAvatar = useCallback(
     (speakerName: string): string | null => {
@@ -4051,6 +4341,266 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [findSpeakerEntryByName, genericDialogueSpeakerNames],
   )
+  const currentSceneEmotionCue = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (message.role !== 'assistant') {
+        continue
+      }
+      return parseStorySceneEmotionPayload(message.scene_emotion_payload)
+    }
+    return null
+  }, [messages])
+  const buildVisualStageParticipantsFromCue = useCallback((cue: StorySceneEmotionCue | null): VisualStageParticipant[] => {
+    if (!cue?.show_visualization) {
+      return []
+    }
+
+    const resolvedParticipants: VisualStageParticipant[] = []
+    cue.participants.forEach((participant) => {
+      const matchedCharacter = findSceneEmotionEntryByName(participant.name)
+      const assetUrl = matchedCharacter?.emotionAssets?.[participant.emotion] ?? ''
+      if (!matchedCharacter || !assetUrl.trim()) {
+        return
+      }
+      resolvedParticipants.push({
+        ...participant,
+        assetUrl,
+        displayName: matchedCharacter.displayName,
+        isMainHero: matchedCharacter.isMainHero,
+      })
+    })
+
+    return resolvedParticipants
+      .sort((left, right) => {
+        if (left.isMainHero !== right.isMainHero) {
+          return left.isMainHero ? -1 : 1
+        }
+        if (left.importance !== right.importance) {
+          return left.importance === 'primary' ? -1 : 1
+        }
+        return 0
+      })
+      .slice(0, 4)
+  }, [findSceneEmotionEntryByName])
+  const serverVisualStageParticipants = useMemo(
+    () => buildVisualStageParticipantsFromCue(currentSceneEmotionCue),
+    [buildVisualStageParticipantsFromCue, currentSceneEmotionCue],
+  )
+  const currentVisualStageParticipants = useMemo(
+    () => serverVisualStageParticipants.filter((participant) => participant.assetUrl.trim().length > 0),
+    [serverVisualStageParticipants],
+  )
+  const currentVisualStageHeroParticipant = useMemo(
+    () => currentVisualStageParticipants.find((participant) => participant.isMainHero) ?? null,
+    [currentVisualStageParticipants],
+  )
+  const currentVisualStageNpcParticipants = useMemo(
+    () => currentVisualStageParticipants.filter((participant) => !participant.isMainHero).slice(0, 4),
+    [currentVisualStageParticipants],
+  )
+  const currentVisualStageNpcSlots = useMemo(() => {
+    const npcCount = currentVisualStageNpcParticipants.length
+    if (npcCount <= 1) {
+      return [
+        {
+          rightXs: '1%',
+          rightMd: '2%',
+          widthXs: '82%',
+          widthMd: '80%',
+          scaleXs: 1.2,
+          scaleMd: 1.32,
+          liftXs: 12,
+          liftMd: 14,
+          zIndex: 4,
+          opacity: 1,
+        },
+      ]
+    }
+    if (npcCount === 2) {
+      return [
+        {
+          rightXs: '21%',
+          rightMd: '24%',
+          widthXs: '56%',
+          widthMd: '54%',
+          scaleXs: 1.12,
+          scaleMd: 1.22,
+          liftXs: 11,
+          liftMd: 13,
+          zIndex: 4,
+          opacity: 1,
+        },
+        {
+          rightXs: '0%',
+          rightMd: '2%',
+          widthXs: '45%',
+          widthMd: '43%',
+          scaleXs: 1,
+          scaleMd: 1.08,
+          liftXs: 14,
+          liftMd: 16,
+          zIndex: 3,
+          opacity: 0.96,
+        },
+      ]
+    }
+    if (npcCount === 3) {
+      return [
+        {
+          rightXs: '27%',
+          rightMd: '29%',
+          widthXs: '46%',
+          widthMd: '44%',
+          scaleXs: 1.08,
+          scaleMd: 1.18,
+          liftXs: 11,
+          liftMd: 13,
+          zIndex: 5,
+          opacity: 1,
+        },
+        {
+          rightXs: '11%',
+          rightMd: '13%',
+          widthXs: '37%',
+          widthMd: '35%',
+          scaleXs: 0.98,
+          scaleMd: 1.06,
+          liftXs: 14,
+          liftMd: 16,
+          zIndex: 4,
+          opacity: 0.95,
+        },
+        {
+          rightXs: '0%',
+          rightMd: '1%',
+          widthXs: '30%',
+          widthMd: '29%',
+          scaleXs: 0.9,
+          scaleMd: 0.98,
+          liftXs: 17,
+          liftMd: 18,
+          zIndex: 3,
+          opacity: 0.9,
+        },
+      ]
+    }
+    return [
+      {
+        rightXs: '31%',
+        rightMd: '33%',
+        widthXs: '39%',
+        widthMd: '37%',
+        scaleXs: 1.04,
+        scaleMd: 1.14,
+        liftXs: 11,
+        liftMd: 13,
+        zIndex: 6,
+        opacity: 1,
+      },
+      {
+        rightXs: '18%',
+        rightMd: '20%',
+        widthXs: '31%',
+        widthMd: '30%',
+        scaleXs: 0.94,
+        scaleMd: 1.02,
+        liftXs: 14,
+        liftMd: 16,
+        zIndex: 5,
+        opacity: 0.95,
+      },
+      {
+        rightXs: '7%',
+        rightMd: '8%',
+        widthXs: '25%',
+        widthMd: '24%',
+        scaleXs: 0.86,
+        scaleMd: 0.94,
+        liftXs: 17,
+        liftMd: 19,
+        zIndex: 4,
+        opacity: 0.9,
+      },
+      {
+        rightXs: '0%',
+        rightMd: '1%',
+        widthXs: '21%',
+        widthMd: '20%',
+        scaleXs: 0.8,
+        scaleMd: 0.88,
+        liftXs: 20,
+        liftMd: 21,
+        zIndex: 3,
+        opacity: 0.84,
+      },
+    ]
+  }, [currentVisualStageNpcParticipants.length])
+  const shouldShowEmotionStagePanel =
+    isAdministrator &&
+    emotionVisualizationEnabled &&
+    !shouldShowStoryMessagesLoadingSkeleton &&
+    !isLoadingGameMessages
+  const shouldShowEmotionStage =
+    shouldShowEmotionStagePanel &&
+    Boolean(currentSceneEmotionCue?.show_visualization) &&
+    (Boolean(currentVisualStageHeroParticipant) || currentVisualStageNpcParticipants.length > 0)
+  const currentEmotionStageHeight = emotionStageHeightPx ?? getEmotionStageHeightBounds().defaultHeight
+  useEffect(() => {
+    if (!shouldShowEmotionStagePanel) {
+      setEmotionStageHeightPx(null)
+      return
+    }
+
+    const syncHeight = () => {
+      const { defaultHeight } = getEmotionStageHeightBounds()
+      setEmotionStageHeightPx((currentHeight) =>
+        currentHeight === null ? defaultHeight : clampEmotionStageHeight(currentHeight),
+      )
+    }
+
+    syncHeight()
+    window.addEventListener('resize', syncHeight)
+    return () => {
+      window.removeEventListener('resize', syncHeight)
+    }
+  }, [clampEmotionStageHeight, getEmotionStageHeightBounds, shouldShowEmotionStagePanel])
+  const handleStartEmotionStageResize = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 && event.pointerType !== 'touch' && event.pointerType !== 'pen') {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    emotionStageResizingRef.current = true
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+
+    const updateHeight = (clientY: number) => {
+      const panelTop = emotionStagePanelRef.current?.getBoundingClientRect().top
+      if (typeof panelTop !== 'number') {
+        return
+      }
+      setEmotionStageHeightPx(clampEmotionStageHeight(clientY - panelTop))
+    }
+
+    const handlePointerMove = (pointerEvent: PointerEvent) => {
+      updateHeight(pointerEvent.clientY)
+    }
+
+    const stopResizing = () => {
+      emotionStageResizingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('pointermove', handlePointerMove)
+      window.removeEventListener('pointerup', stopResizing)
+      window.removeEventListener('pointercancel', stopResizing)
+    }
+
+    window.addEventListener('pointermove', handlePointerMove)
+    window.addEventListener('pointerup', stopResizing)
+    window.addEventListener('pointercancel', stopResizing)
+  }, [clampEmotionStageHeight])
   const selectedMenuWorldCard = useMemo(
     () => (cardMenuType === 'world' && cardMenuCardId !== null ? worldCards.find((card) => card.id === cardMenuCardId) ?? null : null),
     [cardMenuCardId, cardMenuType, worldCards],
@@ -4518,6 +5068,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setCharacterDialogReturnMode(null)
         }
       } else if (editingCharacterId !== null) {
+        const existingCharacter = characters.find((item) => item.id === editingCharacterId) ?? null
         const updatedCharacter = await updateStoryCharacter({
           token: authToken,
           characterId: editingCharacterId,
@@ -4528,6 +5079,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
+            emotion_assets: existingCharacter?.emotion_assets ?? {},
+            emotion_model: existingCharacter?.emotion_model ?? null,
+            emotion_prompt_lock: existingCharacter?.emotion_prompt_lock ?? null,
           },
         })
         setCharacters((previous) => previous.map((item) => (item.id === updatedCharacter.id ? updatedCharacter : item)))
@@ -4546,6 +5100,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterDescriptionDraft,
     characterDraftMode,
     characterDialogReturnMode,
+    characters,
     characterNameDraft,
     characterNoteDraft,
     characterTriggersDraft,
@@ -4727,7 +5282,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsSelectingCharacter(true)
       setSavingCommunityCharacterId(character.id)
       setErrorMessage('')
-      let temporaryCharacterId: number | null = null
 
       try {
         const targetGameId = await ensureGameForCharacterSelection()
@@ -4768,10 +5322,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               avatar_url: character.avatar_url,
               avatar_original_url: character.avatar_original_url ?? character.avatar_url,
               avatar_scale: character.avatar_scale,
+              emotion_assets: character.emotion_assets ?? {},
+              emotion_model: character.emotion_model ?? null,
+              emotion_prompt_lock: character.emotion_prompt_lock ?? null,
               visibility: 'private',
             },
           })
-          temporaryCharacterId = temporaryCharacter.id
+          setCharacters((previous) => [...previous.filter((item) => item.id !== temporaryCharacter.id), temporaryCharacter])
           gameCharacterId = temporaryCharacter.id
         }
 
@@ -4791,17 +5348,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 gameId: targetGameId,
                 characterId: gameCharacterId,
               })
-
-        if (temporaryCharacterId !== null) {
-          try {
-            await deleteStoryCharacter({
-              token: authToken,
-              characterId: temporaryCharacterId,
-            })
-          } catch {
-            // Best-effort cleanup for temporary profile character.
-          }
-        }
 
         setWorldCards((previousCards) => {
           const hasCard = previousCards.some((card) => card.id === createdCard.id)
@@ -5216,7 +5762,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   useEffect(() => {
     return () => {
-      if (rightPanelResizingRef.current) {
+      if (rightPanelResizingRef.current || emotionStageResizingRef.current) {
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
       }
@@ -6040,10 +6586,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     if (card.kind === 'main_hero') {
+      const resolvedLinkedCharacter = resolveLinkedCharacterForWorldCard(card)
       const linkedCharacterId =
-        typeof card.character_id === 'number' && card.character_id > 0
+        resolvedLinkedCharacter?.id ??
+        (typeof card.character_id === 'number' && card.character_id > 0
           ? card.character_id
-          : worldCardCharacterMirrorByCardId[card.id] ?? null
+          : worldCardCharacterMirrorByCardId[card.id] ?? null)
       const hasLinkedCharacter = linkedCharacterId ? characters.some((item) => item.id === linkedCharacterId) : false
       if (linkedCharacterId && linkedCharacterId > 0 && hasLinkedCharacter) {
         handleOpenCharacterManager({
@@ -6061,6 +6609,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             Array.isArray(card.triggers) && card.triggers.length > 0
               ? card.triggers
               : normalizeCharacterTriggersDraft('', normalizedName)
+          const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
           const mirroredCharacter = await createStoryCharacter({
             token: authToken,
             input: {
@@ -6071,6 +6620,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               avatar_url: resolveWorldCardAvatar(card),
               avatar_original_url: resolveWorldCardPreviewAvatar(card) ?? resolveLinkedCharacterPreviewAvatar(card),
               avatar_scale: card.avatar_scale,
+              emotion_assets: linkedCharacter?.emotion_assets ?? {},
+              emotion_model: linkedCharacter?.emotion_model ?? null,
+              emotion_prompt_lock: linkedCharacter?.emotion_prompt_lock ?? null,
               visibility: 'private',
             },
           })
@@ -7356,6 +7908,122 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
   ])
 
+  const toggleEmotionVisualizationEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !isAdministrator ||
+      !targetGameId ||
+      isSavingEmotionVisualizationEnabled ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
+      isSavingContextLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingThoughtVisibility ||
+      isSavingAmbientEnabled ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const nextValue = !emotionVisualizationEnabled
+    const previousStoryLlmModel = storyLlmModel
+    const previousMemoryOptimization = memoryOptimizationEnabled
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    const previousShowGgThoughts = showGgThoughts
+    const previousShowNpcThoughts = showNpcThoughts
+    const previousAmbientEnabled = ambientEnabled
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
+
+    setEmotionVisualizationEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+        emotionVisualizationEnabled: nextValue,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingEmotionVisualizationEnabled(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        emotionVisualizationEnabled: nextValue,
+        contextLimitTokens: contextLimitChars,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+      })
+      setEmotionVisualizationEnabled(nextValue)
+      setGames((previousGames) =>
+        sortGamesByActivity(
+          previousGames.map((game) =>
+            game.id === updatedGame.id
+              ? {
+                  ...updatedGame,
+                  story_llm_model: previousStoryLlmModel,
+                  memory_optimization_enabled: previousMemoryOptimization,
+                  story_top_k: previousStoryTopK,
+                  story_top_r: previousStoryTopR,
+                  show_gg_thoughts: previousShowGgThoughts,
+                  show_npc_thoughts: previousShowNpcThoughts,
+                  ambient_enabled: previousAmbientEnabled,
+                  emotion_visualization_enabled: nextValue,
+                }
+              : game,
+          ),
+        ),
+      )
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить визуализацию эмоций'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingEmotionVisualizationEnabled(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    authToken,
+    contextLimitChars,
+    emotionVisualizationEnabled,
+    isAdministrator,
+    isGenerating,
+    isSavingAmbientEnabled,
+    isSavingContextLimit,
+    isSavingEmotionVisualizationEnabled,
+    isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingStoryLlmModel,
+    isSavingStorySampling,
+    isSavingThoughtVisibility,
+    memoryOptimizationEnabled,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    showGgThoughts,
+    showNpcThoughts,
+    storyTopK,
+    storyTopR,
+    storyLlmModel,
+  ])
+
   const toggleResponseMaxTokensEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -7981,6 +8649,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showGgThoughts,
           showNpcThoughts,
           ambientEnabled,
+          emotionVisualizationEnabled: isAdministrator ? emotionVisualizationEnabled : false,
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
@@ -9878,6 +10547,37 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           />
                         </Stack>
 
+                        {isAdministrator ? (
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Режим новеллы
+                              </Typography>
+                              <SettingsInfoTooltipIcon text="Показывает сцену в формате визуальной новеллы только в тех ходах, где есть взаимодействие и для героев уже подготовлены эмоции." />
+                            </Stack>
+                            <Switch
+                              checked={emotionVisualizationEnabled}
+                              onChange={() => {
+                                void toggleEmotionVisualizationEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: 'var(--morius-accent)',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: switchCheckedTrackColor,
+                                  opacity: 1,
+                                },
+                                '& .MuiSwitch-track': {
+                                  backgroundColor: switchTrackColor,
+                                  opacity: 1,
+                                },
+                              }}
+                            />
+                          </Stack>
+                        ) : null}
+
                         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                           <Stack direction="row" spacing={0.45} alignItems="center">
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
@@ -9936,7 +10636,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           />
                         </Stack>
 
-                        {isSavingThoughtVisibility || isSavingAmbientEnabled ? (
+                        {isSavingThoughtVisibility || isSavingAmbientEnabled || isSavingEmotionVisualizationEnabled ? (
                           <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
                         ) : null}
                       </Box>
@@ -11259,6 +11959,151 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               pb: { xs: 1.5, md: 1.8 },
             }}
           >
+            {shouldShowEmotionStage ? (
+              <Box
+                ref={emotionStagePanelRef}
+                sx={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 3,
+                  mb: 1.6,
+                  overflow: 'hidden',
+                  borderRadius: 0,
+                  height: currentEmotionStageHeight,
+                  background: 'var(--morius-app-bg)',
+                }}
+              >
+                <Stack spacing={0} sx={{ position: 'relative', height: '100%', minHeight: 0 }}>
+                  <Box
+                    sx={{
+                      position: 'relative',
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: 'hidden',
+                      px: { xs: 1.2, md: 2.4 },
+                    }}
+                  >
+                    {currentVisualStageHeroParticipant ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          left: { xs: '1%', md: '2%' },
+                          bottom: 0,
+                          width: { xs: '48%', md: '44%' },
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'flex-end',
+                          justifyContent: 'flex-start',
+                          zIndex: 7,
+                        }}
+                      >
+                        <Box
+                          component="img"
+                          src={currentVisualStageHeroParticipant.assetUrl}
+                          alt={`${currentVisualStageHeroParticipant.displayName} ${STORY_CHARACTER_EMOTION_LABELS[currentVisualStageHeroParticipant.emotion]}`}
+                          sx={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'contain',
+                            objectPosition: 'left bottom',
+                            transform: {
+                              xs: 'translateY(11%) scale(1.28)',
+                              md: 'translateY(13%) scale(1.42)',
+                            },
+                            userSelect: 'none',
+                            pointerEvents: 'none',
+                          }}
+                        />
+                      </Box>
+                    ) : null}
+
+                    {currentVisualStageNpcParticipants.length > 0 ? (
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          right: { xs: '0%', md: '1%' },
+                          bottom: 0,
+                          width: { xs: '58%', md: '56%' },
+                          height: '100%',
+                          minHeight: 0,
+                        }}
+                      >
+                        {currentVisualStageNpcParticipants.map((participant, index) => {
+                          const slot =
+                            currentVisualStageNpcSlots[index] ??
+                            currentVisualStageNpcSlots[currentVisualStageNpcSlots.length - 1]
+                          return (
+                            <Box
+                              key={`${participant.displayName}-${participant.emotion}-${index}`}
+                              sx={{
+                                position: 'absolute',
+                                right: { xs: slot.rightXs, md: slot.rightMd },
+                                bottom: 0,
+                                width: { xs: slot.widthXs, md: slot.widthMd },
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'flex-end',
+                                justifyContent: 'flex-end',
+                                zIndex: slot.zIndex,
+                              }}
+                            >
+                              <Box
+                                component="img"
+                                src={participant.assetUrl}
+                                alt={`${participant.displayName} ${STORY_CHARACTER_EMOTION_LABELS[participant.emotion]}`}
+                                sx={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'contain',
+                                  objectPosition: 'right bottom',
+                                  transform: {
+                                    xs: `translateY(${slot.liftXs}%) scaleX(-1) scale(${slot.scaleXs})`,
+                                    md: `translateY(${slot.liftMd}%) scaleX(-1) scale(${slot.scaleMd})`,
+                                  },
+                                  opacity: slot.opacity,
+                                  userSelect: 'none',
+                                  pointerEvents: 'none',
+                                }}
+                              />
+                            </Box>
+                          )
+                        })}
+                      </Box>
+                    ) : null}
+                  </Box>
+                  <Box
+                    role="separator"
+                    aria-orientation="horizontal"
+                    onPointerDown={handleStartEmotionStageResize}
+                    sx={{
+                      px: { xs: 0.8, md: 1.4 },
+                      pb: 0.55,
+                      pt: 0,
+                      cursor: 'row-resize',
+                      touchAction: 'none',
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        height: 16,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Box
+                        sx={{
+                          width: 78,
+                          height: 4,
+                          borderRadius: '999px',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                </Stack>
+              </Box>
+            ) : null}
             {shouldShowStoryMessagesLoadingSkeleton ? (
               <StoryMessagesLoadingSkeleton />
             ) : null}
@@ -13833,6 +14678,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         authToken={authToken}
         initialMode={characterManagerInitialMode}
         initialCharacterId={characterManagerInitialCharacterId}
+        showEmotionTools={user.role === 'administrator'}
         onClose={handleCloseCharacterManager}
       />
 

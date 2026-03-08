@@ -15,6 +15,32 @@ export type StoryImageModelId =
   | 'google/gemini-3.1-flash-image-preview'
   | 'grok-imagine-image'
   | 'grok-imagine-image-pro'
+export type StoryCharacterEmotionId =
+  | 'calm'
+  | 'angry'
+  | 'irritated'
+  | 'stern'
+  | 'cheerful'
+  | 'smiling'
+  | 'sly'
+  | 'alert'
+  | 'scared'
+  | 'happy'
+  | 'embarrassed'
+  | 'confused'
+  | 'thoughtful'
+export type StoryCharacterEmotionAssets = Partial<Record<StoryCharacterEmotionId, string>>
+export type StoryCharacterEmotionGenerationJobStatus = 'queued' | 'running' | 'completed' | 'failed'
+export type StorySceneEmotionCueParticipant = {
+  name: string
+  emotion: StoryCharacterEmotionId
+  importance: 'primary' | 'secondary'
+}
+export type StorySceneEmotionCue = {
+  show_visualization: boolean
+  reason: string
+  participants: StorySceneEmotionCueParticipant[]
+}
 
 export type StoryGameSummary = {
   id: number
@@ -49,6 +75,7 @@ export type StoryGameSummary = {
   show_npc_thoughts: boolean
   ambient_enabled: boolean
   ambient_profile: StoryAmbientProfile | null
+  emotion_visualization_enabled?: boolean
   last_activity_at: string
   created_at: string
   updated_at: string
@@ -59,6 +86,7 @@ export type StoryMessage = {
   game_id: number
   role: StoryRole
   content: string
+  scene_emotion_payload?: string | null
   created_at: string
   updated_at: string
 }
@@ -208,6 +236,9 @@ export type StoryCharacter = {
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number
+  emotion_assets?: StoryCharacterEmotionAssets
+  emotion_model?: string
+  emotion_prompt_lock?: string | null
   source: StoryCharacterSource
   visibility: StoryGameVisibility
   source_character_id: number | null
@@ -227,6 +258,9 @@ export type StoryCommunityCharacterSummary = {
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number
+  emotion_assets?: StoryCharacterEmotionAssets
+  emotion_model?: string
+  emotion_prompt_lock?: string | null
   visibility: StoryGameVisibility
   author_id: number
   author_name: string
@@ -378,6 +412,32 @@ export type StoryCharacterAvatarGenerationPayload = {
   image_url: string | null
   image_data_url: string | null
   user?: AuthUser
+}
+
+export type StoryCharacterEmotionGenerationPayload = {
+  model: string
+  avatar_prompt: string
+  emotion_prompt_lock?: string | null
+  reference_image_url: string | null
+  reference_image_data_url: string | null
+  emotion_assets: StoryCharacterEmotionAssets
+  user?: AuthUser
+}
+
+export type StoryCharacterEmotionGenerationJobPayload = {
+  id: number
+  status: StoryCharacterEmotionGenerationJobStatus
+  image_model: string
+  completed_variants: number
+  total_variants: number
+  current_emotion_id?: StoryCharacterEmotionId | null
+  error_detail?: string | null
+  result?: StoryCharacterEmotionGenerationPayload | null
+  user?: AuthUser
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  completed_at?: string | null
 }
 
 export type StoryTurnImage = {

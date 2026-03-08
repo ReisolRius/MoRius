@@ -157,6 +157,12 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    emotion_visualization_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     ambient_profile: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -353,6 +359,7 @@ class StoryMessage(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    scene_emotion_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -435,12 +442,39 @@ class StoryCharacter(Base):
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
+    emotion_assets: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    emotion_model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    emotion_prompt_lock: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")
     source_character_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_additions_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCharacterEmotionGenerationJob(Base):
+    __tablename__ = "story_character_emotion_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued", index=True)
+    image_model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    request_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    result_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    error_detail: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    current_emotion_id: Mapped[str] = mapped_column(String(32), nullable=False, default="", server_default="")
+    completed_variants: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_variants: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    reserved_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

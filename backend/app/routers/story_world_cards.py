@@ -284,6 +284,11 @@ def create_story_world_card(
     normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
     normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     normalized_avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
+    linked_character = (
+        get_story_character_for_user_or_404(db, user.id, payload.character_id)
+        if payload.character_id is not None
+        else None
+    )
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
         payload.memory_turns,
         kind=normalized_kind,
@@ -307,7 +312,7 @@ def create_story_world_card(
         avatar_url=normalized_avatar,
         avatar_original_url=normalized_avatar_original if normalized_avatar else None,
         avatar_scale=normalized_avatar_scale,
-        character_id=None,
+        character_id=linked_character.id if linked_character is not None else None,
         memory_turns=normalized_memory_turns,
         is_locked=False,
         ai_edit_enabled=True,
@@ -374,6 +379,12 @@ def update_story_world_card(
     world_card.title = normalized_title
     world_card.content = normalized_content
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
+    if "character_id" in payload.model_fields_set:
+        if payload.character_id is None:
+            world_card.character_id = None
+        else:
+            linked_character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
+            world_card.character_id = linked_character.id
     world_card.memory_turns = normalized_memory_turns
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)

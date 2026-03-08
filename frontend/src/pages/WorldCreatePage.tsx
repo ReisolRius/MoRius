@@ -47,6 +47,7 @@ import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
+  StoryCharacterEmotionAssets,
   StoryCommunityCharacterSummary,
   StoryGameVisibility,
   StoryWorldCard,
@@ -81,6 +82,9 @@ type EditableCharacterCard = {
   triggers: string
   avatar_url: string | null
   avatar_scale: number
+  emotion_assets: StoryCharacterEmotionAssets
+  emotion_model: string
+  emotion_prompt_lock: string | null
 }
 
 type CharacterPickerSourceTab = 'my' | 'community'
@@ -221,6 +225,9 @@ function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCha
     triggers: character.triggers.join(', '),
     avatar_url: character.avatar_url,
     avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+    emotion_assets: character.emotion_assets ?? {},
+    emotion_model: character.emotion_model ?? '',
+    emotion_prompt_lock: character.emotion_prompt_lock ?? null,
   }
 }
 
@@ -238,6 +245,9 @@ function toEditableCharacterFromCommunity(
     triggers: character.triggers.join(', '),
     avatar_url: character.avatar_url,
     avatar_scale: clamp(character.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+    emotion_assets: character.emotion_assets ?? {},
+    emotion_model: character.emotion_model ?? '',
+    emotion_prompt_lock: character.emotion_prompt_lock ?? null,
   }
 }
 
@@ -253,6 +263,9 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
     triggers: card.triggers.join(', '),
     avatar_url: card.avatar_url,
     avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+    emotion_assets: {},
+    emotion_model: '',
+    emotion_prompt_lock: null,
   }
 }
 
@@ -1019,6 +1032,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               triggers: parseTriggers(card.triggers, normalizedName),
               avatar_url: card.avatar_url,
               avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+              emotion_assets: card.emotion_assets ?? {},
+              emotion_model: card.emotion_model ?? null,
+              emotion_prompt_lock: card.emotion_prompt_lock ?? null,
               visibility: 'private',
             },
           })
@@ -1032,6 +1048,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     character_id: mirroredCharacter.id,
                     source_character_id: mirroredCharacter.source_character_id ?? null,
                     note: normalizeCharacterNote(mirroredCharacter.note),
+                    emotion_assets: mirroredCharacter.emotion_assets ?? {},
+                    emotion_model: mirroredCharacter.emotion_model ?? '',
+                    emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
                   }
                 : previous,
             )
@@ -1044,6 +1063,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       character_id: mirroredCharacter.id,
                       source_character_id: mirroredCharacter.source_character_id ?? null,
                       note: normalizeCharacterNote(mirroredCharacter.note),
+                      emotion_assets: mirroredCharacter.emotion_assets ?? {},
+                      emotion_model: mirroredCharacter.emotion_model ?? '',
+                      emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
                     }
                   : item,
               ),
@@ -1096,6 +1118,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 triggers: nextTriggers,
                 avatar_url: linkedCharacter.avatar_url,
                 avatar_scale: nextAvatarScale,
+                emotion_assets: linkedCharacter.emotion_assets ?? {},
+                emotion_model: linkedCharacter.emotion_model ?? '',
+                emotion_prompt_lock: linkedCharacter.emotion_prompt_lock ?? null,
               }
             })
           } else {
@@ -1112,6 +1137,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       triggers: nextTriggers,
                       avatar_url: linkedCharacter.avatar_url,
                       avatar_scale: nextAvatarScale,
+                      emotion_assets: linkedCharacter.emotion_assets ?? {},
+                      emotion_model: linkedCharacter.emotion_model ?? '',
+                      emotion_prompt_lock: linkedCharacter.emotion_prompt_lock ?? null,
                     }
                   : item,
               ),
@@ -1323,6 +1351,47 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           maxDimension: 1200,
         })
       }
+      const ensureLinkedCharacter = async (card: EditableCharacterCard | null): Promise<EditableCharacterCard | null> => {
+        if (!card || (typeof card.character_id === 'number' && card.character_id > 0)) {
+          return card
+        }
+        const hasEmotionPack = Object.values(card.emotion_assets ?? {}).some(
+          (value) => typeof value === 'string' && value.trim().length > 0,
+        )
+        if (!hasEmotionPack) {
+          return card
+        }
+
+        const normalizedCharacterName = card.name.replace(/\s+/g, ' ').trim() || 'Персонаж'
+        const normalizedCharacterDescription = card.description.replace(/\r\n/g, '\n').trim() || 'Описание персонажа'
+        const preparedCharacterAvatarUrl = await prepareAvatarForRequest(card.avatar_url)
+        const createdCharacter = await createStoryCharacter({
+          token: authToken,
+          input: {
+            name: normalizedCharacterName,
+            description: normalizedCharacterDescription,
+            note: normalizeCharacterNote(card.note),
+            triggers: parseTriggers(card.triggers, normalizedCharacterName),
+            avatar_url: preparedCharacterAvatarUrl,
+            avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+            emotion_assets: card.emotion_assets ?? {},
+            emotion_model: card.emotion_model ?? null,
+            emotion_prompt_lock: card.emotion_prompt_lock ?? null,
+            visibility: 'private',
+          },
+        })
+        setCharacters((previous) => [...previous.filter((item) => item.id !== createdCharacter.id), createdCharacter])
+        return {
+          ...card,
+          character_id: createdCharacter.id,
+          source_character_id: createdCharacter.source_character_id ?? card.source_character_id,
+          avatar_url: createdCharacter.avatar_url ?? card.avatar_url,
+          avatar_scale: clamp(createdCharacter.avatar_scale ?? card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+          emotion_assets: createdCharacter.emotion_assets ?? card.emotion_assets,
+          emotion_model: createdCharacter.emotion_model ?? card.emotion_model,
+          emotion_prompt_lock: createdCharacter.emotion_prompt_lock ?? card.emotion_prompt_lock,
+        }
+      }
       if (gameId === null) {
         const created = await createStoryGame({
           token: authToken,
@@ -1372,6 +1441,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
       }
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
+      const resolvedMainHero = isMyPublicationsEdit ? null : await ensureLinkedCharacter(mainHero)
+      const resolvedNpcs: EditableCharacterCard[] = []
+      for (const npc of npcs) {
+        resolvedNpcs.push((await ensureLinkedCharacter(npc)) ?? npc)
+      }
       if (!isMyGamesEdit) {
         const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
         if (isMyPublicationsEdit) {
@@ -1383,13 +1457,31 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               allowMainHeroDelete: true,
             })
           }
-        } else if (mainHero) {
-          const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(mainHero.avatar_url)
+        } else if (resolvedMainHero) {
+          const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(resolvedMainHero.avatar_url)
           if (existingMainHero) {
-            await updateStoryWorldCard({ token: authToken, gameId, cardId: existingMainHero.id, title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name) })
-            await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
+            await updateStoryWorldCard({
+              token: authToken,
+              gameId,
+              cardId: existingMainHero.id,
+              title: resolvedMainHero.name,
+              content: resolvedMainHero.description,
+              triggers: parseTriggers(resolvedMainHero.triggers, resolvedMainHero.name),
+              character_id: resolvedMainHero.character_id ?? null,
+            })
+            await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: existingMainHero.id, avatar_url: preparedMainHeroAvatarUrl, avatar_scale: resolvedMainHero.avatar_scale })
           } else {
-            await createStoryWorldCard({ token: authToken, gameId, kind: 'main_hero', title: mainHero.name, content: mainHero.description, triggers: parseTriggers(mainHero.triggers, mainHero.name), avatar_url: preparedMainHeroAvatarUrl, avatar_scale: mainHero.avatar_scale })
+            await createStoryWorldCard({
+              token: authToken,
+              gameId,
+              kind: 'main_hero',
+              title: resolvedMainHero.name,
+              content: resolvedMainHero.description,
+              triggers: parseTriggers(resolvedMainHero.triggers, resolvedMainHero.name),
+              avatar_url: preparedMainHeroAvatarUrl,
+              avatar_scale: resolvedMainHero.avatar_scale,
+              character_id: resolvedMainHero.character_id ?? null,
+            })
           }
         } else if (existingMainHero) {
           await deleteStoryWorldCard({
@@ -1401,13 +1493,31 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
       }
       const existingNpcs = latest.world_cards.filter((card) => card.kind === 'npc')
-      for (const npc of npcs) {
+      for (const npc of resolvedNpcs) {
         const preparedNpcAvatarUrl = await prepareAvatarForRequest(npc.avatar_url)
         if (npc.id && existingNpcs.some((item) => item.id === npc.id)) {
-          await updateStoryWorldCard({ token: authToken, gameId, cardId: npc.id, title: npc.name, content: npc.description, triggers: parseTriggers(npc.triggers, npc.name) })
+          await updateStoryWorldCard({
+            token: authToken,
+            gameId,
+            cardId: npc.id,
+            title: npc.name,
+            content: npc.description,
+            triggers: parseTriggers(npc.triggers, npc.name),
+            character_id: npc.character_id ?? null,
+          })
           await updateStoryWorldCardAvatar({ token: authToken, gameId, cardId: npc.id, avatar_url: preparedNpcAvatarUrl, avatar_scale: npc.avatar_scale })
         } else {
-          await createStoryWorldCard({ token: authToken, gameId, kind: 'npc', title: npc.name, content: npc.description, triggers: parseTriggers(npc.triggers, npc.name), avatar_url: preparedNpcAvatarUrl, avatar_scale: npc.avatar_scale })
+          await createStoryWorldCard({
+            token: authToken,
+            gameId,
+            kind: 'npc',
+            title: npc.name,
+            content: npc.description,
+            triggers: parseTriggers(npc.triggers, npc.name),
+            avatar_url: preparedNpcAvatarUrl,
+            avatar_scale: npc.avatar_scale,
+            character_id: npc.character_id ?? null,
+          })
         }
       }
       for (const npc of existingNpcs) if (!npcs.some((item) => item.id === npc.id)) await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
@@ -2467,6 +2577,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         authToken={authToken}
         initialMode={characterManagerInitialMode}
         initialCharacterId={characterManagerInitialCharacterId}
+        showEmotionTools={user.role === 'administrator'}
         onClose={handleCloseCharacterManager}
       />
       <InstructionTemplateDialog

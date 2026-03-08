@@ -2768,6 +2768,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         authToken={authToken}
         initialMode={characterDialogMode}
         initialCharacterId={characterEditId}
+        showEmotionTools={user.role === 'administrator'}
         onClose={closeCharacterDialog}
       />
 

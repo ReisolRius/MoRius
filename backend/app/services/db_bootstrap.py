@@ -282,6 +282,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN ambient_enabled INTEGER NOT NULL DEFAULT 0"
         )
+    if "emotion_visualization_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN emotion_visualization_enabled INTEGER NOT NULL DEFAULT 0"
+        )
     if "ambient_profile" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -548,6 +553,21 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN community_additions_count INTEGER NOT NULL DEFAULT 0"
         )
+    if "emotion_assets" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN emotion_assets TEXT NOT NULL DEFAULT ''"
+        )
+    if "emotion_model" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN emotion_model VARCHAR(120) NOT NULL DEFAULT ''"
+        )
+    if "emotion_prompt_lock" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN emotion_prompt_lock TEXT NOT NULL DEFAULT ''"
+        )
 
     if not alter_statements:
         return
@@ -706,6 +726,11 @@ def _ensure_story_soft_undo_columns_exist() -> None:
             alter_statements.append(
                 f"ALTER TABLE {StoryMessage.__tablename__} "
                 "ADD COLUMN undone_at TIMESTAMP WITH TIME ZONE"
+            )
+        if "scene_emotion_payload" not in message_columns:
+            alter_statements.append(
+                f"ALTER TABLE {StoryMessage.__tablename__} "
+                "ADD COLUMN scene_emotion_payload TEXT NOT NULL DEFAULT ''"
             )
 
     if inspector.has_table(StoryTurnImage.__tablename__):

@@ -1478,6 +1478,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <CharacterManagerDialog
         open={characterManagerOpen}
         authToken={authToken}
+        showEmotionTools={user.role === 'administrator'}
         onClose={() => setCharacterManagerOpen(false)}
       />
 

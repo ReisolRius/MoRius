@@ -96,8 +96,14 @@ def validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str
             detail="Avatar payload is not valid base64",
         ) from exc
 
-    max_allowed_bytes = max(1, max_bytes if max_bytes is not None else settings.avatar_max_bytes)
-    if len(raw_bytes) > max_allowed_bytes:
+    if max_bytes is None:
+        max_allowed_bytes: int | None = max(1, settings.avatar_max_bytes)
+    elif max_bytes <= 0:
+        max_allowed_bytes = None
+    else:
+        max_allowed_bytes = max(1, max_bytes)
+
+    if max_allowed_bytes is not None and len(raw_bytes) > max_allowed_bytes:
         if max_allowed_bytes < 1024 * 1024:
             max_kb = max_allowed_bytes / 1024
             detail = f"Avatar is too large. Max size is {max_kb:.0f} KB"
@@ -110,4 +116,3 @@ def validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str
         )
 
     return avatar_url
-

@@ -396,6 +396,9 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
             triggers: character.triggers,
             avatar_url: character.avatar_url,
             avatar_scale: character.avatar_scale,
+            emotion_assets: character.emotion_assets ?? {},
+            emotion_model: character.emotion_model ?? null,
+            emotion_prompt_lock: character.emotion_prompt_lock ?? null,
             visibility: 'private',
           },
         })
@@ -739,6 +742,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         initialMode={characterDialogMode}
         initialCharacterId={characterEditId}
         includePublicationCopies
+        showEmotionTools={user.role === 'administrator'}
         onClose={closeCharacterDialog}
       />
       <InstructionTemplateDialog

@@ -10,6 +10,7 @@ from app.config import settings
 from app.models import StoryCharacter, StoryWorldCard
 from app.schemas import StoryCharacterOut
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
+from app.services.story_emotions import deserialize_story_character_emotion_assets
 
 STORY_CHARACTER_SOURCE_USER = "user"
 STORY_CHARACTER_SOURCE_AI = "ai"
@@ -192,6 +193,9 @@ def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
             else None
         ),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
+        emotion_assets=deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None)),
+        emotion_model=str(getattr(character, "emotion_model", "") or "").strip(),
+        emotion_prompt_lock=str(getattr(character, "emotion_prompt_lock", "") or "").strip() or None,
         source=normalize_story_character_source(character.source),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
         source_character_id=getattr(character, "source_character_id", None),

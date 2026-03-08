@@ -32,6 +32,7 @@ from app.services.story_games import (
     story_game_summary_to_out,
 )
 from app.services.story_memory import story_memory_block_to_out
+from app.services.story_messages import story_message_to_out
 from app.services.story_queries import (
     get_public_story_world_or_404,
     get_user_story_game_or_404,
@@ -139,7 +140,7 @@ def get_story_game(
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     return StoryGameOut(
         game=story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages)),
-        messages=[StoryMessageOut.model_validate(message) for message in messages],
+        messages=[story_message_to_out(message) for message in messages],
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],

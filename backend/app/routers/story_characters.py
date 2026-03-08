@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import (
     StoryCharacter,
+    StoryCharacterEmotionGenerationJob,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
     StoryCommunityCharacterRating,
@@ -17,6 +20,9 @@ from app.schemas import (
     MessageResponse,
     StoryCharacterAvatarGenerateOut,
     StoryCharacterAvatarGenerateRequest,
+    StoryCharacterEmotionGenerateJobOut,
+    StoryCharacterEmotionGenerateOut,
+    StoryCharacterEmotionGenerateRequest,
     StoryCommunityCharacterSummaryOut,
     StoryCommunityWorldReportCreateRequest,
     StoryCommunityWorldRatingRequest,
@@ -51,6 +57,11 @@ from app.services.story_characters import (
     unlink_story_character_from_world_cards,
 )
 from app.services.story_games import story_author_avatar_url, story_author_name
+from app.services.story_emotions import (
+    deserialize_story_character_emotion_assets,
+    normalize_story_character_emotion_assets,
+    serialize_story_character_emotion_assets,
+)
 from app.services.story_queries import (
     get_public_story_character_or_404,
     get_story_character_for_user_or_404,
@@ -59,6 +70,78 @@ from app.services.story_queries import (
 
 router = APIRouter()
 STORY_CHARACTER_REPORT_STATUS_OPEN = "open"
+
+
+def _is_story_emotion_admin(user: User) -> bool:
+    return str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+
+
+def _normalize_optional_emotion_prompt_lock(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:8_000].rstrip()
+
+
+def _normalize_optional_emotion_model(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    return normalized[:120].rstrip()
+
+
+def _resolve_story_character_emotion_payload_for_write(
+    db: Session,
+    *,
+    user: User,
+    payload: StoryCharacterCreateRequest | StoryCharacterUpdateRequest,
+    avatar_url: str | None,
+    current_character: StoryCharacter | None = None,
+) -> tuple[dict[str, str], str, str]:
+    if not _is_story_emotion_admin(user) or not avatar_url:
+        return {}, "", ""
+
+    emotion_generation_job_id = getattr(payload, "emotion_generation_job_id", None)
+    if emotion_generation_job_id is not None:
+        job = db.scalar(
+            select(StoryCharacterEmotionGenerationJob).where(
+                StoryCharacterEmotionGenerationJob.id == int(emotion_generation_job_id),
+                StoryCharacterEmotionGenerationJob.user_id == int(user.id),
+            )
+        )
+        if job is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Emotion generation job not found")
+        if str(getattr(job, "status", "") or "").strip().lower() != "completed":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Emotion generation job is not completed yet")
+
+        try:
+            raw_result_payload = json.loads(str(getattr(job, "result_payload", "") or "").strip() or "{}")
+            result_payload = StoryCharacterEmotionGenerateOut.model_validate(raw_result_payload)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Emotion generation job payload is invalid",
+            ) from exc
+
+        emotion_assets = normalize_story_character_emotion_assets(result_payload.emotion_assets)
+        emotion_model = _normalize_optional_emotion_model(result_payload.model) if emotion_assets else ""
+        emotion_prompt_lock = _normalize_optional_emotion_prompt_lock(result_payload.emotion_prompt_lock) if emotion_assets else ""
+        return emotion_assets, emotion_model, emotion_prompt_lock
+
+    if bool(getattr(payload, "preserve_existing_emotions", False)) and current_character is not None:
+        emotion_assets = normalize_story_character_emotion_assets(getattr(current_character, "emotion_assets", ""))
+        emotion_model = _normalize_optional_emotion_model(getattr(current_character, "emotion_model", "")) if emotion_assets else ""
+        emotion_prompt_lock = (
+            _normalize_optional_emotion_prompt_lock(getattr(current_character, "emotion_prompt_lock", ""))
+            if emotion_assets
+            else ""
+        )
+        return emotion_assets, emotion_model, emotion_prompt_lock
+
+    emotion_assets = normalize_story_character_emotion_assets(payload.emotion_assets)
+    emotion_model = _normalize_optional_emotion_model(payload.emotion_model) if emotion_assets else ""
+    emotion_prompt_lock = _normalize_optional_emotion_prompt_lock(payload.emotion_prompt_lock) if emotion_assets else ""
+    return emotion_assets, emotion_model, emotion_prompt_lock
 
 
 def _build_story_community_character_summary(
@@ -113,6 +196,9 @@ def _build_story_community_character_summary(
         avatar_url=character.avatar_url,
         avatar_original_url=normalize_avatar_value(getattr(character, "avatar_original_url", None)),
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
+        emotion_assets=deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None)),
+        emotion_model=_normalize_optional_emotion_model(getattr(character, "emotion_model", "")),
+        emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(getattr(character, "emotion_prompt_lock", "")) or None,
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
         author_id=character.user_id,
         author_name=story_author_name(author),
@@ -146,6 +232,9 @@ def _create_story_character_publication_copy_from_source(
             else None
         ),
         avatar_scale=normalize_story_avatar_scale(source_character.avatar_scale),
+        emotion_assets=serialize_story_character_emotion_assets(getattr(source_character, "emotion_assets", "")),
+        emotion_model=_normalize_optional_emotion_model(getattr(source_character, "emotion_model", "")),
+        emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(getattr(source_character, "emotion_prompt_lock", "")),
         source=normalize_story_character_source(source_character.source),
         visibility=STORY_CHARACTER_VISIBILITY_PUBLIC,
         source_character_id=source_character.id,
@@ -457,6 +546,11 @@ def add_story_community_character_to_account(
                     else None
                 ),
                 avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
+                emotion_assets=serialize_story_character_emotion_assets(getattr(character, "emotion_assets", "")),
+                emotion_model=_normalize_optional_emotion_model(getattr(character, "emotion_model", "")),
+                emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(
+                    getattr(character, "emotion_prompt_lock", "")
+                ),
                 source=normalize_story_character_source(character.source),
                 visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
                 source_character_id=character.id,
@@ -491,6 +585,51 @@ def generate_story_character_avatar(
     )
 
 
+@router.post(
+    "/api/story/characters/emotions/generate",
+    response_model=StoryCharacterEmotionGenerateJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def generate_story_character_emotions(
+    payload: StoryCharacterEmotionGenerateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterEmotionGenerateJobOut:
+    user = get_current_user(db, authorization)
+    if not _is_story_emotion_admin(user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    from app import main as monolith_main
+
+    return monolith_main.queue_story_character_emotion_generation_job_impl(
+        payload=payload,
+        authorization=authorization,
+        db=db,
+    )
+
+
+@router.get(
+    "/api/story/characters/emotions/generate/{job_id}",
+    response_model=StoryCharacterEmotionGenerateJobOut,
+)
+def get_story_character_emotion_generation_job(
+    job_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterEmotionGenerateJobOut:
+    user = get_current_user(db, authorization)
+    if not _is_story_emotion_admin(user):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    from app import main as monolith_main
+
+    return monolith_main.get_story_character_emotion_generation_job_impl(
+        job_id=job_id,
+        authorization=authorization,
+        db=db,
+    )
+
+
 @router.post("/api/story/characters", response_model=StoryCharacterOut)
 def create_story_character(
     payload: StoryCharacterCreateRequest,
@@ -505,6 +644,12 @@ def create_story_character(
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
+    emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
+        db,
+        user=user,
+        payload=payload,
+        avatar_url=avatar_url,
+    )
     requested_visibility = normalize_story_character_visibility(payload.visibility)
     character = StoryCharacter(
         user_id=user.id,
@@ -515,6 +660,9 @@ def create_story_character(
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url if avatar_url else None,
         avatar_scale=avatar_scale,
+        emotion_assets=serialize_story_character_emotion_assets(emotion_assets),
+        emotion_model=emotion_model,
+        emotion_prompt_lock=emotion_prompt_lock,
         source="user",
         visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
         source_character_id=None,
@@ -550,6 +698,13 @@ def update_story_character(
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
+    emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
+        db,
+        user=user,
+        payload=payload,
+        avatar_url=avatar_url,
+        current_character=character,
+    )
     character.name = normalized_name
     character.description = normalized_description
     character.note = normalized_note
@@ -557,6 +712,9 @@ def update_story_character(
     character.avatar_url = avatar_url
     character.avatar_original_url = avatar_original_url if avatar_url else None
     character.avatar_scale = avatar_scale
+    character.emotion_assets = serialize_story_character_emotion_assets(emotion_assets)
+    character.emotion_model = emotion_model
+    character.emotion_prompt_lock = emotion_prompt_lock
     character.source = normalize_story_character_source(character.source)
     requested_visibility: str | None = None
     if payload.visibility is not None:
