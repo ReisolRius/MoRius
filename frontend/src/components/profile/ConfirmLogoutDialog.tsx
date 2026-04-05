@@ -15,13 +15,13 @@ function ConfirmLogoutDialog({ open, transitionComponent, variant = 'default', o
           backgroundColor: 'var(--morius-card-bg)',
           color: 'var(--morius-text-primary)',
           border: 'none',
-          '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+          '&:hover': { backgroundColor: 'transparent' },
         }
       : {
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
           backgroundColor: 'var(--morius-button-active)',
           color: 'var(--morius-text-primary)',
-          '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+          '&:hover': { backgroundColor: 'transparent' },
         }
 
   return (

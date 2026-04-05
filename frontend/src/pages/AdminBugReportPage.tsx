@@ -8,6 +8,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import ProgressiveImage from '../components/media/ProgressiveImage'
 import {
   closeBugReportForAdmin,
   getBugReportForAdmin,
@@ -452,15 +453,25 @@ function AdminBugReportPage({ authToken, reportId, onNavigate }: AdminBugReportP
                       {turnImage.prompt}
                     </Typography>
                     {turnImage.image_data_url || turnImage.image_url ? (
-                      <Box
-                        component="img"
+                      <ProgressiveImage
                         src={turnImage.image_data_url || turnImage.image_url || ''}
                         alt=""
-                        sx={{
+                        loading="lazy"
+                        fetchPriority="low"
+                        objectFit="contain"
+                        loaderSize={28}
+                        containerSx={{
                           width: '100%',
                           maxWidth: 440,
+                          minHeight: 220,
                           borderRadius: '10px',
                           border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                          backgroundColor: 'var(--morius-elevated-bg)',
+                        }}
+                        imgSx={{
+                          position: 'relative',
+                          width: '100%',
+                          height: 'auto',
                         }}
                       />
                     ) : (

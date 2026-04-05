@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   CircularProgress,
@@ -13,22 +12,42 @@ import {
   MenuItem,
   Select,
   Stack,
+  Switch,
   TextField,
   Typography,
 } from '@mui/material'
 import CommunityWorldDialog from '../community/CommunityWorldDialog'
+import ProgressiveAvatar from '../media/ProgressiveAvatar'
+import ProgressiveImage from '../media/ProgressiveImage'
 import {
+  approveModerationCharacterForAdmin,
+  approveModerationInstructionTemplateForAdmin,
+  approveModerationWorldForAdmin,
+  type AdminModerationCharacterDetail,
+  type AdminModerationInstructionTemplateDetail,
+  type AdminModerationQueueItem,
+  type AdminModerationWorldDetail,
   banUserAsAdmin,
   dismissCharacterReportsAsAdmin,
   dismissInstructionTemplateReportsAsAdmin,
   dismissWorldReportsAsAdmin,
+  getModerationCharacterForAdmin,
+  getModerationInstructionTemplateForAdmin,
+  getModerationWorldForAdmin,
   listBugReportsForAdmin,
+  listPendingModerationItemsForAdmin,
   listOpenReportsForAdmin,
   removeCharacterFromCommunityAsAdmin,
   removeInstructionTemplateFromCommunityAsAdmin,
   removeWorldFromCommunityAsAdmin,
+  rejectModerationCharacterForAdmin,
+  rejectModerationInstructionTemplateForAdmin,
+  rejectModerationWorldForAdmin,
   searchUsersForAdminPanel,
   unbanUserAsAdmin,
+  updateModerationCharacterForAdmin,
+  updateModerationInstructionTemplateForAdmin,
+  updateModerationWorldForAdmin,
   updateUserTokensAsAdmin,
   type AdminManagedUser,
   type AdminBugReportSummary,
@@ -36,6 +55,7 @@ import {
   type AdminReportReason,
   type AdminReportTargetType,
 } from '../../services/authApi'
+import { resolveApiResourceUrl } from '../../services/httpClient'
 import {
   getCommunityCharacter,
   getCommunityInstructionTemplate,
@@ -43,9 +63,15 @@ import {
 } from '../../services/storyApi'
 import TextLimitIndicator from '../TextLimitIndicator'
 import type {
+  StoryCharacter,
   StoryCommunityCharacterSummary,
   StoryCommunityInstructionTemplateSummary,
   StoryCommunityWorldPayload,
+  StoryGameSummary,
+  StoryInstructionCard,
+  StoryInstructionTemplate,
+  StoryPlotCard,
+  StoryWorldCard,
 } from '../../types/story'
 
 const ADMIN_PANEL_EMAIL_ALLOWLIST = new Set(['alexunderstood8@gmail.com', 'borisow.n2011@gmail.com'])
@@ -53,7 +79,22 @@ const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
 
-type AdminPanelTab = 'users' | 'reports' | 'bug_reports'
+type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports'
+
+type ModerationWorldDraft = AdminModerationWorldDetail & {
+  game: StoryGameSummary
+  instruction_cards: StoryInstructionCard[]
+  plot_cards: StoryPlotCard[]
+  world_cards: StoryWorldCard[]
+}
+
+type ModerationCharacterDraft = AdminModerationCharacterDetail & {
+  character: StoryCharacter
+}
+
+type ModerationInstructionDraft = AdminModerationInstructionTemplateDetail & {
+  template: StoryInstructionTemplate
+}
 
 type AdminPanelDialogProps = {
   open: boolean
@@ -147,12 +188,8 @@ function buildReportKey(report: AdminReport): string {
   return `${report.target_type}:${report.target_id}`
 }
 
-function getAvatarFallbackLabel(value: string): string {
-  const normalized = value.trim()
-  if (!normalized) {
-    return '•'
-  }
-  return normalized.charAt(0).toUpperCase()
+function buildModerationKey(item: Pick<AdminModerationQueueItem, 'target_type' | 'target_id'>): string {
+  return `${item.target_type}:${item.target_id}`
 }
 
 function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClose }: AdminPanelDialogProps) {
@@ -181,6 +218,15 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
   const [selectedBugReportId, setSelectedBugReportId] = useState<number | null>(null)
   const [isLoadingBugReports, setIsLoadingBugReports] = useState(false)
   const [isBugReportDialogOpen, setIsBugReportDialogOpen] = useState(false)
+  const [moderationItems, setModerationItems] = useState<AdminModerationQueueItem[]>([])
+  const [selectedModerationKey, setSelectedModerationKey] = useState<string | null>(null)
+  const [isLoadingModerationQueue, setIsLoadingModerationQueue] = useState(false)
+  const [isLoadingModerationDetail, setIsLoadingModerationDetail] = useState(false)
+  const [isApplyingModerationAction, setIsApplyingModerationAction] = useState(false)
+  const [moderationWorldDraft, setModerationWorldDraft] = useState<ModerationWorldDraft | null>(null)
+  const [moderationCharacterDraft, setModerationCharacterDraft] = useState<ModerationCharacterDraft | null>(null)
+  const [moderationInstructionDraft, setModerationInstructionDraft] = useState<ModerationInstructionDraft | null>(null)
+  const [moderationCommentDraft, setModerationCommentDraft] = useState('')
 
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -205,10 +251,21 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     [bugReports, selectedBugReportId],
   )
 
+  const selectedModerationItem = useMemo(
+    () => moderationItems.find((item) => buildModerationKey(item) === selectedModerationKey) ?? null,
+    [moderationItems, selectedModerationKey],
+  )
+
   const resetSelectedReportTargetPayloads = useCallback(() => {
     setSelectedReportWorldPayload(null)
     setSelectedReportCharacterPayload(null)
     setSelectedReportInstructionPayload(null)
+  }, [])
+
+  const resetModerationDrafts = useCallback(() => {
+    setModerationWorldDraft(null)
+    setModerationCharacterDraft(null)
+    setModerationInstructionDraft(null)
   }, [])
 
   const mergeUpdatedUser = useCallback((updatedUser: AdminManagedUser) => {
@@ -317,6 +374,101 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     }
   }, [authToken, canUseAdminPanel, open])
 
+  const loadModerationQueue = useCallback(async () => {
+    if (!open || !canUseAdminPanel) {
+      return
+    }
+    setIsLoadingModerationQueue(true)
+    setErrorMessage('')
+    try {
+      const response = await listPendingModerationItemsForAdmin({
+        token: authToken,
+      })
+      const items = response.items ?? []
+      setModerationItems(items)
+      setSelectedModerationKey((previous) => {
+        if (previous && items.some((item) => buildModerationKey(item) === previous)) {
+          return previous
+        }
+        return items[0] ? buildModerationKey(items[0]) : null
+      })
+      if (items.length === 0) {
+        resetModerationDrafts()
+        setModerationCommentDraft('')
+      }
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить очередь модерации'
+      setErrorMessage(detail)
+      setModerationItems([])
+      setSelectedModerationKey(null)
+      resetModerationDrafts()
+    } finally {
+      setIsLoadingModerationQueue(false)
+    }
+  }, [authToken, canUseAdminPanel, open, resetModerationDrafts])
+
+  const openModerationItem = useCallback(
+    async (item: AdminModerationQueueItem) => {
+      if (isLoadingModerationDetail || isApplyingModerationAction) {
+        return
+      }
+      const nextKey = buildModerationKey(item)
+      setSelectedModerationKey(nextKey)
+      resetModerationDrafts()
+      setModerationCommentDraft(item.publication.rejection_reason?.trim() ?? '')
+      setIsLoadingModerationDetail(true)
+      setErrorMessage('')
+      try {
+        if (item.target_type === 'world') {
+          const detail = await getModerationWorldForAdmin({
+            token: authToken,
+            world_id: item.target_id,
+          })
+          setModerationWorldDraft({
+            ...detail,
+            game: {
+              ...detail.game,
+              genres: [...detail.game.genres],
+            },
+            instruction_cards: detail.instruction_cards.map((card) => ({ ...card })),
+            plot_cards: detail.plot_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
+            world_cards: detail.world_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
+          })
+          return
+        }
+        if (item.target_type === 'character') {
+          const detail = await getModerationCharacterForAdmin({
+            token: authToken,
+            character_id: item.target_id,
+          })
+          setModerationCharacterDraft({
+            ...detail,
+            character: {
+              ...detail.character,
+              triggers: [...detail.character.triggers],
+            },
+          })
+          return
+        }
+        const detail = await getModerationInstructionTemplateForAdmin({
+          token: authToken,
+          template_id: item.target_id,
+        })
+        setModerationInstructionDraft({
+          ...detail,
+          template: { ...detail.template },
+        })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось открыть отправленный материал'
+        setErrorMessage(detail)
+        resetModerationDrafts()
+      } finally {
+        setIsLoadingModerationDetail(false)
+      }
+    },
+    [authToken, isApplyingModerationAction, isLoadingModerationDetail, resetModerationDrafts],
+  )
+
   useEffect(() => {
     if (!open) {
       return
@@ -331,8 +483,22 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
       void loadReports()
       return
     }
+    if (activeTab === 'moderation') {
+      void loadModerationQueue()
+      return
+    }
     void loadBugReports()
-  }, [activeTab, loadBugReports, loadReports, loadUsers, open, query])
+  }, [activeTab, loadBugReports, loadModerationQueue, loadReports, loadUsers, open, query])
+
+  useEffect(() => {
+    if (!open || activeTab !== 'moderation' || !selectedModerationItem) {
+      return
+    }
+    if (buildModerationKey(selectedModerationItem) !== selectedModerationKey) {
+      return
+    }
+    void openModerationItem(selectedModerationItem)
+  }, [activeTab, open, openModerationItem, selectedModerationItem, selectedModerationKey])
 
   useEffect(() => {
     if (!open) {
@@ -352,9 +518,13 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     setBugReports([])
     setSelectedBugReportId(null)
     setIsBugReportDialogOpen(false)
+    setModerationItems([])
+    setSelectedModerationKey(null)
+    setModerationCommentDraft('')
+    resetModerationDrafts()
     setErrorMessage('')
     setSuccessMessage('')
-  }, [open, resetSelectedReportTargetPayloads])
+  }, [open, resetModerationDrafts, resetSelectedReportTargetPayloads])
 
   const handleUpdateTokens = useCallback(
     async (operation: 'add' | 'subtract') => {
@@ -580,6 +750,248 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     onNavigate(`/home/reports/${selectedBugReport.id}`)
   }, [onClose, onNavigate, selectedBugReport])
 
+  const handleModerationWorldFieldChange = useCallback((field: keyof StoryGameSummary, value: unknown) => {
+    setModerationWorldDraft((previous) => (previous ? { ...previous, game: { ...previous.game, [field]: value } } : previous))
+  }, [])
+
+  const handleModerationWorldInstructionCardChange = useCallback(
+    (cardId: number, patch: Partial<StoryInstructionCard>) => {
+      setModerationWorldDraft((previous) =>
+        previous
+          ? {
+              ...previous,
+              instruction_cards: previous.instruction_cards.map((card) => (card.id === cardId ? { ...card, ...patch } : card)),
+            }
+          : previous,
+      )
+    },
+    [],
+  )
+
+  const handleModerationWorldPlotCardChange = useCallback((cardId: number, patch: Partial<StoryPlotCard>) => {
+    setModerationWorldDraft((previous) =>
+      previous
+        ? {
+            ...previous,
+            plot_cards: previous.plot_cards.map((card) => (card.id === cardId ? { ...card, ...patch } : card)),
+          }
+        : previous,
+    )
+  }, [])
+
+  const handleModerationWorldCardChange = useCallback((cardId: number, patch: Partial<StoryWorldCard>) => {
+    setModerationWorldDraft((previous) =>
+      previous
+        ? {
+            ...previous,
+            world_cards: previous.world_cards.map((card) => (card.id === cardId ? { ...card, ...patch } : card)),
+          }
+        : previous,
+    )
+  }, [])
+
+  const handleModerationCharacterFieldChange = useCallback((field: keyof StoryCharacter, value: unknown) => {
+    setModerationCharacterDraft((previous) =>
+      previous ? { ...previous, character: { ...previous.character, [field]: value } } : previous,
+    )
+  }, [])
+
+  const handleModerationInstructionFieldChange = useCallback((field: keyof StoryInstructionTemplate, value: unknown) => {
+    setModerationInstructionDraft((previous) =>
+      previous ? { ...previous, template: { ...previous.template, [field]: value } } : previous,
+    )
+  }, [])
+
+  const handleSaveModerationDraft = useCallback(async () => {
+    if (!selectedModerationItem || isApplyingModerationAction || isLoadingModerationDetail) {
+      return
+    }
+    setIsApplyingModerationAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      if (selectedModerationItem.target_type === 'world' && moderationWorldDraft) {
+        const updated = await updateModerationWorldForAdmin({
+          token: authToken,
+          world_id: moderationWorldDraft.game.id,
+          title: moderationWorldDraft.game.title,
+          description: moderationWorldDraft.game.description,
+          opening_scene: moderationWorldDraft.game.opening_scene,
+          age_rating: moderationWorldDraft.game.age_rating,
+          genres: moderationWorldDraft.game.genres,
+          cover_image_url: moderationWorldDraft.game.cover_image_url,
+          cover_scale: moderationWorldDraft.game.cover_scale,
+          cover_position_x: moderationWorldDraft.game.cover_position_x,
+          cover_position_y: moderationWorldDraft.game.cover_position_y,
+          instruction_cards: moderationWorldDraft.instruction_cards.map((card) => ({
+            id: card.id,
+            title: card.title,
+            content: card.content,
+            is_active: card.is_active,
+          })),
+          plot_cards: moderationWorldDraft.plot_cards.map((card) => ({
+            id: card.id,
+            title: card.title,
+            content: card.content,
+            triggers: card.triggers,
+            memory_turns: card.memory_turns,
+            is_enabled: card.is_enabled,
+          })),
+          world_cards: moderationWorldDraft.world_cards.map((card) => ({
+            id: card.id,
+            title: card.title,
+            content: card.content,
+            triggers: card.triggers,
+            avatar_url: card.avatar_url,
+            avatar_original_url: card.avatar_original_url ?? null,
+            avatar_scale: card.avatar_scale,
+            memory_turns: card.memory_turns,
+          })),
+        })
+        setModerationWorldDraft({
+          ...updated,
+          game: { ...updated.game, genres: [...updated.game.genres] },
+          instruction_cards: updated.instruction_cards.map((card) => ({ ...card })),
+          plot_cards: updated.plot_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
+          world_cards: updated.world_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
+        })
+        setSuccessMessage('Изменения мира сохранены')
+      } else if (selectedModerationItem.target_type === 'character' && moderationCharacterDraft) {
+        const updated = await updateModerationCharacterForAdmin({
+          token: authToken,
+          character_id: moderationCharacterDraft.character.id,
+          name: moderationCharacterDraft.character.name,
+          description: moderationCharacterDraft.character.description,
+          note: moderationCharacterDraft.character.note,
+          triggers: moderationCharacterDraft.character.triggers,
+          avatar_url: moderationCharacterDraft.character.avatar_url,
+          avatar_original_url: moderationCharacterDraft.character.avatar_original_url ?? null,
+          avatar_scale: moderationCharacterDraft.character.avatar_scale,
+        })
+        setModerationCharacterDraft({
+          ...updated,
+          character: { ...updated.character, triggers: [...updated.character.triggers] },
+        })
+        setSuccessMessage('Изменения персонажа сохранены')
+      } else if (selectedModerationItem.target_type === 'instruction_template' && moderationInstructionDraft) {
+        const updated = await updateModerationInstructionTemplateForAdmin({
+          token: authToken,
+          template_id: moderationInstructionDraft.template.id,
+          title: moderationInstructionDraft.template.title,
+          content: moderationInstructionDraft.template.content,
+        })
+        setModerationInstructionDraft({
+          ...updated,
+          template: { ...updated.template },
+        })
+        setSuccessMessage('Изменения инструкции сохранены')
+      }
+      await loadModerationQueue()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить правки модерации'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingModerationAction(false)
+    }
+  }, [
+    authToken,
+    isApplyingModerationAction,
+    isLoadingModerationDetail,
+    loadModerationQueue,
+    moderationCharacterDraft,
+    moderationInstructionDraft,
+    moderationWorldDraft,
+    selectedModerationItem,
+  ])
+
+  const handleApproveModerationItem = useCallback(async () => {
+    if (!selectedModerationItem || isApplyingModerationAction || isLoadingModerationDetail) {
+      return
+    }
+    setIsApplyingModerationAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      if (selectedModerationItem.target_type === 'world') {
+        await approveModerationWorldForAdmin({
+          token: authToken,
+          world_id: selectedModerationItem.target_id,
+        })
+      } else if (selectedModerationItem.target_type === 'character') {
+        await approveModerationCharacterForAdmin({
+          token: authToken,
+          character_id: selectedModerationItem.target_id,
+        })
+      } else {
+        await approveModerationInstructionTemplateForAdmin({
+          token: authToken,
+          template_id: selectedModerationItem.target_id,
+        })
+      }
+      setSuccessMessage('Материал одобрен и отправлен в сообщество')
+      resetModerationDrafts()
+      setModerationCommentDraft('')
+      await loadModerationQueue()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось одобрить материал'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingModerationAction(false)
+    }
+  }, [authToken, isApplyingModerationAction, isLoadingModerationDetail, loadModerationQueue, resetModerationDrafts, selectedModerationItem])
+
+  const handleRejectModerationItem = useCallback(async () => {
+    if (!selectedModerationItem || isApplyingModerationAction || isLoadingModerationDetail) {
+      return
+    }
+    const rejectionReason = moderationCommentDraft.trim()
+    if (!rejectionReason) {
+      setErrorMessage('Добавьте комментарий модератора перед отклонением')
+      return
+    }
+    setIsApplyingModerationAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      if (selectedModerationItem.target_type === 'world') {
+        await rejectModerationWorldForAdmin({
+          token: authToken,
+          world_id: selectedModerationItem.target_id,
+          rejection_reason: rejectionReason,
+        })
+      } else if (selectedModerationItem.target_type === 'character') {
+        await rejectModerationCharacterForAdmin({
+          token: authToken,
+          character_id: selectedModerationItem.target_id,
+          rejection_reason: rejectionReason,
+        })
+      } else {
+        await rejectModerationInstructionTemplateForAdmin({
+          token: authToken,
+          template_id: selectedModerationItem.target_id,
+          rejection_reason: rejectionReason,
+        })
+      }
+      setSuccessMessage('Материал отклонён с комментарием')
+      resetModerationDrafts()
+      setModerationCommentDraft('')
+      await loadModerationQueue()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось отклонить материал'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingModerationAction(false)
+    }
+  }, [
+    authToken,
+    isApplyingModerationAction,
+    isLoadingModerationDetail,
+    loadModerationQueue,
+    moderationCommentDraft,
+    resetModerationDrafts,
+    selectedModerationItem,
+  ])
+
   const isWorldReportDialogOpen = Boolean(
     selectedReport?.target_type === 'world' && (selectedReportWorldPayload || isLoadingReportTarget),
   )
@@ -596,12 +1008,15 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     isLoadingReportTarget ||
     (!selectedReportWorldPayload && !selectedReportCharacterPayload && !selectedReportInstructionPayload)
 
+  const moderationActionDisabled =
+    !selectedModerationItem || isLoadingModerationDetail || isApplyingModerationAction
+
   return (
     <>
       <Dialog
         open={open}
         onClose={onClose}
-        maxWidth="sm"
+        maxWidth={activeTab === 'moderation' ? 'lg' : 'sm'}
         fullWidth
         PaperProps={{
           sx: {
@@ -609,6 +1024,11 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
+            ...(activeTab === 'moderation'
+              ? {
+                  height: 'min(88vh, 860px)',
+                }
+              : {}),
           },
         }}
         BackdropProps={{
@@ -645,8 +1065,19 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             X
           </IconButton>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0.5 }}>
-          <Stack spacing={1.5}>
+        <DialogContent
+          sx={{
+            pt: 0.5,
+            ...(activeTab === 'moderation'
+              ? {
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }
+              : {}),
+          }}
+        >
+          <Stack spacing={1.5} sx={activeTab === 'moderation' ? { flex: 1, minHeight: 0 } : undefined}>
             {!canUseAdminPanel ? <Alert severity="error">Доступ к админ-панели запрещен для этого аккаунта</Alert> : null}
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
             {successMessage ? <Alert severity="success">{successMessage}</Alert> : null}
@@ -655,7 +1086,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
               <Button
                 variant={activeTab === 'users' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('users')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -667,7 +1098,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
               <Button
                 variant={activeTab === 'reports' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -677,9 +1108,21 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                 Жалобы
               </Button>
               <Button
+                variant={activeTab === 'moderation' ? 'contained' : 'outlined'}
+                onClick={() => setActiveTab('moderation')}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: 'var(--morius-radius)',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                }}
+              >
+                Модерация
+              </Button>
+              <Button
                 variant={activeTab === 'bug_reports' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('bug_reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -857,7 +1300,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                 </Stack>
               </Stack>
             ) : activeTab === 'reports' ? (
-              <Stack spacing={1.2}>
+              <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>Открытые жалобы</Typography>
                   <Button
@@ -937,6 +1380,436 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                     </Stack>
                   )}
                 </Box>
+              </Stack>
+            ) : activeTab === 'moderation' ? (
+              <Stack spacing={1.2}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>Очередь модерации</Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void loadModerationQueue()}
+                    disabled={!canUseAdminPanel || isLoadingModerationQueue || isApplyingModerationAction}
+                    sx={{
+                      minHeight: 32,
+                      textTransform: 'none',
+                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      color: 'var(--morius-text-primary)',
+                    }}
+                  >
+                    Обновить
+                  </Button>
+                </Stack>
+
+                <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.2} alignItems="stretch" sx={{ flex: 1, minHeight: 0 }}>
+                  <Box
+                    className="morius-scrollbar"
+                    sx={{
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      width: { xs: '100%', lg: 320 },
+                      maxHeight: { xs: 260, lg: '100%' },
+                      overflowY: 'auto',
+                      p: 0.8,
+                      flexShrink: 0,
+                      minHeight: 0,
+                    }}
+                  >
+                    {isLoadingModerationQueue ? (
+                      <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
+                        <CircularProgress size={24} />
+                      </Stack>
+                    ) : moderationItems.length === 0 ? (
+                      <Typography sx={{ color: 'text.secondary', px: 0.8, py: 1 }}>Нет материалов на модерации</Typography>
+                    ) : (
+                      <Stack spacing={0.8}>
+                        {moderationItems.map((item) => {
+                          const isSelected = buildModerationKey(item) === selectedModerationKey
+                          const requestedAt = item.publication.requested_at || item.updated_at
+                          const authorLabel = item.author.display_name || item.author.email
+                          return (
+                            <Button
+                              key={buildModerationKey(item)}
+                              onClick={() => void openModerationItem(item)}
+                              disabled={isApplyingModerationAction}
+                              sx={{
+                                justifyContent: 'flex-start',
+                                textTransform: 'none',
+                                borderRadius: '10px',
+                                border: 'var(--morius-border-width) solid',
+                                borderColor: isSelected ? 'rgba(219, 230, 245, 0.52)' : 'rgba(184, 199, 214, 0.2)',
+                                backgroundColor: isSelected ? 'rgba(37, 52, 70, 0.4)' : 'rgba(22, 30, 40, 0.34)',
+                                color: 'var(--morius-text-primary)',
+                                px: 1.1,
+                                py: 1,
+                                '&:hover': {
+                                  backgroundColor: 'rgba(46, 62, 82, 0.42)',
+                                },
+                              }}
+                            >
+                              <Stack spacing={0.35} sx={{ width: '100%', alignItems: 'flex-start', minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 700, lineHeight: 1.2 }} noWrap>
+                                  {item.target_title}
+                                </Typography>
+                                <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                                  {formatReportTargetLabel(item.target_type)} · {authorLabel}
+                                </Typography>
+                                <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }} noWrap>
+                                  {formatReportDate(requestedAt)}
+                                </Typography>
+                                <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem', textAlign: 'left' }}>
+                                  {getReportDescriptionPreview(item.target_description)}
+                                </Typography>
+                              </Stack>
+                            </Button>
+                          )
+                        })}
+                      </Stack>
+                    )}
+                  </Box>
+
+                  <Box
+                    className="morius-scrollbar"
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      maxHeight: { xs: 560, lg: '100%' },
+                      overflowY: 'auto',
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      p: 1.2,
+                    }}
+                  >
+                    {!selectedModerationItem ? (
+                      <Typography sx={{ color: 'text.secondary' }}>Выберите материал слева, чтобы открыть его в модерации.</Typography>
+                    ) : isLoadingModerationDetail ? (
+                      <Stack alignItems="center" justifyContent="center" sx={{ py: 8 }}>
+                        <CircularProgress size={28} />
+                      </Stack>
+                    ) : (
+                      <Stack spacing={1.2}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                          {selectedModerationItem.target_preview_image_url ? (
+                            <ProgressiveImage
+                              src={resolveApiResourceUrl(selectedModerationItem.target_preview_image_url) || undefined}
+                              alt=""
+                              loading="lazy"
+                              fetchPriority="low"
+                              objectFit="cover"
+                              loaderSize={24}
+                              containerSx={{
+                                width: { xs: '100%', sm: 164 },
+                                height: { xs: 164, sm: 102 },
+                                borderRadius: '10px',
+                                border: 'var(--morius-border-width) solid rgba(184, 199, 214, 0.22)',
+                                backgroundColor: 'rgba(18, 25, 35, 0.4)',
+                              }}
+                            />
+                          ) : null}
+                          <Stack spacing={0.45} sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.15 }}>
+                              {selectedModerationItem.target_title}
+                            </Typography>
+                            <Stack direction="row" spacing={0.8} alignItems="center">
+                              <ProgressiveAvatar
+                                src={resolveApiResourceUrl(selectedModerationItem.author.avatar_url) || undefined}
+                                alt={selectedModerationItem.author.display_name}
+                                fallbackLabel={selectedModerationItem.author.display_name || selectedModerationItem.author.email}
+                                size={34}
+                              />
+                              <Stack spacing={0.1}>
+                                <Typography sx={{ fontSize: '0.85rem', fontWeight: 700 }}>
+                                  {selectedModerationItem.author.display_name || selectedModerationItem.author.email}
+                                </Typography>
+                                <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+                                  {formatReportTargetLabel(selectedModerationItem.target_type)} · {formatReportDate(selectedModerationItem.publication.requested_at || selectedModerationItem.updated_at)}
+                                </Typography>
+                              </Stack>
+                            </Stack>
+                          </Stack>
+                        </Stack>
+
+                        {moderationWorldDraft ? (
+                          <Stack spacing={1.05}>
+                            <TextField
+                              label="Название мира"
+                              value={moderationWorldDraft.game.title}
+                              onChange={(event) => handleModerationWorldFieldChange('title', event.target.value)}
+                              size="small"
+                            />
+                            <TextField
+                              label="Жанры через запятую"
+                              value={moderationWorldDraft.game.genres.join(', ')}
+                              onChange={(event) =>
+                                handleModerationWorldFieldChange(
+                                  'genres',
+                                  event.target.value
+                                    .split(',')
+                                    .map((item) => item.trim())
+                                    .filter(Boolean),
+                                )
+                              }
+                              size="small"
+                            />
+                            <TextField
+                              label="Описание"
+                              value={moderationWorldDraft.game.description}
+                              onChange={(event) => handleModerationWorldFieldChange('description', event.target.value)}
+                              multiline
+                              minRows={3}
+                            />
+                            <TextField
+                              label="Стартовая сцена"
+                              value={moderationWorldDraft.game.opening_scene}
+                              onChange={(event) => handleModerationWorldFieldChange('opening_scene', event.target.value)}
+                              multiline
+                              minRows={4}
+                            />
+                            <Stack spacing={0.9}>
+                              <Typography sx={{ fontWeight: 700 }}>Карточки инструкций</Typography>
+                              {moderationWorldDraft.instruction_cards.map((card) => (
+                                <Box
+                                  key={card.id}
+                                  sx={{
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid rgba(184, 199, 214, 0.2)',
+                                    p: 1,
+                                  }}
+                                >
+                                  <Stack spacing={0.9}>
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                      <Typography sx={{ fontSize: '0.82rem', color: 'text.secondary' }}>#{card.id}</Typography>
+                                      <Switch
+                                        checked={card.is_active}
+                                        onChange={(event) =>
+                                          handleModerationWorldInstructionCardChange(card.id, { is_active: event.target.checked })
+                                        }
+                                      />
+                                    </Stack>
+                                    <TextField
+                                      label="Заголовок"
+                                      value={card.title}
+                                      onChange={(event) => handleModerationWorldInstructionCardChange(card.id, { title: event.target.value })}
+                                      size="small"
+                                    />
+                                    <TextField
+                                      label="Текст"
+                                      value={card.content}
+                                      onChange={(event) => handleModerationWorldInstructionCardChange(card.id, { content: event.target.value })}
+                                      multiline
+                                      minRows={3}
+                                    />
+                                  </Stack>
+                                </Box>
+                              ))}
+                            </Stack>
+                            <Stack spacing={0.9}>
+                              <Typography sx={{ fontWeight: 700 }}>Карточки сюжета</Typography>
+                              {moderationWorldDraft.plot_cards.map((card) => (
+                                <Box
+                                  key={card.id}
+                                  sx={{
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid rgba(184, 199, 214, 0.2)',
+                                    p: 1,
+                                  }}
+                                >
+                                  <Stack spacing={0.9}>
+                                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                      <Typography sx={{ fontSize: '0.82rem', color: 'text.secondary' }}>#{card.id}</Typography>
+                                      <Switch
+                                        checked={card.is_enabled}
+                                        onChange={(event) => handleModerationWorldPlotCardChange(card.id, { is_enabled: event.target.checked })}
+                                      />
+                                    </Stack>
+                                    <TextField
+                                      label="Заголовок"
+                                      value={card.title}
+                                      onChange={(event) => handleModerationWorldPlotCardChange(card.id, { title: event.target.value })}
+                                      size="small"
+                                    />
+                                    <TextField
+                                      label="Триггеры через запятую"
+                                      value={card.triggers.join(', ')}
+                                      onChange={(event) =>
+                                        handleModerationWorldPlotCardChange(card.id, {
+                                          triggers: event.target.value
+                                            .split(',')
+                                            .map((item) => item.trim())
+                                            .filter(Boolean),
+                                        })
+                                      }
+                                      size="small"
+                                    />
+                                    <TextField
+                                      label="Текст"
+                                      value={card.content}
+                                      onChange={(event) => handleModerationWorldPlotCardChange(card.id, { content: event.target.value })}
+                                      multiline
+                                      minRows={3}
+                                    />
+                                  </Stack>
+                                </Box>
+                              ))}
+                            </Stack>
+                            <Stack spacing={0.9}>
+                              <Typography sx={{ fontWeight: 700 }}>Карточки мира</Typography>
+                              {moderationWorldDraft.world_cards.map((card) => (
+                                <Box
+                                  key={card.id}
+                                  sx={{
+                                    borderRadius: '10px',
+                                    border: 'var(--morius-border-width) solid rgba(184, 199, 214, 0.2)',
+                                    p: 1,
+                                  }}
+                                >
+                                  <Stack spacing={0.9}>
+                                    <Typography sx={{ fontSize: '0.82rem', color: 'text.secondary' }}>
+                                      #{card.id} · {card.kind}
+                                    </Typography>
+                                    <TextField
+                                      label="Заголовок"
+                                      value={card.title}
+                                      onChange={(event) => handleModerationWorldCardChange(card.id, { title: event.target.value })}
+                                      size="small"
+                                    />
+                                    <TextField
+                                      label="Триггеры через запятую"
+                                      value={card.triggers.join(', ')}
+                                      onChange={(event) =>
+                                        handleModerationWorldCardChange(card.id, {
+                                          triggers: event.target.value
+                                            .split(',')
+                                            .map((item) => item.trim())
+                                            .filter(Boolean),
+                                        })
+                                      }
+                                      size="small"
+                                    />
+                                    <TextField
+                                      label="Описание"
+                                      value={card.content}
+                                      onChange={(event) => handleModerationWorldCardChange(card.id, { content: event.target.value })}
+                                      multiline
+                                      minRows={3}
+                                    />
+                                  </Stack>
+                                </Box>
+                              ))}
+                            </Stack>
+                          </Stack>
+                        ) : moderationCharacterDraft ? (
+                          <Stack spacing={1.05}>
+                            <TextField
+                              label="Имя персонажа"
+                              value={moderationCharacterDraft.character.name}
+                              onChange={(event) => handleModerationCharacterFieldChange('name', event.target.value)}
+                              size="small"
+                            />
+                            <TextField
+                              label="Триггеры через запятую"
+                              value={moderationCharacterDraft.character.triggers.join(', ')}
+                              onChange={(event) =>
+                                handleModerationCharacterFieldChange(
+                                  'triggers',
+                                  event.target.value
+                                    .split(',')
+                                    .map((item) => item.trim())
+                                    .filter(Boolean),
+                                )
+                              }
+                              size="small"
+                            />
+                            <TextField
+                              label="Краткая заметка"
+                              value={moderationCharacterDraft.character.note}
+                              onChange={(event) => handleModerationCharacterFieldChange('note', event.target.value)}
+                              multiline
+                              minRows={2}
+                            />
+                            <TextField
+                              label="Описание"
+                              value={moderationCharacterDraft.character.description}
+                              onChange={(event) => handleModerationCharacterFieldChange('description', event.target.value)}
+                              multiline
+                              minRows={5}
+                            />
+                          </Stack>
+                        ) : moderationInstructionDraft ? (
+                          <Stack spacing={1.05}>
+                            <TextField
+                              label="Заголовок"
+                              value={moderationInstructionDraft.template.title}
+                              onChange={(event) => handleModerationInstructionFieldChange('title', event.target.value)}
+                              size="small"
+                            />
+                            <TextField
+                              label="Текст инструкции"
+                              value={moderationInstructionDraft.template.content}
+                              onChange={(event) => handleModerationInstructionFieldChange('content', event.target.value)}
+                              multiline
+                              minRows={8}
+                            />
+                          </Stack>
+                        ) : null}
+
+                        <TextField
+                          label="Комментарий модератора"
+                          value={moderationCommentDraft}
+                          onChange={(event) => setModerationCommentDraft(event.target.value)}
+                          multiline
+                          minRows={3}
+                          helperText="Комментарий увидит автор, если материал будет отклонён."
+                        />
+
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                          <Button
+                            variant="outlined"
+                            onClick={() => void handleSaveModerationDraft()}
+                            disabled={moderationActionDisabled}
+                            sx={{
+                              minHeight: 40,
+                              borderColor: 'rgba(188, 202, 221, 0.36)',
+                              color: 'var(--morius-text-primary)',
+                            }}
+                          >
+                            Сохранить правки
+                          </Button>
+                          <Button
+                            variant="contained"
+                            onClick={() => void handleApproveModerationItem()}
+                            disabled={moderationActionDisabled}
+                            sx={{
+                              minHeight: 40,
+                              borderRadius: 'var(--morius-radius)',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'var(--morius-button-active)',
+                            }}
+                          >
+                            Одобрить
+                          </Button>
+                          <Button
+                            variant="contained"
+                            onClick={() => void handleRejectModerationItem()}
+                            disabled={moderationActionDisabled}
+                            sx={{
+                              minHeight: 40,
+                              borderRadius: 'var(--morius-radius)',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'rgba(192, 91, 91, 0.38)',
+                              '&:hover': {
+                                backgroundColor: 'rgba(199, 102, 102, 0.5)',
+                              },
+                            }}
+                          >
+                            Отклонить
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    )}
+                  </Box>
+                </Stack>
               </Stack>
             ) : (
               <Stack spacing={1.2}>
@@ -1089,7 +1962,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-button-active)',
               '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
+                backgroundColor: 'transparent',
               },
             }}
           >
@@ -1164,27 +2037,19 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
           ) : (
             <Stack spacing={1.15}>
               <Stack direction="row" spacing={1} alignItems="center">
-                <Avatar
+                <ProgressiveAvatar
                   src={selectedReportCharacterPayload.avatar_url || undefined}
                   alt={selectedReportCharacterPayload.name}
+                  fallbackLabel={selectedReportCharacterPayload.name}
+                  size={54}
+                  scale={Math.max(1, Math.min(3, selectedReportCharacterPayload.avatar_scale || 1))}
                   sx={{
-                    width: 54,
-                    height: 54,
                     border: 'var(--morius-border-width) solid var(--morius-card-border)',
                     backgroundColor: 'var(--morius-elevated-bg)',
                     color: 'var(--morius-text-primary)',
                     fontWeight: 800,
                   }}
-                  imgProps={{
-                    style: {
-                      objectFit: 'cover',
-                      transform: `scale(${Math.max(1, Math.min(3, selectedReportCharacterPayload.avatar_scale || 1))})`,
-                      transformOrigin: 'center center',
-                    },
-                  }}
-                >
-                  {getAvatarFallbackLabel(selectedReportCharacterPayload.name)}
-                </Avatar>
+                />
                 <Stack spacing={0.1}>
                   <Typography sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>
                     Автор: {selectedReportCharacterPayload.author_name || 'Неизвестный автор'}
@@ -1243,7 +2108,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
+                backgroundColor: 'transparent',
               },
             }}
           >
@@ -1346,7 +2211,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
+                backgroundColor: 'transparent',
               },
             }}
           >
@@ -1375,4 +2240,3 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
 
 export default AdminPanelDialog
 export { ADMIN_PANEL_EMAIL_ALLOWLIST }
-

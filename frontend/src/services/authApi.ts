@@ -1,5 +1,15 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
-import type { StoryCommunityWorldSummary, StoryGamePayload, StoryGameSummary } from '../types/story'
+import type {
+  StoryCharacter,
+  StoryCommunityWorldSummary,
+  StoryGamePayload,
+  StoryGameSummary,
+  StoryInstructionCard,
+  StoryInstructionTemplate,
+  StoryPlotCard,
+  StoryPublicationState,
+  StoryWorldCard,
+} from '../types/story'
 import { requestJson } from './httpClient'
 
 type MessageResponse = {
@@ -10,6 +20,99 @@ export type ProfilePrivacySettings = {
   show_subscriptions: boolean
   show_public_worlds: boolean
   show_private_worlds: boolean
+  show_public_characters?: boolean
+  show_public_instruction_templates?: boolean
+}
+
+export type DailyRewardDay = {
+  day: number
+  amount: number
+  is_claimed: boolean
+  is_current: boolean
+  is_locked: boolean
+}
+
+export type DailyRewardStatus = {
+  server_time: string
+  current_day: number | null
+  claimed_days: number
+  can_claim: boolean
+  is_completed: boolean
+  next_claim_at: string | null
+  last_claimed_at: string | null
+  cycle_started_at: string | null
+  reward_amount: number | null
+  claimed_reward_amount?: number | null
+  claimed_reward_day?: number | null
+  days: DailyRewardDay[]
+}
+
+export type ThemeStorySettings = {
+  font_family: 'default' | 'inter' | 'verdana'
+  font_weight: 'regular' | 'medium' | 'bold'
+  narrative_italic: boolean
+  corrected_text_color: string
+  player_text_color: string
+  assistant_text_color: string
+}
+
+export type UserCustomTheme = {
+  id: string
+  name: string
+  description: string
+  palette: {
+    title_text: string
+    text_primary: string
+    background: string
+    surface: string
+    front: string
+    input: string
+  }
+  story: ThemeStorySettings
+}
+
+export type CurrentUserThemeSettings = {
+  active_theme_kind: 'preset' | 'custom'
+  active_theme_id: string
+  story: ThemeStorySettings
+  custom_themes: UserCustomTheme[]
+}
+export type AdminModerationAuthor = {
+  id: number
+  email: string
+  display_name: string
+  avatar_url: string | null
+  role: string
+}
+
+export type AdminModerationQueueItem = {
+  target_type: 'world' | 'character' | 'instruction_template'
+  target_id: number
+  target_title: string
+  target_description: string
+  target_preview_image_url: string | null
+  author: AdminModerationAuthor
+  publication: StoryPublicationState
+  created_at: string
+  updated_at: string
+}
+
+export type AdminModerationWorldDetail = {
+  author: AdminModerationAuthor
+  game: StoryGameSummary
+  instruction_cards: StoryInstructionCard[]
+  plot_cards: StoryPlotCard[]
+  world_cards: StoryWorldCard[]
+}
+
+export type AdminModerationCharacterDetail = {
+  author: AdminModerationAuthor
+  character: StoryCharacter
+}
+
+export type AdminModerationInstructionTemplateDetail = {
+  author: AdminModerationAuthor
+  template: StoryInstructionTemplate
 }
 
 export type ProfileSubscriptionUser = {
@@ -43,10 +146,37 @@ export type ProfileView = {
   unpublished_worlds: StoryGameSummary[]
 }
 
+export type UserNotification = {
+  id: number
+  kind: string
+  title: string
+  body: string
+  action_url: string | null
+  is_read: boolean
+  actor_user_id: number | null
+  actor_display_name: string | null
+  actor_avatar_url: string | null
+  created_at: string
+}
+
+export type UserNotificationUnreadCount = {
+  unread_count: number
+}
+
 export type ProfileFollowState = {
   is_following: boolean
   followers_count: number
   subscriptions_count: number
+}
+
+export type DashboardNewsCard = {
+  id: number
+  slot: number
+  category: string
+  title: string
+  description: string
+  image_url: string | null
+  date_label: string
 }
 
 export type OnboardingGuideStatus = 'pending' | 'completed' | 'skipped'
@@ -151,7 +281,115 @@ function normalizeProfilePrivacySettings(value: ProfilePrivacySettings | null | 
     show_subscriptions: Boolean(value?.show_subscriptions),
     show_public_worlds: Boolean(value?.show_public_worlds),
     show_private_worlds: Boolean(value?.show_private_worlds),
+    show_public_characters: Boolean(value?.show_public_characters),
+    show_public_instruction_templates: Boolean(value?.show_public_instruction_templates),
   }
+}
+
+function normalizeDailyRewardStatus(value: DailyRewardStatus | null | undefined): DailyRewardStatus {
+  const rawDays = Array.isArray(value?.days) ? value?.days : []
+  return {
+    server_time: typeof value?.server_time === 'string' ? value.server_time : new Date().toISOString(),
+    current_day: typeof value?.current_day === 'number' && Number.isFinite(value.current_day) ? Math.trunc(value.current_day) : null,
+    claimed_days: typeof value?.claimed_days === 'number' && Number.isFinite(value.claimed_days) ? Math.max(0, Math.trunc(value.claimed_days)) : 0,
+    can_claim: Boolean(value?.can_claim),
+    is_completed: Boolean(value?.is_completed),
+    next_claim_at: typeof value?.next_claim_at === 'string' ? value.next_claim_at : null,
+    last_claimed_at: typeof value?.last_claimed_at === 'string' ? value.last_claimed_at : null,
+    cycle_started_at: typeof value?.cycle_started_at === 'string' ? value.cycle_started_at : null,
+    reward_amount: typeof value?.reward_amount === 'number' && Number.isFinite(value.reward_amount) ? Math.trunc(value.reward_amount) : null,
+    claimed_reward_amount:
+      typeof value?.claimed_reward_amount === 'number' && Number.isFinite(value.claimed_reward_amount)
+        ? Math.trunc(value.claimed_reward_amount)
+        : null,
+    claimed_reward_day:
+      typeof value?.claimed_reward_day === 'number' && Number.isFinite(value.claimed_reward_day)
+        ? Math.trunc(value.claimed_reward_day)
+        : null,
+    days: rawDays.map((item, index) => ({
+      day: typeof item?.day === 'number' && Number.isFinite(item.day) ? Math.trunc(item.day) : index + 1,
+      amount: typeof item?.amount === 'number' && Number.isFinite(item.amount) ? Math.trunc(item.amount) : 0,
+      is_claimed: Boolean(item?.is_claimed),
+      is_current: Boolean(item?.is_current),
+      is_locked: Boolean(item?.is_locked),
+    })),
+  }
+}
+
+function normalizeCurrentUserThemeSettings(
+  value: CurrentUserThemeSettings | null | undefined,
+): CurrentUserThemeSettings {
+  const story = value?.story
+  const customThemes = Array.isArray(value?.custom_themes) ? value.custom_themes : []
+  return {
+    active_theme_kind: value?.active_theme_kind === 'custom' ? 'custom' : 'preset',
+    active_theme_id: typeof value?.active_theme_id === 'string' && value.active_theme_id.trim() ? value.active_theme_id : 'classic-dark',
+    story: {
+      font_family: story?.font_family === 'inter' || story?.font_family === 'verdana' ? story.font_family : 'default',
+      font_weight: story?.font_weight === 'medium' || story?.font_weight === 'bold' ? story.font_weight : 'regular',
+      narrative_italic: Boolean(story?.narrative_italic),
+      corrected_text_color:
+        typeof story?.corrected_text_color === 'string' && story.corrected_text_color.trim()
+          ? story.corrected_text_color
+          : '#578EEE',
+      player_text_color:
+        typeof story?.player_text_color === 'string' && story.player_text_color.trim()
+          ? story.player_text_color
+          : '#A4ADB6',
+      assistant_text_color:
+        typeof story?.assistant_text_color === 'string' && story.assistant_text_color.trim()
+          ? story.assistant_text_color
+          : '#DBDDE7',
+    },
+    custom_themes: customThemes
+      .filter((item): item is UserCustomTheme => Boolean(item) && typeof item === 'object')
+      .map((item, index) => ({
+        id: typeof item.id === 'string' && item.id.trim() ? item.id : `custom-${index + 1}`,
+        name: typeof item.name === 'string' && item.name.trim() ? item.name : `Тема ${index + 1}`,
+        description: typeof item.description === 'string' ? item.description : '',
+        palette: {
+          title_text: typeof item.palette?.title_text === 'string' ? item.palette.title_text : '#F4F1EA',
+          text_primary: typeof item.palette?.text_primary === 'string' ? item.palette.text_primary : '#E5E0D8',
+          background: typeof item.palette?.background === 'string' ? item.palette.background : '#111111',
+          surface: typeof item.palette?.surface === 'string' ? item.palette.surface : '#171716',
+          front: typeof item.palette?.front === 'string' ? item.palette.front : '#578EEE',
+          input: typeof item.palette?.input === 'string' ? item.palette.input : '#262624',
+        },
+        story: normalizeCurrentUserThemeSettings({
+          active_theme_kind: 'preset',
+          active_theme_id: 'classic-dark',
+          story: item.story,
+          custom_themes: [],
+        }).story,
+      })),
+  }
+}
+
+function extractCompatToken(value: unknown): string {
+  if (typeof value === 'string') {
+    return value
+  }
+  if (value && typeof value === 'object' && typeof (value as { token?: unknown }).token === 'string') {
+    return (value as { token: string }).token
+  }
+  return ''
+}
+
+function extractCompatNumber(value: unknown, ...keys: string[]): number {
+  if (!value || typeof value !== 'object') {
+    return 0
+  }
+  for (const key of keys) {
+    const candidate = (value as Record<string, unknown>)[key]
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return Math.trunc(candidate)
+    }
+  }
+  return 0
+}
+
+function buildCompatAuthHeaders(token: string): HeadersInit {
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 function normalizeProfileSubscriptionUsers(
@@ -219,6 +457,49 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
     subscriptions: normalizeProfileSubscriptionUsers(view.subscriptions ?? []),
     published_worlds: Array.isArray(view.published_worlds) ? view.published_worlds : [],
     unpublished_worlds: Array.isArray(view.unpublished_worlds) ? view.unpublished_worlds : [],
+  }
+}
+
+function normalizeUserNotification(
+  value: UserNotification | null | undefined,
+): UserNotification {
+  return {
+    id: typeof value?.id === 'number' && Number.isFinite(value.id) ? Math.trunc(value.id) : 0,
+    kind: typeof value?.kind === 'string' && value.kind.trim() ? value.kind : 'generic',
+    title: typeof value?.title === 'string' ? value.title : '',
+    body: typeof value?.body === 'string' ? value.body : '',
+    action_url: typeof value?.action_url === 'string' && value.action_url.trim() ? value.action_url : null,
+    is_read: Boolean(value?.is_read),
+    actor_user_id:
+      typeof value?.actor_user_id === 'number' && Number.isFinite(value.actor_user_id)
+        ? Math.trunc(value.actor_user_id)
+        : null,
+    actor_display_name: typeof value?.actor_display_name === 'string' ? value.actor_display_name : null,
+    actor_avatar_url: typeof value?.actor_avatar_url === 'string' ? value.actor_avatar_url : null,
+    created_at: typeof value?.created_at === 'string' ? value.created_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeUserNotifications(
+  value: UserNotification[] | null | undefined,
+): UserNotification[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is UserNotification => Boolean(item) && typeof item === 'object')
+    .map((item) => normalizeUserNotification(item))
+    .filter((item) => item.id > 0)
+}
+
+function normalizeUserNotificationUnreadCount(
+  value: UserNotificationUnreadCount | null | undefined,
+): UserNotificationUnreadCount {
+  return {
+    unread_count:
+      typeof value?.unread_count === 'number' && Number.isFinite(value.unread_count)
+        ? Math.max(0, Math.trunc(value.unread_count))
+        : 0,
   }
 }
 
@@ -359,13 +640,45 @@ export async function updateCurrentUserProfile(payload: {
   token: string
   display_name?: string
   profile_description?: string
+  notifications_enabled?: boolean
+  notify_comment_reply?: boolean
+  notify_world_comment?: boolean
+  notify_publication_review?: boolean
+  notify_new_follower?: boolean
+  notify_moderation_report?: boolean
+  notify_moderation_queue?: boolean
+  email_notifications_enabled?: boolean
 }): Promise<AuthUser> {
-  const requestBody: Record<string, string | null> = {}
+  const requestBody: Record<string, string | boolean | null> = {}
   if (typeof payload.display_name === 'string') {
     requestBody.display_name = payload.display_name
   }
   if (typeof payload.profile_description === 'string') {
     requestBody.profile_description = payload.profile_description
+  }
+  if (typeof payload.notifications_enabled === 'boolean') {
+    requestBody.notifications_enabled = payload.notifications_enabled
+  }
+  if (typeof payload.notify_comment_reply === 'boolean') {
+    requestBody.notify_comment_reply = payload.notify_comment_reply
+  }
+  if (typeof payload.notify_world_comment === 'boolean') {
+    requestBody.notify_world_comment = payload.notify_world_comment
+  }
+  if (typeof payload.notify_publication_review === 'boolean') {
+    requestBody.notify_publication_review = payload.notify_publication_review
+  }
+  if (typeof payload.notify_new_follower === 'boolean') {
+    requestBody.notify_new_follower = payload.notify_new_follower
+  }
+  if (typeof payload.notify_moderation_report === 'boolean') {
+    requestBody.notify_moderation_report = payload.notify_moderation_report
+  }
+  if (typeof payload.notify_moderation_queue === 'boolean') {
+    requestBody.notify_moderation_queue = payload.notify_moderation_queue
+  }
+  if (typeof payload.email_notifications_enabled === 'boolean') {
+    requestBody.email_notifications_enabled = payload.email_notifications_enabled
   }
   return requestJson<AuthUser>(
     '/api/auth/me/profile',
@@ -378,6 +691,72 @@ export async function updateCurrentUserProfile(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
+}
+
+export async function listCurrentUserNotifications(payload: {
+  token: string
+}): Promise<UserNotification[]> {
+  const response = await requestJson<UserNotification[]>(
+    '/api/auth/me/notifications',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotifications(response)
+}
+
+export async function getCurrentUserNotificationUnreadCount(payload: {
+  token: string
+}): Promise<UserNotificationUnreadCount> {
+  const response = await requestJson<UserNotificationUnreadCount>(
+    '/api/auth/me/notifications/unread-count',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotificationUnreadCount(response)
+}
+
+export async function markAllCurrentUserNotificationsRead(payload: {
+  token: string
+}): Promise<UserNotificationUnreadCount> {
+  const response = await requestJson<UserNotificationUnreadCount>(
+    '/api/auth/me/notifications/read-all',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({}),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotificationUnreadCount(response)
+}
+
+export async function deleteCurrentUserNotification(payload: {
+  token: string
+  notificationId: number
+}): Promise<UserNotificationUnreadCount> {
+  const response = await requestJson<UserNotificationUnreadCount>(
+    `/api/auth/me/notifications/${payload.notificationId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotificationUnreadCount(response)
 }
 
 export async function getProfileView(payload: {
@@ -404,6 +783,8 @@ export async function updateCurrentUserProfilePrivacy(payload: {
   show_subscriptions?: boolean
   show_public_worlds?: boolean
   show_private_worlds?: boolean
+  show_public_characters?: boolean
+  show_public_instruction_templates?: boolean
 }): Promise<ProfilePrivacySettings> {
   const requestBody: Record<string, boolean> = {}
   if (typeof payload.show_subscriptions === 'boolean') {
@@ -414,6 +795,12 @@ export async function updateCurrentUserProfilePrivacy(payload: {
   }
   if (typeof payload.show_private_worlds === 'boolean') {
     requestBody.show_private_worlds = payload.show_private_worlds
+  }
+  if (typeof payload.show_public_characters === 'boolean') {
+    requestBody.show_public_characters = payload.show_public_characters
+  }
+  if (typeof payload.show_public_instruction_templates === 'boolean') {
+    requestBody.show_public_instruction_templates = payload.show_public_instruction_templates
   }
 
   return requestJson<ProfilePrivacySettings>(
@@ -456,6 +843,47 @@ export async function unfollowUserProfile(payload: {
       headers: {
         Authorization: `Bearer ${payload.token}`,
       },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function listDashboardNews(payload: { token: string }): Promise<DashboardNewsCard[]> {
+  return requestJson<DashboardNewsCard[]>(
+    '/api/auth/dashboard-news',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateDashboardNews(payload: {
+  token: string
+  news_id: number
+  category: string
+  title: string
+  description: string
+  image_url?: string | null
+  date_label: string
+}): Promise<DashboardNewsCard> {
+  return requestJson<DashboardNewsCard>(
+    `/api/auth/dashboard-news/${payload.news_id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        category: payload.category,
+        title: payload.title,
+        description: payload.description,
+        image_url: payload.image_url ?? null,
+        date_label: payload.date_label,
+      }),
     },
     AUTH_NETWORK_ERROR,
   )
@@ -732,6 +1160,300 @@ export async function syncCoinTopUpPayment(payload: {
       headers: {
         Authorization: `Bearer ${payload.token}`,
       },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getCurrentUserThemeSettings(payload: { token: string } | string): Promise<CurrentUserThemeSettings> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<CurrentUserThemeSettings>(
+    '/api/auth/me/theme-settings',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeCurrentUserThemeSettings(response)
+}
+
+export async function updateCurrentUserThemeSelection(payload: {
+  token: string
+  active_theme_kind: 'preset' | 'custom'
+  active_theme_id: string
+}): Promise<CurrentUserThemeSettings> {
+  const response = await requestJson<CurrentUserThemeSettings>(
+    '/api/auth/me/theme-settings',
+    {
+      method: 'PUT',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({
+        active_theme_kind: payload.active_theme_kind,
+        active_theme_id: payload.active_theme_id,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeCurrentUserThemeSettings(response)
+}
+
+export async function createCurrentUserCustomTheme(payload: {
+  token: string
+  theme: UserCustomTheme
+}): Promise<CurrentUserThemeSettings> {
+  const currentSettings = await getCurrentUserThemeSettings(payload.token)
+  const nextThemes = currentSettings.custom_themes.filter((item) => item.id !== payload.theme.id).concat(payload.theme)
+  const response = await requestJson<CurrentUserThemeSettings>(
+    '/api/auth/me/theme-settings',
+    {
+      method: 'PUT',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({
+        active_theme_kind: 'custom',
+        active_theme_id: payload.theme.id,
+        story: payload.theme.story,
+        custom_themes: nextThemes,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeCurrentUserThemeSettings(response)
+}
+
+export async function updateCurrentUserCustomTheme(payload: {
+  token: string
+  theme: UserCustomTheme
+}): Promise<CurrentUserThemeSettings> {
+  return createCurrentUserCustomTheme(payload)
+}
+
+export async function deleteCurrentUserCustomTheme(payload: {
+  token: string
+  theme_id: string
+}): Promise<CurrentUserThemeSettings> {
+  const currentSettings = await getCurrentUserThemeSettings(payload.token)
+  const nextThemes = currentSettings.custom_themes.filter((item) => item.id !== payload.theme_id)
+  const nextActiveThemeId = currentSettings.active_theme_id === payload.theme_id ? 'classic-dark' : currentSettings.active_theme_id
+  const nextActiveThemeKind =
+    currentSettings.active_theme_kind === 'custom' && currentSettings.active_theme_id === payload.theme_id ? 'preset' : currentSettings.active_theme_kind
+  const response = await requestJson<CurrentUserThemeSettings>(
+    '/api/auth/me/theme-settings',
+    {
+      method: 'PUT',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({
+        active_theme_kind: nextActiveThemeKind,
+        active_theme_id: nextActiveThemeId,
+        custom_themes: nextThemes,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeCurrentUserThemeSettings(response)
+}
+
+export async function getCurrentUserDailyRewards(payload: { token: string } | string): Promise<DailyRewardStatus> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<DailyRewardStatus>(
+    '/api/auth/me/daily-rewards',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeDailyRewardStatus(response)
+}
+
+export async function claimCurrentUserDailyReward(payload: { token: string } | string): Promise<DailyRewardStatus> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<DailyRewardStatus>(
+    '/api/auth/me/daily-rewards/claim',
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeDailyRewardStatus(response)
+}
+
+export async function listPendingModerationItemsForAdmin(payload: any): Promise<{ items: AdminModerationQueueItem[] }> {
+  const token = extractCompatToken(payload)
+  return requestJson<{ items: AdminModerationQueueItem[] }>(
+    '/api/auth/admin/moderation',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getModerationCharacterForAdmin(payload: any): Promise<AdminModerationCharacterDetail> {
+  const token = extractCompatToken(payload)
+  const characterId = extractCompatNumber(payload, 'character_id', 'characterId', 'id')
+  return requestJson<AdminModerationCharacterDetail>(
+    `/api/auth/admin/moderation/characters/${characterId}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateModerationCharacterForAdmin(payload: any): Promise<AdminModerationCharacterDetail> {
+  const token = extractCompatToken(payload)
+  const characterId = extractCompatNumber(payload, 'character_id', 'characterId', 'id')
+  return requestJson<AdminModerationCharacterDetail>(
+    `/api/auth/admin/moderation/characters/${characterId}`,
+    {
+      method: 'PATCH',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function approveModerationCharacterForAdmin(payload: any): Promise<AdminModerationCharacterDetail> {
+  const token = extractCompatToken(payload)
+  const characterId = extractCompatNumber(payload, 'character_id', 'characterId', 'id')
+  return requestJson<AdminModerationCharacterDetail>(
+    `/api/auth/admin/moderation/characters/${characterId}/approve`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function rejectModerationCharacterForAdmin(payload: any): Promise<AdminModerationCharacterDetail> {
+  const token = extractCompatToken(payload)
+  const characterId = extractCompatNumber(payload, 'character_id', 'characterId', 'id')
+  return requestJson<AdminModerationCharacterDetail>(
+    `/api/auth/admin/moderation/characters/${characterId}/reject`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getModerationInstructionTemplateForAdmin(payload: any): Promise<AdminModerationInstructionTemplateDetail> {
+  const token = extractCompatToken(payload)
+  const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
+  return requestJson<AdminModerationInstructionTemplateDetail>(
+    `/api/auth/admin/moderation/instruction-templates/${templateId}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateModerationInstructionTemplateForAdmin(payload: any): Promise<AdminModerationInstructionTemplateDetail> {
+  const token = extractCompatToken(payload)
+  const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
+  return requestJson<AdminModerationInstructionTemplateDetail>(
+    `/api/auth/admin/moderation/instruction-templates/${templateId}`,
+    {
+      method: 'PATCH',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function approveModerationInstructionTemplateForAdmin(payload: any): Promise<AdminModerationInstructionTemplateDetail> {
+  const token = extractCompatToken(payload)
+  const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
+  return requestJson<AdminModerationInstructionTemplateDetail>(
+    `/api/auth/admin/moderation/instruction-templates/${templateId}/approve`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function rejectModerationInstructionTemplateForAdmin(payload: any): Promise<AdminModerationInstructionTemplateDetail> {
+  const token = extractCompatToken(payload)
+  const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
+  return requestJson<AdminModerationInstructionTemplateDetail>(
+    `/api/auth/admin/moderation/instruction-templates/${templateId}/reject`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getModerationWorldForAdmin(payload: any): Promise<AdminModerationWorldDetail> {
+  const token = extractCompatToken(payload)
+  const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
+  return requestJson<AdminModerationWorldDetail>(
+    `/api/auth/admin/moderation/worlds/${worldId}`,
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateModerationWorldForAdmin(payload: any): Promise<AdminModerationWorldDetail> {
+  const token = extractCompatToken(payload)
+  const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
+  return requestJson<AdminModerationWorldDetail>(
+    `/api/auth/admin/moderation/worlds/${worldId}`,
+    {
+      method: 'PATCH',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function approveModerationWorldForAdmin(payload: any): Promise<AdminModerationWorldDetail> {
+  const token = extractCompatToken(payload)
+  const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
+  return requestJson<AdminModerationWorldDetail>(
+    `/api/auth/admin/moderation/worlds/${worldId}/approve`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function rejectModerationWorldForAdmin(payload: any): Promise<AdminModerationWorldDetail> {
+  const token = extractCompatToken(payload)
+  const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
+  return requestJson<AdminModerationWorldDetail>(
+    `/api/auth/admin/moderation/worlds/${worldId}/reject`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+      body: JSON.stringify(payload),
     },
     AUTH_NETWORK_ERROR,
   )

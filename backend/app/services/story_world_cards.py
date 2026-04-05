@@ -8,7 +8,7 @@ from fastapi import HTTPException, status
 
 from app.models import StoryCharacter, StoryWorldCard
 from app.schemas import StoryWorldCardOut
-from app.services.media import normalize_avatar_value
+from app.services.media import normalize_avatar_value, resolve_media_display_url
 from app.services.story_characters import (
     deserialize_triggers,
     normalize_story_avatar_scale,
@@ -241,6 +241,22 @@ def normalize_story_npc_profile_content(name: str, content: str) -> str:
 
 def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
     normalized_kind = normalize_story_world_card_kind(card.kind)
+    avatar_url = resolve_media_display_url(
+        getattr(card, "avatar_url", None),
+        kind="story-world-card-avatar",
+        entity_id=int(card.id),
+        version=getattr(card, "updated_at", None),
+    )
+    avatar_original_url = (
+        resolve_media_display_url(
+            getattr(card, "avatar_original_url", None),
+            kind="story-world-card-avatar-original",
+            entity_id=int(card.id),
+            version=getattr(card, "updated_at", None),
+        )
+        if getattr(card, "avatar_url", None)
+        else None
+    )
     return StoryWorldCardOut(
         id=card.id,
         game_id=card.game_id,
@@ -248,12 +264,8 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         content=card.content,
         triggers=deserialize_story_world_card_triggers(card.triggers),
         kind=normalized_kind,
-        avatar_url=normalize_avatar_value(card.avatar_url),
-        avatar_original_url=(
-            normalize_avatar_value(getattr(card, "avatar_original_url", None))
-            if getattr(card, "avatar_url", None)
-            else None
-        ),
+        avatar_url=avatar_url,
+        avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
         character_id=card.character_id,
         memory_turns=serialize_story_world_card_memory_turns(card.memory_turns, kind=normalized_kind),

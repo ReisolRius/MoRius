@@ -8,9 +8,17 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import StoryCharacter, StoryWorldCard
-from app.schemas import StoryCharacterOut
-from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
+from app.schemas import StoryCharacterOut, StoryPublicationStateOut
+from app.services.media import normalize_avatar_value, normalize_media_scale, resolve_media_display_url, validate_avatar_url
 from app.services.story_emotions import deserialize_story_character_emotion_assets
+try:
+    from app.services.story_publication_moderation import coerce_story_publication_status
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def coerce_story_publication_status(value: str | None, *, is_public: bool = False) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"none", "pending", "approved", "rejected"}:
+            return normalized
+        return "approved" if is_public else "none"
 
 STORY_CHARACTER_SOURCE_USER = "user"
 STORY_CHARACTER_SOURCE_AI = "ai"
@@ -178,7 +186,54 @@ def story_character_rating_average(character: StoryCharacter) -> float:
     return round(rating_sum / rating_count, 2)
 
 
-def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
+def _story_character_publication_state_out(character: StoryCharacter) -> StoryPublicationStateOut:
+    is_public = coerce_story_character_visibility(getattr(character, "visibility", None)) == STORY_CHARACTER_VISIBILITY_PUBLIC
+    return StoryPublicationStateOut(
+        status=coerce_story_publication_status(
+            getattr(character, "publication_status", None),
+            is_public=is_public,
+        ),
+        requested_at=getattr(character, "publication_requested_at", None),
+        reviewed_at=getattr(character, "publication_reviewed_at", None),
+        reviewer_user_id=getattr(character, "publication_reviewer_user_id", None),
+        rejection_reason=str(getattr(character, "publication_rejection_reason", "") or "").strip() or None,
+    )
+
+
+def story_character_to_out(character: StoryCharacter, *, include_emotion_assets: bool = True) -> StoryCharacterOut:
+    avatar_url = resolve_media_display_url(
+        getattr(character, "avatar_url", None),
+        kind="story-character-avatar",
+        entity_id=int(character.id),
+        version=getattr(character, "updated_at", None),
+    )
+    avatar_original_url = (
+        resolve_media_display_url(
+            getattr(character, "avatar_original_url", None),
+            kind="story-character-avatar-original",
+            entity_id=int(character.id),
+            version=getattr(character, "updated_at", None),
+        )
+        if getattr(character, "avatar_url", None)
+        else None
+    )
+    emotion_assets = {
+        emotion_id: resolved_asset_url
+        for emotion_id, raw_asset_url in deserialize_story_character_emotion_assets(
+            getattr(character, "emotion_assets", None)
+        ).items()
+        if (
+            resolved_asset_url := resolve_media_display_url(
+                raw_asset_url,
+                kind="story-character-emotion-asset",
+                entity_id=int(character.id),
+                version=getattr(character, "updated_at", None),
+                asset_id=emotion_id,
+            )
+        )
+    }
+    if not include_emotion_assets:
+        emotion_assets = {}
     return StoryCharacterOut(
         id=character.id,
         user_id=character.user_id,
@@ -186,18 +241,15 @@ def story_character_to_out(character: StoryCharacter) -> StoryCharacterOut:
         description=character.description,
         note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
-        avatar_url=character.avatar_url,
-        avatar_original_url=(
-            normalize_avatar_value(getattr(character, "avatar_original_url", None))
-            if getattr(character, "avatar_url", None)
-            else None
-        ),
+        avatar_url=avatar_url,
+        avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
-        emotion_assets=deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None)),
+        emotion_assets=emotion_assets,
         emotion_model=str(getattr(character, "emotion_model", "") or "").strip(),
         emotion_prompt_lock=str(getattr(character, "emotion_prompt_lock", "") or "").strip() or None,
         source=normalize_story_character_source(character.source),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
+        publication=_story_character_publication_state_out(character),
         source_character_id=getattr(character, "source_character_id", None),
         community_rating_avg=story_character_rating_average(character),
         community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),

@@ -79,10 +79,12 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             color: colors.textSecondary,
             backgroundColor: colors.appElevated,
             '&:hover': {
-              backgroundColor: colors.buttonHover,
+              backgroundColor: 'transparent',
+              color: colors.accent,
             },
             '&:active': {
-              backgroundColor: colors.buttonActive,
+              backgroundColor: 'transparent',
+              color: colors.accent,
             },
           },
         },
@@ -100,11 +102,13 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             backgroundColor: colors.appElevated,
             color: colors.accent,
             '&:hover': {
-              backgroundColor: colors.buttonHover,
+              backgroundColor: 'transparent',
+              color: colors.accent,
               borderColor: colors.appBorder,
             },
             '&:active': {
-              backgroundColor: colors.buttonActive,
+              backgroundColor: 'transparent',
+              color: colors.accent,
               borderColor: colors.appBorder,
             },
           },

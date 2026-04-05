@@ -20,6 +20,7 @@
   StoryMessage,
   StoryMemoryBlock,
   StoryPlotCard,
+  StoryPublicationState,
   StoryStreamChunkPayload,
   StoryStreamDonePayload,
   StoryStreamPlotMemoryPayload,
@@ -27,7 +28,7 @@
   StoryTurnImageGenerationPayload,
   StoryWorldCard,
 } from '../types/story'
-import { buildApiUrl, parseApiError, requestNoContent } from './httpClient'
+import { buildApiUrl, normalizeApiMediaPayload, parseApiError, requestNoContent } from './httpClient'
 
 type RequestOptions = RequestInit & {
   skipJsonContentType?: boolean
@@ -43,6 +44,14 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
 const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
 const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
+
+const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
+  status: 'none',
+  requested_at: null,
+  reviewed_at: null,
+  reviewer_user_id: null,
+  rejection_reason: null,
+}
 
 function normalizeRequestMethod(method: string | undefined): string {
   return (method ?? 'GET').toUpperCase()
@@ -78,6 +87,7 @@ export type StoryGenerationStreamOptions = {
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
+  environmentEnabled?: boolean
   emotionVisualizationEnabled?: boolean
   signal?: AbortSignal
   onStart?: (payload: StoryStreamStartPayload) => void
@@ -149,6 +159,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
         ...options,
         method,
         headers,
+        cache: options.cache ?? (method === 'GET' || method === 'HEAD' ? 'no-store' : undefined),
       })
     } catch (error) {
       if (isAbortError(error)) {
@@ -162,7 +173,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     }
 
     if (response.ok) {
-      return (await response.json()) as T
+      return normalizeApiMediaPayload((await response.json()) as T)
     }
 
     if (retryableMethod && RETRYABLE_STATUS_CODES.has(response.status) && attempt < REQUEST_RETRY_DELAYS_MS.length) {
@@ -249,6 +260,23 @@ function buildStoryCharacterLinkSignature(character: Pick<StoryCharacter, 'name'
   return `${normalizedName}|${normalizedAvatar}`
 }
 
+function normalizeStoryPublicationState(rawValue: unknown): StoryPublicationState {
+  const value = rawValue as Partial<StoryPublicationState> | null | undefined
+  return {
+    status:
+      value?.status === 'pending' || value?.status === 'approved' || value?.status === 'rejected'
+        ? value.status
+        : 'none',
+    requested_at: typeof value?.requested_at === 'string' ? value.requested_at : null,
+    reviewed_at: typeof value?.reviewed_at === 'string' ? value.reviewed_at : null,
+    reviewer_user_id:
+      typeof value?.reviewer_user_id === 'number' && Number.isFinite(value.reviewer_user_id)
+        ? Math.trunc(value.reviewer_user_id)
+        : null,
+    rejection_reason: typeof value?.rejection_reason === 'string' ? value.rejection_reason : null,
+  }
+}
+
 function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryCharacter {
   const character = rawCharacter as Partial<StoryCharacter>
   const normalizedTriggers = Array.isArray(character.triggers)
@@ -274,6 +302,7 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     emotion_prompt_lock: typeof character.emotion_prompt_lock === 'string' ? character.emotion_prompt_lock : null,
     source: character.source === 'ai' ? 'ai' : 'user',
     visibility: character.visibility === 'public' ? 'public' : 'private',
+    publication: normalizeStoryPublicationState(character.publication ?? DEFAULT_PUBLICATION_STATE),
     source_character_id:
       typeof character.source_character_id === 'number' && Number.isFinite(character.source_character_id)
         ? Math.trunc(character.source_character_id)
@@ -419,9 +448,18 @@ export async function listStoryGames(
   token: string,
   options: {
     compact?: boolean
+    limit?: number
   } = {},
 ): Promise<StoryGameSummary[]> {
-  const path = options.compact ? '/api/story/games?compact=1' : '/api/story/games'
+  const params = new URLSearchParams()
+  if (options.compact) {
+    params.set('compact', '1')
+  }
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  const query = params.toString()
+  const path = query ? `/api/story/games?${query}` : '/api/story/games'
   return request<StoryGameSummary[]>(path, {
     method: 'GET',
     cache: 'no-store',
@@ -431,8 +469,19 @@ export async function listStoryGames(
   })
 }
 
-export async function listCommunityWorlds(token: string): Promise<StoryCommunityWorldSummary[]> {
-  return request<StoryCommunityWorldSummary[]>('/api/story/community/worlds', {
+export async function listCommunityWorlds(
+  token: string,
+  options: {
+    limit?: number
+  } = {},
+): Promise<StoryCommunityWorldSummary[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  const query = params.toString()
+  const path = query ? `/api/story/community/worlds?${query}` : '/api/story/community/worlds'
+  return request<StoryCommunityWorldSummary[]>(path, {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -1058,6 +1107,27 @@ export async function createStoryGame(payload: {
   })
 }
 
+export async function createQuickStartStoryGame(payload: {
+  token: string
+  genre: string
+  hero_class: string
+  protagonist_name: string
+  start_mode: 'calm' | 'action'
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>('/api/story/games/quick-start', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      genre: payload.genre,
+      hero_class: payload.hero_class,
+      protagonist_name: payload.protagonist_name,
+      start_mode: payload.start_mode,
+    }),
+  })
+}
+
 export async function cloneStoryGame(payload: {
   token: string
   gameId: number
@@ -1085,8 +1155,19 @@ export async function cloneStoryGame(payload: {
 export async function getStoryGame(payload: {
   token: string
   gameId: number
+  assistantTurnsLimit?: number
+  beforeMessageId?: number | null
 }): Promise<StoryGamePayload> {
-  return request<StoryGamePayload>(`/api/story/games/${payload.gameId}`, {
+  const queryParams = new URLSearchParams()
+  if (typeof payload.assistantTurnsLimit === 'number' && Number.isFinite(payload.assistantTurnsLimit)) {
+    queryParams.set('assistant_turns_limit', String(Math.max(1, Math.trunc(payload.assistantTurnsLimit))))
+  }
+  if (typeof payload.beforeMessageId === 'number' && Number.isFinite(payload.beforeMessageId) && payload.beforeMessageId > 0) {
+    queryParams.set('before_message_id', String(Math.max(1, Math.trunc(payload.beforeMessageId))))
+  }
+  const queryString = queryParams.toString()
+  const path = queryString ? `/api/story/games/${payload.gameId}?${queryString}` : `/api/story/games/${payload.gameId}`
+  return request<StoryGamePayload>(path, {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -1130,6 +1211,11 @@ export async function updateStoryGameSettings(payload: {
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
   emotionVisualizationEnabled?: boolean
+  environmentEnabled?: boolean
+  environmentCurrentDatetime?: string | null
+  environmentCurrentWeather?: Record<string, unknown> | null
+  environmentTomorrowWeather?: Record<string, unknown> | null
+  currentLocationLabel?: string | null
 }): Promise<StoryGameSummary> {
   const requestPayload: Record<string, unknown> = {}
   if (typeof payload.contextLimitTokens === 'number') {
@@ -1174,12 +1260,39 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
   }
+  if (typeof payload.environmentEnabled === 'boolean') {
+    requestPayload.environment_enabled = payload.environmentEnabled
+  }
+  if (typeof payload.environmentCurrentDatetime === 'string' || payload.environmentCurrentDatetime === null) {
+    requestPayload.environment_current_datetime = payload.environmentCurrentDatetime
+  }
+  if (payload.environmentCurrentWeather !== undefined) {
+    requestPayload.environment_current_weather = payload.environmentCurrentWeather
+  }
+  if (payload.environmentTomorrowWeather !== undefined) {
+    requestPayload.environment_tomorrow_weather = payload.environmentTomorrowWeather
+  }
+  if (typeof payload.currentLocationLabel === 'string' || payload.currentLocationLabel === null) {
+    requestPayload.current_location_label = payload.currentLocationLabel
+  }
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/settings`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(requestPayload),
+  })
+}
+
+export async function regenerateStoryEnvironmentWeather(payload: {
+  token: string
+  gameId: number
+}): Promise<StoryGameSummary> {
+  return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/environment/regenerate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
   })
 }
 
@@ -1244,6 +1357,25 @@ export async function updateStoryMessage(payload: {
   })
 }
 
+export async function optimizeStoryMemory(payload: {
+  token: string
+  gameId: number
+  messageId?: number | null
+  maxAssistantMessages?: number
+}): Promise<StoryMemoryBlock[]> {
+  return request<StoryMemoryBlock[]>(`/api/story/games/${payload.gameId}/memory/optimize`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      message_id: typeof payload.messageId === 'number' ? payload.messageId : undefined,
+      max_assistant_messages:
+        typeof payload.maxAssistantMessages === 'number' ? payload.maxAssistantMessages : undefined,
+    }),
+  })
+}
+
 export async function refreshStoryMessageSceneEmotionCue(payload: {
   token: string
   gameId: number
@@ -1293,6 +1425,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = options.ambientEnabled
+  }
+  if (typeof options.environmentEnabled === 'boolean') {
+    requestPayload.environment_enabled = options.environmentEnabled
   }
   if (typeof options.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = options.emotionVisualizationEnabled
@@ -1440,6 +1575,10 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   if (!streamTerminalEventReceived) {
     buffer += decoder.decode()
     processBufferedBlocks(true)
+  }
+
+  if (!streamTerminalEventReceived && !streamError) {
+    throw new Error('Generation stream ended unexpectedly before terminal event')
   }
 
   if (streamError) {

@@ -33,7 +33,7 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
                 color: 'var(--morius-title-text)',
                 textTransform: 'none',
                 '&:hover': {
-                  backgroundColor: 'var(--morius-button-hover)',
+                  backgroundColor: 'transparent',
                 },
               }}
             >

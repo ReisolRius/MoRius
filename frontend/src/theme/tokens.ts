@@ -8,6 +8,7 @@ export const moriusThemeTokens = {
     appBase: '#111111',
     appSurface: '#171716',
     appElevated: '#262624',
+    inputBg: '#171716',
     appBorder: '#31302e',
     accent: '#bacad6',
     titleText: '#dbdde7',
@@ -16,7 +17,7 @@ export const moriusThemeTokens = {
     buttonHover: '#353432',
     buttonActive: '#353432',
     sendButton: '#bacad7',
-    panelGradient: 'linear-gradient(108deg, #31302e 0%, #bacad6 100%)',
+    panelGradient: '#31302e',
     bootBackground: '#111111',
     baseText: '#a4adb6',
   },
@@ -64,6 +65,7 @@ export type MoriusThemeColors = {
   appBase: string
   appSurface: string
   appElevated: string
+  inputBg: string
   appBorder: string
   accent: string
   titleText: string
@@ -83,6 +85,7 @@ export function createMoriusCssVariables(colors: MoriusThemeColors = moriusTheme
     '--morius-app-base': colors.appBase,
     '--morius-card-bg': colors.appSurface,
     '--morius-elevated-bg': colors.appElevated,
+    '--morius-input-bg': colors.inputBg,
     '--morius-card-border': colors.appBorder,
     '--morius-accent': colors.accent,
     '--morius-title-text': colors.titleText,

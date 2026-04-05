@@ -24,12 +24,22 @@ import sendIcon from './icons/send.svg'
 import settingsIcon from './icons/settings.svg'
 import imageGenIcon from './icons/image-gen.svg'
 import tabcoinIcon from './icons/tabcoin.svg'
+import dailyDiamondIcon from './icons/daily-diamond.svg'
 import themeIcon from './icons/theme.svg'
 import undoIcon from './icons/undo.svg'
 import worldIcon from './icons/world.svg'
 import menuSettingsIcon from './icons/menu-settings.svg'
 import menuShopIcon from './icons/menu-shop.svg'
 import profileSearchFilterIcon from './icons/profile-search-filter.svg'
+import sidebarBookIcon from './icons/custom/book.svg'
+import sidebarCommunityIcon from './icons/custom/community.svg'
+import sidebarHelpIcon from './icons/custom/help.svg'
+import sidebarPlusIcon from './icons/custom/plus.svg'
+import sidebarPublicIcon from './icons/custom/public.svg'
+import sidebarSettingsIcon from './icons/custom/settings.svg'
+import sidebarShopIcon from './icons/custom/shop.svg'
+import sidebarVectorIcon from './icons/custom/vector.svg'
+import sidebarVectorAltIcon from './icons/custom/vector-1.svg'
 import tavernBackground from './images/tavern-bg.png'
 import heroCloudsImage from './images/hero-clouds.svg'
 
@@ -54,6 +64,8 @@ export const icons = {
   communityShare: communityShareIcon,
   communityStarFilled: communityStarFilledIcon,
   communityStarOutline: communityStarOutlineIcon,
+  dailyRewards: dailyDiamondIcon,
+  dailyRewardsCoin: tabcoinIcon,
   help: helpIcon,
   home: homeIcon,
   menu: menuIcon,
@@ -66,8 +78,18 @@ export const icons = {
   menuSettings: menuSettingsIcon,
   menuShop: menuShopIcon,
   profileSearchFilter: profileSearchFilterIcon,
+  sidebarBook: sidebarBookIcon,
+  sidebarCommunity: sidebarCommunityIcon,
+  sidebarHelp: sidebarHelpIcon,
+  sidebarPlus: sidebarPlusIcon,
+  sidebarPublic: sidebarPublicIcon,
+  sidebarSettings: sidebarSettingsIcon,
+  sidebarShop: sidebarShopIcon,
+  sidebarVector: sidebarVectorIcon,
+  sidebarVectorAlt: sidebarVectorAltIcon,
   tabcoin: tabcoinIcon,
   theme: themeIcon,
+  trashCustom: communityEditIcon,
   undo: undoIcon,
   world: worldIcon,
 }

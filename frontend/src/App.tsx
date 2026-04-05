@@ -1,10 +1,9 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { getCurrentUser } from './services/authApi'
-import OnboardingTour from './components/onboarding/OnboardingTour'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
-import ProfilePage from './pages/ProfilePage'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
+import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -18,6 +17,7 @@ type AuthSession = {
 }
 
 type WorldEditSource = 'my-games' | 'my-publications'
+type PageLoader = () => Promise<unknown>
 
 function resolveScrollTargetElement(target: EventTarget | null): HTMLElement | null {
   if (target instanceof HTMLElement) {
@@ -160,6 +160,26 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     role: typeof value.role === 'string' ? value.role : 'user',
     level: typeof value.level === 'number' && Number.isFinite(value.level) ? Math.max(1, Math.trunc(value.level)) : 1,
     coins: typeof value.coins === 'number' && Number.isFinite(value.coins) ? Math.max(0, Math.trunc(value.coins)) : 0,
+    notifications_enabled: typeof value.notifications_enabled === 'boolean' ? value.notifications_enabled : true,
+    notify_comment_reply: typeof value.notify_comment_reply === 'boolean' ? value.notify_comment_reply : true,
+    notify_world_comment: typeof value.notify_world_comment === 'boolean' ? value.notify_world_comment : true,
+    notify_publication_review:
+      typeof value.notify_publication_review === 'boolean' ? value.notify_publication_review : true,
+    notify_new_follower: typeof value.notify_new_follower === 'boolean' ? value.notify_new_follower : true,
+    notify_moderation_report:
+      typeof value.notify_moderation_report === 'boolean' ? value.notify_moderation_report : true,
+    notify_moderation_queue:
+      typeof value.notify_moderation_queue === 'boolean' ? value.notify_moderation_queue : true,
+    email_notifications_enabled:
+      typeof value.email_notifications_enabled === 'boolean' ? value.email_notifications_enabled : false,
+    show_subscriptions: typeof value.show_subscriptions === 'boolean' ? value.show_subscriptions : false,
+    show_public_worlds: typeof value.show_public_worlds === 'boolean' ? value.show_public_worlds : false,
+    show_private_worlds: typeof value.show_private_worlds === 'boolean' ? value.show_private_worlds : false,
+    show_public_characters: typeof value.show_public_characters === 'boolean' ? value.show_public_characters : false,
+    show_public_instruction_templates:
+      typeof value.show_public_instruction_templates === 'boolean' ? value.show_public_instruction_templates : false,
+    active_theme_id:
+      typeof value.active_theme_id === 'string' && value.active_theme_id.trim() ? value.active_theme_id : null,
     is_banned: Boolean(value.is_banned),
     ban_expires_at: typeof value.ban_expires_at === 'string' ? value.ban_expires_at : null,
     created_at: typeof value.created_at === 'string' ? value.created_at : new Date().toISOString(),
@@ -177,22 +197,81 @@ function clearAuthSession(): void {
 }
 
 const initialSession = loadAuthSession()
-const PublicLandingPage = lazy(() => import('./pages/PublicLandingPage'))
-const AuthenticatedHomePage = lazy(() => import('./pages/AuthenticatedHomePage'))
-const StoryGamePage = lazy(() => import('./pages/StoryGamePage'))
-const AdminBugReportPage = lazy(() => import('./pages/AdminBugReportPage'))
-const MyGamesPage = lazy(() => import('./pages/MyGamesPage'))
-const MyPublicationsPage = lazy(() => import('./pages/MyPublicationsPage'))
-const CommunityWorldsPage = lazy(() => import('./pages/CommunityWorldsPage'))
-const WorldCreatePage = lazy(() => import('./pages/WorldCreatePage'))
-const LegalDocumentPage = lazy(() => import('./pages/LegalDocumentPage'))
+const loadPublicLandingPage = () => import('./pages/PublicLandingPage')
+const loadAuthenticatedHomePage = () => import('./pages/AuthenticatedHomePage')
+const loadStoryGamePage = () => import('./pages/StoryGamePage')
+const loadAdminBugReportPage = () => import('./pages/AdminBugReportPage')
+const loadMyGamesPage = () => import('./pages/MyGamesPage')
+const loadMyPublicationsPage = () => import('./pages/MyPublicationsPage')
+const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
+const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
+const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
+const loadProfilePage = () => import('./pages/ProfilePage')
+const loadOnboardingTour = () => import('./components/onboarding/OnboardingTour')
+
+const PublicLandingPage = lazy(loadPublicLandingPage)
+const AuthenticatedHomePage = lazy(loadAuthenticatedHomePage)
+const StoryGamePage = lazy(loadStoryGamePage)
+const AdminBugReportPage = lazy(loadAdminBugReportPage)
+const MyGamesPage = lazy(loadMyGamesPage)
+const MyPublicationsPage = lazy(loadMyPublicationsPage)
+const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
+const WorldCreatePage = lazy(loadWorldCreatePage)
+const LegalDocumentPage = lazy(loadLegalDocumentPage)
+const ProfilePage = lazy(loadProfilePage)
+const OnboardingTour = lazy(loadOnboardingTour)
+
+function warmPageLoaders(loaders: PageLoader[]): () => void {
+  if (typeof window === 'undefined' || loaders.length === 0) {
+    return () => undefined
+  }
+
+  const timerIds: number[] = []
+  let idleCallbackId: number | null = null
+
+  const runWarmup = () => {
+    loaders.forEach((loader, index) => {
+      const timerId = window.setTimeout(() => {
+        void loader()
+      }, index * 120)
+      timerIds.push(timerId)
+    })
+  }
+
+  if (typeof window.requestIdleCallback === 'function') {
+    idleCallbackId = window.requestIdleCallback(runWarmup, { timeout: 1500 })
+  } else {
+    timerIds.push(window.setTimeout(runWarmup, 500))
+  }
+
+  return () => {
+    if (idleCallbackId !== null && typeof window.cancelIdleCallback === 'function') {
+      window.cancelIdleCallback(idleCallbackId)
+    }
+    timerIds.forEach((timerId) => window.clearTimeout(timerId))
+  }
+}
 
 function App() {
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
   const [authToken, setAuthToken] = useState<string | null>(initialSession.token)
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
+  const [isRouteTransitionVisible, setIsRouteTransitionVisible] = useState(false)
   const hasTrackedInitialRouteRef = useRef(false)
+  const routeTransitionTimerRef = useRef<number | null>(null)
+  const isAuthenticated = Boolean(authToken && authUser)
+
+  const triggerRouteTransition = useCallback(() => {
+    if (routeTransitionTimerRef.current !== null) {
+      window.clearTimeout(routeTransitionTimerRef.current)
+    }
+    setIsRouteTransitionVisible(true)
+    routeTransitionTimerRef.current = window.setTimeout(() => {
+      setIsRouteTransitionVisible(false)
+      routeTransitionTimerRef.current = null
+    }, 560)
+  }, [])
 
   useEffect(() => {
     const ym = (window as Window & { ym?: (...args: unknown[]) => void }).ym
@@ -207,13 +286,37 @@ function App() {
   }, [path])
 
   useEffect(() => {
-    const handlePopState = () => setPath(normalizePath(window.location.pathname))
+    const handlePopState = () => {
+      triggerRouteTransition()
+      setPath(normalizePath(window.location.pathname))
+    }
     window.addEventListener('popstate', handlePopState)
     if ('scrollRestoration' in window.history) {
       window.history.scrollRestoration = 'manual'
     }
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [triggerRouteTransition])
+
+  useEffect(() => {
+    return () => {
+      if (routeTransitionTimerRef.current !== null) {
+        window.clearTimeout(routeTransitionTimerRef.current)
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    const loaders = isAuthenticated
+      ? [
+          loadProfilePage,
+          loadCommunityWorldsPage,
+          loadStoryGamePage,
+          loadMyGamesPage,
+        ]
+      : [loadPublicLandingPage]
+
+    return warmPageLoaders(loaders)
+  }, [isAuthenticated])
 
   useEffect(() => {
     const hideTimers = new Map<HTMLElement, number>()
@@ -259,6 +362,7 @@ function App() {
   const navigate = useCallback((targetPath: string, options?: { replace?: boolean }) => {
     const normalizedTarget = normalizeNavigationTarget(targetPath)
     if (getCurrentNavigationHref() !== normalizedTarget.href) {
+      triggerRouteTransition()
       if (options?.replace) {
         window.history.replaceState({}, '', normalizedTarget.href)
       } else {
@@ -267,7 +371,7 @@ function App() {
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setPath(normalizedTarget.pathname)
-  }, [])
+  }, [triggerRouteTransition])
 
   const resetSession = useCallback(() => {
     clearAuthSession()
@@ -358,7 +462,6 @@ function App() {
     localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser))
   }, [])
 
-  const isAuthenticated = Boolean(authToken && authUser)
   const adminBugReportId = extractAdminBugReportId(path)
   const initialGameId = extractStoryGameId(path)
   const worldEditGameId = extractWorldEditGameId(path)
@@ -507,9 +610,12 @@ function App() {
 
   return (
     <>
+      <FantasyRouteTransition active={isRouteTransitionVisible} />
       {pageContent}
       {isAuthenticated && authUser && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
-        <OnboardingTour userId={authUser.id} authToken={authToken!} path={path} onNavigate={navigate} />
+        <Suspense fallback={null}>
+          <OnboardingTour userId={authUser.id} authToken={authToken!} path={path} onNavigate={navigate} />
+        </Suspense>
       ) : null}
     </>
   )

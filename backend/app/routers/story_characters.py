@@ -36,7 +36,6 @@ from app.services.concurrency import (
     increment_story_character_additions,
 )
 from app.services.auth_identity import get_current_user
-from app.services.media import normalize_avatar_value
 from app.services.story_characters import (
     STORY_CHARACTER_VISIBILITY_PRIVATE,
     STORY_CHARACTER_VISIBILITY_PUBLIC,
@@ -62,14 +61,112 @@ from app.services.story_emotions import (
     normalize_story_character_emotion_assets,
     serialize_story_character_emotion_assets,
 )
+try:
+    from app.services.story_publication_moderation import clear_story_publication_state, mark_story_publication_pending
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def mark_story_publication_pending(record: object) -> None:
+        if hasattr(record, "publication_status"):
+            setattr(record, "publication_status", "pending")
+
+    def clear_story_publication_state(record: object) -> None:
+        if hasattr(record, "publication_status"):
+            setattr(record, "publication_status", "none")
+        if hasattr(record, "publication_requested_at"):
+            setattr(record, "publication_requested_at", None)
+        if hasattr(record, "publication_reviewed_at"):
+            setattr(record, "publication_reviewed_at", None)
+        if hasattr(record, "publication_reviewer_user_id"):
+            setattr(record, "publication_reviewer_user_id", None)
+        if hasattr(record, "publication_rejection_reason"):
+            setattr(record, "publication_rejection_reason", None)
 from app.services.story_queries import (
     get_public_story_character_or_404,
     get_story_character_for_user_or_404,
     list_story_characters,
 )
+try:
+    from app.services.notifications import (
+        NOTIFICATION_KIND_MODERATION_QUEUE,
+        NOTIFICATION_KIND_MODERATION_REPORT,
+        NotificationDraft,
+        build_staff_notification_drafts,
+        create_user_notifications,
+        send_notification_emails,
+    )
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    NOTIFICATION_KIND_MODERATION_QUEUE = "moderation_queue"
+    NOTIFICATION_KIND_MODERATION_REPORT = "moderation_report"
+
+    class NotificationDraft:
+        def __init__(
+            self,
+            *,
+            user_id: int,
+            kind: str,
+            title: str,
+            body: str,
+            action_url: str | None = None,
+            actor_user_id: int | None = None,
+        ) -> None:
+            self.user_id = user_id
+            self.kind = kind
+            self.title = title
+            self.body = body
+            self.action_url = action_url
+            self.actor_user_id = actor_user_id
+
+    def build_staff_notification_drafts(
+        db: Session,
+        *,
+        kind: str,
+        title: str,
+        body: str,
+        action_url: str | None = None,
+        actor_user_id: int | None = None,
+    ) -> list[NotificationDraft]:
+        _ = (db, kind, title, body, action_url, actor_user_id)
+        return []
+
+    def create_user_notifications(db: Session, drafts: list[NotificationDraft]) -> list[object]:
+        _ = (db, drafts)
+        return []
+
+    def send_notification_emails(db: Session, notifications: list[object]) -> None:
+        _ = (db, notifications)
+        return None
 
 router = APIRouter()
 STORY_CHARACTER_REPORT_STATUS_OPEN = "open"
+
+
+def _persist_notifications(db: Session, drafts: list[NotificationDraft]) -> None:
+    notifications = create_user_notifications(db, drafts=drafts)
+    if not notifications:
+        return
+    db.commit()
+    send_notification_emails(db, notifications)
+
+
+def _notify_staff(
+    db: Session,
+    *,
+    kind: str,
+    title: str,
+    body: str,
+    action_url: str | None = None,
+    actor_user_id: int | None = None,
+) -> None:
+    _persist_notifications(
+        db,
+        build_staff_notification_drafts(
+            db,
+            kind=kind,
+            title=title,
+            body=body,
+            action_url=action_url,
+            actor_user_id=actor_user_id,
+        ),
+    )
 
 
 def _is_story_emotion_admin(user: User) -> bool:
@@ -154,6 +251,7 @@ def _build_story_community_character_summary(
     is_reported_by_user_override: bool | None = None,
 ) -> StoryCommunityCharacterSummaryOut:
     author = db.scalar(select(User).where(User.id == character.user_id))
+    character_out = story_character_to_out(character)
     if user_rating_override is None:
         user_rating_value = db.scalar(
             select(StoryCommunityCharacterRating.rating).where(
@@ -188,18 +286,18 @@ def _build_story_community_character_summary(
         is_reported_by_user = bool(is_reported_by_user_override)
 
     return StoryCommunityCharacterSummaryOut(
-        id=character.id,
-        name=character.name,
-        description=character.description,
-        note=normalize_story_character_note(getattr(character, "note", "")),
-        triggers=deserialize_triggers(character.triggers),
-        avatar_url=character.avatar_url,
-        avatar_original_url=normalize_avatar_value(getattr(character, "avatar_original_url", None)),
-        avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
-        emotion_assets=deserialize_story_character_emotion_assets(getattr(character, "emotion_assets", None)),
-        emotion_model=_normalize_optional_emotion_model(getattr(character, "emotion_model", "")),
-        emotion_prompt_lock=_normalize_optional_emotion_prompt_lock(getattr(character, "emotion_prompt_lock", "")) or None,
-        visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
+        id=character_out.id,
+        name=character_out.name,
+        description=character_out.description,
+        note=character_out.note,
+        triggers=character_out.triggers,
+        avatar_url=character_out.avatar_url,
+        avatar_original_url=character_out.avatar_original_url,
+        avatar_scale=character_out.avatar_scale,
+        emotion_assets=character_out.emotion_assets,
+        emotion_model=character_out.emotion_model,
+        emotion_prompt_lock=character_out.emotion_prompt_lock,
+        visibility=character_out.visibility,
         author_id=character.user_id,
         author_name=story_author_name(author),
         author_avatar_url=story_author_avatar_url(author),
@@ -269,6 +367,14 @@ def _delete_story_character_with_relations(db: Session, *, character_id: int) ->
         db.delete(character)
 
 
+def _get_story_character_publication_copy(db: Session, *, source_character_id: int) -> StoryCharacter | None:
+    return db.scalar(
+        select(StoryCharacter)
+        .where(StoryCharacter.source_character_id == source_character_id)
+        .order_by(StoryCharacter.id.asc())
+    )
+
+
 @router.get("/api/story/characters", response_model=list[StoryCharacterOut])
 def list_story_characters_route(
     authorization: str | None = Header(default=None),
@@ -334,31 +440,37 @@ def list_story_community_characters(
     ).all()
     reported_character_ids = {row.character_id for row in user_report_rows}
 
-    return [
-        StoryCommunityCharacterSummaryOut(
-            id=character.id,
-            name=character.name,
-            description=character.description,
-            note=normalize_story_character_note(getattr(character, "note", "")),
-            triggers=deserialize_triggers(character.triggers),
-            avatar_url=character.avatar_url,
-            avatar_original_url=normalize_avatar_value(getattr(character, "avatar_original_url", None)),
-            avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
-            visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
-            author_id=character.user_id,
-            author_name=author_name_by_id.get(character.user_id, "Unknown"),
-            author_avatar_url=author_avatar_by_id.get(character.user_id),
-            community_rating_avg=story_character_rating_average(character),
-            community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),
-            community_additions_count=max(int(getattr(character, "community_additions_count", 0) or 0), 0),
-            user_rating=user_rating_by_character_id.get(character.id),
-            is_added_by_user=character.id in added_character_ids,
-            is_reported_by_user=character.id in reported_character_ids,
-            created_at=character.created_at,
-            updated_at=character.updated_at,
+    summaries: list[StoryCommunityCharacterSummaryOut] = []
+    for character in characters:
+        character_out = story_character_to_out(character)
+        summaries.append(
+            StoryCommunityCharacterSummaryOut(
+                id=character_out.id,
+                name=character_out.name,
+                description=character_out.description,
+                note=character_out.note,
+                triggers=character_out.triggers,
+                avatar_url=character_out.avatar_url,
+                avatar_original_url=character_out.avatar_original_url,
+                avatar_scale=character_out.avatar_scale,
+                emotion_assets=character_out.emotion_assets,
+                emotion_model=character_out.emotion_model,
+                emotion_prompt_lock=character_out.emotion_prompt_lock,
+                visibility=character_out.visibility,
+                author_id=character.user_id,
+                author_name=author_name_by_id.get(character.user_id, "Unknown"),
+                author_avatar_url=author_avatar_by_id.get(character.user_id),
+                community_rating_avg=story_character_rating_average(character),
+                community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),
+                community_additions_count=max(int(getattr(character, "community_additions_count", 0) or 0), 0),
+                user_rating=user_rating_by_character_id.get(character.id),
+                is_added_by_user=character.id in added_character_ids,
+                is_reported_by_user=character.id in reported_character_ids,
+                created_at=character.created_at,
+                updated_at=character.updated_at,
+            )
         )
-        for character in characters
-    ]
+    return summaries
 
 
 @router.get("/api/story/community/characters/{character_id}", response_model=StoryCommunityCharacterSummaryOut)
@@ -478,6 +590,16 @@ def report_story_community_character(
             detail="You have already reported this character",
         ) from None
 
+    reporter_name = story_author_name(user)
+    character_name = str(character.name or "").strip() or f"Персонаж #{int(character.id)}"
+    _notify_staff(
+        db,
+        kind=NOTIFICATION_KIND_MODERATION_REPORT,
+        title="Новая жалоба на персонажа",
+        body=f"{reporter_name} отправил жалобу на персонажа \"{character_name}\".",
+        action_url="/profile",
+        actor_user_id=int(user.id),
+    )
     db.refresh(character)
     return _build_story_community_character_summary(
         db,
@@ -673,12 +795,20 @@ def create_story_character(
     db.add(character)
     db.flush()
     if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
-        _create_story_character_publication_copy_from_source(
-            db,
-            source_character=character,
-        )
+        mark_story_publication_pending(character)
     db.commit()
     db.refresh(character)
+    if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
+        character_name = str(character.name or "").strip() or f"Персонаж #{int(character.id)}"
+        author_name = story_author_name(user)
+        _notify_staff(
+            db,
+            kind=NOTIFICATION_KIND_MODERATION_QUEUE,
+            title="Новый персонаж на модерации",
+            body=f"{author_name} отправил на модерацию персонажа \"{character_name}\".",
+            action_url="/profile",
+            actor_user_id=int(user.id),
+        )
     return story_character_to_out(character)
 
 
@@ -691,6 +821,7 @@ def update_story_character(
 ) -> StoryCharacterOut:
     user = get_current_user(db, authorization)
     character = get_story_character_for_user_or_404(db, user.id, character_id)
+    previous_publication_status = str(getattr(character, "publication_status", "") or "").strip().lower()
     normalized_name = normalize_story_character_name(payload.name)
     normalized_description = normalize_story_character_description(payload.description)
     normalized_note = normalize_story_character_note(payload.note)
@@ -717,19 +848,34 @@ def update_story_character(
     character.emotion_prompt_lock = emotion_prompt_lock
     character.source = normalize_story_character_source(character.source)
     requested_visibility: str | None = None
+    should_notify_publication_queue = False
     if payload.visibility is not None:
         requested_visibility = normalize_story_character_visibility(payload.visibility)
     if requested_visibility is not None:
-        if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC and character.visibility != STORY_CHARACTER_VISIBILITY_PUBLIC:
-            _create_story_character_publication_copy_from_source(
-                db,
-                source_character=character,
-            )
+        if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC and character.source_character_id is None:
+            mark_story_publication_pending(character)
             character.visibility = STORY_CHARACTER_VISIBILITY_PRIVATE
+            should_notify_publication_queue = previous_publication_status != "pending"
         else:
+            if requested_visibility == STORY_CHARACTER_VISIBILITY_PRIVATE and character.source_character_id is None:
+                clear_story_publication_state(character)
+                publication_copy = _get_story_character_publication_copy(db, source_character_id=int(character.id))
+                if publication_copy is not None:
+                    _delete_story_character_with_relations(db, character_id=int(publication_copy.id))
             character.visibility = requested_visibility
     db.commit()
     db.refresh(character)
+    if should_notify_publication_queue:
+        character_name = str(character.name or "").strip() or f"Персонаж #{int(character.id)}"
+        author_name = story_author_name(user)
+        _notify_staff(
+            db,
+            kind=NOTIFICATION_KIND_MODERATION_QUEUE,
+            title="Персонаж отправлен на модерацию",
+            body=f"{author_name} отправил на модерацию персонажа \"{character_name}\".",
+            action_url="/profile",
+            actor_user_id=int(user.id),
+        )
     return story_character_to_out(character)
 
 

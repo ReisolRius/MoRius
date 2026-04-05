@@ -29,6 +29,7 @@ type StoryHistoryFontWeightOption = {
 export const STORY_HISTORY_FONT_FAMILY_STORAGE_KEY = 'morius.story.history-font-family'
 export const STORY_HISTORY_FONT_WEIGHT_STORAGE_KEY = 'morius.story.history-font-weight'
 export const VOICE_INPUT_ENABLED_STORAGE_KEY = 'morius.story.voice-input-enabled'
+export const MORIUS_CUSTOM_THEME_STORAGE_KEY = 'morius.ui.custom-theme'
 
 const STORY_HISTORY_FONT_FAMILY_OPTIONS: readonly StoryHistoryFontFamilyOption[] = [
   {
@@ -85,11 +86,13 @@ function normalizeStoryHistoryFontWeightId(value: string | null | undefined): St
 type MoriusThemeControllerValue = {
   themeId: MoriusThemeId
   activeTheme: MoriusThemePreset
+  customTheme: MoriusThemePreset | null
   cssVariables: ReturnType<typeof createMoriusCssVariables>
   muiTheme: ReturnType<typeof createMoriusMuiTheme>
   themes: readonly MoriusThemePreset[]
   placeholders: typeof moriusThemePlaceholders
   setTheme: (themeId: MoriusThemeId) => void
+  setCustomTheme: (theme: MoriusThemePreset | null) => void
   storyHistoryFontFamily: StoryHistoryFontFamilyId
   storyHistoryFontWeight: StoryHistoryFontWeightId
   voiceInputEnabled: boolean
@@ -139,6 +142,55 @@ function readInitialStoryHistoryFontWeightId(): StoryHistoryFontWeightId {
   }
 }
 
+function readInitialCustomTheme(): MoriusThemePreset | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(MORIUS_CUSTOM_THEME_STORAGE_KEY)
+    if (!rawValue) {
+      return null
+    }
+    const parsed = JSON.parse(rawValue) as Partial<MoriusThemePreset> | null
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.id !== 'string' || typeof parsed.name !== 'string') {
+      return null
+    }
+    const baseTheme = getMoriusThemeById('classic-dark')
+    return {
+      ...baseTheme,
+      id: parsed.id,
+      name: parsed.name,
+      subtitle: typeof parsed.subtitle === 'string' ? parsed.subtitle : 'Пользовательская тема',
+      description: typeof parsed.description === 'string' ? parsed.description : '',
+      mode: parsed.mode === 'light' ? 'light' : 'dark',
+      colors: {
+        ...baseTheme.colors,
+        ...(parsed.colors ?? {}),
+      },
+      story:
+        parsed.story && typeof parsed.story === 'object'
+          ? {
+              correctedTextColor:
+                typeof (parsed.story as { correctedTextColor?: unknown }).correctedTextColor === 'string'
+                  ? (parsed.story as { correctedTextColor: string }).correctedTextColor
+                  : baseTheme.story?.correctedTextColor ?? baseTheme.colors.accent,
+              playerTextColor:
+                typeof (parsed.story as { playerTextColor?: unknown }).playerTextColor === 'string'
+                  ? (parsed.story as { playerTextColor: string }).playerTextColor
+                  : baseTheme.story?.playerTextColor ?? baseTheme.colors.textSecondary,
+              assistantTextColor:
+                typeof (parsed.story as { assistantTextColor?: unknown }).assistantTextColor === 'string'
+                  ? (parsed.story as { assistantTextColor: string }).assistantTextColor
+                  : baseTheme.story?.assistantTextColor ?? baseTheme.colors.textPrimary,
+            }
+          : baseTheme.story,
+    }
+  } catch {
+    return null
+  }
+}
+
 function readInitialVoiceInputEnabled(): boolean {
   if (typeof window === 'undefined') {
     return false
@@ -164,6 +216,7 @@ type MoriusThemeProviderProps = {
 
 export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
   const [themeId, setThemeId] = useState<MoriusThemeId>(() => readInitialThemeId())
+  const [customTheme, setCustomThemeState] = useState<MoriusThemePreset | null>(() => readInitialCustomTheme())
   const [storyHistoryFontFamily, setStoryHistoryFontFamilyState] = useState<StoryHistoryFontFamilyId>(
     () => readInitialStoryHistoryFontFamilyId(),
   )
@@ -172,7 +225,12 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
   )
   const [voiceInputEnabled, setVoiceInputEnabledState] = useState<boolean>(() => readInitialVoiceInputEnabled())
 
-  const activeTheme = useMemo(() => getMoriusThemeById(themeId), [themeId])
+  const activeTheme = useMemo(() => {
+    if (customTheme && customTheme.id === themeId) {
+      return customTheme
+    }
+    return getMoriusThemeById(themeId)
+  }, [customTheme, themeId])
   const cssVariables = useMemo(() => createMoriusCssVariables(activeTheme.colors), [activeTheme.colors])
   const muiTheme = useMemo(() => createMoriusMuiTheme(activeTheme.colors, activeTheme.mode), [activeTheme.colors, activeTheme.mode])
 
@@ -183,6 +241,18 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
       // Ignore localStorage failures (private mode / strict browser policies).
     }
   }, [activeTheme.id])
+
+  useEffect(() => {
+    try {
+      if (!customTheme) {
+        window.localStorage.removeItem(MORIUS_CUSTOM_THEME_STORAGE_KEY)
+        return
+      }
+      window.localStorage.setItem(MORIUS_CUSTOM_THEME_STORAGE_KEY, JSON.stringify(customTheme))
+    } catch {
+      // Ignore localStorage failures (private mode / strict browser policies).
+    }
+  }, [customTheme])
 
   useEffect(() => {
     try {
@@ -212,6 +282,15 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
     setThemeId(getMoriusThemeById(nextThemeId).id)
   }, [])
 
+  const setCustomTheme = useCallback((nextTheme: MoriusThemePreset | null) => {
+    setCustomThemeState(nextTheme)
+    if (nextTheme) {
+      setThemeId(nextTheme.id)
+      return
+    }
+    setThemeId(MORIUS_DEFAULT_THEME_ID)
+  }, [])
+
   const setStoryHistoryFontFamily = useCallback((nextFontFamily: StoryHistoryFontFamilyId) => {
     setStoryHistoryFontFamilyState(normalizeStoryHistoryFontFamilyId(nextFontFamily))
   }, [])
@@ -228,11 +307,13 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
     () => ({
       themeId: activeTheme.id,
       activeTheme,
+      customTheme,
       cssVariables,
       muiTheme,
       themes: moriusThemePresets,
       placeholders: moriusThemePlaceholders,
       setTheme,
+      setCustomTheme,
       storyHistoryFontFamily,
       storyHistoryFontWeight,
       voiceInputEnabled,
@@ -244,9 +325,11 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
     }),
     [
       activeTheme,
+      customTheme,
       cssVariables,
       muiTheme,
       setTheme,
+      setCustomTheme,
       storyHistoryFontFamily,
       storyHistoryFontWeight,
       voiceInputEnabled,

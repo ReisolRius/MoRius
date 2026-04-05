@@ -292,6 +292,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN ambient_profile TEXT NOT NULL DEFAULT ''"
         )
+    if "current_location_label" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN current_location_label VARCHAR(160) NOT NULL DEFAULT ''"
+        )
     if "source_world_id" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -331,6 +336,31 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN community_rating_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "publication_status" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN publication_status VARCHAR(16) NOT NULL DEFAULT 'none'"
+        )
+    if "publication_requested_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN publication_requested_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewed_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN publication_reviewed_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewer_user_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN publication_reviewer_user_id INTEGER"
+        )
+    if "publication_rejection_reason" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN publication_rejection_reason TEXT"
         )
 
     if not alter_statements:
@@ -568,6 +598,31 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN emotion_prompt_lock TEXT NOT NULL DEFAULT ''"
         )
+    if "publication_status" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN publication_status VARCHAR(16) NOT NULL DEFAULT 'none'"
+        )
+    if "publication_requested_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN publication_requested_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewed_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN publication_reviewed_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewer_user_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN publication_reviewer_user_id INTEGER"
+        )
+    if "publication_rejection_reason" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN publication_rejection_reason TEXT"
+        )
 
     if not alter_statements:
         return
@@ -609,6 +664,31 @@ def _ensure_story_instruction_template_community_columns_exist(private_visibilit
         alter_statements.append(
             f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
             "ADD COLUMN community_additions_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "publication_status" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN publication_status VARCHAR(16) NOT NULL DEFAULT 'none'"
+        )
+    if "publication_requested_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN publication_requested_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewed_at" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN publication_reviewed_at TIMESTAMP WITH TIME ZONE"
+        )
+    if "publication_reviewer_user_id" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN publication_reviewer_user_id INTEGER"
+        )
+    if "publication_rejection_reason" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionTemplate.__tablename__} "
+            "ADD COLUMN publication_rejection_reason TEXT"
         )
 
     if not alter_statements:

@@ -5,8 +5,16 @@ import re
 
 from fastapi import HTTPException, status
 
-from app.models import StoryInstructionTemplate, StoryPlotCard
-from app.schemas import StoryInstructionTemplateOut, StoryPlotCardOut
+from app.models import StoryInstructionCard, StoryInstructionTemplate, StoryPlotCard
+from app.schemas import StoryInstructionCardOut, StoryInstructionTemplateOut, StoryPlotCardOut, StoryPublicationStateOut
+try:
+    from app.services.story_publication_moderation import coerce_story_publication_status
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def coerce_story_publication_status(value: str | None, *, is_public: bool = False) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"none", "pending", "approved", "rejected"}:
+            return normalized
+        return "approved" if is_public else "none"
 
 STORY_PLOT_CARD_SOURCE_USER = "user"
 STORY_PLOT_CARD_SOURCE_AI = "ai"
@@ -38,6 +46,18 @@ def normalize_story_instruction_content(value: str) -> str:
     return normalized
 
 
+def story_instruction_card_to_out(card: StoryInstructionCard) -> StoryInstructionCardOut:
+    return StoryInstructionCardOut(
+        id=card.id,
+        game_id=card.game_id,
+        title=card.title,
+        content=card.content,
+        is_active=bool(getattr(card, "is_active", True)),
+        created_at=card.created_at,
+        updated_at=card.updated_at,
+    )
+
+
 def coerce_story_instruction_template_visibility(value: str | None) -> str:
     normalized = (value or STORY_TEMPLATE_VISIBILITY_PRIVATE).strip().lower()
     if normalized not in STORY_TEMPLATE_VISIBILITY_VALUES:
@@ -63,6 +83,22 @@ def story_instruction_template_rating_average(template: StoryInstructionTemplate
     return round(rating_sum / rating_count, 2)
 
 
+def _story_instruction_template_publication_state_out(
+    template: StoryInstructionTemplate,
+) -> StoryPublicationStateOut:
+    is_public = coerce_story_instruction_template_visibility(getattr(template, "visibility", None)) == STORY_TEMPLATE_VISIBILITY_PUBLIC
+    return StoryPublicationStateOut(
+        status=coerce_story_publication_status(
+            getattr(template, "publication_status", None),
+            is_public=is_public,
+        ),
+        requested_at=getattr(template, "publication_requested_at", None),
+        reviewed_at=getattr(template, "publication_reviewed_at", None),
+        reviewer_user_id=getattr(template, "publication_reviewer_user_id", None),
+        rejection_reason=str(getattr(template, "publication_rejection_reason", "") or "").strip() or None,
+    )
+
+
 def story_instruction_template_to_out(template: StoryInstructionTemplate) -> StoryInstructionTemplateOut:
     return StoryInstructionTemplateOut(
         id=template.id,
@@ -70,6 +106,7 @@ def story_instruction_template_to_out(template: StoryInstructionTemplate) -> Sto
         title=template.title,
         content=template.content,
         visibility=coerce_story_instruction_template_visibility(getattr(template, "visibility", None)),
+        publication=_story_instruction_template_publication_state_out(template),
         source_template_id=getattr(template, "source_template_id", None),
         community_rating_avg=story_instruction_template_rating_average(template),
         community_rating_count=max(int(getattr(template, "community_rating_count", 0) or 0), 0),

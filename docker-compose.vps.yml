@@ -31,7 +31,7 @@ services:
       APP_GZIP_ENABLED: "true"
       APP_GZIP_MINIMUM_SIZE: 1024
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY_GATEWAY:-1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,7 +58,7 @@ services:
       APP_GZIP_ENABLED: "true"
       APP_GZIP_MINIMUM_SIZE: 1024
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY_AUTH:-1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,7 +85,7 @@ services:
       APP_GZIP_ENABLED: "true"
       APP_GZIP_MINIMUM_SIZE: 1024
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY_STORY:-1}
     depends_on:
       postgres:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
       APP_GZIP_ENABLED: "true"
       APP_GZIP_MINIMUM_SIZE: 1024
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_for_production}
-      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY_PAYMENTS:-1}
     depends_on:
       postgres:
         condition: service_healthy

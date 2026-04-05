@@ -17,7 +17,9 @@ import {
   Typography,
 } from '@mui/material'
 import AvatarCropDialog from './AvatarCropDialog'
+import CharacterShowcaseCard from './characters/CharacterShowcaseCard'
 import BaseDialog from './dialogs/BaseDialog'
+import ProgressiveImage from './media/ProgressiveImage'
 import {
   createStoryCharacter,
   deleteStoryCharacter,
@@ -33,6 +35,7 @@ import {
   prepareAvatarPayloadForRequest,
   resolveImageSourceToDataUrl,
 } from '../utils/avatar'
+import { resolvePublicationDraftVisibility } from '../utils/publication'
 
 type CharacterManagerDialogProps = {
   open: boolean
@@ -400,64 +403,6 @@ async function buildAutoCroppedAvatar(dataUrl: string): Promise<string> {
   return canvas.toDataURL('image/png')
 }
 
-type CharacterAvatarProps = {
-  avatarUrl: string | null
-  avatarScale?: number
-  fallbackLabel: string
-  size?: number
-}
-
-function CharacterAvatar({ avatarUrl, avatarScale = 1, fallbackLabel, size = 44 }: CharacterAvatarProps) {
-  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
-  const firstSymbol = fallbackLabel.trim().charAt(0).toUpperCase() || '•'
-
-  if (avatarUrl && avatarUrl !== failedImageUrl) {
-    return (
-      <Box
-        sx={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          overflow: 'hidden',
-        }}
-      >
-        <Box
-          component="img"
-          src={avatarUrl}
-          alt={fallbackLabel}
-          onError={() => setFailedImageUrl(avatarUrl)}
-          sx={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            transform: `scale(${Math.max(1, Math.min(3, avatarScale))})`,
-            transformOrigin: 'center center',
-          }}
-        />
-      </Box>
-    )
-  }
-
-  return (
-    <Box
-      title={fallbackLabel}
-      aria-label={fallbackLabel}
-      sx={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        display: 'grid',
-        placeItems: 'center',
-        color: 'rgba(219, 227, 236, 0.92)',
-        fontSize: Math.max(14, Math.round(size * 0.38)),
-        fontWeight: 700,
-      }}
-    >
-      {firstSymbol}
-    </Box>
-  )
-}
-
 function SparkleIcon() {
   return (
     <SvgIcon sx={{ fontSize: '1.04rem' }} viewBox="0 0 24 24">
@@ -733,19 +678,6 @@ function CharacterManagerDialog({
     onClose()
   }
 
-  const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, character: StoryCharacter) => {
-    const previewUrl = character.avatar_original_url ?? character.avatar_url
-    if (!previewUrl) {
-      return
-    }
-    event.preventDefault()
-    event.stopPropagation()
-    setCharacterAvatarPreview({
-      url: previewUrl,
-      name: character.name,
-    })
-  }, [])
-
   const handleCloseCharacterAvatarPreview = useCallback(() => {
     setCharacterAvatarPreview(null)
   }, [])
@@ -790,7 +722,7 @@ function CharacterManagerDialog({
     setAvatarDraft(character.avatar_url)
     setAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
-    setVisibilityDraft(character.visibility === 'public' ? 'public' : 'private')
+    setVisibilityDraft(resolvePublicationDraftVisibility(character.publication, character.visibility))
     setEmotionAssetsDraft(character.emotion_assets ?? {})
     setEmotionModelDraft(character.emotion_model ?? '')
     setEmotionPromptLockDraft(character.emotion_prompt_lock ?? null)
@@ -1446,18 +1378,22 @@ function CharacterManagerDialog({
                         opacity: hasAvatarDraft && !isAvatarActionsLocked ? 1 : hasAvatarDraft ? 0 : 1,
                       },
                     }}
-                  >
-                    {hasAvatarDraft ? (
-                      <Box
-                        component="img"
-                        src={avatarDraft ?? undefined}
+                    >
+                      {hasAvatarDraft ? (
+                      <ProgressiveImage
+                        src={avatarDraft}
                         alt={nameDraft || 'Character avatar'}
-                        sx={{
+                        loading="eager"
+                        fetchPriority="high"
+                        objectFit="cover"
+                        loaderSize={26}
+                        containerSx={{
                           position: 'absolute',
                           inset: 0,
                           width: '100%',
                           height: '100%',
-                          objectFit: 'cover',
+                        }}
+                        imgSx={{
                           transform: `scale(${Math.max(1, Math.min(3, avatarScaleDraft))})`,
                           transformOrigin: 'center center',
                         }}
@@ -1664,7 +1600,7 @@ function CharacterManagerDialog({
                         color: 'var(--morius-text-primary)',
                         textTransform: 'none',
                         '&:hover': {
-                          backgroundColor: 'var(--morius-button-hover)',
+                          backgroundColor: 'transparent',
                         },
                       }}
                     >
@@ -1681,7 +1617,7 @@ function CharacterManagerDialog({
                         color: 'var(--morius-text-primary)',
                         textTransform: 'none',
                         '&:hover': {
-                          backgroundColor: 'var(--morius-button-hover)',
+                          backgroundColor: 'transparent',
                         },
                       }}
                     >
@@ -1786,15 +1722,19 @@ function CharacterManagerDialog({
                                   background: 'linear-gradient(180deg, rgba(34, 39, 46, 0.78) 0%, rgba(18, 21, 25, 0.96) 100%)',
                                 }}
                               >
-                                <Box
-                                  component="img"
+                                <ProgressiveImage
                                   src={assetUrl}
                                   alt={`${nameDraft || 'Персонаж'} ${CHARACTER_EMOTION_LABELS[emotionId]}`}
-                                  sx={{
+                                  loading="lazy"
+                                  fetchPriority="low"
+                                  objectFit="contain"
+                                  objectPosition="top center"
+                                  loaderSize={24}
+                                  containerSx={{
                                     width: '100%',
                                     height: '100%',
-                                    objectFit: 'contain',
-                                    objectPosition: 'top center',
+                                  }}
+                                  imgSx={{
                                     transform: 'scale(1.08)',
                                   }}
                                 />
@@ -1832,7 +1772,7 @@ function CharacterManagerDialog({
                       color: 'var(--morius-text-primary)',
                       textTransform: 'none',
                       '&:hover': {
-                        backgroundColor: 'var(--morius-button-hover)',
+                        backgroundColor: 'transparent',
                       },
                     }}
                   >
@@ -1871,163 +1811,49 @@ function CharacterManagerDialog({
             </Stack>
           ) : (
             <Box className="morius-scrollbar" sx={{ maxHeight: 350, overflowY: 'auto', pr: 0.2 }}>
-              <Stack spacing={0.75}>
-                {sortedCharacters.map((character) => (
-                  <Box
-                    key={character.id}
-                    sx={{
-                      borderRadius: '12px',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      backgroundColor: 'var(--morius-card-bg)',
-                      px: 0.95,
-                      py: 0.72,
-                    }}
-                  >
-                    <Stack spacing={0.45}>
-                      <Stack direction="row" spacing={0.8} alignItems="center">
-                        {(character.avatar_original_url ?? character.avatar_url) ? (
-                          <Box
-                            component="button"
-                            type="button"
-                            onClick={(event) => handleOpenCharacterAvatarPreview(event, character)}
-                            aria-label={`Открыть аватар персонажа ${character.name}`}
-                            sx={{
-                              p: 0,
-                              m: 0,
-                              border: 'none',
-                              outline: 'none',
-                              background: 'transparent',
-                              borderRadius: '50%',
-                              display: 'inline-flex',
-                              cursor: 'zoom-in',
-                              flexShrink: 0,
-                            }}
-                          >
-                            <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
-                          </Box>
-                        ) : (
-                          <CharacterAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} fallbackLabel={character.name} size={34} />
-                        )}
-                        <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.08}>
-                          <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-                            <Typography
-                              sx={{
-                                color: 'var(--morius-title-text)',
-                                fontWeight: 700,
-                                fontSize: '0.9rem',
-                                lineHeight: 1.2,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                                minWidth: 0,
-                                flex: 1,
-                              }}
-                            >
-                              {character.name}
-                            </Typography>
-                            {character.note ? (
-                              <Box
-                                sx={{
-                                  borderRadius: '999px',
-                                  border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
-                                  backgroundColor: 'rgba(23, 33, 45, 0.66)',
-                                  color: 'rgba(184, 218, 247, 0.96)',
-                                  px: 0.58,
-                                  py: 0.1,
-                                  fontSize: '0.64rem',
-                                  lineHeight: 1.2,
-                                  fontWeight: 700,
-                                  maxWidth: 112,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  flexShrink: 0,
-                                }}
-                                title={character.note}
-                              >
-                                {character.note}
-                              </Box>
-                            ) : null}
-                          </Stack>
-                          {character.triggers.length > 0 ? (
-                            <Typography
-                              sx={{
-                                color: 'var(--morius-text-secondary)',
-                                fontSize: '0.76rem',
-                                lineHeight: 1.2,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              Триггеры: {character.triggers.join(', ')}
-                            </Typography>
-                          ) : null}
-                          <Typography
-                            sx={{
-                              color: 'var(--morius-text-secondary)',
-                              fontSize: '0.74rem',
-                              lineHeight: 1.2,
-                              opacity: 0.92,
-                            }}
-                          >
-                            {character.visibility === 'public' ? 'Публичная' : 'Приватная'}
-                          </Typography>
-                          {showEmotionTools ? (
-                            <Typography
-                              sx={{
-                                color: 'rgba(182, 217, 192, 0.92)',
-                                fontSize: '0.72rem',
-                                lineHeight: 1.2,
-                              }}
-                            >
-                              Эмоции: {CHARACTER_EMOTION_IDS.filter((emotionId) => Boolean((character.emotion_assets?.[emotionId] ?? '').trim())).length}/
-                              {CHARACTER_EMOTION_IDS.length}
-                            </Typography>
-                          ) : null}
-                        </Stack>
+              <Stack spacing={0.9}>
+                {sortedCharacters.map((character) => {
+                  const emotionReadyCount = CHARACTER_EMOTION_IDS.filter((emotionId) => Boolean((character.emotion_assets?.[emotionId] ?? '').trim())).length
+                  return (
+                    <CharacterShowcaseCard
+                      key={character.id}
+                      title={character.name}
+                      description={character.description || 'Описание не заполнено.'}
+                      imageUrl={character.avatar_url}
+                      imageScale={character.avatar_scale}
+                      eyebrow={character.note || (character.triggers.length > 0 ? `Триггеры: ${character.triggers.join(', ')}` : null)}
+                      footerHint={character.visibility === 'public' ? 'Публичный персонаж' : 'Приватный персонаж'}
+                      metaPrimary={showEmotionTools ? `Эмоции ${emotionReadyCount}/${CHARACTER_EMOTION_IDS.length}` : null}
+                      metaSecondary={character.visibility === 'public' ? 'Public' : 'Private'}
+                      minHeight={300}
+                      actionSlot={
                         <IconButton
                           onClick={(event) => handleOpenCharacterItemMenu(event, character.id)}
                           disabled={isAvatarActionsLocked || deletingCharacterId === character.id}
                           sx={{
                             width: 28,
                             height: 28,
-                            color: 'var(--morius-text-secondary)',
+                            color: 'rgba(239, 244, 250, 0.92)',
                             flexShrink: 0,
-                            backgroundColor: 'transparent !important',
-                            border: 'none',
-                            '&:hover': {
-                              backgroundColor: 'transparent !important',
-                            },
-                            '&:active': { backgroundColor: 'transparent !important' },
-                            '&.Mui-focusVisible': { backgroundColor: 'transparent !important' },
+                            backgroundColor: 'rgba(8, 12, 18, 0.42) !important',
+                            border: 'var(--morius-border-width) solid rgba(225, 233, 243, 0.16)',
+                            '&:hover': { backgroundColor: 'rgba(10, 16, 24, 0.62) !important' },
+                            '&:active': { backgroundColor: 'rgba(10, 16, 24, 0.72) !important' },
+                            '&.Mui-focusVisible': { backgroundColor: 'rgba(10, 16, 24, 0.72) !important' },
                           }}
                         >
                           {deletingCharacterId === character.id ? (
-                            <CircularProgress size={14} sx={{ color: 'var(--morius-text-secondary)' }} />
+                            <CircularProgress size={14} sx={{ color: 'rgba(239, 244, 250, 0.92)' }} />
                           ) : (
                             <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>...</Box>
                           )}
                         </IconButton>
-                      </Stack>
-                      <Typography
-                        sx={{
-                          color: 'var(--morius-text-secondary)',
-                          fontSize: '0.82rem',
-                          lineHeight: 1.3,
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                          wordBreak: 'break-word',
-                          overflowWrap: 'anywhere',
-                        }}
-                      >
-                        {character.description}
-                      </Typography>
-                    </Stack>
-                  </Box>
-                ))}
+                      }
+                      onClick={() => handleStartEdit(character)}
+                      disabled={isAvatarActionsLocked || deletingCharacterId === character.id}
+                    />
+                  )
+                })}
                 {sortedCharacters.length === 0 ? (
                   <Typography sx={{ color: 'rgba(186, 202, 214, 0.68)', fontSize: '0.9rem' }}>
                     Персонажей пока нет. Создайте первого.
@@ -2112,20 +1938,28 @@ function CharacterManagerDialog({
         }}
       >
         {characterAvatarPreview ? (
-          <Box
-            component="img"
+          <ProgressiveImage
             src={characterAvatarPreview.url}
             alt={characterAvatarPreview.name || 'Character avatar'}
-            sx={{
-              width: 'auto',
-              height: 'auto',
-              maxWidth: 'none',
-              maxHeight: 'none',
+            loading="eager"
+            fetchPriority="high"
+            objectFit="contain"
+            loaderSize={32}
+            containerSx={{
+              width: 'fit-content',
+              maxWidth: '100%',
+              minHeight: 240,
               borderRadius: '10px',
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
               backgroundColor: 'var(--morius-elevated-bg)',
-              display: 'block',
               mx: 'auto',
+            }}
+            imgSx={{
+              position: 'relative',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: 'min(92vw, 1500px)',
+              maxHeight: 'min(84vh, 1800px)',
             }}
           />
         ) : null}
@@ -2162,20 +1996,28 @@ function CharacterManagerDialog({
         }}
       >
         {characterEmotionPreview ? (
-          <Box
-            component="img"
+          <ProgressiveImage
             src={characterEmotionPreview.url}
             alt={`${characterEmotionPreview.name} ${CHARACTER_EMOTION_LABELS[characterEmotionPreview.emotionId]}`}
-            sx={{
-              width: 'auto',
-              height: 'auto',
-              maxWidth: 'none',
-              maxHeight: 'none',
+            loading="eager"
+            fetchPriority="high"
+            objectFit="contain"
+            loaderSize={32}
+            containerSx={{
+              width: 'fit-content',
+              maxWidth: '100%',
+              minHeight: 240,
               borderRadius: '10px',
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
               backgroundColor: 'var(--morius-elevated-bg)',
-              display: 'block',
               mx: 'auto',
+            }}
+            imgSx={{
+              position: 'relative',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: 'min(92vw, 1100px)',
+              maxHeight: 'min(84vh, 1600px)',
             }}
           />
         ) : null}
@@ -2249,7 +2091,7 @@ function CharacterManagerDialog({
                     px: 1,
                     py: 0.85,
                     '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
+                      backgroundColor: 'transparent',
                     },
                   }}
                 >
@@ -2333,7 +2175,7 @@ function CharacterManagerDialog({
               backgroundColor: 'var(--morius-button-active)',
               color: 'var(--morius-text-primary)',
               textTransform: 'none',
-              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+              '&:hover': { backgroundColor: 'transparent' },
             }}
           >
             {isGeneratingAiAvatar ? (
@@ -2378,7 +2220,7 @@ function CharacterManagerDialog({
                     px: 1,
                     py: 0.85,
                     '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
+                      backgroundColor: 'transparent',
                     },
                   }}
                 >
@@ -2480,7 +2322,7 @@ function CharacterManagerDialog({
               backgroundColor: 'var(--morius-button-active)',
               color: 'var(--morius-text-primary)',
               textTransform: 'none',
-              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+              '&:hover': { backgroundColor: 'transparent' },
             }}
           >
             {isGeneratingEmotionPack ? (
@@ -2517,5 +2359,3 @@ function CharacterManagerDialog({
 }
 
 export default CharacterManagerDialog
-
-

@@ -21,10 +21,10 @@ import {
 } from '@mui/material'
 import type { MouseEvent } from 'react'
 import { useRef } from 'react'
-import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import HeaderAccountActions from '../components/HeaderAccountActions'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
@@ -34,7 +34,6 @@ import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
-import UserAvatar from '../components/profile/UserAvatar'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -783,7 +782,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
     return games.find((game) => game.id === gameMenuGameId) ?? null
   }, [gameMenuGameId, games])
-  const pageTitle = mode === 'all' ? 'Сообщество' : mode === 'publications' ? 'Мои публикации' : 'Мои игры'
+  const pageTitle = mode === 'all' ? 'Сообщество' : mode === 'publications' ? 'Публикации' : 'Библиотека'
   const profileName = user.display_name || 'Игрок'
 
   return (
@@ -821,63 +820,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
-        rightActions={
-          <Stack direction="row" spacing={1.2}>
-            <IconButton
-              aria-label="Поддержка"
-              onClick={(event) => event.preventDefault()}
-              sx={{
-                display: 'none',
-                width: 44,
-                height: 44,
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                transition: 'background-color 180ms ease',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              <Box component="img" src={icons.help} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
-            <IconButton
-              aria-label="Оформление"
-              onClick={(event) => event.preventDefault()}
-              sx={{
-                display: 'none',
-                width: 44,
-                height: 44,
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                transition: 'background-color 180ms ease',
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              <Box component="img" src={icons.theme} alt="" sx={{ width: 20, height: 20, opacity: 0.9 }} />
-            </IconButton>
-            <Button
-              variant="text"
-              onClick={() => onNavigate('/profile')}
-              aria-label="Открыть профиль"
-              data-tour-id="header-profile-button"
-              sx={{
-                minWidth: 0,
-                width: HEADER_AVATAR_SIZE,
-                height: HEADER_AVATAR_SIZE,
-                p: 0,
-                borderRadius: '50%',
-              }}
-            >
-              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-            </Button>
-          </Stack>
-        }
+        rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
       />
 
       <Box
@@ -894,16 +840,31 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             </Alert>
           ) : null}
 
+          <Typography
+            sx={{
+              mb: 1.4,
+              fontSize: { xs: '2.05rem', md: '2.45rem' },
+              fontWeight: 900,
+              color: APP_TEXT_PRIMARY,
+              textAlign: 'center',
+            }}
+          >
+            {pageTitle}
+          </Typography>
+
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', lg: 'auto minmax(0, 1fr) 220px 220px' },
+              gridTemplateColumns: {
+                xs: '1fr',
+                md: mode === 'my' ? 'minmax(0, 1fr) 220px 220px' : 'minmax(0, 1fr) 220px',
+              },
               gap: 1.2,
               alignItems: 'center',
               mb: 2,
             }}
           >
-            <Typography sx={{ fontSize: { xs: '1.9rem', md: '2.2rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+            <Typography sx={{ display: 'none' }}>
               {pageTitle}
             </Typography>
 
@@ -1043,7 +1004,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               </Box>
             </FormControl>
 
-            <Button
+            {mode === 'my' ? (
+              <Button
               onClick={handleOpenWorldCreator}
               data-tour-id="my-games-create-button"
               sx={{
@@ -1063,9 +1025,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             >
               Новая игра +
             </Button>
+            ) : null}
           </Box>
 
-          {isLoadingGames ? (
+          {isLoadingGames && games.length === 0 ? (
             <Box
               sx={{
                 display: 'grid',
@@ -1426,6 +1389,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         onOpenInstructionTemplates={handleOpenInstructionTemplateDialog}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
+        onUserUpdate={onUserUpdate}
       />
 
       <TopUpDialog

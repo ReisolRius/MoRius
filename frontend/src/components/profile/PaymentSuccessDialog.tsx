@@ -50,7 +50,7 @@ function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: Pay
             color: 'var(--morius-text-primary)',
             fontWeight: 700,
             '&:hover': {
-              backgroundColor: 'var(--morius-button-hover)',
+              backgroundColor: 'transparent',
             },
           }}
         >

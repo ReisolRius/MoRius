@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import StoryCommunityWorldComment, User
 from app.schemas import StoryCommunityWorldCommentOut
-from app.services.media import normalize_avatar_value, normalize_media_scale
+from app.services.media import normalize_media_scale, resolve_media_display_url
 
 STORY_COMMUNITY_WORLD_COMMENT_MAX_LENGTH = 2_000
 STORY_COMMUNITY_WORLD_COMMENT_LIST_LIMIT = 200
@@ -52,7 +52,16 @@ def story_community_world_comment_to_out(
         world_id=comment.world_id,
         user_id=comment.user_id,
         user_display_name=_resolve_author_name(author),
-        user_avatar_url=normalize_avatar_value(author.avatar_url) if author is not None else None,
+        user_avatar_url=(
+            resolve_media_display_url(
+                getattr(author, "avatar_url", None),
+                kind="user-avatar",
+                entity_id=int(author.id),
+                version=getattr(author, "updated_at", None),
+            )
+            if author is not None
+            else None
+        ),
         user_avatar_scale=_resolve_author_avatar_scale(author),
         content=(comment.content or "").strip(),
         created_at=comment.created_at,

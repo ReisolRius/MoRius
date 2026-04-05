@@ -17,6 +17,9 @@ DEFAULT_CORS_ORIGINS = [
     "https://mo-rius.vercel.app",
     "https://morius-ai.ru",
 ]
+BASE_DIR = Path(__file__).resolve().parents[1]
+ENV_FILE_PATH = BASE_DIR / ".env"
+load_dotenv(ENV_FILE_PATH)
 
 
 def _to_bool(value: str | None, default: bool) -> bool:
@@ -52,6 +55,24 @@ def _is_render_environment() -> bool:
     return _to_bool(os.getenv("RENDER"), default=False) or bool(os.getenv("RENDER_SERVICE_ID"))
 
 
+def _normalize_sqlite_database_url(database_url: str) -> str:
+    normalized = str(database_url or "").strip()
+    sqlite_prefix = "sqlite:///"
+    if not normalized.lower().startswith(sqlite_prefix):
+        return normalized
+
+    sqlite_path = normalized[len(sqlite_prefix) :]
+    if not sqlite_path or sqlite_path == ":memory:":
+        return normalized
+
+    path_candidate = Path(sqlite_path)
+    if path_candidate.is_absolute():
+        return normalized
+
+    resolved_path = (BASE_DIR / path_candidate).resolve()
+    return f"{sqlite_prefix}{resolved_path.as_posix()}"
+
+
 def _default_app_mode() -> str:
     raw_mode = (os.getenv("APP_MODE") or "gateway").strip().lower()
     if raw_mode in VALID_APP_MODES:
@@ -83,19 +104,16 @@ def _default_db_max_overflow(app_mode: str) -> int:
 def _default_database_url() -> str:
     explicit_database_url = os.getenv("DATABASE_URL")
     if explicit_database_url and explicit_database_url.strip():
-        return explicit_database_url.strip()
+        return _normalize_sqlite_database_url(explicit_database_url.strip())
 
     if _is_render_environment():
         render_disk_path = os.getenv("RENDER_DISK_PATH", "/var/data").strip() or "/var/data"
         sqlite_path = Path(render_disk_path) / "morius.db"
         return f"sqlite:///{sqlite_path.as_posix()}"
 
-    return "sqlite:///./data/morius.db"
+    return f"sqlite:///{(BASE_DIR / 'data' / 'morius.db').resolve().as_posix()}"
 
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-ENV_FILE_PATH = BASE_DIR / ".env"
-load_dotenv(ENV_FILE_PATH)
 DEFAULT_APP_MODE = _default_app_mode()
 
 

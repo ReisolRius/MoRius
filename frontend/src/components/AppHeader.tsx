@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Box,
   Button,
@@ -15,9 +15,16 @@ import {
   type SelectChangeEvent,
 } from '@mui/material'
 import { brandLogo, icons } from '../assets'
+import homeIconMarkup from '../assets/icons/home.svg?raw'
+import sidebarBookIconMarkup from '../assets/icons/custom/book.svg?raw'
+import sidebarCommunityIconMarkup from '../assets/icons/custom/community.svg?raw'
+import sidebarHelpIconMarkup from '../assets/icons/custom/help.svg?raw'
+import sidebarPublicIconMarkup from '../assets/icons/custom/public.svg?raw'
+import sidebarSettingsIconMarkup from '../assets/icons/custom/settings.svg?raw'
+import sidebarShopIconMarkup from '../assets/icons/custom/shop.svg?raw'
 import BaseDialog from './dialogs/BaseDialog'
+import ThemedSvgIcon from './icons/ThemedSvgIcon'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
-import { startOnboardingGuide } from '../utils/onboardingGuide'
 
 export type AppHeaderMenuItem = {
   key: string
@@ -44,6 +51,7 @@ type AppHeaderProps = {
   hideRightToggle?: boolean
   onOpenTopUpDialog?: () => void
   onOpenBugReportDialog?: () => void
+  onOpenSettingsDialog?: () => void
 }
 
 type SidebarIconComponent = typeof SidebarHomeIcon
@@ -53,6 +61,8 @@ const MENU_COLLAPSED_WIDTH = 64
 const MENU_EXPANDED_WIDTH = 244
 const MENU_PANEL_TOP_OFFSET = HEADER_BUTTON_SIZE + 12
 const LOGO_WIDTH = 86
+const LOGO_LEFT_OFFSET = HEADER_BUTTON_SIZE + 10
+const SIDEBAR_ICON_SIZE = 22
 
 const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
@@ -73,100 +83,83 @@ const shellButtonSx = {
 
 const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = false, preserveLabelColor = false) => {
   const baseTextColor = isUtility ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)'
-  const resolvedTextColor = preserveLabelColor ? baseTextColor : (isActive ? 'var(--morius-title-text)' : baseTextColor)
+  const resolvedTextColor = preserveLabelColor ? baseTextColor : (isActive ? 'var(--morius-accent)' : baseTextColor)
 
   return {
-    width: isExpanded ? '100%' : 'fit-content',
-    minWidth: isExpanded ? '100%' : 0,
-    minHeight: isExpanded ? 44 : 0,
-    px: isExpanded ? 1 : 0,
-    py: isExpanded ? 0.5 : 0,
+    width: isExpanded ? '100%' : HEADER_BUTTON_SIZE,
+    minWidth: isExpanded ? '100%' : HEADER_BUTTON_SIZE,
+    minHeight: 52,
+    px: 0,
+    py: 0.3,
     justifyContent: 'flex-start',
-    borderRadius: isExpanded ? '14px' : '12px',
-    border: isActive && isExpanded ? 'var(--morius-border-width) solid transparent' : 'var(--morius-border-width) solid transparent',
-    backgroundColor: isActive && isExpanded ? 'var(--morius-button-hover)' : 'transparent',
+    borderRadius: isExpanded ? '16px' : '14px',
+    border: 'none',
+    backgroundColor: 'transparent',
     color: resolvedTextColor,
     textTransform: 'none',
     fontWeight: isActive ? 800 : 700,
     fontSize: '0.94rem',
     letterSpacing: '0.01em',
-    transition: 'background-color 220ms ease, color 180ms ease, min-width 220ms ease, padding 220ms ease',
+    transition: 'color 180ms ease, min-width 220ms ease, padding 220ms ease',
     '&:hover': {
-      backgroundColor: isExpanded
-        ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
-        : 'transparent',
-      color: preserveLabelColor ? baseTextColor : 'var(--morius-title-text)',
+      backgroundColor: 'transparent',
+      boxShadow: 'none !important',
+      color: preserveLabelColor ? baseTextColor : (isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)'),
     },
     '&:active': {
-      backgroundColor: isExpanded
-        ? (isActive ? 'var(--morius-button-hover)' : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)')
-        : 'transparent',
+      backgroundColor: 'transparent',
+      boxShadow: 'none !important',
+    },
+    '&.Mui-focusVisible': {
+      backgroundColor: 'transparent',
+      boxShadow: 'none !important',
     },
   }
 }
 
-const sidebarIconWrapSx = (isActive: boolean, isExpanded: boolean) => ({
-  width: isExpanded ? 40 : 42,
-  height: isExpanded ? 36 : 42,
+const sidebarIconWrapSx = (isActive: boolean) => ({
+  width: HEADER_BUTTON_SIZE,
+  minWidth: HEADER_BUTTON_SIZE,
+  height: HEADER_BUTTON_SIZE,
   borderRadius: '12px',
   display: 'flex',
   alignItems: 'center',
-  justifyContent: isExpanded ? 'flex-start' : 'center',
-  pl: isExpanded ? 1 : 0,
+  justifyContent: 'center',
   flexShrink: 0,
-  color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-  backgroundColor: isActive ? 'color-mix(in srgb, var(--morius-button-hover) 92%, var(--morius-app-surface))' : 'transparent',
-  transition: 'background-color 220ms ease, color 180ms ease',
+  color: isActive ? 'var(--morius-accent)' : 'currentColor',
+  backgroundColor: 'transparent',
+  transition: 'color 180ms ease, opacity 180ms ease',
+  opacity: isActive ? 1 : 0.96,
 })
 
 const sidebarLabelSx = (isExpanded: boolean) => ({
-  ml: isExpanded ? 0.8 : 0,
+  ml: isExpanded ? 0.55 : 0,
   maxWidth: isExpanded ? 160 : 0,
   opacity: isExpanded ? 1 : 0,
+  color: 'inherit',
   overflow: 'hidden',
   whiteSpace: 'nowrap',
   transition: 'max-width 220ms ease, opacity 180ms ease, margin-left 220ms ease',
 })
 
+function SidebarGlyphIcon({ markup, size = SIDEBAR_ICON_SIZE }: { markup: string; size?: number }) {
+  return <ThemedSvgIcon markup={markup} size={size} />
+}
+
 function SidebarHomeIcon() {
-  return (
-    <SvgIcon viewBox="0 0 20 19" sx={{ width: 20, height: 20 }}>
-      <path
-        d="M11.2281 0.421388C10.877 0.148279 10.4449 0 10.0001 0C9.5553 0 9.12319 0.148279 8.7721 0.421388L0.388104 6.94139C-0.363896 7.52839 0.0501037 8.73339 1.0031 8.73339H2.0001V16.7334C2.0001 17.2638 2.21082 17.7725 2.58589 18.1476C2.96096 18.5227 3.46967 18.7334 4.0001 18.7334H8.0001V12.7334C8.0001 12.203 8.21082 11.6942 8.58589 11.3192C8.96096 10.9441 9.46967 10.7334 10.0001 10.7334C10.5305 10.7334 11.0392 10.9441 11.4143 11.3192C11.7894 11.6942 12.0001 12.203 12.0001 12.7334V18.7334H16.0001C16.5305 18.7334 17.0392 18.5227 17.4143 18.1476C17.7894 17.7725 18.0001 17.2638 18.0001 16.7334V8.73339H18.9971C19.9491 8.73339 20.3651 7.52839 19.6121 6.94239L11.2281 0.421388Z"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
+  return <SidebarGlyphIcon markup={homeIconMarkup} />
 }
 
 function SidebarCommunityIcon() {
-  return (
-    <SvgIcon viewBox="0 0 29 20" sx={{ width: 20, height: 20 }}>
-      <path
-        d="M14.2857 0C13.1491 0 12.059 0.451529 11.2553 1.25526C10.4515 2.05898 10 3.14907 10 4.28571C10 5.42236 10.4515 6.51245 11.2553 7.31617C12.059 8.1199 13.1491 8.57143 14.2857 8.57143C15.4224 8.57143 16.5124 8.1199 17.3162 7.31617C18.1199 6.51245 18.5714 5.42236 18.5714 4.28571C18.5714 3.14907 18.1199 2.05898 17.3162 1.25526C16.5124 0.451529 15.4224 0 14.2857 0ZM15.7143 10H12.8571C8.91429 10 5.71429 13.2 5.71429 17.1429V17.8571C5.71429 19.0429 6.67143 20 7.85714 20H20.7143C21.9 20 22.8571 19.0429 22.8571 17.8571V17.1429C22.8571 13.2 19.6571 10 15.7143 10ZM6.42857 8.57143C7.1 8.57143 7.71429 8.4 8.24286 8.1C7.64371 7.14606 7.27724 6.06462 7.17301 4.94296C7.06879 3.82131 7.22973 2.69086 7.64286 1.64286C7.27143 1.51429 6.85714 1.42857 6.42857 1.42857C4.37143 1.42857 2.85714 2.94286 2.85714 5C2.85714 7.05714 4.37143 8.57143 6.42857 8.57143ZM5.87143 10H5C2.24286 10 0 12.2429 0 15V16.4286C0 16.8286 0.314286 17.1429 0.714286 17.1429H2.85714C2.85714 14.3429 4.01429 11.8143 5.87143 10ZM22.1429 8.57143C24.2 8.57143 25.7143 7.05714 25.7143 5C25.7143 2.94286 24.2 1.42857 22.1429 1.42857C21.7 1.42857 21.3 1.51429 20.9286 1.64286C21.3417 2.69086 21.5026 3.82131 21.3984 4.94296C21.2942 6.06462 20.9277 7.14606 20.3286 8.1C20.8571 8.4 21.4571 8.57143 22.1429 8.57143ZM23.5714 10H22.7C23.6545 10.9285 24.4131 12.0391 24.9309 13.266C25.4486 14.4929 25.715 15.8112 25.7143 17.1429H27.8571C28.2571 17.1429 28.5714 16.8286 28.5714 16.4286V15C28.5714 12.2429 26.3286 10 23.5714 10Z"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
+  return <SidebarGlyphIcon markup={sidebarCommunityIconMarkup} />
 }
 
 function SidebarLibraryIcon() {
-  return (
-    <SvgIcon viewBox="0 0 18 20" sx={{ width: 20, height: 20 }}>
-      <path d="M17 0H3C1.35 0 0 1.35 0 3V17C0 18.65 1.35 20 3 20H18V18H3C2.45 18 2 17.55 2 17C2 16.45 2.45 16 3 16H17C17.55 16 18 15.55 18 15V1C18 0.45 17.55 0 17 0ZM14 6H5V4H14V6Z" fill="currentColor" />
-    </SvgIcon>
-  )
+  return <SidebarGlyphIcon markup={sidebarBookIconMarkup} />
 }
 
 function SidebarPublicationsIcon() {
-  return (
-    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
-      <path
-        d="M4 5.5A2.5 2.5 0 0 1 6.5 3H17a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2H10l-3.7 3.1c-.8.7-2 .1-2-.9V5.5zm4 2.5h8v2H8zm0 4h5v2H8z"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
+  return <SidebarGlyphIcon markup={sidebarPublicIconMarkup} />
 }
 
 function SidebarBugReportIcon() {
@@ -181,14 +174,7 @@ function SidebarBugReportIcon() {
 }
 
 function SidebarGuideIcon() {
-  return (
-    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
-      <path
-        d="M6 4.5A2.5 2.5 0 0 1 8.5 2H19v17.5h-9.8a3.7 3.7 0 0 0-2.2.7V4.5Zm-1.2 0v15.7A3.5 3.5 0 0 0 2 23V6.5A2.5 2.5 0 0 1 4.5 4h.3c0 .17 0 .33 0 .5Zm6 1.2 1 2 2.2.3-1.6 1.6.4 2.2-2-1-2 1 .4-2.2-1.6-1.6 2.2-.3 1-2Z"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
+  return <SidebarGlyphIcon markup={sidebarHelpIconMarkup} />
 }
 
 function AppHeader({
@@ -204,6 +190,7 @@ function AppHeader({
   hideRightToggle = false,
   onOpenTopUpDialog,
   onOpenBugReportDialog,
+  onOpenSettingsDialog,
 }: AppHeaderProps) {
   const [isThemeDialogOpen, setIsThemeDialogOpen] = useState(false)
   const [isSupportDialogOpen, setIsSupportDialogOpen] = useState(false)
@@ -224,8 +211,7 @@ function AppHeader({
     setVoiceInputEnabled,
   } = useMoriusThemeController()
   const isGrayTheme = themeId === 'gray'
-  const isYamiTheme = themeId === 'yami-rius'
-  const neutralImageIconFilter = isGrayTheme ? 'grayscale(1) brightness(0.82)' : (isYamiTheme ? 'grayscale(1) brightness(1.72)' : 'none')
+  const neutralImageIconFilter = isGrayTheme ? 'grayscale(1) brightness(0.82)' : 'none'
   const isCompactSidebar = useMediaQuery('(max-width:1439.95px)')
 
   const handleOpenThemeDialog = () => setIsThemeDialogOpen(true)
@@ -247,7 +233,7 @@ function AppHeader({
     onOpenBugReportDialog()
   }
 
-  const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon]
+  const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon, SidebarPublicationsIcon]
   const primaryMenuIconByKey: Record<string, SidebarIconComponent> = {
     dashboard: SidebarHomeIcon,
     'games-my': SidebarLibraryIcon,
@@ -257,27 +243,95 @@ function AppHeader({
     guide: SidebarGuideIcon,
     'world-create': SidebarLibraryIcon,
   }
-  const resolvedMenuItems = useMemo(() => {
-    if (menuItems.some((item) => item.key === 'guide')) {
-      return menuItems
+  const resolvedMenuItems = [...menuItems]
+    .map((item) => {
+      if (item.key === 'games-my') {
+        return { ...item, label: 'Библиотека' }
+      }
+      if (item.key === 'games-all' || item.key === 'community-worlds') {
+        return { ...item, label: 'Сообщество' }
+      }
+      return item
+    })
+    .sort((left, right) => {
+      const orderByKey: Record<string, number> = {
+        dashboard: 0,
+        'games-all': 1,
+        'community-worlds': 1,
+        'games-my': 2,
+        'games-publications': 3,
+      }
+      return (orderByKey[left.key] ?? 10) - (orderByKey[right.key] ?? 10)
+    })
+  const getSidebarItemLabel = (item: AppHeaderMenuItem) => {
+    if (item.key === 'games-my') {
+      return 'Библиотека'
     }
-
-    const guideItem: AppHeaderMenuItem = {
-      key: 'guide',
-      label: 'Гайд',
-      onClick: () => startOnboardingGuide('manual'),
+    if (item.key === 'games-publications') {
+      return 'Публикации'
     }
-    const communityItemIndex = menuItems.findIndex((item) => item.key === 'games-all')
-    if (communityItemIndex >= 0) {
-      return [
-        ...menuItems.slice(0, communityItemIndex + 1),
-        guideItem,
-        ...menuItems.slice(communityItemIndex + 1),
-      ]
+    if (item.key === 'games-all' || item.key === 'community-worlds') {
+      return 'Сообщество'
     }
-
-    return [...menuItems, guideItem]
-  }, [menuItems])
+    return item.label
+  }
+  const getDisplayedSidebarLabel = (item: AppHeaderMenuItem) => {
+    if (item.key === 'games-my') {
+      return 'Библиотека'
+    }
+    if (item.key === 'games-publications') {
+      return 'Публикации'
+    }
+    if (item.key === 'games-all' || item.key === 'community-worlds') {
+      return 'Сообщество'
+    }
+    return item.label
+  }
+  const getUtilityItemLabel = (itemKey: string, fallbackLabel: string) => {
+    if (itemKey === 'theme-settings') {
+      return 'Настройки'
+    }
+    if (itemKey === 'support') {
+      return 'Поддержка'
+    }
+    if (itemKey === 'top-up') {
+      return 'Магазин'
+    }
+    if (itemKey === 'bug-report') {
+      return 'Баг репорт'
+    }
+    return fallbackLabel
+  }
+  const getSafeSidebarLabel = (item: AppHeaderMenuItem) => {
+    if (item.key === 'games-my') {
+      return '\u0411\u0438\u0431\u043b\u0438\u043e\u0442\u0435\u043a\u0430'
+    }
+    if (item.key === 'games-publications') {
+      return '\u041f\u0443\u0431\u043b\u0438\u043a\u0430\u0446\u0438\u0438'
+    }
+    if (item.key === 'games-all' || item.key === 'community-worlds') {
+      return '\u0421\u043e\u043e\u0431\u0449\u0435\u0441\u0442\u0432\u043e'
+    }
+    return item.label
+  }
+  const getSafeUtilityItemLabel = (itemKey: string, fallbackLabel: string) => {
+    if (itemKey === 'theme-settings') {
+      return '\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'
+    }
+    if (itemKey === 'support') {
+      return '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430'
+    }
+    if (itemKey === 'top-up') {
+      return '\u041c\u0430\u0433\u0430\u0437\u0438\u043d'
+    }
+    if (itemKey === 'bug-report') {
+      return '\u0411\u0430\u0433 \u0440\u0435\u043f\u043e\u0440\u0442'
+    }
+    return fallbackLabel
+  }
+  void getSidebarItemLabel
+  void getDisplayedSidebarLabel
+  void getUtilityItemLabel
   const showLogo = isPageMenuOpen || !isCompactSidebar
   const showPrimaryItems = isPageMenuOpen || !isCompactSidebar
   const showUtilityItems = isPageMenuOpen
@@ -285,32 +339,26 @@ function AppHeader({
   const sidebarWidth = isCompactSidebar
     ? (isPageMenuOpen ? MENU_EXPANDED_WIDTH : HEADER_BUTTON_SIZE)
     : (isPageMenuOpen ? MENU_EXPANDED_WIDTH : MENU_COLLAPSED_WIDTH)
-  const utilityImageIconSx = {
-    width: 20,
-    height: 20,
-    opacity: 0.92,
-    ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
-  } as const
   const utilityMenuItems = [
     {
       key: 'theme-settings',
       label: 'Настройки',
-      onClick: handleOpenThemeDialog,
-      icon: <Box component="img" src={icons.menuSettings} alt="" sx={utilityImageIconSx} />,
+      onClick: onOpenSettingsDialog ?? handleOpenThemeDialog,
+      icon: <SidebarGlyphIcon markup={sidebarSettingsIconMarkup} />,
     },
     {
       key: 'support',
       label: 'Поддержка',
       onClick: handleOpenSupportDialog,
-      icon: <Box component="img" src={icons.help} alt="" sx={utilityImageIconSx} />,
+      icon: <SidebarGlyphIcon markup={sidebarHelpIconMarkup} />,
     },
     ...(onOpenTopUpDialog
       ? [
           {
             key: 'top-up',
-            label: 'Пополнить',
+            label: 'Магазин',
             onClick: handleOpenTopUpDialog,
-            icon: <Box component="img" src={icons.menuShop} alt="" sx={utilityImageIconSx} />,
+            icon: <SidebarGlyphIcon markup={sidebarShopIconMarkup} />,
           },
         ]
       : []),
@@ -380,25 +428,29 @@ function AppHeader({
           top: 'var(--morius-header-top-offset)',
           left: 'var(--morius-header-side-offset)',
           zIndex: 37,
-          width: isPageMenuOpen ? sidebarWidth : 'auto',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.8,
-          pointerEvents: 'auto',
+          width: MENU_EXPANDED_WIDTH,
+          height: HEADER_BUTTON_SIZE,
+          pointerEvents: 'none',
         }}
       >
         <IconButton
           aria-label={isPageMenuOpen ? pageMenuLabels.expanded : pageMenuLabels.collapsed}
           onClick={onTogglePageMenu}
-          sx={shellButtonSx}
+          sx={{
+            ...shellButtonSx,
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            pointerEvents: 'auto',
+          }}
         >
           <Box
             component="img"
             src={icons.menu}
             alt=""
             sx={{
-              width: 20,
-              height: 20,
+              width: SIDEBAR_ICON_SIZE,
+              height: SIDEBAR_ICON_SIZE,
               opacity: 0.9,
               ...(neutralImageIconFilter !== 'none' ? { filter: neutralImageIconFilter } : {}),
             }}
@@ -406,15 +458,16 @@ function AppHeader({
         </IconButton>
         <Box
           sx={{
-            position: isPageMenuOpen ? 'absolute' : 'relative',
-            left: isPageMenuOpen ? '50%' : 'auto',
-            transform: isPageMenuOpen ? 'translateX(-50%)' : 'none',
+            position: 'absolute',
+            top: '50%',
+            left: `${LOGO_LEFT_OFFSET}px`,
+            transform: 'translateY(-50%)',
             flexShrink: 0,
-            width: showLogo ? LOGO_WIDTH : 0,
+            width: LOGO_WIDTH,
             opacity: showLogo ? 1 : 0,
             overflow: 'hidden',
             pointerEvents: 'none',
-            transition: 'width 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, transform 220ms ease',
+            transition: 'opacity 180ms ease',
           }}
         >
           <Box
@@ -447,7 +500,7 @@ function AppHeader({
           <Box
             sx={{
               overflow: 'hidden',
-              px: isPageMenuOpen ? 1.1 : 0.65,
+              px: 0,
               py: 0.8,
               borderRadius: '28px',
               background: 'color-mix(in srgb, var(--morius-app-surface) 90%, transparent)',
@@ -464,6 +517,7 @@ function AppHeader({
                   width: isPageMenuOpen ? '100%' : 'fit-content',
                   minWidth: 0,
                   pt: 1,
+                  px: 0,
                   maxHeight: showPrimaryItems ? 320 : 0,
                   opacity: showPrimaryItems ? 1 : 0,
                   overflow: 'hidden',
@@ -474,19 +528,22 @@ function AppHeader({
                 {resolvedMenuItems.map((item, index) => {
                   const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
                   const isActive = Boolean(item.isActive)
+                  const resolvedLabel = getSafeSidebarLabel(item)
 
                   return (
-                    <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
+                    <Tooltip key={item.key} title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
                       <Button
                         data-tour-id={`sidebar-item-${item.key}`}
-                        sx={sidebarButtonSx(isActive, isPageMenuOpen, false, isGrayTheme)}
+                        disableRipple
+                        disableFocusRipple
+                        sx={sidebarButtonSx(isActive, isPageMenuOpen, false, false)}
                         onClick={item.onClick}
                       >
-                        <Box sx={sidebarIconWrapSx(isActive, isPageMenuOpen)}>
+                        <Box sx={sidebarIconWrapSx(isActive)}>
                           <MenuIcon />
                         </Box>
                         <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
-                          {item.label}
+                          {resolvedLabel}
                         </Box>
                       </Button>
                     </Tooltip>
@@ -509,6 +566,7 @@ function AppHeader({
                 spacing={0.55}
                 sx={{
                   width: '100%',
+                  px: 0,
                   maxHeight: showUtilityItems ? 240 : 0,
                   opacity: showUtilityItems ? 1 : 0,
                   overflow: 'hidden',
@@ -516,20 +574,26 @@ function AppHeader({
                   transition: 'max-height 240ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease',
                 }}
               >
-                {utilityMenuItems.map((item) => (
-                  <Tooltip key={item.key} title={isPageMenuOpen ? '' : item.label} placement="right" disableHoverListener={isPageMenuOpen}>
+                {utilityMenuItems.map((item) => {
+                  const resolvedLabel = getSafeUtilityItemLabel(item.key, item.label)
+
+                  return (
+                  <Tooltip key={item.key} title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
                     <Button
                       data-tour-id={`sidebar-utility-${item.key}`}
+                      disableRipple
+                      disableFocusRipple
                       sx={sidebarButtonSx(false, isPageMenuOpen, true)}
                       onClick={item.onClick}
                     >
-                      <Box sx={sidebarIconWrapSx(false, isPageMenuOpen)}>{item.icon}</Box>
+                      <Box sx={sidebarIconWrapSx(false)}>{item.icon}</Box>
                       <Box component="span" sx={sidebarLabelSx(isPageMenuOpen)}>
-                        {item.label}
+                        {resolvedLabel}
                       </Box>
                     </Button>
                   </Tooltip>
-                ))}
+                  )
+                })}
               </Stack>
             </Stack>
           </Box>

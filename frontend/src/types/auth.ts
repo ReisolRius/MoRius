@@ -9,6 +9,20 @@ export type AuthUser = {
   role: string
   level: number
   coins: number
+  notifications_enabled?: boolean
+  notify_comment_reply?: boolean
+  notify_world_comment?: boolean
+  notify_publication_review?: boolean
+  notify_new_follower?: boolean
+  notify_moderation_report?: boolean
+  notify_moderation_queue?: boolean
+  email_notifications_enabled?: boolean
+  show_subscriptions?: boolean
+  show_public_worlds?: boolean
+  show_private_worlds?: boolean
+  show_public_characters?: boolean
+  show_public_instruction_templates?: boolean
+  active_theme_id?: string | null
   is_banned: boolean
   ban_expires_at: string | null
   created_at: string

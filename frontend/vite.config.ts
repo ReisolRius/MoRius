@@ -1,9 +1,26 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const devProxyTarget = 'http://127.0.0.1:8000'
+const coopHeaders = {
+  'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    headers: coopHeaders,
+    proxy: {
+      '/api': {
+        target: devProxyTarget,
+        changeOrigin: true,
+      },
+    },
+  },
+  preview: {
+    headers: coopHeaders,
+  },
   build: {
     cssCodeSplit: true,
     rollupOptions: {

@@ -17,6 +17,7 @@ const rawGoogleClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | und
 
 const isBrowserRuntime = typeof window !== 'undefined'
 const runtimeHostname = isBrowserRuntime ? window.location.hostname : ''
+const isDevRuntime = Boolean(import.meta.env.DEV)
 const isLocalRuntime =
   runtimeHostname === 'localhost' ||
   runtimeHostname === '127.0.0.1' ||
@@ -43,6 +44,10 @@ function resolveConfiguredApiUrl(envValue: { value: string; isDefined: boolean }
   }
   if (!envValue.value) {
     // Explicit empty value means same-origin (/api/...).
+    return ''
+  }
+  if (isDevRuntime && isLocalRuntime && isLoopbackHttpUrl(envValue.value)) {
+    // In local Vite dev prefer same-origin /api requests so proxy + popup auth stay on one origin.
     return ''
   }
   // Safety: on public domains ignore accidental localhost config.

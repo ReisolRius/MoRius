@@ -43,6 +43,15 @@ body {
   background: var(--morius-app-base);
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
+  font-family: "Nunito Sans", "Segoe UI", sans-serif;
+}
+
+body,
+button,
+input,
+textarea,
+select {
+  font-family: "Nunito Sans", "Segoe UI", sans-serif;
 }
 
 .morius-app-shell {
@@ -67,7 +76,8 @@ body {
 }
 
 .morius-app-shell .morius-surface-button:hover {
-  background: var(--morius-button-hover) !important;
+  background: transparent !important;
+  color: var(--morius-accent) !important;
 }
 
 .morius-app-shell .MuiPaper-root,
@@ -97,15 +107,33 @@ body {
   height: var(--morius-action-icon-size) !important;
 }
 
+.morius-app-shell .MuiIconButton-root.morius-composer-send-button {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-composer-send-button img,
+.morius-app-shell .MuiIconButton-root.morius-composer-send-button svg,
+.morius-app-shell .MuiIconButton-root.morius-composer-send-button .morius-stop-indicator {
+  width: 12px !important;
+  height: 12px !important;
+}
+
 .morius-app-shell .MuiButton-root:hover,
 .morius-app-shell .MuiButton-root:active,
 .morius-app-shell .MuiIconButton-root:hover,
 .morius-app-shell .MuiIconButton-root:active {
-  background: var(--morius-button-hover) !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 .morius-app-shell .MuiButton-root:hover,
-.morius-app-shell .MuiButton-root:active {
+.morius-app-shell .MuiButton-root:active,
+.morius-app-shell .MuiIconButton-root:hover,
+.morius-app-shell .MuiIconButton-root:active {
   color: var(--morius-accent) !important;
 }
 

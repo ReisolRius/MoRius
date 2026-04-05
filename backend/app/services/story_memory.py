@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from fastapi import HTTPException, status
 
 from app.models import StoryMemoryBlock
@@ -9,14 +12,27 @@ STORY_MEMORY_LAYER_RAW = "raw"
 STORY_MEMORY_LAYER_COMPRESSED = "compressed"
 STORY_MEMORY_LAYER_SUPER = "super"
 STORY_MEMORY_LAYER_KEY = "key"
+STORY_MEMORY_LAYER_LOCATION = "location"
+STORY_MEMORY_LAYER_WEATHER = "weather"
 STORY_MEMORY_LAYERS = {
     STORY_MEMORY_LAYER_RAW,
     STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_SUPER,
     STORY_MEMORY_LAYER_KEY,
+    STORY_MEMORY_LAYER_LOCATION,
+    STORY_MEMORY_LAYER_WEATHER,
 }
 STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH = 160
 STORY_MEMORY_BLOCK_MAX_CONTENT_LENGTH = 64_000
+STORY_LOCATION_MEMORY_UI_PREFIXES = (
+    "Действие происходит ",
+    "События происходят ",
+)
+STORY_MEMORY_OUTPUT_MARKUP_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
+STORY_MEMORY_OUTPUT_DANGLING_MARKUP_PATTERN = re.compile(r"\[\[[^\]]*$")
+STORY_MEMORY_OUTPUT_NAMED_MARKUP_PATTERN = re.compile(
+    r"\[\[\s*([A-Za-z_]+)(?:\s*(?::|-)\s*|\s+)?([^\]]*?)\s*\]\]"
+)
 
 
 def normalize_story_memory_layer(value: str | None) -> str:
@@ -47,14 +63,87 @@ def normalize_story_memory_block_content(value: str) -> str:
 
 
 def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
+    def _replace_markup_with_names(value: str) -> str:
+        def _replace_match(match: re.Match[str]) -> str:
+            marker_key = str(match.group(1) or "").strip().upper()
+            marker_name = " ".join(str(match.group(2) or "").split()).strip()
+            if marker_key in {"NPC", "GG"}:
+                return f"{marker_name}: " if marker_name else ""
+            if marker_key in {"NPC_THOUGHT", "GG_THOUGHT"}:
+                return f"{marker_name} (мысль): " if marker_name else "(мысль): "
+            if marker_key == "NARRATOR":
+                return ""
+            return marker_name or ""
+
+        return STORY_MEMORY_OUTPUT_NAMED_MARKUP_PATTERN.sub(_replace_match, str(value or ""))
+
+    layer_value = normalize_story_memory_layer(block.layer)
+    normalized_title = str(block.title or "").strip()
+    normalized_content = str(block.content or "")
+    if layer_value in {
+        STORY_MEMORY_LAYER_RAW,
+        STORY_MEMORY_LAYER_COMPRESSED,
+        STORY_MEMORY_LAYER_SUPER,
+        STORY_MEMORY_LAYER_KEY,
+    }:
+        normalized_title = _replace_markup_with_names(normalized_title)
+        normalized_title = STORY_MEMORY_OUTPUT_MARKUP_PATTERN.sub(" ", normalized_title)
+        normalized_title = STORY_MEMORY_OUTPUT_DANGLING_MARKUP_PATTERN.sub(" ", normalized_title)
+        normalized_title = " ".join(normalized_title.split()).strip() or normalized_title
+        normalized_content = _replace_markup_with_names(normalized_content)
+        normalized_content = STORY_MEMORY_OUTPUT_MARKUP_PATTERN.sub(" ", normalized_content)
+        normalized_content = STORY_MEMORY_OUTPUT_DANGLING_MARKUP_PATTERN.sub(" ", normalized_content)
+        normalized_content = re.sub(r"[ \t]+\n", "\n", normalized_content)
+        normalized_content = re.sub(r"\n{3,}", "\n\n", normalized_content).strip()
+
     return StoryMemoryBlockOut(
         id=block.id,
         game_id=block.game_id,
         assistant_message_id=block.assistant_message_id,
-        layer=normalize_story_memory_layer(block.layer),
-        title=block.title,
-        content=block.content,
+        layer=layer_value,
+        title=normalized_title or str(block.title or ""),
+        content=normalized_content or str(block.content or ""),
         token_count=max(int(getattr(block, "token_count", 0) or 0), 0),
         created_at=block.created_at,
         updated_at=block.updated_at,
     )
+
+
+def extract_story_location_label_from_content(value: str | None) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" .,:;!?…")
+    if not normalized:
+        return ""
+    normalized_casefold = normalized.casefold()
+    for prefix in STORY_LOCATION_MEMORY_UI_PREFIXES:
+        if normalized_casefold.startswith(prefix.casefold()):
+            normalized = normalized[len(prefix) :].strip(" .,:;!?…")
+            break
+    if len(normalized) > STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH:
+        normalized = normalized[: STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH - 1].rstrip(" ,;:-.!?…") + "…"
+    if normalized and normalized[0].islower():
+        normalized = normalized[:1].upper() + normalized[1:]
+    return normalized
+
+
+def resolve_story_current_location_label(
+    current_location_label: str | None,
+    memory_blocks: list[Any] | None = None,
+) -> str | None:
+    normalized_current_location_label = extract_story_location_label_from_content(current_location_label)
+    if normalized_current_location_label:
+        return normalized_current_location_label
+
+    for block in reversed(list(memory_blocks or [])):
+        if isinstance(block, dict):
+            layer_value = normalize_story_memory_layer(str(block.get("layer") or ""))
+            content_value = block.get("content")
+        else:
+            layer_value = normalize_story_memory_layer(str(getattr(block, "layer", "") or ""))
+            content_value = getattr(block, "content", "")
+        if layer_value != STORY_MEMORY_LAYER_LOCATION:
+            continue
+        normalized_location_label = extract_story_location_label_from_content(str(content_value or ""))
+        if normalized_location_label:
+            return normalized_location_label
+
+    return None

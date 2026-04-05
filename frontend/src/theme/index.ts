@@ -11,4 +11,4 @@ export {
   type MoriusThemePlaceholder,
   type MoriusThemePreset,
 } from './presets'
-export { MoriusThemeProvider, useMoriusThemeController } from './controller'
+export { MORIUS_CUSTOM_THEME_STORAGE_KEY, MoriusThemeProvider, useMoriusThemeController } from './controller'

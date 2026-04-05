@@ -14,6 +14,15 @@ SERVICE_PORTS = {
 }
 
 
+def _resolve_local_venv_python() -> str:
+    scripts_dir = "Scripts" if os.name == "nt" else "bin"
+    executable_name = "python.exe" if os.name == "nt" else "python"
+    candidate = os.path.abspath(os.path.join(os.path.dirname(__file__), ".venv", scripts_dir, executable_name))
+    if os.path.exists(candidate):
+        return candidate
+    return sys.executable
+
+
 def _spawn_service(mode: str, port: int) -> subprocess.Popen[str]:
     env = os.environ.copy()
     env["APP_MODE"] = mode
@@ -22,7 +31,7 @@ def _spawn_service(mode: str, port: int) -> subprocess.Popen[str]:
         "DB_BOOTSTRAP_ON_STARTUP",
         "true" if mode in {"gateway", "monolith"} else "false",
     )
-    command = [sys.executable, "run.py"]
+    command = [_resolve_local_venv_python(), "run.py"]
     return subprocess.Popen(command, env=env, text=True)
 
 
@@ -66,4 +75,3 @@ if __name__ == "__main__":
     if os.name == "nt":
         signal.signal(signal.SIGINT, signal.SIG_DFL)
     raise SystemExit(main())
-

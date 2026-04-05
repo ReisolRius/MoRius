@@ -1,11 +1,13 @@
 ﻿import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Alert, Box, Button, CircularProgress, IconButton, Menu, MenuItem, Stack, Typography } from '@mui/material'
 import AppHeader from '../components/AppHeader'
+import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
-import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
-import UserAvatar from '../components/profile/UserAvatar'
+import DeferredImage from '../components/media/DeferredImage'
+import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
+import { useIncrementalList } from '../hooks/useIncrementalList'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import {
   listStoryCharacters,
@@ -17,7 +19,13 @@ import {
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryCharacter, StoryCommunityWorldSummary, StoryGameSummary, StoryInstructionTemplate } from '../types/story'
+import type {
+  StoryCharacter,
+  StoryGameSummary,
+  StoryInstructionTemplate,
+  StoryPublicationState,
+  StoryPublicationStatus,
+} from '../types/story'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 
 type MyPublicationsPageProps = {
@@ -28,6 +36,7 @@ type MyPublicationsPageProps = {
 
 type PublicationSection = 'worlds' | 'characters' | 'instructions'
 type PublicationMenuType = 'world' | 'character' | 'instruction'
+type PublicationSectionState = Record<PublicationSection, boolean>
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
@@ -36,9 +45,56 @@ const APP_BORDER_COLOR = 'var(--morius-card-border)'
 const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
-const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+
+type PublicationCardPresentation = {
+  statusLabel: string
+  statusTone: PublicationChipTone
+  note: string
+}
+
+type PublicationChipTone = 'neutral' | 'success' | 'warning' | 'danger' | 'info'
+
+function resolvePublicationChipColors(tone: PublicationChipTone): {
+  borderColor: string
+  textColor: string
+  backgroundColor: string
+} {
+  if (tone === 'success') {
+    return {
+      borderColor: 'rgba(128, 213, 162, 0.46)',
+      textColor: 'rgba(170, 238, 191, 0.96)',
+      backgroundColor: 'rgba(46, 92, 66, 0.18)',
+    }
+  }
+  if (tone === 'warning') {
+    return {
+      borderColor: 'rgba(232, 194, 91, 0.48)',
+      textColor: 'rgba(255, 224, 126, 0.96)',
+      backgroundColor: 'rgba(116, 86, 18, 0.2)',
+    }
+  }
+  if (tone === 'danger') {
+    return {
+      borderColor: 'rgba(224, 116, 116, 0.5)',
+      textColor: 'rgba(255, 171, 171, 0.98)',
+      backgroundColor: 'rgba(110, 32, 32, 0.2)',
+    }
+  }
+  if (tone === 'info') {
+    return {
+      borderColor: 'rgba(140, 188, 230, 0.44)',
+      textColor: 'rgba(184, 218, 247, 0.96)',
+      backgroundColor: 'rgba(38, 66, 93, 0.18)',
+    }
+  }
+  return {
+    borderColor: 'rgba(184, 199, 214, 0.32)',
+    textColor: 'rgba(214, 223, 235, 0.9)',
+    backgroundColor: 'rgba(45, 54, 67, 0.18)',
+  }
+}
 
 function parseDate(value: string): number {
   const parsed = Date.parse(value)
@@ -47,6 +103,57 @@ function parseDate(value: string): number {
 
 function sortByUpdatedDesc<T extends { id: number; updated_at: string }>(items: T[]): T[] {
   return [...items].sort((left, right) => parseDate(right.updated_at) - parseDate(left.updated_at) || right.id - left.id)
+}
+
+function normalizePublicationStatus(
+  publication: StoryPublicationState | null | undefined,
+  visibility: 'private' | 'public',
+): StoryPublicationStatus {
+  const status = publication?.status
+  if (status === 'pending' || status === 'approved' || status === 'rejected') {
+    return status
+  }
+  return visibility === 'public' ? 'approved' : 'none'
+}
+
+function shouldDisplayPublicationSource(
+  publication: StoryPublicationState | null | undefined,
+  visibility: 'private' | 'public',
+): boolean {
+  return normalizePublicationStatus(publication, visibility) !== 'none'
+}
+
+function buildPublicationCardPresentation(
+  publication: StoryPublicationState | null | undefined,
+  visibility: 'private' | 'public',
+): PublicationCardPresentation {
+  const normalizedStatus = normalizePublicationStatus(publication, visibility)
+  if (normalizedStatus === 'pending') {
+    return {
+      statusLabel: 'На модерации',
+      statusTone: 'warning',
+      note: '',
+    }
+  }
+  if (normalizedStatus === 'rejected') {
+    return {
+      statusLabel: 'Отклонено',
+      statusTone: 'danger',
+      note: (publication?.rejection_reason ?? '').trim(),
+    }
+  }
+  if (normalizedStatus === 'approved') {
+    return {
+      statusLabel: 'Опубликовано',
+      statusTone: 'success',
+      note: '',
+    }
+  }
+  return {
+    statusLabel: visibility === 'public' ? 'Опубликовано' : 'Черновик',
+    statusTone: visibility === 'public' ? 'success' : 'neutral',
+    note: '',
+  }
 }
 
 function resolveAuthorInitials(authorName: string): string {
@@ -61,33 +168,6 @@ function resolveAuthorInitials(authorName: string): string {
   return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
 }
 
-function mapGameToPublicationWorld(game: StoryGameSummary, user: AuthUser): StoryCommunityWorldSummary {
-  const authorName = user.display_name?.trim() || 'Игрок'
-  return {
-    id: game.id,
-    title: game.title.trim() || 'Без названия',
-    description: game.description.trim() || 'Описание пока не добавлено.',
-    author_id: user.id,
-    author_name: authorName,
-    author_avatar_url: user.avatar_url ?? null,
-    age_rating: game.age_rating,
-    genres: game.genres,
-    cover_image_url: game.cover_image_url,
-    cover_scale: game.cover_scale,
-    cover_position_x: game.cover_position_x,
-    cover_position_y: game.cover_position_y,
-    community_views: game.community_views,
-    community_launches: game.community_launches,
-    community_rating_avg: game.community_rating_avg,
-    community_rating_count: game.community_rating_count,
-    user_rating: null,
-    is_reported_by_user: false,
-    is_favorited_by_user: false,
-    created_at: game.created_at,
-    updated_at: game.updated_at,
-  }
-}
-
 type PublicationEntityCardProps = {
   title: string
   description: string
@@ -95,9 +175,11 @@ type PublicationEntityCardProps = {
   authorName: string
   authorAvatarUrl: string | null
   statusLabel: string
+  statusTone: PublicationChipTone
   additionsCount: number
   ratingAvg: number
   heroBackgroundSx: Record<string, string | number>
+  heroImageUrl?: string | null
   onClick: () => void
   onOpenMenu: (event: ReactMouseEvent<HTMLElement>) => void
   menuAriaLabel: string
@@ -111,9 +193,11 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
     authorName,
     authorAvatarUrl,
     statusLabel,
+    statusTone,
     additionsCount,
     ratingAvg,
     heroBackgroundSx,
+    heroImageUrl,
     onClick,
     onOpenMenu,
     menuAriaLabel,
@@ -121,6 +205,8 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
   const normalizedAuthorName = authorName.trim() || 'Неизвестный автор'
   const authorInitials = resolveAuthorInitials(normalizedAuthorName)
   const normalizedNote = note.trim()
+  const statusChipColors = resolvePublicationChipColors(statusTone)
+  const noteChipColors = resolvePublicationChipColors(statusTone === 'danger' ? 'danger' : 'info')
 
   return (
     <Box
@@ -140,6 +226,8 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
         overflow: 'hidden',
         width: '100%',
         cursor: 'pointer',
+        contentVisibility: 'auto',
+        containIntrinsicSize: '238px',
         transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease',
         '&:hover': {
           borderColor: 'rgba(203, 216, 234, 0.36)',
@@ -163,6 +251,7 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
       <Stack sx={{ minHeight: 238, justifyContent: 'space-between' }}>
         <Box sx={{ position: 'relative', height: COMMUNITY_PUBLIC_CARD_HERO_HEIGHT, overflow: 'hidden' }}>
           <Box sx={{ position: 'absolute', inset: 0, ...heroBackgroundSx }} />
+          <DeferredImage src={heroImageUrl} alt="" rootMargin="300px 0px" objectFit="cover" objectPosition="center" />
           <Box
             aria-hidden
             sx={{
@@ -172,24 +261,17 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
             }}
           />
           <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 10, right: 10, minWidth: 0, pr: 4.2 }}>
-            <Box
+            <ProgressiveAvatar
+              src={authorAvatarUrl}
+              alt={normalizedAuthorName}
+              fallbackLabel={authorInitials}
+              size={36}
+              priority
               sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
                 border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
-                overflow: 'hidden',
-                display: 'grid',
-                placeItems: 'center',
                 backgroundColor: 'rgba(6, 10, 16, 0.72)',
-                color: 'rgba(233, 241, 252, 0.97)',
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                flexShrink: 0,
               }}
-            >
-              {authorAvatarUrl ? <Box component="img" src={authorAvatarUrl} alt={normalizedAuthorName} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : authorInitials}
-            </Box>
+            />
             <Typography
               sx={{
                 color: 'rgba(233, 241, 252, 0.97)',
@@ -255,8 +337,9 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
                   px: 0.75,
                   py: 0.2,
                   borderRadius: '999px',
-                  border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)',
-                  color: 'rgba(170, 238, 191, 0.96)',
+                  border: `var(--morius-border-width) solid ${noteChipColors.borderColor}`,
+                  color: noteChipColors.textColor,
+                  backgroundColor: noteChipColors.backgroundColor,
                   fontSize: '0.68rem',
                   fontWeight: 700,
                   letterSpacing: 0.2,
@@ -287,7 +370,23 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
             </Typography>
           </Stack>
           <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>{statusLabel}</Typography>
+            <Box
+              sx={{
+                px: 0.9,
+                py: 0.28,
+                borderRadius: '999px',
+                border: `var(--morius-border-width) solid ${statusChipColors.borderColor}`,
+                backgroundColor: statusChipColors.backgroundColor,
+                color: statusChipColors.textColor,
+                fontSize: '0.73rem',
+                fontWeight: 800,
+                letterSpacing: 0.18,
+                textTransform: 'uppercase',
+                lineHeight: 1.2,
+              }}
+            >
+              {statusLabel}
+            </Box>
             <Stack direction="row" spacing={1.1} alignItems="center">
               <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{additionsCount} +</Typography>
               <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{ratingAvg.toFixed(1)} {'\u2605'}</Typography>
@@ -302,11 +401,20 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
 function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [section, setSection] = useState<PublicationSection>('worlds')
-  const [isLoading, setIsLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [publicationGames, setPublicationGames] = useState<StoryGameSummary[]>([])
   const [publicationCharacters, setPublicationCharacters] = useState<StoryCharacter[]>([])
   const [publicationTemplates, setPublicationTemplates] = useState<StoryInstructionTemplate[]>([])
+  const [loadedSections, setLoadedSections] = useState<PublicationSectionState>({
+    worlds: false,
+    characters: false,
+    instructions: false,
+  })
+  const [loadingSections, setLoadingSections] = useState<PublicationSectionState>({
+    worlds: false,
+    characters: false,
+    instructions: false,
+  })
   const [actionLoadingByKey, setActionLoadingByKey] = useState<Record<string, boolean>>({})
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PublicationMenuType | null>(null)
@@ -317,6 +425,21 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [instructionDialogMode, setInstructionDialogMode] = useState<'list' | 'create'>('list')
   const [instructionEditId, setInstructionEditId] = useState<number | null>(null)
+  const {
+    visibleItems: visiblePublicationGames,
+    hasMore: hasMorePublicationGames,
+    loadMoreRef: publicationGamesLoadMoreRef,
+  } = useIncrementalList(publicationGames, { initialCount: 10, step: 10, resetKey: `worlds:${publicationGames.length}` })
+  const {
+    visibleItems: visiblePublicationCharacters,
+    hasMore: hasMorePublicationCharacters,
+    loadMoreRef: publicationCharactersLoadMoreRef,
+  } = useIncrementalList(publicationCharacters, { initialCount: 10, step: 10, resetKey: `characters:${publicationCharacters.length}` })
+  const {
+    visibleItems: visiblePublicationTemplates,
+    hasMore: hasMorePublicationTemplates,
+    loadMoreRef: publicationTemplatesLoadMoreRef,
+  } = useIncrementalList(publicationTemplates, { initialCount: 10, step: 10, resetKey: `instructions:${publicationTemplates.length}` })
 
   const setActionLoading = useCallback((key: string, value: boolean) => {
     setActionLoadingByKey((previous) => {
@@ -329,32 +452,122 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     })
   }, [])
 
-  const loadPublications = useCallback(async () => {
-    setErrorMessage('')
-    setIsLoading(true)
-    try {
-      const [games, characters, templates] = await Promise.all([
-        listStoryGames(authToken, { compact: true }),
-        listStoryCharacters(authToken),
-        listStoryInstructionTemplates(authToken),
-      ])
-      setPublicationGames(sortByUpdatedDesc(games.filter((item) => item.visibility === 'public')))
-      setPublicationCharacters(sortByUpdatedDesc(characters.filter((item) => item.visibility === 'public')))
-      setPublicationTemplates(sortByUpdatedDesc(templates.filter((item) => item.visibility === 'public')))
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить публикации'
-      setErrorMessage(detail)
-      setPublicationGames([])
-      setPublicationCharacters([])
-      setPublicationTemplates([])
-    } finally {
-      setIsLoading(false)
+  const loadPublicationWorlds = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force === true
+    if (loadingSections.worlds && !forceReload) {
+      return
     }
-  }, [authToken])
+    setErrorMessage('')
+    setLoadingSections((previous) => ({ ...previous, worlds: true }))
+    try {
+      const games = await listStoryGames(authToken, { compact: true })
+      setPublicationGames(
+        sortByUpdatedDesc(
+          games.filter(
+            (item) =>
+              item.source_world_id === null &&
+              shouldDisplayPublicationSource(item.publication, item.visibility),
+            ),
+        ),
+      )
+      setLoadedSections((previous) => ({ ...previous, worlds: true }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованные миры'
+      setErrorMessage(detail)
+      if (!loadedSections.worlds) {
+        setPublicationGames([])
+      }
+    } finally {
+      setLoadingSections((previous) => ({ ...previous, worlds: false }))
+    }
+  }, [authToken, loadedSections.worlds, loadingSections.worlds])
+
+  const loadPublicationCharacters = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force === true
+    if (loadingSections.characters && !forceReload) {
+      return
+    }
+    setErrorMessage('')
+    setLoadingSections((previous) => ({ ...previous, characters: true }))
+    try {
+      const characters = await listStoryCharacters(authToken)
+      setPublicationCharacters(
+        sortByUpdatedDesc(
+          characters.filter(
+            (item) =>
+              item.source_character_id === null &&
+              shouldDisplayPublicationSource(item.publication, item.visibility),
+          ),
+        ),
+      )
+      setLoadedSections((previous) => ({ ...previous, characters: true }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованных персонажей'
+      setErrorMessage(detail)
+      if (!loadedSections.characters) {
+        setPublicationCharacters([])
+      }
+    } finally {
+      setLoadingSections((previous) => ({ ...previous, characters: false }))
+    }
+  }, [authToken, loadedSections.characters, loadingSections.characters])
+
+  const loadPublicationTemplates = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force === true
+    if (loadingSections.instructions && !forceReload) {
+      return
+    }
+    setErrorMessage('')
+    setLoadingSections((previous) => ({ ...previous, instructions: true }))
+    try {
+      const templates = await listStoryInstructionTemplates(authToken)
+      setPublicationTemplates(
+        sortByUpdatedDesc(
+          templates.filter(
+            (item) =>
+              item.source_template_id === null &&
+              shouldDisplayPublicationSource(item.publication, item.visibility),
+          ),
+        ),
+      )
+      setLoadedSections((previous) => ({ ...previous, instructions: true }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованные инструкции'
+      setErrorMessage(detail)
+      if (!loadedSections.instructions) {
+        setPublicationTemplates([])
+      }
+    } finally {
+      setLoadingSections((previous) => ({ ...previous, instructions: false }))
+    }
+  }, [authToken, loadedSections.instructions, loadingSections.instructions])
 
   useEffect(() => {
-    void loadPublications()
-  }, [loadPublications])
+    if (section === 'worlds' && !loadedSections.worlds && !loadingSections.worlds) {
+      void loadPublicationWorlds()
+      return
+    }
+    if (section === 'characters' && !loadedSections.characters && !loadingSections.characters) {
+      void loadPublicationCharacters()
+      return
+    }
+    if (section === 'instructions' && !loadedSections.instructions && !loadingSections.instructions) {
+      void loadPublicationTemplates()
+    }
+  }, [
+    loadPublicationCharacters,
+    loadPublicationTemplates,
+    loadPublicationWorlds,
+    loadedSections.characters,
+    loadedSections.instructions,
+    loadedSections.worlds,
+    loadingSections.characters,
+    loadingSections.instructions,
+    loadingSections.worlds,
+    section,
+  ])
+
+  const isCurrentSectionLoading = loadingSections[section] && !loadedSections[section]
 
   const handleUnpublishWorld = useCallback(
     async (game: StoryGameSummary) => {
@@ -366,7 +579,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
       setErrorMessage('')
       try {
         await updateStoryGameMeta({ token: authToken, gameId: game.id, visibility: 'private' })
-        await loadPublications()
+        await loadPublicationWorlds({ force: true })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось снять мир с публикации'
         setErrorMessage(detail)
@@ -374,7 +587,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         setActionLoading(actionKey, false)
       }
     },
-    [actionLoadingByKey, authToken, loadPublications, setActionLoading],
+    [actionLoadingByKey, authToken, loadPublicationWorlds, setActionLoading],
   )
 
   const handleUnpublishCharacter = useCallback(
@@ -402,7 +615,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
             visibility: 'private',
           },
         })
-        await loadPublications()
+        await loadPublicationCharacters({ force: true })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось снять персонажа с публикации'
         setErrorMessage(detail)
@@ -410,7 +623,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         setActionLoading(actionKey, false)
       }
     },
-    [actionLoadingByKey, authToken, loadPublications, setActionLoading],
+    [actionLoadingByKey, authToken, loadPublicationCharacters, setActionLoading],
   )
 
   const handleUnpublishTemplate = useCallback(
@@ -429,7 +642,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
           content: template.content,
           visibility: 'private',
         })
-        await loadPublications()
+        await loadPublicationTemplates({ force: true })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось снять инструкцию с публикации'
         setErrorMessage(detail)
@@ -437,7 +650,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         setActionLoading(actionKey, false)
       }
     },
-    [actionLoadingByKey, authToken, loadPublications, setActionLoading],
+    [actionLoadingByKey, authToken, loadPublicationTemplates, setActionLoading],
   )
 
   const openCharacterEdit = useCallback((characterId: number) => {
@@ -450,8 +663,8 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     setCharacterDialogOpen(false)
     setCharacterDialogMode('list')
     setCharacterEditId(null)
-    void loadPublications()
-  }, [loadPublications])
+    void loadPublicationCharacters({ force: true })
+  }, [loadPublicationCharacters])
 
   const openInstructionEdit = useCallback((templateId: number) => {
     setInstructionDialogMode('list')
@@ -463,8 +676,8 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     setInstructionDialogOpen(false)
     setInstructionDialogMode('list')
     setInstructionEditId(null)
-    void loadPublications()
-  }, [loadPublications])
+    void loadPublicationTemplates({ force: true })
+  }, [loadPublicationTemplates])
 
   const handleOpenCardMenu = useCallback((event: ReactMouseEvent<HTMLElement>, type: PublicationMenuType, itemId: number) => {
     event.preventDefault()
@@ -587,9 +800,12 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         hideRightToggle
         onOpenTopUpDialog={() => onNavigate('/profile')}
         rightActions={
-          <Button data-tour-id="header-profile-button" variant="text" onClick={() => onNavigate('/profile')} aria-label="Открыть профиль" sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
-            <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-          </Button>
+          <HeaderAccountActions
+            user={user}
+            authToken={authToken}
+            avatarSize={HEADER_AVATAR_SIZE}
+            onOpenProfile={() => onNavigate('/profile')}
+          />
         }
       />
 
@@ -601,13 +817,70 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
             </Alert>
           ) : null}
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.9} sx={{ mb: 2 }}>
-            <Button onClick={() => setSection('worlds')} sx={{ minHeight: 40, borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: section === 'worlds' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND, textTransform: 'none', '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Миры</Button>
-            <Button onClick={() => setSection('characters')} sx={{ minHeight: 40, borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: section === 'characters' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND, textTransform: 'none', '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Персонажи</Button>
-            <Button onClick={() => setSection('instructions')} sx={{ minHeight: 40, borderRadius: '12px', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: section === 'instructions' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND, textTransform: 'none', '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>Инструкции</Button>
+          <Stack alignItems="center" spacing={0.8} sx={{ mb: 2 }}>
+            <Typography sx={{ fontSize: { xs: '2rem', md: '2.35rem' }, fontWeight: 900, color: APP_TEXT_PRIMARY, textAlign: 'center' }}>
+              Публикации
+            </Typography>
+            <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', justifyContent: 'center' }}>
+              <Button
+                onClick={() => setSection('worlds')}
+                sx={{
+                  minHeight: 34,
+                  px: 1.15,
+                  borderRadius: '999px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  color: section === 'worlds' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                  backgroundColor: section === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                  textTransform: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  '&:hover': { backgroundColor: section === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_BUTTON_HOVER },
+                }}
+              >
+                Миры
+              </Button>
+              <Button
+                onClick={() => setSection('characters')}
+                sx={{
+                  minHeight: 34,
+                  px: 1.15,
+                  borderRadius: '999px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  color: section === 'characters' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                  backgroundColor: section === 'characters' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                  textTransform: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  '&:hover': { backgroundColor: section === 'characters' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_BUTTON_HOVER },
+                }}
+              >
+                Персонажи
+              </Button>
+              <Button
+                onClick={() => setSection('instructions')}
+                sx={{
+                  minHeight: 34,
+                  px: 1.15,
+                  borderRadius: '999px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  color: section === 'instructions' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                  backgroundColor: section === 'instructions' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                  textTransform: 'none',
+                  fontSize: '0.75rem',
+                  fontWeight: 800,
+                  '&:hover': { backgroundColor: section === 'instructions' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_BUTTON_HOVER },
+                }}
+              >
+                Инструкции
+              </Button>
+            </Stack>
           </Stack>
 
-          {isLoading ? (
+          {isCurrentSectionLoading && (
+            (section === 'worlds' && publicationGames.length === 0) ||
+            (section === 'characters' && publicationCharacters.length === 0) ||
+            (section === 'instructions' && publicationTemplates.length === 0)
+          ) ? (
             section === 'worlds' ? (
               <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                 {Array.from({ length: 6 }, (_, index) => (
@@ -621,88 +894,100 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
             )
           ) : null}
 
-          {!isLoading && section === 'worlds' ? (
+          {!isCurrentSectionLoading && section === 'worlds' ? (
             publicationGames.length === 0 ? (
-              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет опубликованных миров.</Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет миров на публикации.</Typography>
             ) : (
               <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
-                {publicationGames.map((game) => {
-                  const world = mapGameToPublicationWorld(game, user)
+                {visiblePublicationGames.map((game) => {
+                  const publicationMeta = buildPublicationCardPresentation(game.publication, game.visibility)
                   return (
-                    <Box
-                      key={world.id}
-                      sx={{
-                        position: 'relative',
-                        '& .publication-card-menu-trigger': { opacity: { xs: 1, md: 0 }, pointerEvents: { xs: 'auto', md: 'none' } },
-                        '&:hover .publication-card-menu-trigger, &:focus-within .publication-card-menu-trigger': { opacity: 1, pointerEvents: 'auto' },
-                      }}
-                    >
-                      <CommunityWorldCard world={world} onAuthorClick={() => undefined} onClick={() => onNavigate(`/worlds/${game.id}/edit?source=my-publications`)} />
-                      <IconButton
-                        onClick={(event) => handleOpenCardMenu(event, 'world', game.id)}
-                        className="publication-card-menu-trigger"
-                        aria-label="Открыть действия мира"
-                        sx={{ position: 'absolute', top: 10, right: 10, zIndex: 4, width: 32, height: 32, borderRadius: '999px', border: 'none', backgroundColor: 'rgba(5, 8, 13, 0.64)', color: 'rgba(220, 231, 245, 0.94)', transition: 'opacity 180ms ease, background-color 180ms ease', '&:hover': { backgroundColor: 'rgba(17, 27, 40, 0.78)' } }}
-                      >
-                        <Box component="span" sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
-                      </IconButton>
-                    </Box>
+                    <PublicationEntityCard
+                      key={game.id}
+                      title={game.title || 'Без названия'}
+                      description={game.description || 'Описание отсутствует.'}
+                      note={publicationMeta.note || game.genres[0] || ''}
+                      authorName={authorName}
+                      authorAvatarUrl={authorAvatarUrl}
+                      statusLabel={publicationMeta.statusLabel}
+                      statusTone={publicationMeta.statusTone}
+                      additionsCount={game.community_launches}
+                      ratingAvg={game.community_rating_avg}
+                      heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
+                      heroImageUrl={game.cover_image_url}
+                      onClick={() => onNavigate(`/worlds/${game.id}/edit?source=my-publications`)}
+                      onOpenMenu={(event) => handleOpenCardMenu(event, 'world', game.id)}
+                      menuAriaLabel="Открыть действия мира"
+                    />
                   )
                 })}
               </Box>
             )
           ) : null}
+          {!isCurrentSectionLoading && section === 'worlds' && hasMorePublicationGames ? <Box ref={publicationGamesLoadMoreRef} sx={{ height: 2 }} /> : null}
 
-          {!isLoading && section === 'characters' ? (
+          {!isCurrentSectionLoading && section === 'characters' ? (
             publicationCharacters.length === 0 ? (
-              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет опубликованных персонажей.</Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет персонажей на публикации.</Typography>
             ) : (
               <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
-                {publicationCharacters.map((character) => (
-                  <PublicationEntityCard
-                    key={character.id}
-                    title={character.name || 'Без имени'}
-                    description={character.description || 'Описание отсутствует.'}
-                    note={character.note}
-                    authorName={authorName}
-                    authorAvatarUrl={authorAvatarUrl}
-                    statusLabel="Ваша карточка"
-                    additionsCount={character.community_additions_count}
-                    ratingAvg={character.community_rating_avg}
-                    heroBackgroundSx={character.avatar_url ? { backgroundImage: `url(${character.avatar_url})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' } : buildWorldFallbackArtwork(character.id)}
-                    onClick={() => openCharacterEdit(character.id)}
-                    onOpenMenu={(event) => handleOpenCardMenu(event, 'character', character.id)}
-                    menuAriaLabel="Открыть действия персонажа"
-                  />
-                ))}
+                {visiblePublicationCharacters.map((character) => {
+                  const publicationMeta = buildPublicationCardPresentation(character.publication, character.visibility)
+                  return (
+                    <PublicationEntityCard
+                      key={character.id}
+                      title={character.name || 'Без имени'}
+                      description={character.description || 'Описание отсутствует.'}
+                      note={publicationMeta.note || character.note}
+                      authorName={authorName}
+                      authorAvatarUrl={authorAvatarUrl}
+                      statusLabel={publicationMeta.statusLabel}
+                      statusTone={publicationMeta.statusTone}
+                      additionsCount={character.community_additions_count}
+                      ratingAvg={character.community_rating_avg}
+                      heroBackgroundSx={buildWorldFallbackArtwork(character.id)}
+                      heroImageUrl={character.avatar_url}
+                      onClick={() => openCharacterEdit(character.id)}
+                      onOpenMenu={(event) => handleOpenCardMenu(event, 'character', character.id)}
+                      menuAriaLabel="Открыть действия персонажа"
+                    />
+                  )
+                })}
               </Box>
             )
           ) : null}
+          {!isCurrentSectionLoading && section === 'characters' && hasMorePublicationCharacters ? <Box ref={publicationCharactersLoadMoreRef} sx={{ height: 2 }} /> : null}
 
-          {!isLoading && section === 'instructions' ? (
+          {!isCurrentSectionLoading && section === 'instructions' ? (
             publicationTemplates.length === 0 ? (
-              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет опубликованных инструкций.</Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY }}>У вас пока нет инструкций на публикации.</Typography>
             ) : (
               <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
-                {publicationTemplates.map((template) => (
-                  <PublicationEntityCard
-                    key={template.id}
-                    title={template.title || 'Без названия'}
-                    description={template.content || 'Текст инструкции отсутствует.'}
-                    authorName={authorName}
-                    authorAvatarUrl={authorAvatarUrl}
-                    statusLabel="Ваша карточка"
-                    additionsCount={template.community_additions_count}
-                    ratingAvg={template.community_rating_avg}
-                    heroBackgroundSx={buildWorldFallbackArtwork(template.id + 100000)}
-                    onClick={() => openInstructionEdit(template.id)}
-                    onOpenMenu={(event) => handleOpenCardMenu(event, 'instruction', template.id)}
-                    menuAriaLabel="Открыть действия инструкции"
-                  />
-                ))}
+                {visiblePublicationTemplates.map((template) => {
+                  const publicationMeta = buildPublicationCardPresentation(template.publication, template.visibility)
+                  return (
+                    <PublicationEntityCard
+                      key={template.id}
+                      title={template.title || 'Без названия'}
+                      description={template.content || 'Текст инструкции отсутствует.'}
+                      note={publicationMeta.note}
+                      authorName={authorName}
+                      authorAvatarUrl={authorAvatarUrl}
+                      statusLabel={publicationMeta.statusLabel}
+                      statusTone={publicationMeta.statusTone}
+                      additionsCount={template.community_additions_count}
+                      ratingAvg={template.community_rating_avg}
+                      heroBackgroundSx={buildWorldFallbackArtwork(template.id + 100000)}
+                      onClick={() => openInstructionEdit(template.id)}
+                      onOpenMenu={(event) => handleOpenCardMenu(event, 'instruction', template.id)}
+                      menuAriaLabel="Открыть действия инструкции"
+                    />
+                  )
+                })}
               </Box>
             )
           ) : null}
+          {!isCurrentSectionLoading && section === 'instructions' && hasMorePublicationTemplates ? <Box ref={publicationTemplatesLoadMoreRef} sx={{ height: 2 }} /> : null}
         </Box>
       </Box>
 
@@ -731,7 +1016,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
             {isSelectedMenuActionLoading ? <CircularProgress size={14} sx={{ color: 'rgba(248, 176, 176, 0.94)' }} /> : null}
-            <Box component="span">Сделать частным</Box>
+            <Box component="span">Снять с публикации</Box>
           </Stack>
         </MenuItem>
       </Menu>
@@ -759,5 +1044,4 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 }
 
 export default MyPublicationsPage
-
 

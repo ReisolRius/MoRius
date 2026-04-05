@@ -1,8 +1,11 @@
-import { Box, IconButton, Stack, SvgIcon, Typography } from '@mui/material'
+import { Box, CircularProgress, IconButton, Stack, SvgIcon, Typography } from '@mui/material'
 import type { SxProps } from '@mui/system'
 import type { Theme } from '@mui/material/styles'
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import { useEffect, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { icons } from '../../assets'
+import ProgressiveAvatar from '../media/ProgressiveAvatar'
+import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
+import { resolveApiResourceUrl } from '../../services/httpClient'
 import type { StoryCommunityWorldSummary } from '../../types/story'
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
 
@@ -24,6 +27,7 @@ const TEXT_PRIMARY = 'var(--morius-text-primary)'
 const TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const DESCRIPTION_LINE_HEIGHT = 1.5
 const DESCRIPTION_LINE_COUNT = 3
+const COVER_IMAGE_LOAD_TIMEOUT_MS = 8000
 
 function formatWorldCreatedAtLabel(isoDate: string): string {
   const parsedDate = new Date(isoDate)
@@ -69,8 +73,34 @@ function CommunityWorldCard({
   coverBadge,
 }: CommunityWorldCardProps) {
   const authorName = world.author_name.trim() || 'Unknown author'
-  const authorAvatarUrl = world.author_avatar_url
+  const authorAvatarUrl = resolveApiResourceUrl(world.author_avatar_url)
+  const coverImageUrl = resolveApiResourceUrl(world.cover_image_url)
   const authorInitials = resolveAuthorInitials(authorName)
+  const { ref: coverRef, isVisible: isCoverVisible } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '420px 0px',
+    disabled: !coverImageUrl,
+  })
+  const [isCoverLoaded, setIsCoverLoaded] = useState(false)
+  const [isCoverFailed, setIsCoverFailed] = useState(false)
+
+  useEffect(() => {
+    setIsCoverLoaded(false)
+    setIsCoverFailed(false)
+  }, [coverImageUrl, world.id])
+
+  useEffect(() => {
+    if (!isCoverVisible || !coverImageUrl || isCoverLoaded || isCoverFailed) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsCoverFailed((currentValue) => (isCoverLoaded ? currentValue : true))
+    }, COVER_IMAGE_LOAD_TIMEOUT_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [coverImageUrl, isCoverFailed, isCoverLoaded, isCoverVisible])
 
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (disabled) {
@@ -139,13 +169,26 @@ function CommunityWorldCard({
           width: '100%',
           cursor: disabled ? 'default' : 'pointer',
           opacity: disabled ? 0.82 : 1,
+          contentVisibility: 'auto',
+          containIntrinsicSize: '360px',
           transition: 'transform 180ms ease, border-color 180ms ease',
+          '& .community-world-card-favorite': {
+            opacity: { xs: 1, md: 0 },
+            transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
+            pointerEvents: { xs: 'auto', md: 'none' },
+            transition: 'opacity 180ms ease, transform 180ms ease, background-color 180ms ease',
+          },
           '&:hover': disabled
             ? undefined
             : {
                 borderColor: 'rgba(203, 216, 234, 0.36)',
                 transform: 'translateY(-2px)',
               },
+          '&:hover .community-world-card-favorite, &:focus-within .community-world-card-favorite': {
+            opacity: 1,
+            transform: 'translateY(0)',
+            pointerEvents: 'auto',
+          },
           '&:focus-visible': {
             outline: '2px solid rgba(205, 223, 246, 0.62)',
             outlineOffset: '2px',
@@ -155,6 +198,7 @@ function CommunityWorldCard({
       ]}
     >
       <Box
+        ref={coverRef}
         sx={{
           position: 'relative',
           width: '100%',
@@ -163,22 +207,56 @@ function CommunityWorldCard({
           overflow: 'hidden',
         }}
       >
-        {world.cover_image_url ? (
-          <Box
-            component="img"
-            src={world.cover_image_url}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
-            }}
-          />
+        {coverImageUrl && !isCoverFailed ? (
+          <>
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                ...buildWorldFallbackArtwork(world.id),
+              }}
+            />
+            {isCoverVisible && !isCoverLoaded ? (
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 1,
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+              >
+                <CircularProgress size={30} thickness={4} sx={{ color: 'rgba(225, 234, 244, 0.9)' }} />
+              </Box>
+            ) : null}
+            {isCoverVisible ? (
+              <Box
+                component="img"
+                src={coverImageUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                fetchPriority="low"
+                onLoad={() => setIsCoverLoaded(true)}
+                onError={() => {
+                  setIsCoverFailed(true)
+                  setIsCoverLoaded(false)
+                }}
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  display: 'block',
+                  objectFit: 'cover',
+                  objectPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
+                  opacity: isCoverLoaded ? 1 : 0,
+                  transition: 'opacity 220ms ease',
+                }}
+              />
+            ) : null}
+          </>
         ) : (
           <Box
             sx={{
@@ -234,35 +312,17 @@ function CommunityWorldCard({
               : undefined,
           }}
         >
-          <Box
+          <ProgressiveAvatar
+            src={authorAvatarUrl}
+            alt={authorName}
+            fallbackLabel={authorInitials}
+            size={40}
+            priority
             sx={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              overflow: 'hidden',
-              flexShrink: 0,
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: '0.84rem',
-              fontWeight: 800,
-              color: 'rgba(229, 238, 250, 0.96)',
               border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.32)',
               background: 'linear-gradient(180deg, rgba(47, 62, 86, 0.78), rgba(22, 31, 44, 0.9))',
             }}
-          >
-            {authorAvatarUrl ? (
-              <Box
-                component="img"
-                src={authorAvatarUrl}
-                alt={authorName}
-                loading="lazy"
-                decoding="async"
-                sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            ) : (
-              authorInitials
-            )}
-          </Box>
+          />
           <Typography
             sx={{
               minWidth: 0,
@@ -282,6 +342,7 @@ function CommunityWorldCard({
 
         {showFavoriteButton ? (
           <IconButton
+            className="community-world-card-favorite"
             aria-label={world.is_favorited_by_user ? 'Убрать из любимых миров' : 'Добавить в любимые миры'}
             onClick={handleFavoriteToggle}
             disabled={disabled || isFavoriteSaving || !onToggleFavorite}

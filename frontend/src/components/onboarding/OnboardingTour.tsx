@@ -1234,7 +1234,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
                       fontWeight: 700,
                       cursor: isBusyAction ? 'default' : 'pointer',
                       transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
-                      '&:hover': isBusyAction ? undefined : { backgroundColor: 'var(--morius-button-hover)', borderColor: 'var(--morius-accent)', transform: 'translateY(-1px)' },
+                      '&:hover': isBusyAction ? undefined : { backgroundColor: 'transparent', borderColor: 'var(--morius-accent)', transform: 'translateY(-1px)' },
                     }}
                   >
                     Пропустить
@@ -1257,7 +1257,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
                       fontWeight: 700,
                       cursor: isBusyAction ? 'default' : 'pointer',
                       transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
-                      '&:hover': isBusyAction ? undefined : { backgroundColor: 'var(--morius-button-hover)', borderColor: 'var(--morius-accent)', transform: 'translateY(-1px)' },
+                      '&:hover': isBusyAction ? undefined : { backgroundColor: 'transparent', borderColor: 'var(--morius-accent)', transform: 'translateY(-1px)' },
                     }}
                   >
                     Назад
@@ -1284,7 +1284,7 @@ function OnboardingTour({ userId, authToken, path, onNavigate }: OnboardingTourP
                   cursor: isBusyAction ? 'default' : 'pointer',
                   boxShadow: '0 12px 24px color-mix(in srgb, var(--morius-accent) 16%, transparent)',
                   transition: 'transform 180ms ease, box-shadow 180ms ease, filter 180ms ease',
-                  '&:hover': isBusyAction ? undefined : { transform: 'translateY(-1px)', boxShadow: '0 16px 28px color-mix(in srgb, var(--morius-accent) 22%, transparent)', backgroundColor: 'var(--morius-button-hover)' },
+                  '&:hover': isBusyAction ? undefined : { transform: 'translateY(-1px)', boxShadow: '0 16px 28px color-mix(in srgb, var(--morius-accent) 22%, transparent)', backgroundColor: 'transparent' },
                 }}
               >
                 {activeStepIndex === steps.length - 1 ? 'Завершить' : activeStepIndex === 0 ? 'Начать' : 'Далее'}

@@ -514,7 +514,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
                   minHeight: 44,
                   backgroundColor: 'var(--morius-send-button-bg)',
                   color: 'var(--morius-app-base)',
-                  '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                  '&:hover': { backgroundColor: 'transparent' },
                   '&:disabled': { opacity: 0.66 },
                 }}
               >

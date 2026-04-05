@@ -25,6 +25,7 @@ import {
   updateStoryInstructionTemplate,
 } from '../services/storyApi'
 import type { StoryCommunityInstructionTemplateSummary, StoryInstructionTemplate } from '../types/story'
+import { normalizeStoryPublicationStatus, resolvePublicationDraftVisibility } from '../utils/publication'
 import TextLimitIndicator from './TextLimitIndicator'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
@@ -67,6 +68,13 @@ function mapCommunityTemplateToInstructionTemplate(
     title: template.title,
     content: template.content,
     visibility: 'private',
+    publication: {
+      status: 'approved',
+      requested_at: template.created_at,
+      reviewed_at: template.updated_at,
+      reviewer_user_id: null,
+      rejection_reason: null,
+    },
     source_template_id: template.id,
     community_rating_avg: template.community_rating_avg,
     community_rating_count: template.community_rating_count,
@@ -347,7 +355,7 @@ function InstructionTemplateDialog({
     setEditingTemplateId(template.id)
     setTemplateTitleDraft(template.title)
     setTemplateContentDraft(template.content)
-    setTemplateVisibilityDraft(template.visibility === 'public' ? 'public' : 'private')
+    setTemplateVisibilityDraft(resolvePublicationDraftVisibility(template.publication, template.visibility))
     setIsEditorOpen(true)
   }, [isBusy])
 
@@ -564,7 +572,7 @@ function InstructionTemplateDialog({
         color: 'var(--morius-text-primary)',
         transition: 'background-color 180ms ease, border-color 180ms ease',
         '&:hover': {
-          backgroundColor: 'rgba(129, 151, 182, 0.14)',
+          backgroundColor: 'transparent',
           borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
         },
       }}
@@ -602,7 +610,7 @@ function InstructionTemplateDialog({
         setEditingTemplateId(targetTemplate.id)
         setTemplateTitleDraft(targetTemplate.title)
         setTemplateContentDraft(targetTemplate.content)
-        setTemplateVisibilityDraft(targetTemplate.visibility === 'public' ? 'public' : 'private')
+        setTemplateVisibilityDraft(resolvePublicationDraftVisibility(targetTemplate.publication, targetTemplate.visibility))
         setIsEditorOpen(true)
       }
       setHasAppliedInitialAction(true)
@@ -640,7 +648,7 @@ function InstructionTemplateDialog({
     backgroundColor: 'transparent',
     color: 'var(--morius-text-primary)',
     '&:hover': {
-      backgroundColor: 'var(--morius-button-hover)',
+      backgroundColor: 'transparent',
     },
   }
 
@@ -687,7 +695,7 @@ function InstructionTemplateDialog({
                       backgroundColor: pickerSourceTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                       color: 'var(--morius-text-primary)',
                       textTransform: 'none',
-                      '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      '&:hover': { backgroundColor: 'transparent' },
                     }}
                   >
                     Мои инструкции
@@ -703,7 +711,7 @@ function InstructionTemplateDialog({
                         pickerSourceTab === 'community' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                       color: 'var(--morius-text-primary)',
                       textTransform: 'none',
-                      '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      '&:hover': { backgroundColor: 'transparent' },
                     }}
                   >
                     Сообщество
@@ -1008,7 +1016,18 @@ function InstructionTemplateDialog({
                           {template.content}
                         </Typography>
                         <Typography sx={{ fontSize: '0.74rem', fontWeight: 700, color: 'rgba(181, 199, 220, 0.82)' }}>
-                          {template.visibility === 'public' ? 'Публичный' : 'Приватный'}
+                          {(() => {
+                            const publicationStatus = normalizeStoryPublicationStatus(template.publication, template.visibility)
+                            if (publicationStatus === 'pending') {
+                              return 'На модерации'
+                            }
+                            if (publicationStatus === 'rejected') {
+                              return 'Отклонено'
+                            }
+                            return resolvePublicationDraftVisibility(template.publication, template.visibility) === 'public'
+                              ? 'Опубликовано'
+                              : 'Приватный'
+                          })()}
                         </Typography>
                         {mode === 'picker' ? (
                           <Typography
@@ -1211,7 +1230,7 @@ function InstructionTemplateDialog({
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
+                      backgroundColor: 'transparent',
                     },
                   }}
                 >
@@ -1228,7 +1247,7 @@ function InstructionTemplateDialog({
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'var(--morius-button-hover)',
+                      backgroundColor: 'transparent',
                     },
                   }}
                 >
@@ -1251,7 +1270,7 @@ function InstructionTemplateDialog({
               border: 'var(--morius-border-width) solid var(--morius-card-border)',
               backgroundColor: 'var(--morius-button-active)',
               color: 'var(--morius-text-primary)',
-              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+              '&:hover': { backgroundColor: 'transparent' },
             }}
           >
             {isSavingTemplate ? (
@@ -1269,9 +1288,5 @@ function InstructionTemplateDialog({
 }
 
 export default InstructionTemplateDialog
-
-
-
-
 
 

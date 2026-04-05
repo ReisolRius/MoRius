@@ -9,6 +9,7 @@ app = create_service_app(
         "/api/auth",
         "/api/story",
         "/api/payments",
+        "/api/media",
         "/api/health",
     ),
     include_health_route=False,

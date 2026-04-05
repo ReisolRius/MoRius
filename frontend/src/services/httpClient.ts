@@ -65,6 +65,55 @@ export function buildApiUrl(path: string): string {
   return `${origin}${basePath}${path}`
 }
 
+export function resolveApiResourceUrl(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalizedValue = value.trim()
+  if (!normalizedValue) {
+    return null
+  }
+  if (
+    /^https?:\/\//i.test(normalizedValue) ||
+    normalizedValue.startsWith('data:') ||
+    normalizedValue.startsWith('blob:')
+  ) {
+    return normalizedValue
+  }
+  if (normalizedValue.startsWith('/api/media/')) {
+    return buildApiUrl(normalizedValue)
+  }
+  return normalizedValue
+}
+
+export function normalizeApiMediaPayload<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeApiMediaPayload(item)) as T
+  }
+
+  if (typeof value === 'string') {
+    return resolveApiResourceUrl(value) as T
+  }
+
+  if (!value || typeof value !== 'object') {
+    return value
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+  let hasChanges = false
+  const nextObject: Record<string, unknown> = {}
+
+  entries.forEach(([key, entryValue]) => {
+    const nextValue = normalizeApiMediaPayload(entryValue)
+    nextObject[key] = nextValue
+    if (!Object.is(nextValue, entryValue)) {
+      hasChanges = true
+    }
+  })
+
+  return (hasChanges ? nextObject : value) as T
+}
+
 function buildNetworkErrorMessage(path: string, customMessage?: string): string {
   if (customMessage && customMessage.trim()) {
     return customMessage
@@ -103,9 +152,11 @@ async function executeRequest(
   }
 
   try {
+    const method = String(options.method ?? 'GET').toUpperCase()
     return await fetch(buildApiUrl(path), {
       ...options,
       headers,
+      cache: options.cache ?? (method === 'GET' || method === 'HEAD' ? 'no-store' : undefined),
     })
   } catch {
     throw new Error(buildNetworkErrorMessage(path, networkErrorMessage))
@@ -121,7 +172,7 @@ export async function requestJson<T>(
   if (!response.ok) {
     throw await parseApiError(response)
   }
-  return (await response.json()) as T
+  return normalizeApiMediaPayload((await response.json()) as T)
 }
 
 export async function requestNoContent(

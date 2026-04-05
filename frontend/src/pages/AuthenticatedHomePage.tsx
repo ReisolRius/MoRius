@@ -1,4 +1,4 @@
-import {
+﻿import {
   forwardRef,
   useCallback,
   useEffect,
@@ -13,36 +13,48 @@ import {
   Alert,
   Box,
   Button,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
+  ButtonBase,
   Grow,
   Skeleton,
   Stack,
+  TextField,
   Typography,
   type GrowProps,
 } from '@mui/material'
+import reloadIconMarkup from '../assets/icons/reload.svg?raw'
+import sidebarPlusIconMarkup from '../assets/icons/custom/plus.svg?raw'
+import sidebarVectorAltIconMarkup from '../assets/icons/custom/vector-1.svg?raw'
+import sidebarVectorIconMarkup from '../assets/icons/custom/vector.svg?raw'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import quickStartDashboardImage from '../assets/images/dashboard/quick-start.png'
+import newWorldDashboardImage from '../assets/images/dashboard/new-world.png'
+import shopDashboardImage from '../assets/images/dashboard/shop.png'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import DeferredImage from '../components/media/DeferredImage'
+import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
+import QuickStartWizardDialog from '../components/home/QuickStartWizardDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
+import HeaderAccountActions from '../components/HeaderAccountActions'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
-import UserAvatar from '../components/profile/UserAvatar'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
+  listDashboardNews,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
+  updateDashboardNews,
   type CoinTopUpPlan,
+  type DashboardNewsCard,
 } from '../services/authApi'
 import {
   createCommunityWorldComment,
@@ -72,12 +84,22 @@ type AuthenticatedHomePageProps = {
   onLogout: () => void
 }
 
-type DashboardNewsItem = {
-  id: string
+type DashboardNewsDraft = {
   category: string
   title: string
   description: string
-  dateLabel: string
+  image_url: string
+  date_label: string
+}
+
+type DashboardQuickAction = {
+  key: 'continue' | 'quick-start' | 'new-world' | 'shop'
+  title: string
+  description: string
+  imageSrc?: string
+  iconMarkup: string
+  onClick: () => void
+  disabled?: boolean
 }
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
@@ -99,31 +121,9 @@ const HOME_FOOTER_INFO_LINKS: Array<{ label: string; path: string }> = [
   { label: 'Политика конфиденциальности', path: '/privacy-policy' },
   { label: 'Пользовательское соглашение', path: '/terms-of-service' },
 ]
-const DASHBOARD_NEWS: DashboardNewsItem[] = [
-  {
-    id: 'news-1',
-    category: 'Обновление',
-    title: 'Новые стили карточек и быстрый старт',
-    description: 'Интерфейс стал легче, а стартовые миры доступны в один клик прямо на главной странице.',
-    dateLabel: '20 февраля 2026',
-  },
-  {
-    id: 'news-2',
-    category: 'Игровой процесс',
-    title: 'Редактирование сообщений в истории',
-    description: 'Теперь вы можете поправить любую реплику в текущей сессии и продолжить сюжет с новой развилки.',
-    dateLabel: '19 февраля 2026',
-  },
-  {
-    id: 'news-3',
-    category: 'Профиль',
-    title: 'Гибкая работа с аватаром',
-    description: 'Добавление, замена и удаление аватара теперь доступны из профиля без перехода между страницами.',
-    dateLabel: '18 февраля 2026',
-  },
-]
-
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const DASHBOARD_RECENT_GAME_LIMIT = 12
+const HOME_COMMUNITY_WORLD_LIMIT = 10
 const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -151,6 +151,26 @@ function readFileAsDataUrl(file: File): Promise<string> {
   })
 }
 
+function createDashboardNewsDraft(item: DashboardNewsCard | null): DashboardNewsDraft {
+  return {
+    category: item?.category ?? '',
+    title: item?.title ?? '',
+    description: item?.description ?? '',
+    image_url: item?.image_url ?? '',
+    date_label: item?.date_label ?? '',
+  }
+}
+
+function getDashboardNewsFallbackImage(slot: number): string {
+  if (slot === 2) {
+    return newWorldDashboardImage
+  }
+  if (slot === 3) {
+    return shopDashboardImage
+  }
+  return quickStartDashboardImage
+}
+
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
@@ -168,7 +188,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
-  const [selectedNewsItem, setSelectedNewsItem] = useState<DashboardNewsItem | null>(null)
+  const [dashboardNews, setDashboardNews] = useState<DashboardNewsCard[]>([])
+  const [selectedDashboardNewsId, setSelectedDashboardNewsId] = useState<number | null>(null)
+  const [isDashboardNewsLoading, setIsDashboardNewsLoading] = useState(false)
+  const [dashboardNewsError, setDashboardNewsError] = useState('')
+  const [isDashboardNewsEditorOpen, setIsDashboardNewsEditorOpen] = useState(false)
+  const [isDashboardNewsSaving, setIsDashboardNewsSaving] = useState(false)
+  const [dashboardNewsEditorError, setDashboardNewsEditorError] = useState('')
+  const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
+  const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
@@ -185,6 +213,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityWorldGameIds, setCommunityWorldGameIds] = useState<Record<number, number[]>>({})
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const hasLoadedCommunityWorldGameIdsRef = useRef(false)
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -303,7 +332,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setIsCommunityWorldsLoading(true)
     setCommunityWorldsError('')
     try {
-      const worlds = await listCommunityWorlds(authToken)
+      const worlds = await listCommunityWorlds(authToken, { limit: HOME_COMMUNITY_WORLD_LIMIT })
       setCommunityWorlds(worlds)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить сообщество'
@@ -361,29 +390,62 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     })
   }, [communityWorlds, selectedCommunityWorld?.world.id])
 
+  const loadDashboardGamesSnapshot = useCallback(async (): Promise<StoryGameSummary[]> => {
+    const games = await listStoryGames(authToken, { compact: true, limit: DASHBOARD_RECENT_GAME_LIMIT })
+    setStoryGames(games)
+    return games
+  }, [authToken])
+
+  const loadDashboardNewsSnapshot = useCallback(async (): Promise<DashboardNewsCard[]> => {
+    setIsDashboardNewsLoading(true)
+    setDashboardNewsError('')
+    try {
+      const items = await listDashboardNews({ token: authToken })
+      setDashboardNews(items)
+      return items
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить новости'
+      setDashboardNewsError(detail)
+      setDashboardNews([])
+      return []
+    } finally {
+      setIsDashboardNewsLoading(false)
+    }
+  }, [authToken])
+
   const loadStoryGamesSnapshot = useCallback(async (): Promise<StoryGameSummary[]> => {
     const games = await listStoryGames(authToken, { compact: true })
     setStoryGames(games)
     setCommunityWorldGameIds(buildCommunityWorldGameMap(games))
+    hasLoadedCommunityWorldGameIdsRef.current = true
     return games
   }, [authToken])
 
-  const syncCommunityWorldGameIds = useCallback(async () => {
+  const syncDashboardData = useCallback(async () => {
     setIsDashboardDataLoading(true)
     try {
-      await loadStoryGamesSnapshot()
+      await loadDashboardGamesSnapshot()
     } catch {
       // Optional metadata for UI; skip hard error when unavailable.
       setStoryGames([])
-      setCommunityWorldGameIds({})
     } finally {
       setIsDashboardDataLoading(false)
     }
-  }, [loadStoryGamesSnapshot])
+  }, [loadDashboardGamesSnapshot])
 
   useEffect(() => {
-    void syncCommunityWorldGameIds()
-  }, [syncCommunityWorldGameIds])
+    void syncDashboardData()
+  }, [syncDashboardData])
+
+  useEffect(() => {
+    void loadDashboardNewsSnapshot()
+  }, [loadDashboardNewsSnapshot])
+
+  const isDashboardNewsEditor = user.role === 'administrator' || user.role === 'moderator'
+  const selectedDashboardNews = useMemo(
+    () => dashboardNews.find((item) => item.id === selectedDashboardNewsId) ?? dashboardNews[0] ?? null,
+    [dashboardNews, selectedDashboardNewsId],
+  )
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -405,6 +467,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         setCommunityWorlds((previous) =>
           previous.map((world) => (world.id === normalizedPayload.world.id ? normalizedPayload.world : world)),
         )
+        if (!hasLoadedCommunityWorldGameIdsRef.current) {
+          void loadStoryGamesSnapshot()
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось открыть мир'
         setCommunityWorldsError(detail)
@@ -412,7 +477,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         setIsCommunityWorldDialogLoading(false)
       }
     },
-    [authToken, isCommunityWorldDialogLoading],
+    [authToken, isCommunityWorldDialogLoading, loadStoryGamesSnapshot],
   )
 
   const handleCloseCommunityWorldDialog = useCallback(() => {
@@ -687,6 +752,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       let gameMapSnapshot = buildCommunityWorldGameMap(gamesSnapshot)
       setStoryGames(gamesSnapshot)
       setCommunityWorldGameIds(gameMapSnapshot)
+      hasLoadedCommunityWorldGameIdsRef.current = true
 
       const existingGameIds = gameMapSnapshot[worldId] ?? []
       if (existingGameIds.length > 0) {
@@ -796,21 +862,87 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }
 
-  const handleOpenNewsDetails = (item: DashboardNewsItem) => {
-    setSelectedNewsItem(item)
-  }
+  const handleQuickStartStarted = useCallback(
+    (game: StoryGameSummary) => {
+      setIsQuickStartDialogOpen(false)
+      setStoryGames((previousGames) => sortStoryGamesByActivity([game, ...previousGames.filter((item) => item.id !== game.id)]))
+      onNavigate(`/home/${game.id}`)
+    },
+    [onNavigate],
+  )
 
-  const handleCloseNewsDetails = () => {
-    setSelectedNewsItem(null)
-  }
+  const handleOpenDashboardNewsEditor = useCallback(() => {
+    if (!selectedDashboardNews || !isDashboardNewsEditor) {
+      return
+    }
+    setDashboardNewsEditorError('')
+    setDashboardNewsDraft(createDashboardNewsDraft(selectedDashboardNews))
+    setIsDashboardNewsEditorOpen(true)
+  }, [isDashboardNewsEditor, selectedDashboardNews])
+
+  const handleCloseDashboardNewsEditor = useCallback(() => {
+    if (isDashboardNewsSaving) {
+      return
+    }
+    setIsDashboardNewsEditorOpen(false)
+    setDashboardNewsEditorError('')
+  }, [isDashboardNewsSaving])
+
+  const handleSaveDashboardNews = useCallback(async () => {
+    if (!selectedDashboardNews || !isDashboardNewsEditor || isDashboardNewsSaving) {
+      return
+    }
+
+    setDashboardNewsEditorError('')
+    setIsDashboardNewsSaving(true)
+    try {
+      const updatedItem = await updateDashboardNews({
+        token: authToken,
+        news_id: selectedDashboardNews.id,
+        category: dashboardNewsDraft.category,
+        title: dashboardNewsDraft.title,
+        description: dashboardNewsDraft.description,
+        image_url: dashboardNewsDraft.image_url.trim() || null,
+        date_label: dashboardNewsDraft.date_label,
+      })
+      setDashboardNews((previous) => previous.map((item) => (item.id === updatedItem.id ? updatedItem : item)))
+      setSelectedDashboardNewsId(updatedItem.id)
+      setIsDashboardNewsEditorOpen(false)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить новость'
+      setDashboardNewsEditorError(detail)
+    } finally {
+      setIsDashboardNewsSaving(false)
+    }
+  }, [
+    authToken,
+    dashboardNewsDraft.category,
+    dashboardNewsDraft.date_label,
+    dashboardNewsDraft.description,
+    dashboardNewsDraft.image_url,
+    dashboardNewsDraft.title,
+    isDashboardNewsEditor,
+    isDashboardNewsSaving,
+    selectedDashboardNews,
+  ])
+
+  useEffect(() => {
+    if (dashboardNews.length === 0) {
+      setSelectedDashboardNewsId(null)
+      return
+    }
+    if (selectedDashboardNewsId !== null && dashboardNews.some((item) => item.id === selectedDashboardNewsId)) {
+      return
+    }
+    setSelectedDashboardNewsId(dashboardNews[0].id)
+  }, [dashboardNews, selectedDashboardNewsId])
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld
     ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
     : []
   const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
   const profileName = user.display_name || 'Игрок'
-  const communityWorldsPreview = communityWorlds.slice(0, 9)
-  const dashboardView = 'welcome' as const
+  const communityWorldsPreview = communityWorlds.slice(0, HOME_COMMUNITY_WORLD_LIMIT)
   const dashboardLastPlayedGame = useMemo(() => selectLastPlayedGame(storyGames), [storyGames])
   const hasDashboardLastPlayedGame = dashboardLastPlayedGame !== null
   const dashboardHeroCoverUrl =
@@ -823,14 +955,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const dashboardHeroCoverPositionY = hasDashboardLastPlayedGame
     ? clampCoverPosition(dashboardLastPlayedGame.cover_position_y)
     : 50
-  const dashboardHeroTitle = hasDashboardLastPlayedGame
-    ? buildDashboardGameTitle(dashboardLastPlayedGame)
-    : `Добро пожаловать, ${profileName}.`
-  const dashboardHeroDescription = hasDashboardLastPlayedGame
-    ? buildDashboardGameDescription(dashboardLastPlayedGame)
-    : 'Начните новую историю с чистого листа или выберите готовый мир ниже для быстрого старта.'
-  const dashboardHeroButtonLabel = hasDashboardLastPlayedGame ? 'Продолжить' : 'Начать новую игру'
-
+  const selectedDashboardNewsImage =
+    selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
   const handleDashboardContinue = useCallback(async () => {
     if (isDashboardDataLoading || isDashboardContinueResolving) {
       return
@@ -847,7 +973,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       return
     } catch {
       try {
-        const refreshedGames = await loadStoryGamesSnapshot()
+        const refreshedGames = await loadDashboardGamesSnapshot()
         const fallbackGame = selectLastPlayedGame(refreshedGames)
         if (fallbackGame) {
           onNavigate(`/home/${fallbackGame.id}`)
@@ -865,9 +991,61 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     dashboardLastPlayedGame,
     isDashboardContinueResolving,
     isDashboardDataLoading,
-    loadStoryGamesSnapshot,
+    loadDashboardGamesSnapshot,
     onNavigate,
   ])
+  const dashboardQuickActions = useMemo<DashboardQuickAction[]>(
+    () => [
+      {
+        key: 'continue',
+        title: 'Продолжить',
+        description: hasDashboardLastPlayedGame
+          ? buildDashboardGameDescription(dashboardLastPlayedGame!).slice(0, 110)
+          : `Добро пожаловать, ${profileName}. Начните новую историю или быстро вернитесь в библиотеку миров.`,
+        imageSrc: dashboardHeroCoverUrl || undefined,
+        iconMarkup: reloadIconMarkup,
+        onClick: () => void handleDashboardContinue(),
+        disabled: false,
+      },
+      {
+        key: 'quick-start',
+        title: 'Быстрый старт',
+        description: 'Выберите жанр, класс, имя героя и получите готовую стартовую сцену за пару шагов.',
+        imageSrc: quickStartDashboardImage,
+        iconMarkup: sidebarVectorIconMarkup,
+        onClick: () => setIsQuickStartDialogOpen(true),
+        disabled: false,
+      },
+      {
+        key: 'new-world',
+        title: 'Новый мир',
+        description: 'Соберите сеттинг, правила и персонажей вручную с полной настройкой мира.',
+        imageSrc: newWorldDashboardImage,
+        iconMarkup: sidebarPlusIconMarkup,
+        onClick: () => onNavigate('/worlds/new'),
+        disabled: false,
+      },
+      {
+        key: 'shop',
+        title: 'Магазин',
+        description: 'Пакеты солов и дополнительные возможности для длинных сессий и генерации.',
+        imageSrc: shopDashboardImage,
+        iconMarkup: sidebarVectorAltIconMarkup,
+        onClick: handleOpenTopUpDialog,
+        disabled: false,
+      },
+    ],
+    [
+      dashboardHeroCoverUrl,
+      dashboardLastPlayedGame,
+      handleDashboardContinue,
+      handleOpenTopUpDialog,
+      hasDashboardLastPlayedGame,
+      isDashboardContinueResolving,
+      onNavigate,
+      profileName,
+    ],
+  )
 
   return (
     <Box
@@ -885,9 +1063,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
-          { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
-          { key: 'games-publications', label: 'Мои публикации', onClick: () => onNavigate('/games/publications') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
+          { key: 'games-my', label: 'Библиотека', onClick: () => onNavigate('/games') },
+          { key: 'games-publications', label: 'Публикации', onClick: () => onNavigate('/games/publications') },
         ]}
         pageMenuLabels={{
           expanded: 'Свернуть меню страниц',
@@ -899,27 +1077,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
-        rightActions={
-          <Stack direction="row" spacing={0}>
-            <Button
-              variant="text"
-              onClick={() => onNavigate('/profile')}
-              aria-label="Открыть профиль"
-              data-tour-id="header-profile-button"
-              sx={{
-                minWidth: 0,
-                width: HEADER_AVATAR_SIZE,
-                height: HEADER_AVATAR_SIZE,
-                p: 0,
-                borderRadius: '50%',
-              }}
-            >
-              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-            </Button>
-          </Stack>
-        }
+        rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
       />
 
       <Box
@@ -930,240 +1091,373 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
+          <Stack alignItems="center" spacing={0.35} sx={{ mb: 1.6 }}>
+            <Typography sx={{ fontSize: { xs: '2rem', md: '2.35rem' }, fontWeight: 900, color: APP_TEXT_PRIMARY, textAlign: 'center' }}>
+              Главная
+            </Typography>
+          </Stack>
 
-          {dashboardView === 'welcome' ? (
+          <Box sx={{ display: 'grid', gap: 1.35, mb: 2.4 }}>
             <Box
               sx={{
                 display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.65fr) minmax(320px, 1fr)' },
-                mb: 2.4,
+                gap: 1.2,
+                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
               }}
             >
-              <Box
-                sx={{
-                  position: 'relative',
-                  overflow: 'hidden',
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  aspectRatio: '3 / 2',
-                  p: { xs: 2, md: 2.6 },
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  background: APP_CARD_BACKGROUND,
-                  boxShadow: '0 28px 44px rgba(0, 0, 0, 0.35)',
-                }}
-              >
-                {isDashboardDataLoading ? (
-                  <Stack spacing={1.2} sx={{ position: 'relative', zIndex: 1, width: '100%', maxWidth: { xs: '100%', lg: 560 } }}>
-                    <Skeleton variant="text" width={92} height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.22)' }} />
-                    <Skeleton variant="rounded" width="100%" height={58} sx={{ borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                    <Skeleton variant="text" width="96%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                    <Skeleton variant="text" width="82%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                    <Skeleton variant="rounded" width={220} height={46} sx={{ mt: 0.6, borderRadius: '12px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                  </Stack>
-                ) : (
-                  <>
-                    {dashboardHeroCoverUrl ? (
-                      <Box
-                        aria-hidden
-                        sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          backgroundImage: `url(${dashboardHeroCoverUrl})`,
-                          backgroundRepeat: 'no-repeat',
-                          backgroundSize: 'cover',
-                          backgroundPosition: `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`,
-                        }}
-                      />
-                    ) : null}
-                    {!hasDashboardLastPlayedGame ? (
+              {dashboardQuickActions.map((action) => {
+                const isContinueCard = action.key === 'continue'
+                const hasContinueCover = isContinueCard && Boolean(action.imageSrc)
+                const isActionDisabled = Boolean(action.disabled) || (isContinueCard && isDashboardContinueResolving)
+
+                return (
+                  <ButtonBase
+                    key={action.key}
+                    onClick={action.onClick}
+                    disabled={isActionDisabled}
+                    sx={{
+                      position: 'relative',
+                      overflow: 'hidden',
+                      minHeight: 146,
+                      borderRadius: '18px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_CARD_BACKGROUND,
+                      justifyContent: 'flex-start',
+                      alignItems: 'stretch',
+                      textAlign: 'left',
+                      boxShadow: '0 20px 34px rgba(0, 0, 0, 0.18)',
+                      transition: 'border-color 180ms ease, transform 180ms ease, opacity 180ms ease',
+                      '&:hover': {
+                        backgroundColor: APP_CARD_BACKGROUND,
+                        borderColor: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))',
+                        transform: isActionDisabled ? 'none' : 'translateY(-2px)',
+                      },
+                    }}
+                  >
+                    {hasContinueCover ? (
+                      <>
+                        <DeferredImage
+                          src={action.imageSrc}
+                          alt=""
+                          rootMargin="0px"
+                          objectFit="cover"
+                          objectPosition={`${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`}
+                          imgSx={{ opacity: 0.82 }}
+                        />
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            background:
+                              'linear-gradient(180deg, rgba(8, 12, 18, 0.54) 0%, rgba(8, 12, 18, 0.74) 52%, rgba(8, 12, 18, 0.9) 100%)',
+                          }}
+                        />
+                      </>
+                    ) : (
                       <Box
                         aria-hidden
                         sx={{
                           position: 'absolute',
                           inset: 0,
                           background:
-                            'radial-gradient(circle at 84% 20%, rgba(233, 178, 91, 0.22), transparent 34%), repeating-linear-gradient(128deg, rgba(189, 205, 223, 0.09) 0 6px, transparent 6px 20px)',
+                            'linear-gradient(180deg, rgba(16, 19, 26, 0.96) 0%, rgba(12, 16, 22, 0.94) 100%)',
                         }}
                       />
+                    )}
+
+                    {!isContinueCard && action.imageSrc ? (
+                      <DeferredImage
+                        src={action.imageSrc}
+                        alt=""
+                        rootMargin="0px"
+                        objectFit="contain"
+                        objectPosition="right bottom"
+                        sx={{
+                          inset: 'auto',
+                          right: { xs: 0, md: 4 },
+                          bottom: { xs: -4, md: -2 },
+                          width: { xs: 114, md: 124 },
+                          height: { xs: 114, md: 124 },
+                        }}
+                        imgSx={{ opacity: 1 }}
+                      />
                     ) : null}
+
+                    <Stack
+                      spacing={1}
+                      sx={{
+                        position: 'relative',
+                        zIndex: 1,
+                        width: '100%',
+                        minHeight: '100%',
+                        p: 1.45,
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Stack spacing={1}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                          <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
+                            <Box
+                              sx={{
+                                width: 26,
+                                height: 26,
+                                display: 'grid',
+                                placeItems: 'center',
+                                flexShrink: 0,
+                                color: APP_TEXT_PRIMARY,
+                              }}
+                            >
+                              <ThemedSvgIcon markup={action.iconMarkup} size={18} />
+                            </Box>
+                            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 900, lineHeight: 1.05 }}>
+                              {action.title}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+
+                        <Typography
+                          sx={{
+                            color: hasContinueCover ? 'rgba(235, 242, 251, 0.9)' : APP_TEXT_SECONDARY,
+                            fontSize: '0.9rem',
+                            lineHeight: 1.45,
+                            maxWidth: isContinueCard ? '100%' : '66%',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 3,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {action.description}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                  </ButtonBase>
+                )
+              })}
+            </Box>
+
+            <Box
+              sx={{
+                display: 'grid',
+                gap: 1.25,
+                gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.7fr) minmax(310px, 1fr)' },
+              }}
+            >
+              <Box
+                sx={{
+                  position: 'relative',
+                  overflow: 'hidden',
+                  minHeight: { xs: 290, md: 330 },
+                  borderRadius: '20px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  background: APP_CARD_BACKGROUND,
+                  boxShadow: '0 28px 44px rgba(0, 0, 0, 0.24)',
+                }}
+              >
+                {isDashboardNewsLoading && dashboardNews.length === 0 ? (
+                  <Stack spacing={1.2} sx={{ p: { xs: 1.5, md: 1.8 } }}>
+                    <Skeleton variant="rectangular" height={190} sx={{ borderRadius: '16px', bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
+                    <Skeleton variant="text" width="22%" height={18} sx={{ bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
+                    <Skeleton variant="text" width="52%" height={42} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                    <Skeleton variant="text" width="94%" height={26} sx={{ bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
+                    <Skeleton variant="text" width="26%" height={18} sx={{ bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
+                  </Stack>
+                ) : selectedDashboardNews ? (
+                  <>
                     <Box
                       aria-hidden
                       sx={{
                         position: 'absolute',
                         inset: 0,
                         background:
-                          'linear-gradient(180deg, rgba(4, 7, 11, 0.32) 0%, rgba(4, 7, 11, 0.56) 54%, rgba(4, 7, 11, 0.8) 100%)',
+                          'radial-gradient(circle at 18% 20%, rgba(88, 146, 233, 0.16), transparent 30%), linear-gradient(180deg, rgba(12, 16, 23, 0.94) 0%, rgba(9, 13, 19, 0.98) 100%)',
                       }}
                     />
-                    {!hasDashboardLastPlayedGame ? (
-                      <Box
-                        aria-hidden
-                        sx={{
-                          position: 'absolute',
-                          right: -82,
-                          top: -88,
-                          width: 320,
-                          height: 320,
-                          borderRadius: '50%',
-                          background: 'radial-gradient(circle, rgba(214, 158, 74, 0.22) 0%, rgba(214, 158, 74, 0) 68%)',
-                        }}
-                      />
-                    ) : null}
-
-                    <Stack spacing={1.05} sx={{ position: 'relative', zIndex: 1, maxWidth: { xs: '100%', lg: 560 } }}>
-                      {!hasDashboardLastPlayedGame ? (
-                        <Typography sx={{ color: APP_TEXT_SECONDARY, letterSpacing: '0.08em', fontWeight: 700, fontSize: '0.78rem' }}>
-                          WELCOME
+                    <DeferredImage
+                      src={selectedDashboardNewsImage}
+                      alt=""
+                      rootMargin="0px"
+                      objectFit="cover"
+                      objectPosition="center"
+                      imgSx={{ opacity: 0.94 }}
+                    />
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        background:
+                          'linear-gradient(180deg, rgba(8, 12, 18, 0.18) 0%, rgba(8, 12, 18, 0.42) 36%, rgba(8, 12, 18, 0.92) 100%)',
+                      }}
+                    />
+                    <Stack
+                      spacing={1}
+                      justifyContent="flex-end"
+                      sx={{
+                        position: 'relative',
+                        zIndex: 1,
+                        width: '100%',
+                        minHeight: '100%',
+                        p: { xs: 1.6, md: 1.9 },
+                      }}
+                    >
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                        <Typography sx={{ color: 'rgba(233, 240, 249, 0.78)', fontSize: '0.82rem', fontWeight: 800, letterSpacing: '0.04em' }}>
+                          {selectedDashboardNews.category}
                         </Typography>
-                      ) : null}
-                      <Typography sx={{ fontSize: { xs: '1.74rem', md: '2.38rem' }, fontWeight: 800, lineHeight: 1.14, color: APP_TEXT_PRIMARY }}>
-                        {dashboardHeroTitle}
+                        <Typography sx={{ color: 'rgba(226, 235, 246, 0.68)', fontSize: '0.82rem' }}>
+                          {selectedDashboardNews.date_label}
+                        </Typography>
+                      </Stack>
+                      <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '1.8rem', md: '2.2rem' }, fontWeight: 900, lineHeight: 1.04, maxWidth: 640 }}>
+                        {selectedDashboardNews.title}
                       </Typography>
                       <Typography
                         sx={{
-                          color: APP_TEXT_SECONDARY,
-                          fontSize: { xs: '1rem', md: '1.06rem' },
-                          lineHeight: 1.46,
-                          ...(hasDashboardLastPlayedGame
-                            ? {
-                                display: '-webkit-box',
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                              }
-                            : {}),
+                          color: 'rgba(232, 239, 248, 0.86)',
+                          fontSize: { xs: '0.94rem', md: '1rem' },
+                          lineHeight: 1.55,
+                          maxWidth: 640,
+                          whiteSpace: 'pre-line',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 4,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
                         }}
                       >
-                        {dashboardHeroDescription}
+                        {selectedDashboardNews.description}
                       </Typography>
-                      <Button
-                        onClick={() => void handleDashboardContinue()}
-                        disabled={isDashboardDataLoading || isDashboardContinueResolving}
-                        sx={{
-                          mt: 0.6,
-                          minHeight: 46,
-                          maxWidth: 236,
-                          borderRadius: '12px',
-                          textTransform: 'none',
-                          fontWeight: 800,
-                          color: APP_TEXT_PRIMARY,
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_BUTTON_ACTIVE,
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {dashboardHeroButtonLabel}
-                      </Button>
+                      {isDashboardNewsEditor ? (
+                        <Box sx={{ pt: 0.35 }}>
+                          <Button
+                            onClick={handleOpenDashboardNewsEditor}
+                            sx={{
+                              minHeight: 38,
+                              width: 'fit-content',
+                              px: 1.2,
+                              borderRadius: '12px',
+                              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                              backgroundColor: 'rgba(10, 15, 22, 0.54)',
+                              color: APP_TEXT_PRIMARY,
+                              textTransform: 'none',
+                              fontWeight: 700,
+                              '&:hover': {
+                                backgroundColor: 'rgba(14, 20, 28, 0.7)',
+                              },
+                            }}
+                          >
+                            Редактировать новость
+                          </Button>
+                        </Box>
+                      ) : null}
                     </Stack>
                   </>
+                ) : (
+                  <Stack spacing={0.6} sx={{ p: 1.6 }}>
+                    <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.15rem', fontWeight: 800 }}>Новостей пока нет</Typography>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY }}>
+                      Как только появятся обновления, они будут показаны здесь.
+                    </Typography>
+                  </Stack>
                 )}
               </Box>
 
               <Stack spacing={1.05}>
-                {isDashboardDataLoading
-                  ? HOME_NEWS_SKELETON_KEYS.map((itemKey) => (
-                      <Box
-                        key={itemKey}
-                        sx={{
-                          width: '100%',
-                          minHeight: 112,
-                          borderRadius: 'var(--morius-radius)',
-                          p: 1.3,
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          background: APP_CARD_BACKGROUND,
-                        }}
-                      >
-                        <Stack spacing={0.58}>
-                          <Skeleton variant="text" width="26%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                          <Skeleton variant="text" width="78%" height={30} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                          <Skeleton variant="text" width="92%" height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                          <Skeleton variant="text" width="84%" height={24} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                          <Skeleton variant="text" width="34%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                        </Stack>
-                      </Box>
-                    ))
-                  : DASHBOARD_NEWS.map((item) => (
-                      <Button
-                        key={item.id}
-                        onClick={() => handleOpenNewsDetails(item)}
-                        sx={{
-                          width: '100%',
-                          justifyContent: 'flex-start',
-                          minHeight: 112,
-                          borderRadius: 'var(--morius-radius)',
-                          p: 1.3,
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          background: APP_CARD_BACKGROUND,
-                          textTransform: 'none',
-                          textAlign: 'left',
-                          alignItems: 'flex-start',
-                        }}
-                      >
-                        <Stack spacing={0.42}>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-                            {item.category}
-                          </Typography>
-                          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 700, lineHeight: 1.2 }}>
-                            {item.title}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              color: APP_TEXT_SECONDARY,
-                              fontSize: '0.9rem',
-                              lineHeight: 1.4,
-                              display: '-webkit-box',
-                              WebkitLineClamp: 2,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {item.description}
-                          </Typography>
-                          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem' }}>{item.dateLabel}</Typography>
-                        </Stack>
-                      </Button>
-                    ))}
-              </Stack>
-            </Box>
-          ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.2,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
-                mb: 2.4,
-              }}
-            >
-              {DASHBOARD_NEWS.map((item) => (
-                <Box
-                  key={item.id}
+                {dashboardNewsError ? (
+                  <Alert severity="error" sx={{ borderRadius: '16px' }}>
+                    {dashboardNewsError}
+                  </Alert>
+                ) : null}
+
+                <Stack
+                  direction={{ xs: 'row', xl: 'column' }}
+                  spacing={1.05}
                   sx={{
-                    borderRadius: 'var(--morius-radius)',
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 56%, transparent)',
-                    background: 'linear-gradient(166deg, rgba(20, 27, 37, 0.9), rgba(13, 18, 25, 0.95))',
-                    p: 1.4,
-                    minHeight: 182,
-                    boxShadow: '0 14px 28px rgba(0, 0, 0, 0.24)',
+                    overflowX: { xs: 'auto', xl: 'visible' },
+                    overflowY: 'visible',
+                    pb: { xs: 0.2, xl: 0 },
+                    pr: { xs: 0.2, xl: 0 },
+                    scrollSnapType: { xs: 'x proximity', xl: 'none' },
                   }}
                 >
-                  <Stack spacing={0.5}>
-                    <Typography sx={{ color: 'rgba(179, 194, 214, 0.72)', fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-                      {item.category}
-                    </Typography>
-                    <Typography sx={{ color: '#e6edf8', fontSize: '1.1rem', fontWeight: 800, lineHeight: 1.2 }}>{item.title}</Typography>
-                    <Typography sx={{ color: 'rgba(198, 210, 227, 0.82)', fontSize: '0.94rem', lineHeight: 1.45 }}>
-                      {item.description}
-                    </Typography>
-                    <Typography sx={{ mt: 0.5, color: 'rgba(165, 178, 198, 0.72)', fontSize: '0.8rem' }}>{item.dateLabel}</Typography>
-                  </Stack>
-                </Box>
-              ))}
+                  {isDashboardNewsLoading && dashboardNews.length === 0
+                    ? HOME_NEWS_SKELETON_KEYS.map((itemKey) => (
+                        <Box
+                          key={itemKey}
+                          sx={{
+                            width: { xs: 280, xl: '100%' },
+                            minWidth: { xs: 280, xl: 0 },
+                            minHeight: 96,
+                            borderRadius: '18px',
+                            p: 1.25,
+                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                            background: APP_CARD_BACKGROUND,
+                          }}
+                        >
+                          <Stack spacing={0.55}>
+                            <Skeleton variant="text" width="34%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
+                            <Skeleton variant="text" width="76%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
+                            <Skeleton variant="text" width="90%" height={22} sx={{ bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
+                          </Stack>
+                        </Box>
+                      ))
+                    : dashboardNews.map((item) => {
+                        const isSelected = item.id === selectedDashboardNews?.id
+                        return (
+                          <ButtonBase
+                            key={item.id}
+                            onClick={() => setSelectedDashboardNewsId(item.id)}
+                            sx={{
+                              width: { xs: 280, xl: '100%' },
+                              minWidth: { xs: 280, xl: 0 },
+                              minHeight: 104,
+                              justifyContent: 'flex-start',
+                              alignItems: 'stretch',
+                              textAlign: 'left',
+                              borderRadius: '18px',
+                              p: 1.25,
+                              border: `var(--morius-border-width) solid ${
+                                isSelected ? 'color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))' : APP_BORDER_COLOR
+                              }`,
+                              background: isSelected
+                                ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))'
+                                : APP_CARD_BACKGROUND,
+                              scrollSnapAlign: { xs: 'start', xl: 'none' },
+                              '&:hover': {
+                                backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                                borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                              },
+                            }}
+                          >
+                            <Stack spacing={0.46}>
+                              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.76rem', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                                {item.category}
+                              </Typography>
+                              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 800 }}>
+                                {item.title}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  color: APP_TEXT_SECONDARY,
+                                  fontSize: '0.88rem',
+                                  lineHeight: 1.42,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {item.description}
+                              </Typography>
+                            </Stack>
+                          </ButtonBase>
+                        )
+                      })}
+                </Stack>
+              </Stack>
             </Box>
-          )}
+          </Box>
 
           <Box data-tour-id="home-community-section" sx={{ scrollMarginTop: '120px' }}>
             <Stack
@@ -1214,7 +1508,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
               </Alert>
             ) : null}
 
-            {isCommunityWorldsLoading ? (
+            {isCommunityWorldsLoading && communityWorlds.length === 0 ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -1357,41 +1651,85 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         </Box>
       </Box>
 
+      <QuickStartWizardDialog
+        open={isQuickStartDialogOpen}
+        authToken={authToken}
+        onClose={() => setIsQuickStartDialogOpen(false)}
+        onStarted={handleQuickStartStarted}
+      />
+
       <BaseDialog
-        open={selectedNewsItem !== null}
-        onClose={handleCloseNewsDetails}
+        open={isDashboardNewsEditorOpen}
+        onClose={handleCloseDashboardNewsEditor}
         maxWidth="sm"
         transitionComponent={DialogTransition}
-        paperSx={{
-          borderRadius: 'var(--morius-radius)',
-          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          background: APP_CARD_BACKGROUND,
-          boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
-          animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
-        }}
-        rawChildren
+        header={
+          <Stack spacing={0.35}>
+            <Typography sx={{ fontSize: '1.2rem', fontWeight: 900 }}>Редактировать новость</Typography>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>
+              Изменения увидят все игроки сразу после сохранения.
+            </Typography>
+          </Stack>
+        }
+        actions={
+          <>
+            <Button onClick={handleCloseDashboardNewsEditor} disabled={isDashboardNewsSaving} sx={{ color: APP_TEXT_SECONDARY }}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => void handleSaveDashboardNews()}
+              disabled={isDashboardNewsSaving}
+              sx={{
+                minHeight: 40,
+                borderRadius: '12px',
+                px: 1.4,
+                backgroundColor: 'var(--morius-button-active)',
+                color: 'var(--morius-text-primary)',
+                '&:hover': {
+                  backgroundColor: 'var(--morius-button-hover)',
+                },
+              }}
+            >
+              {isDashboardNewsSaving ? 'Сохраняем...' : 'Сохранить'}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle sx={{ pb: 0.8 }}>
-          <Stack spacing={0.4}>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-              {selectedNewsItem?.category}
-            </Typography>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.6rem', lineHeight: 1.2 }}>{selectedNewsItem?.title}</Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ pt: 0.8, overflowX: 'hidden' }}>
-          <Stack spacing={1.2}>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', lineHeight: 1.6 }}>
-              {selectedNewsItem?.description}
-            </Typography>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.88rem' }}>{selectedNewsItem?.dateLabel}</Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2 }}>
-          <Button onClick={handleCloseNewsDetails} sx={{ color: APP_TEXT_SECONDARY }}>
-            Закрыть
-          </Button>
-        </DialogActions>
+        <Stack spacing={1.1}>
+          {dashboardNewsEditorError ? <Alert severity="error">{dashboardNewsEditorError}</Alert> : null}
+          <TextField
+            label="Категория"
+            value={dashboardNewsDraft.category}
+            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, category: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Заголовок"
+            value={dashboardNewsDraft.title}
+            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, title: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Дата"
+            value={dashboardNewsDraft.date_label}
+            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, date_label: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="URL изображения"
+            value={dashboardNewsDraft.image_url}
+            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, image_url: event.target.value }))}
+            fullWidth
+          />
+          <TextField
+            label="Текст"
+            value={dashboardNewsDraft.description}
+            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, description: event.target.value }))}
+            fullWidth
+            multiline
+            minRows={5}
+          />
+        </Stack>
       </BaseDialog>
 
       <CommunityWorldDialog
@@ -1436,6 +1774,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onOpenInstructionTemplates={handleOpenInstructionTemplateDialog}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
+        onUserUpdate={onUserUpdate}
       />
 
       <TopUpDialog
@@ -1538,14 +1877,6 @@ function clampCoverPosition(rawValue: number): number {
   return Math.max(0, Math.min(rawValue, 100))
 }
 
-function buildDashboardGameTitle(game: StoryGameSummary): string {
-  const normalizedTitle = game.title.replace(/\s+/g, ' ').trim()
-  if (normalizedTitle.length > 0) {
-    return normalizedTitle
-  }
-  return `Игра #${game.id}`
-}
-
 function buildDashboardGameDescription(game: StoryGameSummary): string {
   const descriptionSource = (game.description || game.opening_scene || '').replace(/\s+/g, ' ').trim()
   if (!descriptionSource) {
@@ -1555,6 +1886,5 @@ function buildDashboardGameDescription(game: StoryGameSummary): string {
 }
 
 export default AuthenticatedHomePage
-
 
 

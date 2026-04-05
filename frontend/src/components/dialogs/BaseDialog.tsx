@@ -1,4 +1,4 @@
-import { Dialog, DialogActions, DialogContent, DialogTitle, type DialogProps, type SxProps, type Theme } from '@mui/material'
+import { Dialog, DialogActions, DialogContent, DialogTitle, IconButton, SvgIcon, type DialogProps, type SxProps, type Theme } from '@mui/material'
 import type { ReactNode } from 'react'
 
 type BaseDialogProps = {
@@ -16,6 +16,7 @@ type BaseDialogProps = {
   titleSx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
   actionsSx?: SxProps<Theme>
+  showCloseButton?: boolean
 }
 
 const defaultPaperSx = {
@@ -65,6 +66,7 @@ function BaseDialog({
   titleSx,
   contentSx,
   actionsSx,
+  showCloseButton = true,
 }: BaseDialogProps) {
   const mergedPaperSx = paperSx ? ([defaultPaperSx, paperSx] as SxProps<Theme>) : defaultPaperSx
   const mergedTitleSx = titleSx ? ([defaultTitleSx, titleSx] as SxProps<Theme>) : defaultTitleSx
@@ -79,9 +81,52 @@ function BaseDialog({
       maxWidth={maxWidth}
       fullWidth={fullWidth}
       TransitionComponent={transitionComponent}
+      sx={{
+        '& .MuiButton-root': {
+          border: 'none !important',
+          backgroundColor: 'transparent !important',
+          boxShadow: 'none !important',
+        },
+        '& .MuiButton-root:hover, & .MuiButton-root:active, & .MuiButton-root.Mui-focusVisible': {
+          backgroundColor: 'transparent !important',
+          boxShadow: 'none !important',
+        },
+        '& .MuiIconButton-root': {
+          border: 'none !important',
+          backgroundColor: 'transparent !important',
+          boxShadow: 'none !important',
+        },
+        '& .MuiIconButton-root:hover, & .MuiIconButton-root:active, & .MuiIconButton-root.Mui-focusVisible': {
+          backgroundColor: 'transparent !important',
+          boxShadow: 'none !important',
+        },
+      }}
       BackdropProps={backdropSx ? { sx: backdropSx } : undefined}
       PaperProps={{ sx: mergedPaperSx }}
     >
+      {showCloseButton ? (
+        <IconButton
+          aria-label="Закрыть"
+          onClick={onClose}
+          sx={{
+            position: 'absolute',
+            top: 10,
+            right: 10,
+            zIndex: 2,
+            width: 34,
+            height: 34,
+            borderRadius: '999px',
+            color: 'var(--morius-text-secondary)',
+            '&:hover': {
+              color: 'var(--morius-text-primary)',
+            },
+          }}
+        >
+          <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+            <path d="M6.7 6.7a1 1 0 0 1 1.4 0L12 10.6l3.9-3.9a1 1 0 1 1 1.4 1.4L13.4 12l3.9 3.9a1 1 0 0 1-1.4 1.4L12 13.4l-3.9 3.9a1 1 0 0 1-1.4-1.4l3.9-3.9-3.9-3.9a1 1 0 0 1 0-1.4" fill="currentColor" />
+          </SvgIcon>
+        </IconButton>
+      ) : null}
       {rawChildren ? (
         children
       ) : (

@@ -2,12 +2,20 @@ import type { AuthUser } from './auth'
 
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
+export type StoryPublicationStatus = 'none' | 'pending' | 'approved' | 'rejected'
+export type StoryPublicationState = {
+  status: StoryPublicationStatus
+  requested_at: string | null
+  reviewed_at: string | null
+  reviewer_user_id: number | null
+  rejection_reason: string | null
+}
 export type StoryNarratorModelId =
   | 'z-ai/glm-5'
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-v3.2'
   | 'x-ai/grok-4.1-fast'
-  | 'arcee-ai/trinity-large-preview:free'
+  | 'xiaomi/mimo-v2-flash'
 export type StoryImageModelId =
   | 'black-forest-labs/flux.2-pro'
   | 'bytedance-seed/seedream-4.5'
@@ -50,6 +58,7 @@ export type StoryGameSummary = {
   turn_count: number
   opening_scene: string
   visibility: StoryGameVisibility
+  publication: StoryPublicationState
   age_rating: '6+' | '16+' | '18+'
   genres: string[]
   cover_image_url: string | null
@@ -74,7 +83,12 @@ export type StoryGameSummary = {
   show_gg_thoughts: boolean
   show_npc_thoughts: boolean
   ambient_enabled: boolean
+  environment_enabled?: boolean
   ambient_profile: StoryAmbientProfile | null
+  environment_current_datetime?: string | null
+  environment_current_weather?: Record<string, unknown> | null
+  environment_tomorrow_weather?: Record<string, unknown> | null
+  current_location_label?: string | null
   emotion_visualization_enabled?: boolean
   last_activity_at: string
   created_at: string
@@ -107,6 +121,7 @@ export type StoryInstructionTemplate = {
   title: string
   content: string
   visibility: StoryGameVisibility
+  publication: StoryPublicationState
   source_template_id: number | null
   community_rating_avg: number
   community_rating_count: number
@@ -157,7 +172,7 @@ export type StoryPlotCardEvent = {
   created_at: string
 }
 
-export type StoryMemoryLayer = 'raw' | 'compressed' | 'super' | 'key'
+export type StoryMemoryLayer = 'raw' | 'compressed' | 'super' | 'key' | 'location' | 'weather'
 
 export type StoryMemoryBlock = {
   id: number
@@ -241,6 +256,7 @@ export type StoryCharacter = {
   emotion_prompt_lock?: string | null
   source: StoryCharacterSource
   visibility: StoryGameVisibility
+  publication: StoryPublicationState
   source_character_id: number | null
   community_rating_avg: number
   community_rating_count: number
@@ -296,6 +312,7 @@ export type StoryCommunityInstructionTemplateSummary = {
 export type StoryGamePayload = {
   game: StoryGameSummary
   messages: StoryMessage[]
+  has_older_messages?: boolean
   turn_images: StoryTurnImage[]
   instruction_cards: StoryInstructionCard[]
   plot_cards: StoryPlotCard[]
@@ -333,6 +350,7 @@ export type StoryCommunityWorldSummary = {
 export type StoryCommunityWorldComment = {
   id: number
   world_id: number
+  parent_comment_id?: number | null
   user_id: number
   user_display_name: string
   user_avatar_url: string | null
@@ -374,6 +392,7 @@ export type StoryAmbientProfile = {
 
 export type StoryStreamDonePayload = {
   message: StoryMessage
+  game?: StoryGameSummary
   user?: AuthUser
   turn_cost_tokens?: number
   world_card_events?: StoryWorldCardEvent[]

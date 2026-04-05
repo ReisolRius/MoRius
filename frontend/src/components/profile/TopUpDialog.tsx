@@ -1,5 +1,20 @@
-import { Alert, Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Stack, Typography, type DialogProps } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Stack,
+  Typography,
+  type DialogProps,
+} from '@mui/material'
 import type { CoinTopUpPlan } from '../../services/authApi'
+import chroniclerOrnament from '../../assets/images/topup/chronicler-ornament.svg'
+import putnikRibbon from '../../assets/images/topup/putnik-ribbon.svg'
+import seekerTrail from '../../assets/images/topup/seeker-trail.svg'
 
 type TopUpDialogProps = {
   open: boolean
@@ -10,6 +25,50 @@ type TopUpDialogProps = {
   transitionComponent?: DialogProps['TransitionComponent']
   onClose: () => void
   onPurchasePlan: (planId: string) => void
+}
+
+const PLAN_LOOKUP: Record<
+  string,
+  {
+    title: string
+    accent: string
+    imageSrc: string
+    lines: string[]
+  }
+> = {
+  standard: {
+    title: 'Путник',
+    accent: '#5F93F2',
+    imageSrc: putnikRibbon,
+    lines: [
+      'Солы: 400',
+      'До 15к контекста (~70к символов)',
+      '~ 100 генерируемых картинок',
+      '~ 250 ходов',
+    ],
+  },
+  pro: {
+    title: 'Искатель',
+    accent: '#5DD8BC',
+    imageSrc: seekerTrail,
+    lines: [
+      'Солы: 1300',
+      'До 15к контекста (~70к символов)',
+      '~ 350 генерируемых картинок',
+      '~ 750 ходов',
+    ],
+  },
+  mega: {
+    title: 'Хронист',
+    accent: '#F0B45B',
+    imageSrc: chroniclerOrnament,
+    lines: [
+      'Солы: 3500',
+      'До 15к контекста (~70к символов)',
+      '~ 900 генерируемых картинок',
+      '~ 2700 ходов',
+    ],
+  },
 }
 
 function TopUpDialog({
@@ -26,23 +85,23 @@ function TopUpDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="md"
+      maxWidth="lg"
       fullWidth
       TransitionComponent={transitionComponent}
       PaperProps={{
         sx: {
-          borderRadius: 'var(--morius-radius)',
+          borderRadius: '18px',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: '#111111',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         },
       }}
     >
-      <DialogTitle sx={{ pb: 0.8 }}>
-        <Typography sx={{ fontWeight: 700, fontSize: '1.55rem' }}>Пополнение солов</Typography>
-        <Typography sx={{ color: 'text.secondary', mt: 0.6 }}>
-          Выберите пакет и нажмите «Купить», чтобы перейти к оплате.
+      <DialogTitle sx={{ pb: 1 }}>
+        <Typography sx={{ fontWeight: 900, fontSize: '2rem' }}>Пакеты солов</Typography>
+        <Typography sx={{ color: 'var(--morius-text-secondary)', mt: 0.4 }}>
+          Выберите пакет и перейдите к оплате.
         </Typography>
       </DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
@@ -56,54 +115,92 @@ function TopUpDialog({
             <Box
               sx={{
                 display: 'grid',
-                gap: 1.6,
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                gap: 1.8,
+                gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, minmax(0, 1fr))' },
               }}
             >
               {topUpPlans.map((plan) => {
                 const isBuying = activePlanPurchaseId === plan.id
+                const card = PLAN_LOOKUP[plan.id] ?? PLAN_LOOKUP.standard
                 return (
                   <Box
                     key={plan.id}
                     sx={{
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                      background: 'var(--morius-card-bg)',
-                      px: 2,
-                      py: 2,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      minHeight: 210,
+                      borderRadius: '18px',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: '#171716',
+                      overflow: 'hidden',
+                      minHeight: 410,
+                      display: 'grid',
+                      gridTemplateRows: '80px minmax(0, 1fr) auto',
                     }}
                   >
-                    <Stack spacing={0.7}>
-                      <Typography sx={{ fontSize: '1.05rem', fontWeight: 700 }}>{plan.title}</Typography>
-                      <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--morius-text-primary)' }}>
-                        {plan.price_rub} ₽
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>{plan.description}</Typography>
-                      <Typography sx={{ fontSize: '0.95rem', color: 'text.secondary' }}>
-                        +{plan.coins.toLocaleString('ru-RU')} солов
-                      </Typography>
-                    </Stack>
-                    <Button
-                      variant="contained"
-                      disabled={Boolean(activePlanPurchaseId)}
-                      onClick={() => onPurchasePlan(plan.id)}
+                    <Box
                       sx={{
-                        mt: 2,
-                        minHeight: 40,
-                        borderRadius: 'var(--morius-radius)',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: 'var(--morius-button-active)',
-                        color: 'var(--morius-text-primary)',
-                        fontWeight: 700,
-                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                        px: 2.2,
+                        py: 1.6,
+                        background: card.accent,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1,
+                        overflow: 'hidden',
                       }}
                     >
-                      {isBuying ? <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} /> : 'Купить'}
-                    </Button>
+                      <Typography sx={{ fontWeight: 900, fontSize: '1.7rem', color: '#111111', position: 'relative', zIndex: 1 }}>
+                        {card.title}
+                      </Typography>
+                      <Box
+                        component="img"
+                        src={card.imageSrc}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        sx={{
+                          width: { xs: 112, md: 136 },
+                          height: 72,
+                          objectFit: 'contain',
+                          mr: -1.4,
+                          mt: -0.6,
+                          flexShrink: 0,
+                        }}
+                      />
+                    </Box>
+
+                    <Stack spacing={0.9} sx={{ px: 2.2, py: 2.2 }}>
+                      <Typography sx={{ fontWeight: 900, fontSize: '3rem', lineHeight: 1, color: '#FFFFFF' }}>
+                        {plan.price_rub} ₽
+                      </Typography>
+                      {card.lines.map((line) => (
+                        <Typography key={`${plan.id}-${line}`} sx={{ color: 'rgba(255,255,255,0.78)', fontSize: '1.02rem' }}>
+                          {line}
+                        </Typography>
+                      ))}
+                    </Stack>
+
+                    <Box sx={{ px: 2.2, pb: 2.2 }}>
+                      <Button
+                        variant="contained"
+                        disabled={Boolean(activePlanPurchaseId)}
+                        onClick={() => onPurchasePlan(plan.id)}
+                        sx={{
+                          width: '100%',
+                          minHeight: 48,
+                          borderRadius: '14px',
+                          border: 'none',
+                          backgroundColor: card.accent,
+                          color: '#FFFFFF',
+                          fontWeight: 800,
+                          fontSize: '1.02rem',
+                          '&:hover': {
+                            backgroundColor: 'transparent',
+                            color: card.accent,
+                          },
+                        }}
+                      >
+                        {isBuying ? <CircularProgress size={18} sx={{ color: '#FFFFFF' }} /> : 'Купить'}
+                      </Button>
+                    </Box>
                   </Box>
                 )
               })}
@@ -112,7 +209,7 @@ function TopUpDialog({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.4 }}>
-        <Button onClick={onClose} sx={{ color: 'text.secondary' }}>
+        <Button onClick={onClose} sx={{ color: 'var(--morius-text-secondary)' }}>
           Назад
         </Button>
       </DialogActions>

@@ -7,8 +7,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
+from pydantic import BaseModel, Field
+try:
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+except Exception:  # pragma: no cover - optional fallback for partial runtime environments
+    google_requests = None
+    google_id_token = None
 import requests
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -28,8 +33,50 @@ from app.schemas import (
     ProfileUpdateRequest,
     RegisterRequest,
     RegisterVerifyRequest,
+    UserNotificationOut,
+    UserNotificationUnreadCountOut,
     UserOut,
 )
+try:
+    from app.schemas import (
+        DailyRewardDayOut,
+        DailyRewardStatusOut,
+        ThemeSettingsOut,
+        ThemeSettingsUpdateRequest,
+    )
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    class DailyRewardDayOut(BaseModel):
+        day: int
+        amount: int
+        is_claimed: bool
+        is_current: bool
+        is_locked: bool
+
+    class DailyRewardStatusOut(BaseModel):
+        server_time: datetime
+        current_day: int | None
+        claimed_days: int
+        can_claim: bool
+        is_completed: bool
+        next_claim_at: datetime | None
+        last_claimed_at: datetime | None
+        cycle_started_at: datetime | None
+        reward_amount: int | None = None
+        claimed_reward_amount: int | None = None
+        claimed_reward_day: int | None = None
+        days: list[DailyRewardDayOut] = Field(default_factory=list)
+
+    class ThemeSettingsUpdateRequest(BaseModel):
+        active_theme_kind: str | None = None
+        active_theme_id: str | None = None
+        story: dict[str, Any] | None = None
+        custom_themes: list[dict[str, Any]] | None = None
+
+    class ThemeSettingsOut(BaseModel):
+        active_theme_kind: str
+        active_theme_id: str
+        story: dict[str, Any] = Field(default_factory=dict)
+        custom_themes: list[dict[str, Any]] = Field(default_factory=list)
 from app.security import hash_password, verify_password
 from app.services.auth_identity import (
     build_user_name,
@@ -47,6 +94,90 @@ from app.services.auth_identity import (
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
 from app.services.payments import sync_user_pending_purchases
+try:
+    from app.services.daily_rewards import DAILY_REWARD_AMOUNTS, build_daily_reward_status, claim_daily_reward
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    DAILY_REWARD_AMOUNTS = (5, 6, 5, 6, 7, 6, 20)
+
+    class _FallbackDailyRewardStatus:
+        def __init__(self) -> None:
+            self.server_time = _utcnow()
+            self.current_day = 1
+            self.claimed_days = 0
+            self.can_claim = False
+            self.is_completed = False
+            self.next_claim_at = None
+            self.last_claimed_at = None
+            self.cycle_started_at = None
+
+    def build_daily_reward_status(user: User):
+        return _FallbackDailyRewardStatus()
+
+    def claim_daily_reward(db: Session, *, user: User):
+        return None
+
+try:
+    from app.services.theme_settings import read_theme_settings, write_theme_settings
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def read_theme_settings(user: User) -> dict[str, Any]:
+        active_theme_id = str(getattr(user, "active_theme_id", None) or "classic-dark")
+        return {
+            "active_theme_kind": "preset",
+            "active_theme_id": active_theme_id,
+            "story": {},
+            "custom_themes": [],
+        }
+
+    def write_theme_settings(user: User, payload: Any) -> dict[str, Any]:
+        normalized = read_theme_settings(user)
+        if isinstance(payload, dict):
+            active_theme_kind = str(payload.get("active_theme_kind") or "").strip() or normalized["active_theme_kind"]
+            active_theme_id = str(payload.get("active_theme_id") or "").strip() or normalized["active_theme_id"]
+            normalized.update(
+                active_theme_kind=active_theme_kind,
+                active_theme_id=active_theme_id,
+                story=dict(payload.get("story") or normalized["story"]),
+                custom_themes=list(payload.get("custom_themes") or normalized["custom_themes"]),
+            )
+        if hasattr(user, "active_theme_id"):
+            setattr(user, "active_theme_id", normalized["active_theme_id"])
+        return normalized
+
+try:
+    from app.services.notifications import (
+        count_unread_user_notifications,
+        delete_user_notification,
+        list_user_notifications_out,
+        mark_all_user_notifications_read,
+    )
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def count_unread_user_notifications(db: Session, *, user_id: int) -> int:
+        _ = (db, user_id)
+        return 0
+
+    def list_user_notifications_out(
+        db: Session,
+        *,
+        user_id: int,
+        limit: int = 120,
+        offset: int = 0,
+    ) -> list[UserNotificationOut]:
+        _ = (db, user_id, limit, offset)
+        return []
+
+    def mark_all_user_notifications_read(db: Session, *, user_id: int) -> int:
+        _ = (db, user_id)
+        return 0
+
+    def delete_user_notification(
+        db: Session,
+        *,
+        user_id: int,
+        notification_id: int,
+    ) -> bool:
+        _ = (db, user_id, notification_id)
+        return False
+
 from app.services.auth_verification import (
     clear_verification_code_cooldown,
     generate_verification_code,
@@ -160,6 +291,57 @@ def _serialize_onboarding_guide_state(user: User) -> OnboardingGuideStateOut:
         status=state["status"],
         current_step_id=state["current_step_id"],
         tutorial_game_id=state["tutorial_game_id"],
+    )
+
+
+def _serialize_theme_settings(user: User) -> ThemeSettingsOut:
+    settings_payload = read_theme_settings(user)
+    return ThemeSettingsOut(
+        active_theme_kind=str(settings_payload.get("active_theme_kind") or "preset"),
+        active_theme_id=str(settings_payload.get("active_theme_id") or "classic-dark"),
+        story=dict(settings_payload.get("story") or {}),
+        custom_themes=list(settings_payload.get("custom_themes") or []),
+    )
+
+
+def _serialize_daily_reward_status(
+    user: User,
+    *,
+    claimed_reward_amount: int | None = None,
+    claimed_reward_day: int | None = None,
+) -> DailyRewardStatusOut:
+    status_payload = build_daily_reward_status(user)
+    days: list[DailyRewardDayOut] = []
+    current_day = status_payload.current_day
+    for index, amount in enumerate(DAILY_REWARD_AMOUNTS, start=1):
+        is_claimed = index <= int(status_payload.claimed_days)
+        days.append(
+            DailyRewardDayOut(
+                day=index,
+                amount=int(amount),
+                is_claimed=is_claimed,
+                is_current=bool(current_day == index),
+                is_locked=not is_claimed and current_day is not None and index > current_day,
+            )
+        )
+
+    reward_amount = None
+    if current_day is not None and 1 <= current_day <= len(DAILY_REWARD_AMOUNTS):
+        reward_amount = int(DAILY_REWARD_AMOUNTS[current_day - 1])
+
+    return DailyRewardStatusOut(
+        server_time=status_payload.server_time,
+        current_day=status_payload.current_day,
+        claimed_days=int(status_payload.claimed_days),
+        can_claim=bool(status_payload.can_claim),
+        is_completed=bool(status_payload.is_completed),
+        next_claim_at=status_payload.next_claim_at,
+        last_claimed_at=status_payload.last_claimed_at,
+        cycle_started_at=status_payload.cycle_started_at,
+        reward_amount=reward_amount,
+        claimed_reward_amount=claimed_reward_amount,
+        claimed_reward_day=claimed_reward_day,
+        days=days,
     )
 
 
@@ -393,17 +575,20 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
 
     token_data: dict[str, Any] | None = None
     verification_errors: list[str] = []
-    try:
-        token_data = google_id_token.verify_oauth2_token(
-            normalized_id_token,
-            google_requests.Request(),
-            audience=None,
-        )
-    except ValueError as exc:
-        verification_errors.append(f"sdk_value_error={exc}")
-    except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
-        logger.exception("Google token verification failed via sdk, trying fallbacks")
-        verification_errors.append(f"sdk_error={exc}")
+    if google_id_token is not None and google_requests is not None:
+        try:
+            token_data = google_id_token.verify_oauth2_token(
+                normalized_id_token,
+                google_requests.Request(),
+                audience=None,
+            )
+        except ValueError as exc:
+            verification_errors.append(f"sdk_value_error={exc}")
+        except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
+            logger.exception("Google token verification failed via sdk, trying fallbacks")
+            verification_errors.append(f"sdk_error={exc}")
+    else:
+        verification_errors.append("sdk_unavailable")
 
     if token_data is None:
         try:
@@ -629,7 +814,126 @@ def update_profile(
         user.display_name = normalize_profile_display_name(payload.display_name or "")
     if "profile_description" in payload.model_fields_set:
         user.profile_description = normalize_profile_description(payload.profile_description)
+    if "notifications_enabled" in payload.model_fields_set:
+        user.notifications_enabled = bool(payload.notifications_enabled)
+    if "notify_comment_reply" in payload.model_fields_set:
+        user.notify_comment_reply = bool(payload.notify_comment_reply)
+    if "notify_world_comment" in payload.model_fields_set:
+        user.notify_world_comment = bool(payload.notify_world_comment)
+    if "notify_publication_review" in payload.model_fields_set:
+        user.notify_publication_review = bool(payload.notify_publication_review)
+    if "notify_new_follower" in payload.model_fields_set:
+        user.notify_new_follower = bool(payload.notify_new_follower)
+    if "notify_moderation_report" in payload.model_fields_set:
+        user.notify_moderation_report = bool(payload.notify_moderation_report)
+    if "notify_moderation_queue" in payload.model_fields_set:
+        user.notify_moderation_queue = bool(payload.notify_moderation_queue)
+    if "email_notifications_enabled" in payload.model_fields_set:
+        user.email_notifications_enabled = bool(payload.email_notifications_enabled)
 
     db.commit()
     db.refresh(user)
     return UserOut.model_validate(user)
+
+
+@router.get("/api/auth/me/notifications", response_model=list[UserNotificationOut])
+def get_my_notifications(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[UserNotificationOut]:
+    user = get_current_user(db, authorization)
+    return list_user_notifications_out(db, user_id=int(user.id))
+
+
+@router.get("/api/auth/me/notifications/unread-count", response_model=UserNotificationUnreadCountOut)
+def get_my_notification_unread_count(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserNotificationUnreadCountOut:
+    user = get_current_user(db, authorization)
+    return UserNotificationUnreadCountOut(
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id))
+    )
+
+
+@router.post("/api/auth/me/notifications/read-all", response_model=UserNotificationUnreadCountOut)
+def read_all_my_notifications(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserNotificationUnreadCountOut:
+    user = get_current_user(db, authorization)
+    mark_all_user_notifications_read(db, user_id=int(user.id))
+    db.commit()
+    return UserNotificationUnreadCountOut(unread_count=0)
+
+
+@router.delete("/api/auth/me/notifications/{notification_id}", response_model=UserNotificationUnreadCountOut)
+def remove_my_notification(
+    notification_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserNotificationUnreadCountOut:
+    user = get_current_user(db, authorization)
+    deleted = delete_user_notification(
+        db,
+        user_id=int(user.id),
+        notification_id=int(notification_id),
+    )
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
+    db.commit()
+    return UserNotificationUnreadCountOut(
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id))
+    )
+
+
+@router.get("/api/auth/me/daily-rewards", response_model=DailyRewardStatusOut)
+def get_my_daily_rewards(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> DailyRewardStatusOut:
+    user = get_current_user(db, authorization)
+    return _serialize_daily_reward_status(user)
+
+
+@router.post("/api/auth/me/daily-rewards/claim", response_model=DailyRewardStatusOut)
+def claim_my_daily_reward(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> DailyRewardStatusOut:
+    user = get_current_user(db, authorization)
+    reward_grant = claim_daily_reward(db, user=user)
+    if reward_grant is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Daily reward is not available yet",
+        )
+    db.commit()
+    db.refresh(user)
+    return _serialize_daily_reward_status(
+        user,
+        claimed_reward_amount=int(reward_grant.reward_amount),
+        claimed_reward_day=int(reward_grant.reward_day),
+    )
+
+
+@router.get("/api/auth/me/theme-settings", response_model=ThemeSettingsOut)
+def get_my_theme_settings(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ThemeSettingsOut:
+    user = get_current_user(db, authorization)
+    return _serialize_theme_settings(user)
+
+
+@router.put("/api/auth/me/theme-settings", response_model=ThemeSettingsOut)
+def update_my_theme_settings(
+    payload: ThemeSettingsUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> ThemeSettingsOut:
+    user = get_current_user(db, authorization)
+    write_theme_settings(user, payload.model_dump(exclude_none=True))
+    db.commit()
+    db.refresh(user)
+    return _serialize_theme_settings(user)

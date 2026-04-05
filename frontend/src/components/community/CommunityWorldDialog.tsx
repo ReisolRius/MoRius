@@ -20,6 +20,8 @@ import { icons } from '../../assets'
 import type { StoryCommunityWorldReportReason } from '../../services/storyApi'
 import type { StoryCommunityWorldComment, StoryCommunityWorldPayload } from '../../types/story'
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
+import DeferredImage from '../media/DeferredImage'
+import ProgressiveAvatar from '../media/ProgressiveAvatar'
 import TextLimitIndicator from '../TextLimitIndicator'
 import BaseDialog from '../dialogs/BaseDialog'
 
@@ -137,18 +139,6 @@ function isCommentEdited(comment: StoryCommunityWorldComment): boolean {
     return false
   }
   return updatedAt - createdAt >= 1000
-}
-
-function resolveAuthorInitials(authorName: string): string {
-  const cleaned = authorName.trim()
-  if (!cleaned) {
-    return '??'
-  }
-  const parts = cleaned.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) {
-    return parts[0].slice(0, 1).toUpperCase()
-  }
-  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
 }
 
 async function copyTextToClipboard(value: string): Promise<void> {
@@ -363,7 +353,6 @@ function CommunityWorldDialog({
   }, [worldCardsWithoutMainHero.length, worldPayload])
   const authorName = world?.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world?.author_avatar_url ?? null
-  const authorInitials = resolveAuthorInitials(authorName)
   const hasWorldBeenReportedByUser = Boolean(world?.is_reported_by_user)
   const isActionLocked =
     isLaunching || isRatingSaving || isMyGamesToggleSaving || isReportSubmitting || Boolean(moderationControls?.isApplying)
@@ -596,15 +585,15 @@ function CommunityWorldDialog({
                 sx={{
                   position: 'absolute',
                   inset: 0,
-                  ...(world.cover_image_url
-                    ? {
-                        backgroundImage: `url(${world.cover_image_url})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: `${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`,
-                        backgroundRepeat: 'no-repeat',
-                      }
-                    : buildWorldFallbackArtwork(world.id)),
+                  ...buildWorldFallbackArtwork(world.id),
                 }}
+              />
+              <DeferredImage
+                src={world.cover_image_url}
+                alt=""
+                rootMargin="0px"
+                objectFit="cover"
+                objectPosition={`${world.cover_position_x || 50}% ${world.cover_position_y || 50}%`}
               />
               <Box
                 sx={{
@@ -944,7 +933,6 @@ function CommunityWorldDialog({
                           const isEditingComment = editingCommentId === comment.id
                           const isRowPending = commentActionId === comment.id
                           const commentAuthorName = comment.user_display_name.trim() || 'Unknown author'
-                          const commentAuthorInitials = resolveAuthorInitials(commentAuthorName)
                           const authorScale = Math.max(1, Math.min(3, comment.user_avatar_scale || 1))
                           return (
                             <Box
@@ -974,22 +962,20 @@ function CommunityWorldDialog({
                                       flexShrink: 0,
                                     }}
                                   >
-                                    {comment.user_avatar_url ? (
-                                      <Box
-                                        component="img"
-                                        src={comment.user_avatar_url}
-                                        alt={commentAuthorName}
-                                        sx={{
-                                          width: '100%',
-                                          height: '100%',
-                                          objectFit: 'cover',
-                                          transform: `scale(${authorScale})`,
-                                          transformOrigin: 'center center',
-                                        }}
-                                      />
-                                    ) : (
-                                      commentAuthorInitials
-                                    )}
+                                    <ProgressiveAvatar
+                                      src={comment.user_avatar_url}
+                                      alt={commentAuthorName}
+                                      fallbackLabel={commentAuthorName}
+                                      size={34}
+                                      scale={authorScale}
+                                      sx={{
+                                        width: '100%',
+                                        height: '100%',
+                                        color: APP_TEXT_PRIMARY,
+                                        fontWeight: 800,
+                                        fontSize: '0.78rem',
+                                      }}
+                                    />
                                   </Box>
                                   <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.15}>
                                     <Typography
@@ -1213,11 +1199,19 @@ function CommunityWorldDialog({
                           background: APP_CARD_BACKGROUND,
                         }}
                       >
-                        {authorAvatarUrl ? (
-                          <Box component="img" src={authorAvatarUrl} alt={authorName} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          authorInitials
-                        )}
+                        <ProgressiveAvatar
+                          src={authorAvatarUrl}
+                          alt={authorName}
+                          fallbackLabel={authorName}
+                          size={34}
+                          sx={{
+                            width: '100%',
+                            height: '100%',
+                            color: APP_TEXT_PRIMARY,
+                            fontWeight: 800,
+                            fontSize: '0.84rem',
+                          }}
+                        />
                       </Box>
                       <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: SUBHEADING_FONT_SIZE, fontWeight: 700 }}>
                         {authorName}

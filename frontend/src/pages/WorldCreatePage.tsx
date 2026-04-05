@@ -13,15 +13,22 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
+import TopUpDialog from '../components/profile/TopUpDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
-import UserAvatar from '../components/profile/UserAvatar'
 import ImageCropper from '../components/ImageCropper'
 import TextLimitIndicator from '../components/TextLimitIndicator'
+import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
+import {
+  createCoinTopUpPayment,
+  getCoinTopUpPlans,
+  type CoinTopUpPlan,
+} from '../services/authApi'
 import {
   addCommunityCharacter,
   createStoryCharacter,
@@ -53,6 +60,7 @@ import type {
   StoryWorldCard,
 } from '../types/story'
 import { compressImageDataUrl, compressImageFileToDataUrl } from '../utils/avatar'
+import { resolvePublicationDraftVisibility } from '../utils/publication'
 
 type WorldCreatePageProps = {
   user: AuthUser
@@ -270,17 +278,15 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
 }
 
 function MiniAvatar({ avatarUrl, avatarScale, label, size = 52 }: { avatarUrl: string | null; avatarScale: number; label: string; size?: number }) {
-  if (!avatarUrl) {
-    return (
-      <Box sx={{ width: size, height: size, borderRadius: '50%', display: 'grid', placeItems: 'center', color: APP_TEXT_PRIMARY, fontWeight: 800, flexShrink: 0 }}>
-        {label.trim().charAt(0).toUpperCase() || '•'}
-      </Box>
-    )
-  }
   return (
-    <Box sx={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', flexShrink: 0 }}>
-      <Box component="img" src={avatarUrl} alt={label} sx={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${clamp(avatarScale, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)})`, transformOrigin: 'center center' }} />
-    </Box>
+    <ProgressiveAvatar
+      src={avatarUrl}
+      fallbackLabel={label}
+      alt={label}
+      size={size}
+      scale={clamp(avatarScale, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX)}
+      sx={{ flexShrink: 0 }}
+    />
   )
 }
 
@@ -526,6 +532,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const isMyPublicationsEdit = isEditMode && editSource === 'my-publications'
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
+  const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
+  const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
+  const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
+  const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
+  const [topUpError, setTopUpError] = useState('')
+  const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(Boolean(isEditMode))
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isPublishWithoutMainHeroDialogOpen, setIsPublishWithoutMainHeroDialogOpen] = useState(false)
@@ -883,7 +895,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         setTitle(payload.game.title)
         setDescription(payload.game.description)
         setOpeningScene(payload.game.opening_scene ?? '')
-        setVisibility(payload.game.visibility)
+        setVisibility(resolvePublicationDraftVisibility(payload.game.publication, payload.game.visibility))
         setAgeRating(payload.game.age_rating)
         setGenres(payload.game.genres.slice(0, MAX_WORLD_GENRES))
         setCoverImageUrl(payload.game.cover_image_url)
@@ -1343,10 +1355,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           })
         : coverImageUrl
       const prepareAvatarForRequest = async (avatarUrl: string | null): Promise<string | null> => {
-        if (!avatarUrl || !avatarUrl.startsWith('data:image/')) {
-          return avatarUrl
+        const normalizedAvatarUrl = (avatarUrl ?? '').trim()
+        if (!normalizedAvatarUrl) {
+          return null
         }
-        return compressImageDataUrl(avatarUrl, {
+        if (normalizedAvatarUrl.startsWith('/api/media/')) {
+          return normalizedAvatarUrl
+        }
+        if (/^https?:\/\//i.test(normalizedAvatarUrl)) {
+          return normalizedAvatarUrl
+        }
+        if (!normalizedAvatarUrl.startsWith('data:image/')) {
+          return null
+        }
+        return compressImageDataUrl(normalizedAvatarUrl, {
           maxBytes: CHARACTER_AVATAR_MAX_BYTES,
           maxDimension: 1200,
         })
@@ -1562,6 +1584,63 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
   )
 
+  const handleCloseTopUpDialog = useCallback(() => {
+    setTopUpDialogOpen(false)
+    setTopUpError('')
+    setActivePlanPurchaseId(null)
+  }, [])
+
+  const handleOpenTopUpDialog = useCallback(() => {
+    setTopUpError('')
+    setTopUpDialogOpen(true)
+  }, [])
+
+  const loadTopUpPlans = useCallback(async () => {
+    setIsTopUpPlansLoading(true)
+    setTopUpError('')
+    try {
+      const plans = await getCoinTopUpPlans()
+      setTopUpPlans(plans)
+      setHasTopUpPlansLoaded(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить пакеты солов'
+      setTopUpError(detail)
+    } finally {
+      setIsTopUpPlansLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!topUpDialogOpen || hasTopUpPlansLoaded || isTopUpPlansLoading) {
+      return
+    }
+    void loadTopUpPlans()
+  }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
+
+  const handlePurchaseTopUpPlan = useCallback(
+    async (planId: string) => {
+      setActivePlanPurchaseId(planId)
+      setTopUpError('')
+      try {
+        const response = await createCoinTopUpPayment({
+          token: authToken,
+          plan_id: planId,
+        })
+        const paymentUrl = String(response.confirmation_url || '').trim()
+        if (!paymentUrl) {
+          throw new Error('Платёжная ссылка не получена')
+        }
+        window.location.assign(paymentUrl)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось открыть оплату'
+        setTopUpError(detail)
+      } finally {
+        setActivePlanPurchaseId(null)
+      }
+    },
+    [authToken],
+  )
+
   return (
     <Box sx={{ minHeight: '100svh', color: APP_TEXT_PRIMARY, background: APP_PAGE_BACKGROUND }}>
       <AppHeader
@@ -1582,11 +1661,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         isRightPanelOpen={isHeaderActionsOpen}
         onToggleRightPanel={() => setIsHeaderActionsOpen((p) => !p)}
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
-        onOpenTopUpDialog={() => onNavigate('/profile')}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
         rightActions={
-          <Button data-tour-id="header-profile-button" onClick={() => onNavigate('/profile')} sx={{ minWidth: 0, width: HEADER_AVATAR_SIZE, height: HEADER_AVATAR_SIZE, p: 0, borderRadius: '50%' }}>
-            <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-          </Button>
+          <HeaderAccountActions
+            user={user}
+            authToken={authToken}
+            avatarSize={HEADER_AVATAR_SIZE}
+            onOpenProfile={() => onNavigate('/profile')}
+          />
         }
       />
       <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: 4 }}>
@@ -2600,10 +2682,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           onSave={handleSaveCoverCrop}
         />
       ) : null}
+      <TopUpDialog
+        open={topUpDialogOpen}
+        topUpError={topUpError}
+        isTopUpPlansLoading={isTopUpPlansLoading}
+        topUpPlans={topUpPlans}
+        activePlanPurchaseId={activePlanPurchaseId}
+        onClose={handleCloseTopUpDialog}
+        onPurchasePlan={handlePurchaseTopUpPlan}
+      />
     </Box>
   )
 }
 
 export default WorldCreatePage
-
-

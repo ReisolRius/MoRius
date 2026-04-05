@@ -10,6 +10,7 @@ from app.schemas import (
     StoryCommunityWorldSummaryOut,
     StoryGameSummaryOut,
     StoryInstructionCardOut,
+    StoryPublicationStateOut,
     StoryPlotCardOut,
     StoryWorldCardOut,
 )
@@ -17,6 +18,7 @@ from app.services.media import (
     normalize_avatar_value,
     normalize_media_position,
     normalize_media_scale,
+    resolve_media_display_url,
     validate_avatar_url,
 )
 from app.services.story_characters import (
@@ -42,6 +44,14 @@ from app.services.story_world_cards import (
     serialize_story_world_card_triggers,
     story_world_card_to_out,
 )
+try:
+    from app.services.story_publication_moderation import coerce_story_publication_status
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def coerce_story_publication_status(value: str | None, *, is_public: bool = False) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"none", "pending", "approved", "rejected"}:
+            return normalized
+        return "approved" if is_public else "none"
 
 STORY_DEFAULT_TITLE = "Новая игра"
 STORY_GAME_VISIBILITY_PRIVATE = "private"
@@ -76,7 +86,7 @@ STORY_GAME_GENRE_VALUES = {
     "Повседневность",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 15_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 25_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -90,6 +100,7 @@ STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX = 8_500
 STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX = 10_000
 STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX = 11_500
 STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX = 13_000
+STORY_TURN_COST_STAGE_10_CONTEXT_LIMIT_MAX = 15_000
 STORY_TURN_COST_STAGE_1 = 1
 STORY_TURN_COST_STAGE_2 = 2
 STORY_TURN_COST_STAGE_3 = 3
@@ -100,18 +111,25 @@ STORY_TURN_COST_STAGE_7 = 7
 STORY_TURN_COST_STAGE_8 = 8
 STORY_TURN_COST_STAGE_9 = 9
 STORY_TURN_COST_STAGE_10 = 10
+STORY_TURN_COST_STAGE_11 = 16
+STORY_ENVIRONMENT_TIME_MODE_GROK = "grok"
+STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 20
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
+STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash"
 STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
+STORY_LLM_MODEL_LEGACY_ALIASES = {
+    STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE: STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
+}
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GROK_41_FAST,
-    STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE,
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
@@ -162,6 +180,20 @@ STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+
+
+def _story_publication_state_out(record: StoryGame) -> StoryPublicationStateOut:
+    is_public = coerce_story_game_visibility(getattr(record, "visibility", None)) == STORY_GAME_VISIBILITY_PUBLIC
+    return StoryPublicationStateOut(
+        status=coerce_story_publication_status(
+            getattr(record, "publication_status", None),
+            is_public=is_public,
+        ),
+        requested_at=getattr(record, "publication_requested_at", None),
+        reviewed_at=getattr(record, "publication_reviewed_at", None),
+        reviewer_user_id=getattr(record, "publication_reviewer_user_id", None),
+        rejection_reason=str(getattr(record, "publication_rejection_reason", "") or "").strip() or None,
+    )
 
 
 def coerce_story_game_visibility(value: str | None) -> str:
@@ -331,11 +363,14 @@ def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
         return STORY_TURN_COST_STAGE_8
     if normalized_usage <= STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX:
         return STORY_TURN_COST_STAGE_9
-    return STORY_TURN_COST_STAGE_10
+    if normalized_usage <= STORY_TURN_COST_STAGE_10_CONTEXT_LIMIT_MAX:
+        return STORY_TURN_COST_STAGE_10
+    return STORY_TURN_COST_STAGE_11
 
 
 def coerce_story_llm_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
+    normalized = STORY_LLM_MODEL_LEGACY_ALIASES.get(normalized, normalized)
     if normalized in STORY_SUPPORTED_LLM_MODELS:
         return normalized
     return STORY_DEFAULT_LLM_MODEL
@@ -343,13 +378,14 @@ def coerce_story_llm_model(value: str | None) -> str:
 
 def normalize_story_llm_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
+    normalized = STORY_LLM_MODEL_LEGACY_ALIASES.get(normalized, normalized)
     if normalized not in STORY_SUPPORTED_LLM_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-4.7, deepseek/deepseek-v3.2, "
-                "x-ai/grok-4.1-fast, arcee-ai/trinity-large-preview:free"
+                "x-ai/grok-4.1-fast, xiaomi/mimo-v2-flash"
             ),
         )
     return normalized
@@ -381,9 +417,9 @@ def normalize_story_image_model(value: str | None) -> str:
 
 
 def normalize_story_memory_optimization_enabled(value: bool | None) -> bool:
-    if value is None:
-        return True
-    return bool(value)
+    _ = value
+    # Memory optimization is a mandatory runtime mode.
+    return True
 
 
 def normalize_story_top_k(value: int | None) -> int:
@@ -407,9 +443,8 @@ def normalize_story_temperature(value: float | None) -> float:
 
 
 def normalize_story_show_gg_thoughts(value: bool | None) -> bool:
-    if value is None:
-        return STORY_DEFAULT_SHOW_GG_THOUGHTS
-    return bool(value)
+    _ = value
+    return False
 
 
 def normalize_story_show_npc_thoughts(value: bool | None) -> bool:
@@ -422,6 +457,62 @@ def normalize_story_ambient_enabled(value: bool | None) -> bool:
     if value is None:
         return False
     return bool(value)
+
+
+def normalize_story_environment_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def coerce_story_environment_time_mode(value: str | None) -> str:
+    _ = value
+    return STORY_ENVIRONMENT_TIME_MODE_GROK
+
+
+def normalize_story_environment_turn_step_minutes(value: int | None) -> int:
+    _ = value
+    return STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT
+
+
+def deserialize_story_environment_datetime(raw_value: str | None):
+    normalized = str(raw_value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return __import__("datetime").datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def serialize_story_environment_datetime(value) -> str:
+    if value is None:
+        return ""
+    try:
+        return value.isoformat()
+    except AttributeError:
+        return ""
+
+
+def deserialize_story_environment_weather(raw_value: str | None) -> dict[str, Any] | None:
+    if not raw_value:
+        return None
+    try:
+        parsed = json.loads(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def serialize_story_environment_weather(value: dict[str, Any] | None) -> str:
+    if not isinstance(value, dict):
+        return ""
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return ""
 
 
 def normalize_story_emotion_visualization_enabled(value: bool | None) -> bool:
@@ -484,6 +575,88 @@ def story_game_rating_average(game: StoryGame) -> float:
     return round(rating_sum / rating_count, 2)
 
 
+def _story_environment_clock_time_to_minutes(
+    value: str | None,
+    *,
+    treat_midnight_as_end_of_day: bool = False,
+) -> int | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    try:
+        hours_text, minutes_text = normalized.split(":", 1)
+        hours = int(hours_text)
+        minutes = int(minutes_text)
+    except (TypeError, ValueError):
+        return None
+    if hours < 0 or hours > 23 or minutes < 0 or minutes > 59:
+        return None
+    total_minutes = hours * 60 + minutes
+    if treat_midnight_as_end_of_day and total_minutes == 0:
+        return 24 * 60
+    return total_minutes
+
+
+def resolve_story_environment_current_weather_for_output(
+    game: StoryGame,
+) -> dict[str, Any] | None:
+    current_weather = deserialize_story_environment_weather(
+        getattr(game, "environment_current_weather", None)
+    )
+    current_datetime = deserialize_story_environment_datetime(
+        getattr(game, "environment_current_datetime", None)
+    )
+    if not isinstance(current_weather, dict) or current_datetime is None:
+        return current_weather
+
+    raw_timeline = current_weather.get("timeline")
+    if not isinstance(raw_timeline, list):
+        return current_weather
+
+    timeline_entries = [entry for entry in raw_timeline if isinstance(entry, dict)]
+    if not timeline_entries:
+        return current_weather
+
+    timeline_entries.sort(
+        key=lambda entry: _story_environment_clock_time_to_minutes(entry.get("start_time")) or 0
+    )
+    current_minutes = current_datetime.hour * 60 + current_datetime.minute
+    fallback_entry = timeline_entries[-1]
+    active_entry: dict[str, Any] | None = None
+
+    for entry in timeline_entries:
+        start_minutes = _story_environment_clock_time_to_minutes(entry.get("start_time"))
+        end_minutes = _story_environment_clock_time_to_minutes(
+            entry.get("end_time"),
+            treat_midnight_as_end_of_day=(str(entry.get("start_time") or "").strip() != "00:00"),
+        )
+        if start_minutes is None or end_minutes is None:
+            continue
+        if current_minutes < start_minutes:
+            active_entry = fallback_entry
+            break
+        if start_minutes <= current_minutes < end_minutes:
+            active_entry = entry
+            break
+        fallback_entry = entry
+
+    if active_entry is None:
+        active_entry = fallback_entry
+
+    next_weather = dict(current_weather)
+    summary = str(active_entry.get("summary") or "").strip()
+    if summary:
+        next_weather["summary"] = summary
+    temperature_c = active_entry.get("temperature_c")
+    if isinstance(temperature_c, int):
+        next_weather["temperature_c"] = temperature_c
+    for field_name in ("fog", "humidity", "wind"):
+        field_value = str(active_entry.get(field_name) or "").strip()
+        if field_value:
+            next_weather[field_name] = field_value
+    return next_weather
+
+
 def count_story_completed_turns(messages: list[StoryMessage]) -> int:
     completed_turns = 0
     has_pending_user_turn = False
@@ -505,6 +678,13 @@ def story_game_summary_to_out(
     latest_message_preview: str | None = None,
     turn_count: int = 0,
 ) -> StoryGameSummaryOut:
+    cover_image_url = resolve_media_display_url(
+        getattr(game, "cover_image_url", None),
+        kind="story-game-cover",
+        entity_id=int(game.id),
+        version=getattr(game, "updated_at", None),
+    )
+    current_weather = resolve_story_environment_current_weather_for_output(game)
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
@@ -513,9 +693,10 @@ def story_game_summary_to_out(
         turn_count=max(int(turn_count or 0), 0),
         opening_scene=(game.opening_scene or "").strip(),
         visibility=coerce_story_game_visibility(game.visibility),
+        publication=_story_publication_state_out(game),
         age_rating=coerce_story_game_age_rating(game.age_rating),
         genres=deserialize_story_game_genres(game.genres),
-        cover_image_url=normalize_avatar_value(game.cover_image_url),
+        cover_image_url=cover_image_url,
         cover_scale=normalize_story_cover_scale(game.cover_scale),
         cover_position_x=normalize_story_cover_position(game.cover_position_x),
         cover_position_y=normalize_story_cover_position(game.cover_position_y),
@@ -532,17 +713,28 @@ def story_game_summary_to_out(
         story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(game, "image_style_prompt", None)),
-        memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
+        memory_optimization_enabled=normalize_story_memory_optimization_enabled(
+            getattr(game, "memory_optimization_enabled", None)
+        ),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        environment_enabled=normalize_story_environment_enabled(getattr(game, "environment_enabled", None)),
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(game, "emotion_visualization_enabled", None)
         ),
         ambient_profile=deserialize_story_ambient_profile(getattr(game, "ambient_profile", None)),
+        environment_current_datetime=serialize_story_environment_datetime(
+            deserialize_story_environment_datetime(getattr(game, "environment_current_datetime", None))
+        ),
+        environment_current_weather=current_weather,
+        environment_tomorrow_weather=deserialize_story_environment_weather(
+            getattr(game, "environment_tomorrow_weather", None)
+        ),
+        current_location_label=str(getattr(game, "current_location_label", "") or "").strip() or None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,
@@ -555,6 +747,13 @@ def story_game_summary_to_compact_out(
     latest_message_preview: str | None = None,
     turn_count: int = 0,
 ) -> StoryGameSummaryOut:
+    cover_image_url = resolve_media_display_url(
+        getattr(game, "cover_image_url", None),
+        kind="story-game-cover",
+        entity_id=int(game.id),
+        version=getattr(game, "updated_at", None),
+    )
+    current_weather = resolve_story_environment_current_weather_for_output(game)
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
@@ -563,9 +762,10 @@ def story_game_summary_to_compact_out(
         turn_count=max(int(turn_count or 0), 0),
         opening_scene="",
         visibility=coerce_story_game_visibility(game.visibility),
+        publication=_story_publication_state_out(game),
         age_rating=coerce_story_game_age_rating(game.age_rating),
         genres=deserialize_story_game_genres(game.genres),
-        cover_image_url=normalize_avatar_value(game.cover_image_url),
+        cover_image_url=cover_image_url,
         cover_scale=normalize_story_cover_scale(game.cover_scale),
         cover_position_x=normalize_story_cover_position(game.cover_position_x),
         cover_position_y=normalize_story_cover_position(game.cover_position_y),
@@ -582,17 +782,28 @@ def story_game_summary_to_compact_out(
         story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt="",
-        memory_optimization_enabled=bool(getattr(game, "memory_optimization_enabled", True)),
+        memory_optimization_enabled=normalize_story_memory_optimization_enabled(
+            getattr(game, "memory_optimization_enabled", None)
+        ),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        environment_enabled=normalize_story_environment_enabled(getattr(game, "environment_enabled", None)),
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(game, "emotion_visualization_enabled", None)
         ),
         ambient_profile=None,
+        environment_current_datetime=serialize_story_environment_datetime(
+            deserialize_story_environment_datetime(getattr(game, "environment_current_datetime", None))
+        ),
+        environment_current_weather=current_weather,
+        environment_tomorrow_weather=deserialize_story_environment_weather(
+            getattr(game, "environment_tomorrow_weather", None)
+        ),
+        current_location_label=str(getattr(game, "current_location_label", "") or "").strip() or None,
         last_activity_at=game.last_activity_at,
         created_at=game.created_at,
         updated_at=game.updated_at,
@@ -610,7 +821,12 @@ def story_author_name(user: User | None) -> str:
 def story_author_avatar_url(user: User | None) -> str | None:
     if user is None:
         return None
-    return normalize_avatar_value(user.avatar_url)
+    return resolve_media_display_url(
+        getattr(user, "avatar_url", None),
+        kind="user-avatar",
+        entity_id=int(user.id),
+        version=getattr(user, "updated_at", None),
+    )
 
 
 def story_community_world_summary_to_out(

@@ -37,14 +37,112 @@ from app.services.story_cards import (
     story_instruction_template_to_out,
 )
 from app.services.story_games import story_author_avatar_url, story_author_name
+try:
+    from app.services.story_publication_moderation import clear_story_publication_state, mark_story_publication_pending
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def mark_story_publication_pending(record: object) -> None:
+        if hasattr(record, "publication_status"):
+            setattr(record, "publication_status", "pending")
+
+    def clear_story_publication_state(record: object) -> None:
+        if hasattr(record, "publication_status"):
+            setattr(record, "publication_status", "none")
+        if hasattr(record, "publication_requested_at"):
+            setattr(record, "publication_requested_at", None)
+        if hasattr(record, "publication_reviewed_at"):
+            setattr(record, "publication_reviewed_at", None)
+        if hasattr(record, "publication_reviewer_user_id"):
+            setattr(record, "publication_reviewer_user_id", None)
+        if hasattr(record, "publication_rejection_reason"):
+            setattr(record, "publication_rejection_reason", None)
 from app.services.story_queries import (
     get_public_story_instruction_template_or_404,
     get_story_instruction_template_for_user_or_404,
     list_story_instruction_templates,
 )
+try:
+    from app.services.notifications import (
+        NOTIFICATION_KIND_MODERATION_QUEUE,
+        NOTIFICATION_KIND_MODERATION_REPORT,
+        NotificationDraft,
+        build_staff_notification_drafts,
+        create_user_notifications,
+        send_notification_emails,
+    )
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    NOTIFICATION_KIND_MODERATION_QUEUE = "moderation_queue"
+    NOTIFICATION_KIND_MODERATION_REPORT = "moderation_report"
+
+    class NotificationDraft:
+        def __init__(
+            self,
+            *,
+            user_id: int,
+            kind: str,
+            title: str,
+            body: str,
+            action_url: str | None = None,
+            actor_user_id: int | None = None,
+        ) -> None:
+            self.user_id = user_id
+            self.kind = kind
+            self.title = title
+            self.body = body
+            self.action_url = action_url
+            self.actor_user_id = actor_user_id
+
+    def build_staff_notification_drafts(
+        db: Session,
+        *,
+        kind: str,
+        title: str,
+        body: str,
+        action_url: str | None = None,
+        actor_user_id: int | None = None,
+    ) -> list[NotificationDraft]:
+        _ = (db, kind, title, body, action_url, actor_user_id)
+        return []
+
+    def create_user_notifications(db: Session, drafts: list[NotificationDraft]) -> list[object]:
+        _ = (db, drafts)
+        return []
+
+    def send_notification_emails(db: Session, notifications: list[object]) -> None:
+        _ = (db, notifications)
+        return None
 
 router = APIRouter()
 STORY_INSTRUCTION_TEMPLATE_REPORT_STATUS_OPEN = "open"
+
+
+def _persist_notifications(db: Session, drafts: list[NotificationDraft]) -> None:
+    notifications = create_user_notifications(db, drafts=drafts)
+    if not notifications:
+        return
+    db.commit()
+    send_notification_emails(db, notifications)
+
+
+def _notify_staff(
+    db: Session,
+    *,
+    kind: str,
+    title: str,
+    body: str,
+    action_url: str | None = None,
+    actor_user_id: int | None = None,
+) -> None:
+    _persist_notifications(
+        db,
+        build_staff_notification_drafts(
+            db,
+            kind=kind,
+            title=title,
+            body=body,
+            action_url=action_url,
+            actor_user_id=actor_user_id,
+        ),
+    )
 
 
 def _build_story_community_instruction_template_summary(
@@ -148,6 +246,18 @@ def _delete_story_instruction_template_with_relations(db: Session, *, template_i
     template = db.scalar(select(StoryInstructionTemplate).where(StoryInstructionTemplate.id == template_id))
     if template is not None:
         db.delete(template)
+
+
+def _get_story_instruction_template_publication_copy(
+    db: Session,
+    *,
+    source_template_id: int,
+) -> StoryInstructionTemplate | None:
+    return db.scalar(
+        select(StoryInstructionTemplate)
+        .where(StoryInstructionTemplate.source_template_id == source_template_id)
+        .order_by(StoryInstructionTemplate.id.asc())
+    )
 
 
 @router.get("/api/story/instruction-templates", response_model=list[StoryInstructionTemplateOut])
@@ -354,6 +464,16 @@ def report_story_community_instruction_template(
             detail="You have already reported this instruction template",
         ) from None
 
+    reporter_name = story_author_name(user)
+    template_title = str(template.title or "").strip() or f"Карточка #{int(template.id)}"
+    _notify_staff(
+        db,
+        kind=NOTIFICATION_KIND_MODERATION_REPORT,
+        title="Новая жалоба на инструкцию",
+        body=f"{reporter_name} отправил жалобу на инструкцию \"{template_title}\".",
+        action_url="/profile",
+        actor_user_id=int(user.id),
+    )
     db.refresh(template)
     return _build_story_community_instruction_template_summary(
         db,
@@ -452,12 +572,20 @@ def create_story_instruction_template(
     db.add(template)
     db.flush()
     if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC:
-        _create_story_instruction_template_publication_copy_from_source(
-            db,
-            source_template=template,
-        )
+        mark_story_publication_pending(template)
     db.commit()
     db.refresh(template)
+    if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC:
+        template_title = str(template.title or "").strip() or f"Карточка #{int(template.id)}"
+        author_name = story_author_name(user)
+        _notify_staff(
+            db,
+            kind=NOTIFICATION_KIND_MODERATION_QUEUE,
+            title="Новая инструкция на модерации",
+            body=f"{author_name} отправил на модерацию инструкцию \"{template_title}\".",
+            action_url="/profile",
+            actor_user_id=int(user.id),
+        )
     return story_instruction_template_to_out(template)
 
 
@@ -470,22 +598,41 @@ def update_story_instruction_template(
 ) -> StoryInstructionTemplateOut:
     user = get_current_user(db, authorization)
     template = get_story_instruction_template_for_user_or_404(db, user.id, template_id)
+    previous_publication_status = str(getattr(template, "publication_status", "") or "").strip().lower()
     template.title = normalize_story_instruction_title(payload.title)
     template.content = normalize_story_instruction_content(payload.content)
     requested_visibility: str | None = None
+    should_notify_publication_queue = False
     if payload.visibility is not None:
         requested_visibility = normalize_story_instruction_template_visibility(payload.visibility)
     if requested_visibility is not None:
-        if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC and template.visibility != STORY_TEMPLATE_VISIBILITY_PUBLIC:
-            _create_story_instruction_template_publication_copy_from_source(
-                db,
-                source_template=template,
-            )
+        if requested_visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC and template.source_template_id is None:
+            mark_story_publication_pending(template)
             template.visibility = STORY_TEMPLATE_VISIBILITY_PRIVATE
+            should_notify_publication_queue = previous_publication_status != "pending"
         else:
+            if requested_visibility == STORY_TEMPLATE_VISIBILITY_PRIVATE and template.source_template_id is None:
+                clear_story_publication_state(template)
+                publication_copy = _get_story_instruction_template_publication_copy(
+                    db,
+                    source_template_id=int(template.id),
+                )
+                if publication_copy is not None:
+                    _delete_story_instruction_template_with_relations(db, template_id=int(publication_copy.id))
             template.visibility = requested_visibility
     db.commit()
     db.refresh(template)
+    if should_notify_publication_queue:
+        template_title = str(template.title or "").strip() or f"Карточка #{int(template.id)}"
+        author_name = story_author_name(user)
+        _notify_staff(
+            db,
+            kind=NOTIFICATION_KIND_MODERATION_QUEUE,
+            title="Инструкция отправлена на модерацию",
+            body=f"{author_name} отправил на модерацию инструкцию \"{template_title}\".",
+            action_url="/profile",
+            actor_user_id=int(user.id),
+        )
     return story_instruction_template_to_out(template)
 
 

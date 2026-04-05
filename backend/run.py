@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
+import sys
 from typing import Final
-
-import uvicorn
 
 APP_TARGETS = {
     "monolith": "app.main:app",
@@ -33,6 +32,25 @@ DEFAULT_WORKERS = {
 DEFAULT_BACKLOG: Final[int] = 2048
 DEFAULT_KEEPALIVE_SECONDS: Final[int] = 5
 DEFAULT_GRACEFUL_SHUTDOWN_SECONDS: Final[int] = 30
+
+
+def _resolve_local_venv_python() -> str | None:
+    scripts_dir = "Scripts" if os.name == "nt" else "bin"
+    executable_name = "python.exe" if os.name == "nt" else "python"
+    candidate = os.path.join(os.path.dirname(__file__), ".venv", scripts_dir, executable_name)
+    if os.path.exists(candidate):
+        return os.path.abspath(candidate)
+    return None
+
+
+def _maybe_reexec_local_venv_python() -> None:
+    local_venv_python = _resolve_local_venv_python()
+    if not local_venv_python:
+        return
+    current_python = os.path.abspath(sys.executable)
+    if os.path.normcase(current_python) == os.path.normcase(local_venv_python):
+        return
+    os.execv(local_venv_python, [local_venv_python, *sys.argv])
 
 
 def _resolve_app_mode() -> str:
@@ -76,7 +94,17 @@ def _is_sqlite_database_url(database_url: str) -> bool:
     return database_url.strip().lower().startswith("sqlite")
 
 
+def _resolve_reload_enabled(database_url: str) -> bool:
+    raw_reload_enabled = os.getenv("UVICORN_RELOAD")
+    if raw_reload_enabled is not None:
+        return _resolve_bool(raw_reload_enabled, default=False)
+    return _is_sqlite_database_url(database_url)
+
+
 if __name__ == "__main__":
+    _maybe_reexec_local_venv_python()
+    import uvicorn
+
     mode = _resolve_app_mode()
     os.environ["APP_MODE"] = mode
     from app.config import settings as app_settings
@@ -84,17 +112,13 @@ if __name__ == "__main__":
     target = APP_TARGETS[mode]
     host = os.getenv("HOST", "0.0.0.0").strip() or "0.0.0.0"
     port = _resolve_port(mode)
-    reload_enabled = os.getenv("UVICORN_RELOAD", "0").strip().lower() in {"1", "true", "yes", "on"}
+    reload_enabled = _resolve_reload_enabled(app_settings.database_url)
     default_workers = DEFAULT_WORKERS.get(mode, 1)
-    raw_workers_override = os.getenv("WEB_CONCURRENCY", "").strip()
-    if not raw_workers_override and app_settings.db_bootstrap_on_startup and mode in {"gateway", "monolith"}:
-        # Prevent concurrent startup migrations by default; override with WEB_CONCURRENCY if needed.
-        default_workers = 1
     if _is_sqlite_database_url(app_settings.database_url):
         # SQLite suffers from frequent write locks under multiple worker processes.
         # Keep a single worker by default unless WEB_CONCURRENCY is explicitly set.
         default_workers = 1
-    raw_workers = raw_workers_override or str(default_workers)
+    raw_workers = os.getenv("WEB_CONCURRENCY", str(default_workers)).strip()
     workers = int(raw_workers) if raw_workers.isdigit() else default_workers
     if workers < 1:
         workers = 1

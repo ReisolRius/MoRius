@@ -23,8 +23,43 @@ from app.schemas import (
     ProfileViewOut,
 )
 from app.services.auth_identity import get_current_user
-from app.services.media import normalize_avatar_value, normalize_media_scale
+from app.services.media import normalize_media_scale, resolve_media_display_url
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, story_author_name, story_community_world_summary_to_out, story_game_summary_to_out
+try:
+    from app.services.notifications import (
+        NOTIFICATION_KIND_NEW_FOLLOWER,
+        NotificationDraft,
+        create_user_notifications,
+        send_notification_emails,
+    )
+except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    NOTIFICATION_KIND_NEW_FOLLOWER = "new_follower"
+
+    class NotificationDraft:
+        def __init__(
+            self,
+            *,
+            user_id: int,
+            kind: str,
+            title: str,
+            body: str,
+            action_url: str | None = None,
+            actor_user_id: int | None = None,
+        ) -> None:
+            self.user_id = user_id
+            self.kind = kind
+            self.title = title
+            self.body = body
+            self.action_url = action_url
+            self.actor_user_id = actor_user_id
+
+    def create_user_notifications(db: Session, drafts: list[NotificationDraft]) -> list[object]:
+        _ = (db, drafts)
+        return []
+
+    def send_notification_emails(db: Session, notifications: list[object]) -> None:
+        _ = (db, notifications)
+        return None
 
 router = APIRouter()
 
@@ -64,6 +99,8 @@ def _serialize_privacy(user: User) -> ProfilePrivacyOut:
         show_subscriptions=bool(user.show_subscriptions),
         show_public_worlds=bool(user.show_public_worlds),
         show_private_worlds=bool(user.show_private_worlds),
+        show_public_characters=bool(getattr(user, "show_public_characters", False)),
+        show_public_instruction_templates=bool(getattr(user, "show_public_instruction_templates", False)),
     )
 
 
@@ -81,7 +118,12 @@ def _build_profile_user(user: User) -> ProfileUserOut:
         id=user.id,
         display_name=story_author_name(user),
         profile_description=(user.profile_description or "").strip(),
-        avatar_url=normalize_avatar_value(user.avatar_url),
+        avatar_url=resolve_media_display_url(
+            getattr(user, "avatar_url", None),
+            kind="user-avatar",
+            entity_id=int(user.id),
+            version=getattr(user, "updated_at", None),
+        ),
         avatar_scale=_normalize_user_avatar_scale(user),
         created_at=user.created_at,
     )
@@ -102,7 +144,12 @@ def _list_subscriptions(db: Session, *, user_id: int) -> list[ProfileSubscriptio
         ProfileSubscriptionUserOut(
             id=followed_user.id,
             display_name=story_author_name(followed_user),
-            avatar_url=normalize_avatar_value(followed_user.avatar_url),
+            avatar_url=resolve_media_display_url(
+                getattr(followed_user, "avatar_url", None),
+                kind="user-avatar",
+                entity_id=int(followed_user.id),
+                version=getattr(followed_user, "updated_at", None),
+            ),
             avatar_scale=_normalize_user_avatar_scale(followed_user),
         )
         for _, followed_user in rows
@@ -162,7 +209,12 @@ def _list_published_worlds(
     reported_world_ids = _load_reported_world_ids(db, viewer_user_id=viewer_user_id, world_ids=world_ids)
     favorited_world_ids = _load_favorited_world_ids(db, viewer_user_id=viewer_user_id, world_ids=world_ids)
     author_name = story_author_name(owner_user)
-    author_avatar_url = normalize_avatar_value(owner_user.avatar_url)
+    author_avatar_url = resolve_media_display_url(
+        getattr(owner_user, "avatar_url", None),
+        kind="user-avatar",
+        entity_id=int(owner_user.id),
+        version=getattr(owner_user, "updated_at", None),
+    )
 
     return [
         story_community_world_summary_to_out(
@@ -289,6 +341,10 @@ def update_my_profile_privacy(
         user.show_public_worlds = bool(payload.show_public_worlds)
     if "show_private_worlds" in payload.model_fields_set:
         user.show_private_worlds = bool(payload.show_private_worlds)
+    if "show_public_characters" in payload.model_fields_set:
+        user.show_public_characters = bool(payload.show_public_characters)
+    if "show_public_instruction_templates" in payload.model_fields_set:
+        user.show_public_instruction_templates = bool(payload.show_public_instruction_templates)
 
     db.commit()
     db.refresh(user)
@@ -307,7 +363,7 @@ def follow_user_profile(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot follow your own profile",
         )
-    _resolve_user_or_404(db, user_id)
+    target_user = _resolve_user_or_404(db, user_id)
 
     existing_follow = db.scalar(
         select(UserFollow).where(
@@ -315,6 +371,7 @@ def follow_user_profile(
             UserFollow.following_user_id == user_id,
         )
     )
+    created_follow = False
     if existing_follow is None:
         db.add(
             UserFollow(
@@ -324,8 +381,29 @@ def follow_user_profile(
         )
         try:
             db.commit()
+            created_follow = True
         except IntegrityError:
             db.rollback()
+            created_follow = False
+
+    if created_follow:
+        follower_name = story_author_name(viewer_user)
+        notifications = create_user_notifications(
+            db,
+            drafts=[
+                NotificationDraft(
+                    user_id=int(target_user.id),
+                    kind=NOTIFICATION_KIND_NEW_FOLLOWER,
+                    title="Новый подписчик",
+                    body=f"{follower_name} подписался на ваш профиль.",
+                    action_url=f"/profile/{int(viewer_user.id)}",
+                    actor_user_id=int(viewer_user.id),
+                )
+            ],
+        )
+        if notifications:
+            db.commit()
+            send_notification_emails(db, notifications)
 
     return _build_follow_state(db, viewer_user_id=viewer_user.id, target_user_id=user_id)
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import {
   Alert,
   Box,
@@ -17,7 +17,11 @@ import {
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import HeaderAccountActions from '../components/HeaderAccountActions'
+import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
+import { useIncrementalList } from '../hooks/useIncrementalList'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
@@ -26,7 +30,6 @@ import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
-import UserAvatar from '../components/profile/UserAvatar'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -88,16 +91,17 @@ const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
-const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `community-world-skeleton-${index}`)
+const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 12 }, (_, index) => `community-world-skeleton-${index}`)
 const TOP_FILTER_CONTROL_HEIGHT = 46
 const TOP_FILTER_CONTROL_RADIUS = '12px'
 const TOP_FILTER_TEXT_PADDING_X = '14px'
 const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
 const TOP_FILTER_ICON_OFFSET_X = '12px'
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const COMMUNITY_CARD_BATCH_SIZE = 12
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_FEED_CACHE_TTL_MS = 30 * 60 * 1000
-const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
+const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v2'
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 
@@ -106,6 +110,8 @@ type CommunityFeedCachePayload = {
   worlds: StoryCommunityWorldSummary[]
   characters: StoryCommunityCharacterSummary[]
   instruction_templates: StoryCommunityInstructionTemplateSummary[]
+  has_characters: boolean
+  has_instruction_templates: boolean
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -161,6 +167,8 @@ function readCommunityFeedCache(userId: number): CommunityFeedCachePayload | nul
       worlds: parsed.worlds as StoryCommunityWorldSummary[],
       characters: parsed.characters as StoryCommunityCharacterSummary[],
       instruction_templates: parsed.instruction_templates as StoryCommunityInstructionTemplateSummary[],
+      has_characters: parsed.has_characters === true,
+      has_instruction_templates: parsed.has_instruction_templates === true,
     }
   } catch {
     return null
@@ -271,212 +279,53 @@ type CommunityCharacterCardProps = {
   onClick: () => void
 }
 
-function resolveAuthorInitials(authorName: string): string {
-  const cleaned = authorName.trim()
-  if (!cleaned) {
-    return '??'
-  }
-  const parts = cleaned.split(/\s+/).filter(Boolean)
-  if (parts.length === 1) {
-    return parts[0].slice(0, 1).toUpperCase()
-  }
-  return `${parts[0].slice(0, 1)}${parts[1].slice(0, 1)}`.toUpperCase()
-}
-
 function CommunityCharacterCard({ item, currentUserId, disabled = false, onClick }: CommunityCharacterCardProps) {
   const authorName = item.author_name.trim() || 'Неизвестный автор'
-  const authorInitials = resolveAuthorInitials(authorName)
   const isOwnedByUser = item.author_id === currentUserId
   const characterNote = item.note.trim()
-  const addStatusLabel = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Добавлено' : 'Не добавлено'
-  const heroBackground = item.avatar_url
-    ? {
-        backgroundImage: `url(${item.avatar_url})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-      }
-    : buildWorldFallbackArtwork(item.id)
+  const footerHint = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Уже добавлено' : `Автор: ${authorName}`
 
   return (
-    <Button
-      onClick={onClick}
-      disabled={disabled}
-      sx={{
-        p: 0,
-        minHeight: 0,
-        borderRadius: 'var(--morius-radius)',
-        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-        backgroundColor: APP_CARD_BACKGROUND,
-        textTransform: 'none',
-        justifyContent: 'stretch',
-        alignItems: 'stretch',
-        overflow: 'hidden',
-        width: '100%',
-        '&:hover': {
-          backgroundColor: APP_BUTTON_HOVER,
-        },
-      }}
-    >
-      <Stack sx={{ width: '100%', textAlign: 'left', minHeight: 238, justifyContent: 'space-between' }}>
-        <Box
-          sx={{
-            position: 'relative',
-            width: '100%',
-            height: COMMUNITY_PUBLIC_CARD_HERO_HEIGHT,
-            flexShrink: 0,
-            overflow: 'hidden',
-          }}
-        >
-          <Box
+    <CharacterShowcaseCard
+      title={item.name}
+      description={item.description}
+      imageUrl={item.avatar_url}
+      imageScale={item.avatar_scale}
+      eyebrow={characterNote || null}
+      heroHeader={
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+          <ProgressiveAvatar
+            src={item.author_avatar_url}
+            fallbackLabel={authorName}
+            size={36}
             sx={{
-              position: 'absolute',
-              inset: 0,
-              ...heroBackground,
+              border: 'var(--morius-border-width) solid rgba(214, 225, 239, 0.34)',
+              backgroundColor: 'rgba(6, 10, 16, 0.76)',
             }}
           />
-          <Box
-            aria-hidden
+          <Typography
             sx={{
-              position: 'absolute',
-              inset: 0,
-              background: 'linear-gradient(180deg, rgba(0, 0, 0, 0.88) 0%, rgba(0, 0, 0, 0.54) 44%, rgba(0, 0, 0, 0) 100%)',
-            }}
-          />
-          <Stack
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            sx={{
-              position: 'absolute',
-              top: 10,
-              left: 10,
-              right: 10,
+              color: 'rgba(233, 241, 252, 0.97)',
+              fontSize: '0.95rem',
+              lineHeight: 1.2,
+              fontWeight: 700,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
               minWidth: 0,
             }}
+            title={authorName}
           >
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
-                overflow: 'hidden',
-                display: 'grid',
-                placeItems: 'center',
-                backgroundColor: 'rgba(6, 10, 16, 0.72)',
-                color: 'rgba(233, 241, 252, 0.97)',
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                flexShrink: 0,
-              }}
-            >
-              {item.author_avatar_url ? (
-                <Box
-                  component="img"
-                  src={item.author_avatar_url}
-                  alt={authorName}
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
-                />
-              ) : (
-                authorInitials
-              )}
-            </Box>
-            <Typography
-              sx={{
-                color: 'rgba(233, 241, 252, 0.97)',
-                fontSize: '0.95rem',
-                lineHeight: 1.2,
-                fontWeight: 700,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                minWidth: 0,
-              }}
-              title={authorName}
-            >
-              {authorName}
-            </Typography>
-          </Stack>
-        </Box>
-        <Stack sx={{ width: '100%', p: 1.25, textAlign: 'left', flex: 1, justifyContent: 'space-between' }}>
-          <Stack spacing={0.8}>
-            <Typography
-              sx={{
-                color: APP_TEXT_PRIMARY,
-                fontSize: '1.03rem',
-                lineHeight: 1.2,
-                fontWeight: 800,
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {item.name}
-            </Typography>
-            {characterNote ? (
-              <Box
-                title={characterNote}
-                sx={{
-                  width: 'fit-content',
-                  maxWidth: '100%',
-                  px: 0.75,
-                  py: 0.2,
-                  borderRadius: '999px',
-                  border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)',
-                  color: 'rgba(170, 238, 191, 0.96)',
-                  fontSize: '0.68rem',
-                  fontWeight: 700,
-                  letterSpacing: 0.2,
-                  textTransform: 'uppercase',
-                  lineHeight: 1.2,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {characterNote}
-              </Box>
-            ) : null}
-            <Typography
-              sx={{
-                color: APP_TEXT_SECONDARY,
-                fontSize: '0.9rem',
-                lineHeight: 1.42,
-                minHeight: '4.2em',
-                display: '-webkit-box',
-                WebkitLineClamp: 3,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {item.description}
-            </Typography>
-          </Stack>
-
-          <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 1.1 }}>
-            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>
-              {addStatusLabel}
-            </Typography>
-            <Stack direction="row" spacing={1.1} alignItems="center">
-              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-                {item.community_additions_count} +
-              </Typography>
-              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>
-                {item.community_rating_avg.toFixed(1)} {'\u2605'}
-              </Typography>
-            </Stack>
-          </Stack>
+            {authorName}
+          </Typography>
         </Stack>
-      </Stack>
-    </Button>
+      }
+      footerHint={footerHint}
+      metaPrimary={`+${item.community_additions_count}`}
+      metaSecondary={`${item.community_rating_avg.toFixed(1)} ★`}
+      onClick={onClick}
+      disabled={disabled}
+    />
   )
 }
 
@@ -489,7 +338,6 @@ type CommunityInstructionCardProps = {
 
 function CommunityInstructionCard({ item, currentUserId, disabled = false, onClick }: CommunityInstructionCardProps) {
   const authorName = item.author_name.trim() || 'Неизвестный автор'
-  const authorInitials = resolveAuthorInitials(authorName)
   const isOwnedByUser = item.author_id === currentUserId
   const addStatusLabel = isOwnedByUser ? 'Ваша карточка' : item.is_added_by_user ? 'Добавлено' : 'Не добавлено'
   const heroBackground = buildWorldFallbackArtwork(item.id + 100000)
@@ -509,6 +357,8 @@ function CommunityInstructionCard({ item, currentUserId, disabled = false, onCli
         alignItems: 'stretch',
         width: '100%',
         overflow: 'hidden',
+        contentVisibility: 'auto',
+        containIntrinsicSize: '238px',
         '&:hover': {
           backgroundColor: APP_BUTTON_HOVER,
         },
@@ -551,37 +401,15 @@ function CommunityInstructionCard({ item, currentUserId, disabled = false, onCli
               minWidth: 0,
             }}
           >
-            <Box
+            <ProgressiveAvatar
+              src={item.author_avatar_url}
+              fallbackLabel={authorName}
+              size={36}
               sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
                 border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
-                overflow: 'hidden',
-                display: 'grid',
-                placeItems: 'center',
                 backgroundColor: 'rgba(6, 10, 16, 0.72)',
-                color: 'rgba(233, 241, 252, 0.97)',
-                fontSize: '0.78rem',
-                fontWeight: 800,
-                flexShrink: 0,
               }}
-            >
-              {item.author_avatar_url ? (
-                <Box
-                  component="img"
-                  src={item.author_avatar_url}
-                  alt={authorName}
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                  }}
-                />
-              ) : (
-                authorInitials
-              )}
-            </Box>
+            />
             <Typography
               sx={{
                 color: 'rgba(233, 241, 252, 0.97)',
@@ -672,8 +500,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityCharacters, setCommunityCharacters] = useState<StoryCommunityCharacterSummary[]>([])
   const [isCommunityCharactersLoading, setIsCommunityCharactersLoading] = useState(false)
+  const [hasLoadedCommunityCharacters, setHasLoadedCommunityCharacters] = useState(false)
   const [communityInstructionTemplates, setCommunityInstructionTemplates] = useState<StoryCommunityInstructionTemplateSummary[]>([])
   const [isCommunityInstructionTemplatesLoading, setIsCommunityInstructionTemplatesLoading] = useState(false)
+  const [hasLoadedCommunityInstructionTemplates, setHasLoadedCommunityInstructionTemplates] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
   const [actionError, setActionError] = useState('')
   const [selectedCommunityWorld, setSelectedCommunityWorld] = useState<StoryCommunityWorldPayload | null>(null)
@@ -714,6 +544,34 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [instructionAddedFilter, setInstructionAddedFilter] = useState<CommunityAddedFilter>('all')
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+
+  const writeCommunityFeedCacheSnapshot = useCallback(
+    (payload: Partial<CommunityFeedCachePayload>) => {
+      const cachedPayload = readCommunityFeedCache(user.id)
+      writeCommunityFeedCache(user.id, {
+        saved_at: Date.now(),
+        worlds: payload.worlds ?? cachedPayload?.worlds ?? communityWorlds,
+        characters: payload.characters ?? cachedPayload?.characters ?? communityCharacters,
+        instruction_templates:
+          payload.instruction_templates ?? cachedPayload?.instruction_templates ?? communityInstructionTemplates,
+        has_characters:
+          payload.characters !== undefined ? true : cachedPayload?.has_characters ?? hasLoadedCommunityCharacters,
+        has_instruction_templates:
+          payload.instruction_templates !== undefined
+            ? true
+            : cachedPayload?.has_instruction_templates ?? hasLoadedCommunityInstructionTemplates,
+      })
+    },
+    [
+      communityCharacters,
+      communityInstructionTemplates,
+      communityWorlds,
+      hasLoadedCommunityCharacters,
+      hasLoadedCommunityInstructionTemplates,
+      user.id,
+    ],
+  )
 
   const worldGenreOptions = useMemo(() => {
     const uniqueGenres = new Set<string>()
@@ -738,7 +596,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     setWorldGenreFilter('all')
   }, [worldGenreFilter, worldGenreOptions])
 
-  const normalizedSearchQuery = useMemo(() => normalizeSearchValue(searchQuery), [searchQuery])
+  const normalizedSearchQuery = useMemo(() => normalizeSearchValue(deferredSearchQuery), [deferredSearchQuery])
 
   const filteredCommunityWorlds = useMemo(() => {
     let filtered = communityWorlds
@@ -839,11 +697,39 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     return sorted
   }, [communityInstructionTemplates, instructionAddedFilter, instructionSortMode, normalizedSearchQuery])
 
+  const {
+    visibleItems: visibleCommunityWorlds,
+    hasMore: hasMoreCommunityWorlds,
+    loadMoreRef: loadMoreCommunityWorldsRef,
+  } = useIncrementalList(filteredCommunityWorlds, {
+    initialCount: COMMUNITY_CARD_BATCH_SIZE,
+    step: COMMUNITY_CARD_BATCH_SIZE,
+    resetKey: `${normalizedSearchQuery}|${worldSortMode}|${worldAgeFilter}|${worldGenreFilter}|${filteredCommunityWorlds.length}`,
+  })
+  const {
+    visibleItems: visibleCommunityCharacters,
+    hasMore: hasMoreCommunityCharacters,
+    loadMoreRef: loadMoreCommunityCharactersRef,
+  } = useIncrementalList(filteredCommunityCharacters, {
+    initialCount: COMMUNITY_CARD_BATCH_SIZE,
+    step: COMMUNITY_CARD_BATCH_SIZE,
+    resetKey: `${normalizedSearchQuery}|${characterSortMode}|${characterAddedFilter}|${filteredCommunityCharacters.length}`,
+  })
+  const {
+    visibleItems: visibleCommunityInstructionTemplates,
+    hasMore: hasMoreCommunityInstructionTemplates,
+    loadMoreRef: loadMoreCommunityInstructionTemplatesRef,
+  } = useIncrementalList(filteredCommunityInstructionTemplates, {
+    initialCount: COMMUNITY_CARD_BATCH_SIZE,
+    step: COMMUNITY_CARD_BATCH_SIZE,
+    resetKey: `${normalizedSearchQuery}|${instructionSortMode}|${instructionAddedFilter}|${filteredCommunityInstructionTemplates.length}`,
+  })
+
   const loadCommunityWorlds = useCallback(async (options?: { force?: boolean }) => {
     const forceReload = options?.force ?? false
     setIsCommunityWorldsLoading(true)
-    setIsCommunityCharactersLoading(true)
-    setIsCommunityInstructionTemplatesLoading(true)
+    setIsCommunityCharactersLoading(forceReload && hasLoadedCommunityCharacters)
+    setIsCommunityInstructionTemplatesLoading(forceReload && hasLoadedCommunityInstructionTemplates)
     setCommunityWorldsError('')
     if (!forceReload) {
       const cachedPayload = readCommunityFeedCache(user.id)
@@ -851,6 +737,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         setCommunityWorlds(cachedPayload.worlds)
         setCommunityCharacters(cachedPayload.characters)
         setCommunityInstructionTemplates(cachedPayload.instruction_templates)
+        setHasLoadedCommunityCharacters(cachedPayload.has_characters)
+        setHasLoadedCommunityInstructionTemplates(cachedPayload.has_instruction_templates)
         setIsCommunityWorldsLoading(false)
         setIsCommunityCharactersLoading(false)
         setIsCommunityInstructionTemplatesLoading(false)
@@ -858,32 +746,65 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       }
     }
     try {
-      const [worlds, characters, templates] = await Promise.all([
-        listCommunityWorlds(authToken),
-        listCommunityCharacters(authToken),
-        listCommunityInstructionTemplates(authToken),
-      ])
+      const worlds = await listCommunityWorlds(authToken)
       setCommunityWorlds(worlds)
-      setCommunityCharacters(characters)
-      setCommunityInstructionTemplates(templates)
-      writeCommunityFeedCache(user.id, {
-        saved_at: Date.now(),
+      setIsCommunityWorldsLoading(false)
+      const [charactersResult, templatesResult] = await Promise.allSettled([
+        hasLoadedCommunityCharacters ? listCommunityCharacters(authToken) : Promise.resolve(null),
+        hasLoadedCommunityInstructionTemplates ? listCommunityInstructionTemplates(authToken) : Promise.resolve(null),
+      ])
+      const characters = charactersResult.status === 'fulfilled' ? charactersResult.value : null
+      const templates = templatesResult.status === 'fulfilled' ? templatesResult.value : null
+      if (characters !== null) {
+        setCommunityCharacters(characters)
+        setHasLoadedCommunityCharacters(true)
+      }
+      if (templates !== null) {
+        setCommunityInstructionTemplates(templates)
+        setHasLoadedCommunityInstructionTemplates(true)
+      }
+      if (charactersResult.status === 'rejected' || templatesResult.status === 'rejected') {
+        const rejectedReason =
+          charactersResult.status === 'rejected'
+            ? charactersResult.reason
+            : templatesResult.status === 'rejected'
+              ? templatesResult.reason
+              : null
+        const detail =
+          rejectedReason instanceof Error
+            ? rejectedReason.message
+            : charactersResult.status === 'rejected'
+              ? 'Не удалось обновить персонажей сообщества'
+              : 'Не удалось обновить инструкции сообщества'
+        setCommunityWorldsError((currentError) => currentError || detail)
+      }
+      writeCommunityFeedCacheSnapshot({
         worlds,
-        characters,
-        instruction_templates: templates,
+        characters: characters ?? undefined,
+        instruction_templates: templates ?? undefined,
       })
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить сообщество'
       setCommunityWorldsError(detail)
       setCommunityWorlds([])
-      setCommunityCharacters([])
-      setCommunityInstructionTemplates([])
+      if (!hasLoadedCommunityCharacters) {
+        setCommunityCharacters([])
+      }
+      if (!hasLoadedCommunityInstructionTemplates) {
+        setCommunityInstructionTemplates([])
+      }
     } finally {
       setIsCommunityWorldsLoading(false)
       setIsCommunityCharactersLoading(false)
       setIsCommunityInstructionTemplatesLoading(false)
     }
-  }, [authToken, user.id])
+  }, [
+    authToken,
+    hasLoadedCommunityCharacters,
+    hasLoadedCommunityInstructionTemplates,
+    user.id,
+    writeCommunityFeedCacheSnapshot,
+  ])
 
   useEffect(() => {
     void loadCommunityWorlds()
@@ -895,6 +816,98 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }, COMMUNITY_FEED_CACHE_TTL_MS)
     return () => window.clearInterval(refreshTimerId)
   }, [loadCommunityWorlds])
+
+  const loadCommunityCharacters = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force ?? false
+    if (isCommunityCharactersLoading) {
+      return
+    }
+    setIsCommunityCharactersLoading(true)
+    if (!forceReload) {
+      const cachedPayload = readCommunityFeedCache(user.id)
+      if (
+        cachedPayload &&
+        cachedPayload.has_characters &&
+        Date.now() - cachedPayload.saved_at < COMMUNITY_FEED_CACHE_TTL_MS
+      ) {
+        setCommunityCharacters(cachedPayload.characters)
+        setHasLoadedCommunityCharacters(true)
+        setIsCommunityCharactersLoading(false)
+        return
+      }
+    }
+    try {
+      const characters = await listCommunityCharacters(authToken)
+      setCommunityCharacters(characters)
+      setHasLoadedCommunityCharacters(true)
+      writeCommunityFeedCacheSnapshot({
+        characters,
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей сообщества'
+      setCommunityWorldsError(detail)
+      setCommunityCharacters([])
+    } finally {
+      setIsCommunityCharactersLoading(false)
+    }
+  }, [authToken, isCommunityCharactersLoading, user.id, writeCommunityFeedCacheSnapshot])
+
+  const loadCommunityInstructionTemplates = useCallback(async (options?: { force?: boolean }) => {
+    const forceReload = options?.force ?? false
+    if (isCommunityInstructionTemplatesLoading) {
+      return
+    }
+    setIsCommunityInstructionTemplatesLoading(true)
+    if (!forceReload) {
+      const cachedPayload = readCommunityFeedCache(user.id)
+      if (
+        cachedPayload &&
+        cachedPayload.has_instruction_templates &&
+        Date.now() - cachedPayload.saved_at < COMMUNITY_FEED_CACHE_TTL_MS
+      ) {
+        setCommunityInstructionTemplates(cachedPayload.instruction_templates)
+        setHasLoadedCommunityInstructionTemplates(true)
+        setIsCommunityInstructionTemplatesLoading(false)
+        return
+      }
+    }
+    try {
+      const templates = await listCommunityInstructionTemplates(authToken)
+      setCommunityInstructionTemplates(templates)
+      setHasLoadedCommunityInstructionTemplates(true)
+      writeCommunityFeedCacheSnapshot({
+        instruction_templates: templates,
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить инструкции сообщества'
+      setCommunityWorldsError(detail)
+      setCommunityInstructionTemplates([])
+    } finally {
+      setIsCommunityInstructionTemplatesLoading(false)
+    }
+  }, [authToken, isCommunityInstructionTemplatesLoading, user.id, writeCommunityFeedCacheSnapshot])
+
+  useEffect(() => {
+    if (activeSection === 'characters' && !hasLoadedCommunityCharacters && !isCommunityCharactersLoading) {
+      void loadCommunityCharacters()
+      return
+    }
+    if (
+      activeSection === 'instructions' &&
+      !hasLoadedCommunityInstructionTemplates &&
+      !isCommunityInstructionTemplatesLoading
+    ) {
+      void loadCommunityInstructionTemplates()
+    }
+  }, [
+    activeSection,
+    hasLoadedCommunityCharacters,
+    hasLoadedCommunityInstructionTemplates,
+    isCommunityCharactersLoading,
+    isCommunityInstructionTemplatesLoading,
+    loadCommunityCharacters,
+    loadCommunityInstructionTemplates,
+  ])
 
   useEffect(() => {
     const selectedWorldId = selectedCommunityWorld?.world.id ?? null
@@ -1764,32 +1777,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           expanded: 'Скрыть кнопки шапки',
           collapsed: 'Показать кнопки шапки',
         }}
+        onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
-        rightActions={
-          <Stack direction="row" spacing={0}>
-            <Button
-              variant="text"
-              onClick={() => onNavigate('/profile')}
-              aria-label="Открыть профиль"
-              data-tour-id="header-profile-button"
-              sx={{
-                minWidth: 0,
-                width: HEADER_AVATAR_SIZE,
-                height: HEADER_AVATAR_SIZE,
-                p: 0,
-                borderRadius: '50%',
-                overflow: 'hidden',
-                backgroundColor: 'transparent',
-                '&:hover': {
-                  backgroundColor: 'transparent',
-                },
-              }}
-            >
-              <UserAvatar user={user} size={HEADER_AVATAR_SIZE} />
-            </Button>
-          </Stack>
-        }
+        rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
       />
 
       <Box
@@ -1806,30 +1797,39 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             </Alert>
           ) : null}
 
-          <Stack
-            direction={{ xs: 'column', md: 'row' }}
-            justifyContent="space-between"
-            alignItems={{ xs: 'flex-start', md: 'flex-end' }}
-            spacing={1}
-            sx={{ mb: 1.35 }}
-          >
-            <Stack spacing={0.45}>
-              <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+          <Stack alignItems="center" spacing={0.75} sx={{ mb: 1.55 }}>
+            <Stack spacing={0.45} alignItems="center">
+              <Typography
+                sx={{
+                  fontSize: { xs: '2rem', md: '2.35rem' },
+                  fontWeight: 900,
+                  color: APP_TEXT_PRIMARY,
+                  textAlign: 'center',
+                }}
+              >
                 Сообщество
               </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', textAlign: 'center', maxWidth: 720 }}>
                 {communitySectionDescription}
               </Typography>
-              <Stack direction="row" spacing={0.7} sx={{ pt: 0.55 }}>
+              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', justifyContent: 'center', pt: 0.35 }}>
                 <Button
                   onClick={() => setActiveSection('worlds')}
                   sx={{
                     minHeight: 34,
-                    borderRadius: '10px',
+                    px: 1.15,
+                    borderRadius: '999px',
                     textTransform: 'none',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: activeSection === 'worlds' ? APP_BUTTON_HOVER : APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
+                    backgroundColor:
+                      activeSection === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                    color: activeSection === 'worlds' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                    '&:hover': {
+                      backgroundColor:
+                        activeSection === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_BUTTON_HOVER,
+                    },
                   }}
                 >
                   Миры
@@ -1838,11 +1838,21 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   onClick={() => setActiveSection('characters')}
                   sx={{
                     minHeight: 34,
-                    borderRadius: '10px',
+                    px: 1.15,
+                    borderRadius: '999px',
                     textTransform: 'none',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: activeSection === 'characters' ? APP_BUTTON_HOVER : APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
+                    backgroundColor:
+                      activeSection === 'characters' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                    color: activeSection === 'characters' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                    '&:hover': {
+                      backgroundColor:
+                        activeSection === 'characters'
+                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
+                          : APP_BUTTON_HOVER,
+                    },
                   }}
                 >
                   Персонажи
@@ -1851,11 +1861,23 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   onClick={() => setActiveSection('instructions')}
                   sx={{
                     minHeight: 34,
-                    borderRadius: '10px',
+                    px: 1.15,
+                    borderRadius: '999px',
                     textTransform: 'none',
+                    fontSize: '0.75rem',
+                    fontWeight: 800,
                     border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: activeSection === 'instructions' ? APP_BUTTON_HOVER : APP_CARD_BACKGROUND,
-                    color: APP_TEXT_PRIMARY,
+                    backgroundColor:
+                      activeSection === 'instructions'
+                        ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
+                        : APP_CARD_BACKGROUND,
+                    color: activeSection === 'instructions' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                    '&:hover': {
+                      backgroundColor:
+                        activeSection === 'instructions'
+                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
+                          : APP_BUTTON_HOVER,
+                    },
                   }}
                 >
                   Инструкции
@@ -2385,7 +2407,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           ) : null}
 
           {activeSection === 'worlds' ? (
-            isCommunityWorldsLoading ? (
+            isCommunityWorldsLoading && communityWorlds.length === 0 ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -2420,29 +2442,32 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам миры не найдены.</Typography>
               </Box>
             ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
-                {filteredCommunityWorlds.map((world) => (
-                  <CommunityWorldCard
-                    key={world.id}
-                    world={world}
-                    onClick={() => void handleOpenCommunityWorld(world.id)}
-                    onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                    disabled={isCommunityWorldDialogLoading}
-                    showFavoriteButton
-                    isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                    onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                  />
-                ))}
-              </Box>
+              <>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.4,
+                    gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
+                  }}
+                >
+                  {visibleCommunityWorlds.map((world) => (
+                    <CommunityWorldCard
+                      key={world.id}
+                      world={world}
+                      onClick={() => void handleOpenCommunityWorld(world.id)}
+                      onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                      disabled={isCommunityWorldDialogLoading}
+                      showFavoriteButton
+                      isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                      onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                    />
+                  ))}
+                </Box>
+                {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
+              </>
             )
           ) : activeSection === 'characters' ? (
-            isCommunityCharactersLoading ? (
+            isCommunityCharactersLoading && communityCharacters.length === 0 ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -2477,25 +2502,30 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам персонажи не найдены.</Typography>
               </Box>
             ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
-                {filteredCommunityCharacters.map((item) => (
-                  <CommunityCharacterCard
-                    key={item.id}
-                    item={item}
-                    currentUserId={user.id}
-                    disabled={isCommunityCharacterLoading}
-                    onClick={() => void handleOpenCommunityCharacter(item.id)}
-                  />
-                ))}
-              </Box>
+              <>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.4,
+                    gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
+                  }}
+                >
+                  {visibleCommunityCharacters.map((item) => (
+                    <CommunityCharacterCard
+                      key={item.id}
+                      item={item}
+                      currentUserId={user.id}
+                      disabled={isCommunityCharacterLoading}
+                      onClick={() => void handleOpenCommunityCharacter(item.id)}
+                    />
+                  ))}
+                </Box>
+                {hasMoreCommunityCharacters ? (
+                  <Box ref={loadMoreCommunityCharactersRef} sx={{ height: 1, width: '100%' }} />
+                ) : null}
+              </>
             )
-          ) : isCommunityInstructionTemplatesLoading ? (
+          ) : isCommunityInstructionTemplatesLoading && communityInstructionTemplates.length === 0 ? (
             <Box
               sx={{
                 display: 'grid',
@@ -2530,23 +2560,28 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам инструкции не найдены.</Typography>
             </Box>
           ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-              }}
-            >
-              {filteredCommunityInstructionTemplates.map((item) => (
-                <CommunityInstructionCard
-                  key={item.id}
-                  item={item}
-                  currentUserId={user.id}
-                  disabled={isCommunityInstructionTemplateLoading}
-                  onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
-                />
-              ))}
-            </Box>
+            <>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1.4,
+                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
+                }}
+              >
+                {visibleCommunityInstructionTemplates.map((item) => (
+                  <CommunityInstructionCard
+                    key={item.id}
+                    item={item}
+                    currentUserId={user.id}
+                    disabled={isCommunityInstructionTemplateLoading}
+                    onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
+                  />
+                ))}
+              </Box>
+              {hasMoreCommunityInstructionTemplates ? (
+                <Box ref={loadMoreCommunityInstructionTemplatesRef} sx={{ height: 1, width: '100%' }} />
+              ) : null}
+            </>
           )}
         </Box>
       </Box>
@@ -2636,22 +2671,20 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   flexShrink: 0,
                 }}
               >
-                {selectedCommunityCharacter?.avatar_url ? (
-                  <Box
-                    component="img"
-                    src={selectedCommunityCharacter.avatar_url}
-                    alt={selectedCommunityCharacter.name}
-                    sx={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      transform: `scale(${Math.max(1, Math.min(3, selectedCommunityCharacter.avatar_scale || 1))})`,
-                      transformOrigin: 'center center',
-                    }}
-                  />
-                ) : (
-                  selectedCommunityCharacter?.name.trim().charAt(0).toUpperCase() || '•'
-                )}
+                <ProgressiveAvatar
+                  src={selectedCommunityCharacter?.avatar_url}
+                  alt={selectedCommunityCharacter?.name ?? ''}
+                  fallbackLabel={selectedCommunityCharacter?.name ?? ''}
+                  size={62}
+                  scale={Math.max(1, Math.min(3, selectedCommunityCharacter?.avatar_scale || 1))}
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    color: APP_TEXT_PRIMARY,
+                    fontSize: '1.24rem',
+                    fontWeight: 800,
+                  }}
+                />
               </Box>
               <Stack spacing={0.12} sx={{ minWidth: 0 }}>
                 <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
@@ -3132,6 +3165,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         onOpenInstructionTemplates={() => onNavigate('/dashboard')}
         onRequestLogout={() => setConfirmLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
+        onUserUpdate={onUserUpdate}
       />
       <TopUpDialog
         open={topUpDialogOpen}

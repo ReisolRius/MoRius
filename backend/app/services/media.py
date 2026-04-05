@@ -2,13 +2,26 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
+import hmac
+import json
 import math
+from datetime import datetime, timezone
+from urllib.parse import urlparse, urlunparse
+from typing import Any
 
 from fastapi import HTTPException, status
 
 from app.config import settings
 
 ALLOWED_AVATAR_MIME_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif"}
+MEDIA_TOKEN_VERSION = "v1"
+MEDIA_TOKEN_SEPARATOR = "."
+MEDIA_URL_PREFIX = "/api/media/"
+REMOTE_MEDIA_PROXY_HOST_SUFFIXES = (
+    "googleusercontent.com",
+    "ggpht.com",
+)
 
 
 def normalize_avatar_value(raw_value: str | None) -> str | None:
@@ -18,6 +31,197 @@ def normalize_avatar_value(raw_value: str | None) -> str | None:
     if not cleaned:
         return None
     return cleaned
+
+
+def normalize_proxyable_remote_media_url(raw_value: str | None) -> str | None:
+    normalized_value = normalize_avatar_value(raw_value)
+    if normalized_value is None:
+        return None
+    if not normalized_value.startswith(("https://", "http://")):
+        return None
+    try:
+        parsed = urlparse(normalized_value)
+    except ValueError:
+        return None
+    hostname = str(parsed.hostname or "").strip().lower()
+    if not hostname:
+        return None
+    if not any(hostname == suffix or hostname.endswith(f".{suffix}") for suffix in REMOTE_MEDIA_PROXY_HOST_SUFFIXES):
+        return None
+    normalized_scheme = "https" if parsed.scheme.lower() == "http" else parsed.scheme.lower()
+    if normalized_scheme not in {"http", "https"}:
+        return None
+    return urlunparse(parsed._replace(scheme=normalized_scheme))
+
+
+def _encode_media_token_part(payload: bytes) -> str:
+    return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
+
+
+def _decode_media_token_part(payload: str) -> bytes | None:
+    normalized_payload = str(payload or "").strip()
+    if not normalized_payload:
+        return None
+    padding = "=" * (-len(normalized_payload) % 4)
+    try:
+        return base64.urlsafe_b64decode(normalized_payload + padding)
+    except (ValueError, binascii.Error):
+        return None
+
+
+def normalize_media_cache_version(raw_value: Any) -> str:
+    if isinstance(raw_value, datetime):
+        if raw_value.tzinfo is None:
+            normalized_datetime = raw_value.replace(tzinfo=timezone.utc)
+        else:
+            normalized_datetime = raw_value.astimezone(timezone.utc)
+        return normalized_datetime.isoformat(timespec="microseconds").replace("+00:00", "Z")
+
+    normalized_value = str(raw_value or "").strip()
+    if not normalized_value:
+        return "0"
+    return normalized_value[:160]
+
+
+def _normalize_media_token_payload_extra(extra: dict[str, Any]) -> dict[str, Any]:
+    normalized_extra: dict[str, Any] = {}
+    for key in sorted(extra):
+        normalized_key = str(key or "").strip()
+        if not normalized_key.replace("_", "").isalnum():
+            continue
+        raw_value = extra[key]
+        if raw_value is None:
+            continue
+        if isinstance(raw_value, bool):
+            normalized_extra[normalized_key] = raw_value
+            continue
+        if isinstance(raw_value, int):
+            normalized_extra[normalized_key] = int(raw_value)
+            continue
+        if isinstance(raw_value, float):
+            if math.isfinite(raw_value):
+                normalized_extra[normalized_key] = raw_value
+            continue
+        normalized_value = str(raw_value).strip()
+        if not normalized_value:
+            continue
+        normalized_extra[normalized_key] = normalized_value[:160]
+    return normalized_extra
+
+
+def _sign_media_token_payload(payload: bytes) -> bytes:
+    secret = settings.jwt_secret_key.encode("utf-8")
+    return hmac.new(secret, payload, hashlib.sha256).digest()[:24]
+
+
+def build_media_token(
+    *,
+    kind: str,
+    entity_id: int,
+    version: Any,
+    **extra: Any,
+) -> str:
+    payload: dict[str, Any] = {
+        "v": MEDIA_TOKEN_VERSION,
+        "kind": str(kind or "").strip(),
+        "entity_id": max(int(entity_id), 0),
+        "version": normalize_media_cache_version(version),
+    }
+    payload.update(_normalize_media_token_payload_extra(extra))
+    payload_bytes = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    signature_bytes = _sign_media_token_payload(payload_bytes)
+    return (
+        f"{_encode_media_token_part(payload_bytes)}"
+        f"{MEDIA_TOKEN_SEPARATOR}"
+        f"{_encode_media_token_part(signature_bytes)}"
+    )
+
+
+def parse_media_token(token: str) -> dict[str, Any] | None:
+    normalized_token = str(token or "").strip()
+    if not normalized_token or MEDIA_TOKEN_SEPARATOR not in normalized_token:
+        return None
+
+    payload_part, signature_part = normalized_token.split(MEDIA_TOKEN_SEPARATOR, maxsplit=1)
+    payload_bytes = _decode_media_token_part(payload_part)
+    signature_bytes = _decode_media_token_part(signature_part)
+    if payload_bytes is None or signature_bytes is None:
+        return None
+    if not hmac.compare_digest(_sign_media_token_payload(payload_bytes), signature_bytes):
+        return None
+
+    try:
+        payload = json.loads(payload_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    if str(payload.get("v") or "") != MEDIA_TOKEN_VERSION:
+        return None
+    kind = str(payload.get("kind") or "").strip()
+    if not kind:
+        return None
+    try:
+        entity_id = int(payload.get("entity_id"))
+    except (TypeError, ValueError):
+        return None
+    version = normalize_media_cache_version(payload.get("version"))
+    normalized_payload: dict[str, Any] = {
+        "kind": kind,
+        "entity_id": entity_id,
+        "version": version,
+    }
+    for key, raw_value in payload.items():
+        if key in {"v", "kind", "entity_id", "version"}:
+            continue
+        normalized_key = str(key or "").strip()
+        if not normalized_key.replace("_", "").isalnum():
+            continue
+        normalized_payload[normalized_key] = raw_value
+    return normalized_payload
+
+
+def build_media_display_url(
+    *,
+    kind: str,
+    entity_id: int,
+    version: Any,
+    **extra: Any,
+) -> str:
+    token = build_media_token(
+        kind=kind,
+        entity_id=entity_id,
+        version=version,
+        **extra,
+    )
+    return f"{MEDIA_URL_PREFIX}{token}"
+
+
+def resolve_media_display_url(
+    raw_value: str | None,
+    *,
+    kind: str,
+    entity_id: int,
+    version: Any,
+    **extra: Any,
+) -> str | None:
+    normalized_value = normalize_avatar_value(raw_value)
+    if normalized_value is None:
+        return None
+    if normalized_value.startswith("data:"):
+        if str(kind or "").strip() == "user-avatar":
+            return normalized_value
+        return build_media_display_url(
+            kind=kind,
+            entity_id=entity_id,
+            version=version,
+            **extra,
+        )
+    normalized_remote_url = normalize_proxyable_remote_media_url(normalized_value)
+    if normalized_remote_url is not None:
+        return normalized_remote_url
+    return normalized_value
 
 
 def normalize_media_scale(
@@ -53,7 +257,32 @@ def normalize_media_position(
     )
 
 
+def decode_media_data_url(data_url: str | None) -> tuple[str, bytes] | None:
+    normalized_value = normalize_avatar_value(data_url)
+    if normalized_value is None or not normalized_value.startswith("data:"):
+        return None
+    if "," not in normalized_value:
+        return None
+
+    header, payload = normalized_value.split(",", maxsplit=1)
+    if ";base64" not in header:
+        return None
+
+    mime_type = header[len("data:") :].split(";", maxsplit=1)[0].lower()
+    if mime_type not in ALLOWED_AVATAR_MIME_TYPES:
+        return None
+
+    try:
+        raw_bytes = base64.b64decode(payload, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    return mime_type, raw_bytes
+
+
 def validate_avatar_url(avatar_url: str, *, max_bytes: int | None = None) -> str:
+    if avatar_url.startswith(MEDIA_URL_PREFIX):
+        return avatar_url
+
     if avatar_url.startswith(("https://", "http://")):
         if len(avatar_url) > 1024:
             raise HTTPException(

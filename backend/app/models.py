@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
@@ -21,6 +22,8 @@ class User(Base):
     show_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     show_public_worlds: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     show_private_worlds: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    show_public_characters: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    show_public_instruction_templates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     google_sub: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
     auth_provider: Mapped[str] = mapped_column(String(32), default="email", nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False, default="user", server_default="user")
@@ -29,12 +32,40 @@ class User(Base):
     is_banned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     ban_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     onboarding_guide_state: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    theme_preferences: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    email_notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_comment_reply: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_world_comment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_publication_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_new_follower: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_moderation_report: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    notify_moderation_queue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    daily_reward_claimed_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    daily_reward_last_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    daily_reward_cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    daily_reward_claim_month: Mapped[str] = mapped_column(String(7), nullable=False, default="", server_default="")
+    daily_reward_claim_mask: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+    @property
+    def active_theme_id(self) -> str | None:
+        raw_value = str(self.theme_preferences or "").strip()
+        if not raw_value:
+            return None
+        try:
+            parsed = json.loads(raw_value)
+        except Exception:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        value = str(parsed.get("active_theme_id") or "").strip()
+        return value or None
 
 
 class UserFollow(Base):
@@ -46,6 +77,20 @@ class UserFollow(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     follower_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     following_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserNotification(Base):
+    __tablename__ = "user_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, default="generic", server_default="generic")
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    action_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -75,6 +120,27 @@ class CoinPurchase(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     confirmation_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     coins_granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class DashboardNewsCard(Base):
+    __tablename__ = "dashboard_news_cards"
+    __table_args__ = (
+        UniqueConstraint("slot", name="uq_dashboard_news_cards_slot"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(80), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    date_label: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -163,6 +229,66 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    environment_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    environment_time_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="fixed",
+        server_default="fixed",
+    )
+    environment_turn_step_minutes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=3,
+        server_default="3",
+    )
+    environment_current_datetime: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    environment_current_weather: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    environment_tomorrow_weather: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    current_location_label: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    character_state_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    character_state_monitor_inactive_always: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    character_state_payload: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
     ambient_profile: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -182,6 +308,26 @@ class StoryGame(Base):
     published_instruction_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_plot_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_world_cards_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publication_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="none",
+        server_default="none",
+    )
+    publication_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewer_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    publication_rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    story_repetition_penalty: Mapped[float] = mapped_column(Float, nullable=False, default=1.05, server_default="1.05")
+    story_narrator_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="normal",
+        server_default="normal",
+    )
+    story_romance_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    story_map_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
+    story_map_payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     community_views: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_launches: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
@@ -422,6 +568,16 @@ class StoryInstructionTemplate(Base):
     community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_additions_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    publication_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="none",
+        server_default="none",
+    )
+    publication_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewer_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    publication_rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -451,6 +607,16 @@ class StoryCharacter(Base):
     community_rating_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_rating_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     community_additions_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    publication_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="none",
+        server_default="none",
+    )
+    publication_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_reviewer_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    publication_rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -580,6 +746,45 @@ class StoryPlotCard(Base):
     ai_edit_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCharacterStateSnapshot(Base):
+    __tablename__ = "story_character_state_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    assistant_message_id: Mapped[int | None] = mapped_column(ForeignKey("story_messages.id"), nullable=True, index=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryMapImage(Base):
+    __tablename__ = "story_map_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False, default="world", server_default="world")
+    target_region_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    target_location_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    target_label: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    revised_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(4096), nullable=True)
+    image_data_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

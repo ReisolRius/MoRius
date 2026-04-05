@@ -92,6 +92,96 @@ def list_story_messages(db: Session, game_id: int) -> list[StoryMessage]:
     ).all()
 
 
+def list_story_messages_window(
+    db: Session,
+    game_id: int,
+    *,
+    assistant_turns_limit: int | None = None,
+    before_message_id: int | None = None,
+) -> tuple[list[StoryMessage], bool]:
+    normalized_turn_limit = max(int(assistant_turns_limit or 0), 0)
+    normalized_before_message_id = max(int(before_message_id or 0), 0)
+    if normalized_turn_limit <= 0:
+        messages = list_story_messages(db, game_id)
+        return messages, False
+
+    assistant_query = (
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.role == "assistant",
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.desc())
+        .limit(normalized_turn_limit)
+    )
+    if normalized_before_message_id > 0:
+        assistant_query = assistant_query.where(StoryMessage.id < normalized_before_message_id)
+
+    assistant_anchor_ids = [
+        int(message_id)
+        for message_id in db.scalars(assistant_query).all()
+        if int(message_id or 0) > 0
+    ]
+
+    if not assistant_anchor_ids:
+        fallback_query = (
+            select(StoryMessage)
+            .where(
+                StoryMessage.game_id == game_id,
+                StoryMessage.undone_at.is_(None),
+            )
+            .order_by(StoryMessage.id.asc())
+        )
+        if normalized_before_message_id > 0:
+            fallback_query = fallback_query.where(StoryMessage.id < normalized_before_message_id)
+        messages = db.scalars(fallback_query).all()
+        return messages, False
+
+    oldest_assistant_id = min(assistant_anchor_ids)
+    start_message_id = db.scalar(
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.role == "user",
+            StoryMessage.id < oldest_assistant_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.desc())
+        .limit(1)
+    )
+    if not isinstance(start_message_id, int) or start_message_id <= 0:
+        start_message_id = oldest_assistant_id
+
+    window_query = (
+        select(StoryMessage)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.id >= start_message_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.asc())
+    )
+    if normalized_before_message_id > 0:
+        window_query = window_query.where(StoryMessage.id < normalized_before_message_id)
+    messages = db.scalars(window_query).all()
+    if not messages:
+        return [], False
+
+    oldest_loaded_message_id = int(getattr(messages[0], "id", 0) or 0)
+    has_older_messages = db.scalar(
+        select(StoryMessage.id)
+        .where(
+            StoryMessage.game_id == game_id,
+            StoryMessage.id < oldest_loaded_message_id,
+            StoryMessage.undone_at.is_(None),
+        )
+        .order_by(StoryMessage.id.desc())
+        .limit(1)
+    ) is not None
+    return messages, has_older_messages
+
+
 def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
     return db.scalars(
         select(StoryTurnImage)

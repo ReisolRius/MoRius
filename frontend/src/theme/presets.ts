@@ -4,7 +4,12 @@ export const MORIUS_THEME_STORAGE_KEY = 'morius.ui.theme'
 
 export type MoriusThemeMode = 'dark' | 'light'
 
-export type MoriusThemeId = 'classic-dark' | 'blue-steel' | 'pastel-light' | 'gray' | 'yami-rius'
+export type MoriusThemeId = string
+export type MoriusThemeStoryStyle = {
+  correctedTextColor: string
+  playerTextColor: string
+  assistantTextColor: string
+}
 
 export type MoriusThemePreset = {
   id: MoriusThemeId
@@ -13,6 +18,7 @@ export type MoriusThemePreset = {
   description: string
   mode: MoriusThemeMode
   colors: MoriusThemeColors
+  story?: MoriusThemeStoryStyle
 }
 
 export type MoriusThemePlaceholder = {
@@ -27,7 +33,7 @@ const classicDarkColors: MoriusThemeColors = {
   buttonHover: 'color-mix(in srgb, #578EEE 28%, #171716 72%)',
   buttonActive: 'color-mix(in srgb, #578EEE 36%, #171716 64%)',
   sendButton: 'color-mix(in srgb, #578EEE 30%, #FFFFFF 70%)',
-  panelGradient: 'linear-gradient(108deg, #31302E 0%, #578EEE 100%)',
+  panelGradient: '#31302E',
 }
 
 const blueSteelColors: MoriusThemeColors = {
@@ -37,6 +43,7 @@ const blueSteelColors: MoriusThemeColors = {
   appBase: '#0F1218',
   appSurface: '#15181C',
   appElevated: '#262C33',
+  inputBg: '#15181C',
   appBorder: '#333C47',
   accent: '#C2D1DE',
   titleText: '#DEE8F2',
@@ -45,7 +52,7 @@ const blueSteelColors: MoriusThemeColors = {
   buttonHover: '#434E5A',
   buttonActive: '#434E5A',
   sendButton: '#C2D1DE',
-  panelGradient: 'linear-gradient(108deg, #333C47 0%, #C2D1DE 100%)',
+  panelGradient: '#333C47',
   bootBackground: '#0F1218',
   baseText: '#AAB7C5',
 }
@@ -57,6 +64,7 @@ const pastelLightColors: MoriusThemeColors = {
   appBase: '#F0ECE6',
   appSurface: '#E2DCCE',
   appElevated: '#E6E2D9',
+  inputBg: '#E2DCCE',
   appBorder: '#D2CCBE',
   accent: '#000000',
   titleText: '#000000',
@@ -65,7 +73,7 @@ const pastelLightColors: MoriusThemeColors = {
   buttonHover: '#DDD7C9',
   buttonActive: '#D4CEC0',
   sendButton: '#000000',
-  panelGradient: 'linear-gradient(108deg, #E2DCCE 0%, #F0ECE6 100%)',
+  panelGradient: '#E2DCCE',
   bootBackground: '#F0ECE6',
   baseText: '#000000',
 }
@@ -76,6 +84,7 @@ const grayColors: MoriusThemeColors = {
   appBase: '#141414',
   appSurface: '#242424',
   appElevated: '#242424',
+  inputBg: '#242424',
   appBorder: '#323232',
   accent: '#7D9EB2',
   titleText: '#BABABA',
@@ -84,7 +93,7 @@ const grayColors: MoriusThemeColors = {
   buttonHover: '#2C2C2C',
   buttonActive: '#2C2C2C',
   sendButton: '#AAAAAA',
-  panelGradient: 'linear-gradient(108deg, #2A2A2A 0%, #7D9EB2 100%)',
+  panelGradient: '#2A2A2A',
   bootBackground: '#141414',
   baseText: '#BABABA',
 }
@@ -95,6 +104,7 @@ const yamiRiusColors: MoriusThemeColors = {
   appBase: '#292929',
   appSurface: '#222222',
   appElevated: '#333333',
+  inputBg: '#222222',
   appBorder: '#3A3A3A',
   accent: '#FF6666',
   titleText: '#EEEEEE',
