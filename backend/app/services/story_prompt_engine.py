@@ -635,6 +635,14 @@ def _build_story_character_state_guidance_cards_payload(
             raw_content,
             "Состояние здоровья:",
         )
+        clothing_value = _extract_story_character_state_prompt_field_local(
+            raw_content,
+            "Одежда:",
+        )
+        equipment_value = _extract_story_character_state_prompt_field_local(
+            raw_content,
+            "Снаряжение:",
+        )
         mood_value = _extract_story_character_state_prompt_field_local(
             raw_content,
             "Текущее настроение на начало этой сцены:",
@@ -671,12 +679,17 @@ def _build_story_character_state_guidance_cards_payload(
             "name": name,
             "kind": kind,
             "status": status_value,
+            "clothing": clothing_value,
+            "equipment": equipment_value,
             "mood": mood_value,
             "attitude_to_hero": attitude_value,
             "personality": personality_value,
             "manual_fixed_fields": manual_fixed_fields,
         }
-        if any(str(guidance_card.get(field_name) or "").strip() for field_name in ("status", "mood", "attitude_to_hero", "personality")):
+        if any(
+            str(guidance_card.get(field_name) or "").strip()
+            for field_name in ("status", "clothing", "equipment", "mood", "attitude_to_hero", "personality")
+        ):
             guidance_cards.append(guidance_card)
     return guidance_cards
 
@@ -703,6 +716,8 @@ def _request_story_character_state_scene_guidance(
         character_name = " ".join(str(guidance_card.get("name") or "").split()).strip() or "Character"
         character_kind = str(guidance_card.get("kind") or "").strip().lower()
         status_value = " ".join(str(guidance_card.get("status") or "").split()).strip()
+        clothing_value = " ".join(str(guidance_card.get("clothing") or "").split()).strip()
+        equipment_value = " ".join(str(guidance_card.get("equipment") or "").split()).strip()
         mood_value = " ".join(str(guidance_card.get("mood") or "").split()).strip()
         attitude_value = " ".join(str(guidance_card.get("attitude_to_hero") or "").split()).strip()
         personality_value = " ".join(str(guidance_card.get("personality") or "").split()).strip()
@@ -710,11 +725,15 @@ def _request_story_character_state_scene_guidance(
             str(field_name or "").strip()
             for field_name in guidance_card.get("manual_fixed_fields", [])
             if str(field_name or "").strip()
-        ]
+        ] 
 
         state_parts: list[str] = []
-        if character_kind == "main_hero" and status_value:
+        if status_value:
             state_parts.append(f"health_status='{status_value}'")
+        if clothing_value:
+            state_parts.append(f"clothing='{clothing_value}'")
+        if equipment_value:
+            state_parts.append(f"equipment='{equipment_value}'")
         if mood_value:
             state_parts.append(f"mood='{mood_value}'")
         if attitude_value:

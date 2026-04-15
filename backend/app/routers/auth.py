@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field
 try:
     from google.auth.transport import requests as google_requests
@@ -33,6 +33,7 @@ from app.schemas import (
     ProfileUpdateRequest,
     RegisterRequest,
     RegisterVerifyRequest,
+    UserNotificationListResponseOut,
     UserNotificationOut,
     UserNotificationUnreadCountOut,
     UserOut,
@@ -145,12 +146,17 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
 
 try:
     from app.services.notifications import (
+        count_total_user_notifications,
         count_unread_user_notifications,
         delete_user_notification,
         list_user_notifications_out,
         mark_all_user_notifications_read,
     )
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    def count_total_user_notifications(db: Session, *, user_id: int) -> int:
+        _ = (db, user_id)
+        return 0
+
     def count_unread_user_notifications(db: Session, *, user_id: int) -> int:
         _ = (db, user_id)
         return 0
@@ -161,8 +167,9 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         user_id: int,
         limit: int = 120,
         offset: int = 0,
+        sort_desc: bool = True,
     ) -> list[UserNotificationOut]:
-        _ = (db, user_id, limit, offset)
+        _ = (db, user_id, limit, offset, sort_desc)
         return []
 
     def mark_all_user_notifications_read(db: Session, *, user_id: int) -> int:
@@ -194,7 +201,7 @@ logger = logging.getLogger(__name__)
 AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0
-NEW_USER_STARTER_COINS = 20
+NEW_USER_STARTER_COINS = 50
 ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
 ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
@@ -836,13 +843,46 @@ def update_profile(
     return UserOut.model_validate(user)
 
 
-@router.get("/api/auth/me/notifications", response_model=list[UserNotificationOut])
+@router.get("/api/auth/me/notifications", response_model=UserNotificationListResponseOut)
 def get_my_notifications(
+    limit: int = Query(default=12, ge=1, le=120),
+    offset: int = Query(default=0, ge=0),
+    order: str = Query(default="desc", pattern="^(asc|desc)$"),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
-) -> list[UserNotificationOut]:
+) -> UserNotificationListResponseOut:
     user = get_current_user(db, authorization)
-    return list_user_notifications_out(db, user_id=int(user.id))
+    normalized_limit = max(1, min(int(limit or 12), 120))
+    normalized_offset = max(0, int(offset or 0))
+    total_count = count_total_user_notifications(db, user_id=int(user.id))
+    unread_count = count_unread_user_notifications(db, user_id=int(user.id))
+    items = list_user_notifications_out(
+        db,
+        user_id=int(user.id),
+        limit=normalized_limit,
+        offset=normalized_offset,
+        sort_desc=order != "asc",
+    )
+    return UserNotificationListResponseOut(
+        items=items,
+        unread_count=unread_count,
+        total_count=total_count,
+        limit=normalized_limit,
+        offset=normalized_offset,
+        has_more=normalized_offset + len(items) < total_count,
+    )
+
+
+@router.get("/api/auth/me/notifications/summary", response_model=UserNotificationUnreadCountOut)
+def get_my_notification_summary(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> UserNotificationUnreadCountOut:
+    user = get_current_user(db, authorization)
+    return UserNotificationUnreadCountOut(
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
+        total_count=count_total_user_notifications(db, user_id=int(user.id)),
+    )
 
 
 @router.get("/api/auth/me/notifications/unread-count", response_model=UserNotificationUnreadCountOut)
@@ -852,7 +892,8 @@ def get_my_notification_unread_count(
 ) -> UserNotificationUnreadCountOut:
     user = get_current_user(db, authorization)
     return UserNotificationUnreadCountOut(
-        unread_count=count_unread_user_notifications(db, user_id=int(user.id))
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
+        total_count=count_total_user_notifications(db, user_id=int(user.id)),
     )
 
 
@@ -864,7 +905,10 @@ def read_all_my_notifications(
     user = get_current_user(db, authorization)
     mark_all_user_notifications_read(db, user_id=int(user.id))
     db.commit()
-    return UserNotificationUnreadCountOut(unread_count=0)
+    return UserNotificationUnreadCountOut(
+        unread_count=0,
+        total_count=count_total_user_notifications(db, user_id=int(user.id)),
+    )
 
 
 @router.delete("/api/auth/me/notifications/{notification_id}", response_model=UserNotificationUnreadCountOut)
@@ -883,7 +927,8 @@ def remove_my_notification(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found")
     db.commit()
     return UserNotificationUnreadCountOut(
-        unread_count=count_unread_user_notifications(db, user_id=int(user.id))
+        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
+        total_count=count_total_user_notifications(db, user_id=int(user.id)),
     )
 
 

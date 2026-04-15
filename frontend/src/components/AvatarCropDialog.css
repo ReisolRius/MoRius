@@ -6,7 +6,8 @@
   place-items: center;
   padding: 12px;
   background: rgba(2, 5, 9, 0.78);
-  backdrop-filter: blur(5px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .avatar-crop-modal {
@@ -146,6 +147,35 @@
 }
 
 @media (max-width: 640px) {
+  .avatar-crop-backdrop {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .avatar-crop-modal {
+    width: 100%;
+    max-height: 100dvh;
+    border-radius: 22px 22px 0 0;
+    border-bottom: none;
+    position: relative;
+  }
+
+  .avatar-crop-modal::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 48px;
+    height: 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--morius-title-text) 32%, transparent);
+  }
+
+  .avatar-crop-title {
+    padding-top: 22px;
+  }
+
   .avatar-crop-stage {
     height: min(62vh, 500px);
   }

@@ -9,19 +9,17 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControl,
   FormControlLabel,
   IconButton,
   Menu,
   MenuItem,
-  Select,
   Skeleton,
   Stack,
+  SvgIcon,
   Switch,
   TextField,
   Typography,
   useMediaQuery,
-  type SelectChangeEvent,
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
@@ -33,6 +31,7 @@ import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import { useIncrementalList } from '../hooks/useIncrementalList'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
+import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -43,11 +42,14 @@ import ProfileDialog from '../components/profile/ProfileDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
+import Footer from '../components/Footer'
 import { ONBOARDING_GUIDE_COMMAND_EVENT, type OnboardingGuideCommandDetail } from '../utils/onboardingGuide'
+import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import {
   createCoinTopUpPayment,
   deleteCurrentUserNotification,
   followUserProfile,
+  getCurrentUserNotificationSummary,
   listCurrentUserNotifications,
   markAllCurrentUserNotificationsRead,
   getProfileView,
@@ -60,6 +62,7 @@ import {
   type CoinTopUpPlan,
   type ProfileFollowState,
   type ProfileView,
+  type UserNotificationCounters,
   type UserNotification,
 } from '../services/authApi'
 import {
@@ -93,11 +96,13 @@ type ProfilePageProps = {
 
 type TabId = 'characters' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
+type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
 
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
 const PROFILE_CONTENT_SEARCH_MAX = 120
-const PROFILE_CARD_BATCH_SIZE = 10
+const PROFILE_CARD_BATCH_SIZE = 12
+const PROFILE_NOTIFICATION_PAGE_SIZE = 12
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const PROFILE_AVATAR_SIZE = 96
@@ -131,6 +136,178 @@ const NOTIFICATION_SORT_OPTIONS: Array<{ value: NotificationSortMode; label: str
   { value: 'newest', label: 'Сначала новые' },
   { value: 'oldest', label: 'Сначала старые' },
 ]
+
+const PROFILE_SORT_COLLATOR = new Intl.Collator('ru-RU', { sensitivity: 'base', numeric: true })
+
+const PROFILE_TAB_SORT_OPTIONS: Partial<Record<TabId, Array<{ value: string; label: string }>>> = {
+  characters: [
+    { value: 'updated_desc', label: 'Сначала новые' },
+    { value: 'updated_asc', label: 'Сначала старые' },
+    { value: 'name_asc', label: 'Имя А-Я' },
+    { value: 'name_desc', label: 'Имя Я-А' },
+    { value: 'popular_desc', label: 'По добавлениям' },
+  ],
+  instructions: [
+    { value: 'updated_desc', label: 'Сначала новые' },
+    { value: 'updated_asc', label: 'Сначала старые' },
+    { value: 'name_asc', label: 'Название А-Я' },
+    { value: 'name_desc', label: 'Название Я-А' },
+    { value: 'popular_desc', label: 'По добавлениям' },
+  ],
+  favorites: [
+    { value: 'popular_desc', label: 'По популярности' },
+    { value: 'rating_desc', label: 'По рейтингу' },
+    { value: 'updated_desc', label: 'Сначала новые' },
+    { value: 'updated_asc', label: 'Сначала старые' },
+    { value: 'name_asc', label: 'Название А-Я' },
+  ],
+  publications: [
+    { value: 'popular_desc', label: 'По популярности' },
+    { value: 'rating_desc', label: 'По рейтингу' },
+    { value: 'updated_desc', label: 'Сначала новые' },
+    { value: 'updated_asc', label: 'Сначала старые' },
+    { value: 'name_asc', label: 'Название А-Я' },
+  ],
+  subscriptions: [
+    { value: 'name_asc', label: 'Имя А-Я' },
+    { value: 'name_desc', label: 'Имя Я-А' },
+  ],
+}
+
+const PROFILE_TAB_DEFAULT_SORT_MODE: Partial<Record<TabId, ProfileContentSortMode>> = {
+  characters: 'updated_desc',
+  instructions: 'updated_desc',
+  favorites: 'popular_desc',
+  publications: 'popular_desc',
+  subscriptions: 'name_asc',
+}
+
+type ProfileSortableCommunityCard = Pick<
+  StoryCharacter,
+  'id' | 'updated_at' | 'name' | 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'
+>
+
+type ProfileSortableTemplateCard = Pick<
+  StoryInstructionTemplate,
+  'id' | 'updated_at' | 'title' | 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'
+>
+
+type ProfileSortableWorldCard = Pick<
+  StoryCommunityWorldSummary,
+  'id' | 'title' | 'created_at' | 'updated_at' | 'community_launches' | 'community_views' | 'community_rating_avg' | 'community_rating_count'
+>
+
+type ProfileSortableSubscription = Pick<ProfileView['subscriptions'][number], 'id' | 'display_name'>
+
+function compareProfileText(left: string, right: string): number {
+  return PROFILE_SORT_COLLATOR.compare(left.trim(), right.trim())
+}
+
+function compareProfilePopularity(
+  left: Pick<ProfileSortableCommunityCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
+  right: Pick<ProfileSortableCommunityCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
+): number {
+  if (right.community_additions_count !== left.community_additions_count) {
+    return right.community_additions_count - left.community_additions_count
+  }
+  if (right.community_rating_count !== left.community_rating_count) {
+    return right.community_rating_count - left.community_rating_count
+  }
+  if (right.community_rating_avg !== left.community_rating_avg) {
+    return right.community_rating_avg - left.community_rating_avg
+  }
+  return 0
+}
+
+function compareProfileWorldPopularity(left: ProfileSortableWorldCard, right: ProfileSortableWorldCard): number {
+  if (right.community_launches !== left.community_launches) {
+    return right.community_launches - left.community_launches
+  }
+  if (right.community_views !== left.community_views) {
+    return right.community_views - left.community_views
+  }
+  if (right.community_rating_count !== left.community_rating_count) {
+    return right.community_rating_count - left.community_rating_count
+  }
+  if (right.community_rating_avg !== left.community_rating_avg) {
+    return right.community_rating_avg - left.community_rating_avg
+  }
+  return 0
+}
+
+function sortProfileCharacters(items: StoryCharacter[], mode: ProfileContentSortMode): StoryCharacter[] {
+  return [...items].sort((left, right) => {
+    if (mode === 'name_asc') {
+      return compareProfileText(left.name, right.name) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    if (mode === 'name_desc') {
+      return compareProfileText(right.name, left.name) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    if (mode === 'updated_asc') {
+      return parseSortDate(left.updated_at) - parseSortDate(right.updated_at) || left.id - right.id
+    }
+    if (mode === 'popular_desc') {
+      return compareProfilePopularity(left, right) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+  })
+}
+
+function sortProfileTemplates(items: StoryInstructionTemplate[], mode: ProfileContentSortMode): StoryInstructionTemplate[] {
+  return [...items].sort((left, right) => {
+    if (mode === 'name_asc') {
+      return compareProfileText(left.title, right.title) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    if (mode === 'name_desc') {
+      return compareProfileText(right.title, left.title) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    if (mode === 'updated_asc') {
+      return parseSortDate(left.updated_at) - parseSortDate(right.updated_at) || left.id - right.id
+    }
+    if (mode === 'popular_desc') {
+      return compareProfilePopularity(left, right) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+  })
+}
+
+function sortProfileWorlds<T extends ProfileSortableWorldCard>(items: T[], mode: ProfileContentSortMode): T[] {
+  return [...items].sort((left, right) => {
+    if (mode === 'name_asc') {
+      return compareProfileText(left.title, right.title) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
+    if (mode === 'updated_asc') {
+      return parseSortDate(left.updated_at || left.created_at) - parseSortDate(right.updated_at || right.created_at) || left.id - right.id
+    }
+    if (mode === 'rating_desc') {
+      if (right.community_rating_count !== left.community_rating_count) {
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (right.community_rating_avg !== left.community_rating_avg) {
+        return right.community_rating_avg - left.community_rating_avg
+      }
+      return parseSortDate(right.updated_at || right.created_at) - parseSortDate(left.updated_at || left.created_at) || right.id - left.id
+    }
+    if (mode === 'popular_desc') {
+      return compareProfileWorldPopularity(left, right)
+        || parseSortDate(right.updated_at || right.created_at) - parseSortDate(left.updated_at || left.created_at)
+        || right.id - left.id
+    }
+    return parseSortDate(right.updated_at || right.created_at) - parseSortDate(left.updated_at || left.created_at) || right.id - left.id
+  })
+}
+
+function sortProfileSubscriptions<T extends ProfileSortableSubscription>(
+  items: T[],
+  mode: Extract<ProfileContentSortMode, 'name_asc' | 'name_desc'>,
+): T[] {
+  return [...items].sort((left, right) => {
+    if (mode === 'name_desc') {
+      return compareProfileText(right.display_name, left.display_name) || right.id - left.id
+    }
+    return compareProfileText(left.display_name, right.display_name) || left.id - right.id
+  })
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -214,6 +391,17 @@ function matchesProfileSearch(query: string, fields: Array<string | null | undef
   return fields.some((field) => normalizeProfileSearchValue(field ?? '').includes(query))
 }
 
+function mergeNotificationsById(previous: UserNotification[], nextItems: UserNotification[]): UserNotification[] {
+  const nextById = new Map<number, UserNotification>()
+  previous.forEach((item) => {
+    nextById.set(item.id, item)
+  })
+  nextItems.forEach((item) => {
+    nextById.set(item.id, item)
+  })
+  return Array.from(nextById.values())
+}
+
 function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
   return {
     id: profileUser.id,
@@ -240,6 +428,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [tab, setTab] = useState<TabId>('characters')
   const [contentSearchQuery, setContentSearchQuery] = useState('')
+  const [contentSortMenuAnchorEl, setContentSortMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [contentSortModeByTab, setContentSortModeByTab] = useState<Partial<Record<TabId, ProfileContentSortMode>>>(
+    PROFILE_TAB_DEFAULT_SORT_MODE,
+  )
   const [mobileProfileMenuAnchorEl, setMobileProfileMenuAnchorEl] = useState<HTMLElement | null>(null)
   const deferredContentSearchQuery = useDeferredValue(contentSearchQuery)
 
@@ -266,8 +458,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isFavoriteWorldsLoading, setIsFavoriteWorldsLoading] = useState(false)
   const [favoriteLoadingById, setFavoriteLoadingById] = useState<Record<number, boolean>>({})
   const [notifications, setNotifications] = useState<UserNotification[]>([])
+  const [notificationCounts, setNotificationCounts] = useState<UserNotificationCounters>({ unread_count: 0, total_count: 0 })
   const [hasLoadedNotifications, setHasLoadedNotifications] = useState(false)
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false)
+  const [isNotificationsLoadingMore, setIsNotificationsLoadingMore] = useState(false)
+  const [hasMoreNotificationsServer, setHasMoreNotificationsServer] = useState(false)
   const [notificationSortMode, setNotificationSortMode] = useState<NotificationSortMode>('newest')
   const [notificationDeletingId, setNotificationDeletingId] = useState<number | null>(null)
   const [hoveredNotificationId, setHoveredNotificationId] = useState<number | null>(null)
@@ -302,6 +497,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const lastContentTabRef = useRef<TabId>('characters')
+  const notificationsLoadMoreTriggeredRef = useRef(false)
 
   const profileName = user.display_name?.trim() || 'Игрок'
   const profileDescription = user.profile_description || ''
@@ -431,29 +627,67 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     () => normalizeProfileSearchValue(deferredContentSearchQuery),
     [deferredContentSearchQuery],
   )
+  const characterSortMode = contentSortModeByTab.characters ?? PROFILE_TAB_DEFAULT_SORT_MODE.characters ?? 'updated_desc'
+  const instructionSortMode = contentSortModeByTab.instructions ?? PROFILE_TAB_DEFAULT_SORT_MODE.instructions ?? 'updated_desc'
+  const favoriteSortMode = contentSortModeByTab.favorites ?? PROFILE_TAB_DEFAULT_SORT_MODE.favorites ?? 'popular_desc'
+  const publicationSortMode = contentSortModeByTab.publications ?? PROFILE_TAB_DEFAULT_SORT_MODE.publications ?? 'popular_desc'
+  const subscriptionSortMode = contentSortModeByTab.subscriptions ?? PROFILE_TAB_DEFAULT_SORT_MODE.subscriptions ?? 'name_asc'
+  const activeContentSortOptions = useMemo(
+    () => (tab === 'notifications' ? NOTIFICATION_SORT_OPTIONS : PROFILE_TAB_SORT_OPTIONS[tab] ?? []),
+    [tab],
+  )
+  const activeContentSortMode = tab === 'notifications'
+    ? notificationSortMode
+    : contentSortModeByTab[tab] ?? PROFILE_TAB_DEFAULT_SORT_MODE[tab] ?? ''
+  const activeContentSortLabel = useMemo(
+    () => activeContentSortOptions.find((option) => option.value === activeContentSortMode)?.label ?? 'Сортировка',
+    [activeContentSortMode, activeContentSortOptions],
+  )
+  const isActiveContentSortDefault = activeContentSortMode === (tab === 'notifications' ? 'newest' : PROFILE_TAB_DEFAULT_SORT_MODE[tab] ?? '')
   const filteredCharacters = useMemo(
     () =>
-      sortedCharacters.filter((item) =>
-        matchesProfileSearch(normalizedContentSearchQuery, [item.name, item.description, item.triggers.join(' ')]),
+      sortProfileCharacters(
+        sortedCharacters.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [
+            item.name,
+            item.race,
+            item.description,
+            item.clothing,
+            item.inventory,
+            item.health_status,
+            item.note,
+            item.triggers.join(' '),
+          ]),
+        ),
+        characterSortMode,
       ),
-    [normalizedContentSearchQuery, sortedCharacters],
+    [characterSortMode, normalizedContentSearchQuery, sortedCharacters],
   )
   const filteredTemplates = useMemo(
     () =>
-      sortedTemplates.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content])),
-    [normalizedContentSearchQuery, sortedTemplates],
+      sortProfileTemplates(
+        sortedTemplates.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content])),
+        instructionSortMode,
+      ),
+    [instructionSortMode, normalizedContentSearchQuery, sortedTemplates],
   )
   const filteredFavoriteWorlds = useMemo(
     () =>
-      favoriteWorlds.filter((item) =>
-        matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+      sortProfileWorlds(
+        favoriteWorlds.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+        ),
+        favoriteSortMode,
       ),
-    [favoriteWorlds, normalizedContentSearchQuery],
+    [favoriteSortMode, favoriteWorlds, normalizedContentSearchQuery],
   )
   const filteredSubscriptions = useMemo(
     () =>
-      visibleSubscriptions.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.display_name])),
-    [normalizedContentSearchQuery, visibleSubscriptions],
+      sortProfileSubscriptions(
+        visibleSubscriptions.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.display_name])),
+        subscriptionSortMode as Extract<ProfileContentSortMode, 'name_asc' | 'name_desc'>,
+      ),
+    [normalizedContentSearchQuery, subscriptionSortMode, visibleSubscriptions],
   )
   const filteredNotifications = useMemo(
     () =>
@@ -472,17 +706,23 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
   const filteredVisiblePublicationWorlds = useMemo(
     () =>
-      visiblePublicationWorlds.filter((item) =>
-        matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+      sortProfileWorlds(
+        visiblePublicationWorlds.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+        ),
+        publicationSortMode,
       ),
-    [normalizedContentSearchQuery, visiblePublicationWorlds],
+    [normalizedContentSearchQuery, publicationSortMode, visiblePublicationWorlds],
   )
   const filteredVisibleUnpublishedWorlds = useMemo(
     () =>
-      visibleUnpublishedWorlds.filter((item) =>
-        matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+      sortProfileWorlds(
+        visibleUnpublishedWorlds.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.description, item.author_name]),
+        ),
+        publicationSortMode,
       ),
-    [normalizedContentSearchQuery, visibleUnpublishedWorlds],
+    [normalizedContentSearchQuery, publicationSortMode, visibleUnpublishedWorlds],
   )
   const {
     visibleItems: visibleCharacters,
@@ -521,14 +761,18 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     resetKey: `${normalizedContentSearchQuery}|subscriptions|${filteredSubscriptions.length}`,
   })
   const {
-    visibleItems: visibleNotifications,
-    hasMore: hasMoreNotifications,
-    loadMoreRef: loadMoreNotificationsRef,
-  } = useIncrementalList(filteredNotifications, {
-    initialCount: PROFILE_CARD_BATCH_SIZE,
-    step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|notifications|${notificationSortMode}|${filteredNotifications.length}`,
+    ref: loadMoreNotificationsRef,
+    isVisible: isLoadMoreNotificationsVisible,
+  } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '140px 0px',
+    once: false,
+    disabled:
+      tab !== 'notifications' ||
+      !hasMoreNotificationsServer ||
+      isNotificationsLoading ||
+      isNotificationsLoadingMore,
   })
+  const visibleNotifications = filteredNotifications
   const {
     visibleItems: visiblePublishedWorldCards,
     hasMore: hasMorePublishedWorldCards,
@@ -561,7 +805,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: managedCharacters.length },
         { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: sortedTemplates.length },
         { id: 'favorites', label: PROFILE_TAB_LABELS.favorites, count: favoriteWorlds.length },
-        { id: 'notifications', label: PROFILE_NOTIFICATIONS_LABEL, count: notifications.length },
+        { id: 'notifications', label: PROFILE_NOTIFICATIONS_LABEL, count: notificationCounts.total_count },
       )
     }
     items.push({ id: 'subscriptions', label: PROFILE_TAB_LABELS.subscriptions, count: subscriptionsCount })
@@ -571,7 +815,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     favoriteWorlds.length,
     isOwnProfile,
     managedCharacters.length,
-    notifications.length,
+    notificationCounts.total_count,
     sortedTemplates.length,
     subscriptionsCount,
     visiblePublicationWorlds.length,
@@ -748,7 +992,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [authToken, isOwnProfile])
   void loadFavoriteWorlds
 
-  const loadNotifications = useCallback(async () => {
+  /* legacyLoadNotifications
     if (!isOwnProfile) {
       setNotifications([])
       setHasLoadedNotifications(false)
@@ -759,7 +1003,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setIsNotificationsLoading(true)
     try {
       const loadedNotifications = await listCurrentUserNotifications({ token: authToken })
-      setNotifications(loadedNotifications)
+      setNotifications(loadedNotifications.items)
       setHasLoadedNotifications(true)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить уведомления'
@@ -769,7 +1013,75 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     } finally {
       setIsNotificationsLoading(false)
     }
+  */
+
+  const loadNotificationSummary = useCallback(async () => {
+    if (!isOwnProfile) {
+      setNotificationCounts({ unread_count: 0, total_count: 0 })
+      return
+    }
+
+    try {
+      const response = await getCurrentUserNotificationSummary({ token: authToken })
+      setNotificationCounts(response)
+    } catch {
+      // Keep the previous counters when summary refresh fails.
+    }
   }, [authToken, isOwnProfile])
+
+  const loadNotifications = useCallback(
+    async (options?: { append?: boolean }) => {
+      if (!isOwnProfile) {
+        setNotifications([])
+        setHasLoadedNotifications(false)
+        setHasMoreNotificationsServer(false)
+        setIsNotificationsLoading(false)
+        setIsNotificationsLoadingMore(false)
+        return
+      }
+
+      const append = options?.append ?? false
+      const offset = append ? notifications.length : 0
+      const order = notificationSortMode === 'oldest' ? 'asc' : 'desc'
+
+      setError('')
+      if (append) {
+        setIsNotificationsLoadingMore(true)
+      } else {
+        setIsNotificationsLoading(true)
+      }
+      try {
+        const response = await listCurrentUserNotifications({
+          token: authToken,
+          limit: PROFILE_NOTIFICATION_PAGE_SIZE,
+          offset,
+          order,
+        })
+        setNotifications((previous) => (append ? mergeNotificationsById(previous, response.items) : response.items))
+        setHasLoadedNotifications(true)
+        setHasMoreNotificationsServer(response.has_more)
+        setNotificationCounts({
+          unread_count: response.unread_count,
+          total_count: response.total_count,
+        })
+      } catch (requestError) {
+        const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить уведомления'
+        if (!append) {
+          setNotifications([])
+          setHasLoadedNotifications(false)
+          setHasMoreNotificationsServer(false)
+        }
+        setError(detail)
+      } finally {
+        if (append) {
+          setIsNotificationsLoadingMore(false)
+        } else {
+          setIsNotificationsLoading(false)
+        }
+      }
+    },
+    [authToken, isOwnProfile, notificationSortMode, notifications.length],
+  )
 
   const markNotificationsRead = useCallback(async () => {
     if (!isOwnProfile || !hasLoadedNotifications || !notifications.some((item) => !item.is_read)) {
@@ -779,6 +1091,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       const response = await markAllCurrentUserNotificationsRead({ token: authToken })
       setNotifications((previous) => previous.map((item) => ({ ...item, is_read: true })))
       dispatchNotificationsChanged(response.unread_count)
+      setNotificationCounts(response)
     } catch {
       // Silent fail: the page content remains available even if read-state sync fails.
     }
@@ -801,6 +1114,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           setHoveredNotificationId(null)
         }
         dispatchNotificationsChanged(response.unread_count)
+        setNotificationCounts(response)
+        setHasMoreNotificationsServer((response.total_count ?? 0) > Math.max(0, notifications.length - 1))
       } catch (requestError) {
         const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить уведомление'
         setError(detail)
@@ -808,7 +1123,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         setNotificationDeletingId(null)
       }
     },
-    [authToken, hoveredNotificationId, notificationDeletingId],
+    [authToken, hoveredNotificationId, notificationDeletingId, notifications.length],
   )
 
   const handleOpenNotification = useCallback(
@@ -854,7 +1169,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setFavoriteWorlds([])
     setHasLoadedFavoriteWorlds(false)
     setNotifications([])
+    setNotificationCounts({ unread_count: 0, total_count: 0 })
     setHasLoadedNotifications(false)
+    setHasMoreNotificationsServer(false)
+    setIsNotificationsLoadingMore(false)
+    notificationsLoadMoreTriggeredRef.current = false
   }, [normalizedViewedUserId])
 
   useEffect(() => {
@@ -862,8 +1181,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [loadProfileContent])
 
   useEffect(() => {
-    void loadNotifications()
-  }, [loadNotifications])
+    void loadNotificationSummary()
+  }, [loadNotificationSummary])
 
   useEffect(() => {
     void loadProfileView()
@@ -877,6 +1196,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setTab(tabs[0].id)
     }
   }, [tab, tabs])
+
+  useEffect(() => {
+    setContentSortMenuAnchorEl(null)
+  }, [tab])
 
   useEffect(() => {
     setMobileProfileMenuAnchorEl(null)
@@ -894,6 +1217,50 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
     void markNotificationsRead()
   }, [hasLoadedNotifications, isNotificationsLoading, markNotificationsRead, tab])
+
+  useEffect(() => {
+    if (!isOwnProfile || tab !== 'notifications' || hasLoadedNotifications || isNotificationsLoading) {
+      return
+    }
+    void loadNotifications()
+  }, [hasLoadedNotifications, isNotificationsLoading, isOwnProfile, loadNotifications, tab])
+
+  useEffect(() => {
+    if (!isOwnProfile) {
+      return
+    }
+    setNotifications([])
+    setHasLoadedNotifications(false)
+    setHasMoreNotificationsServer(false)
+    notificationsLoadMoreTriggeredRef.current = false
+  }, [isOwnProfile, notificationSortMode])
+
+  useEffect(() => {
+    if (!isLoadMoreNotificationsVisible) {
+      notificationsLoadMoreTriggeredRef.current = false
+      return
+    }
+    if (
+      notificationsLoadMoreTriggeredRef.current ||
+      !hasLoadedNotifications ||
+      !hasMoreNotificationsServer ||
+      isNotificationsLoading ||
+      isNotificationsLoadingMore ||
+      tab !== 'notifications'
+    ) {
+      return
+    }
+    notificationsLoadMoreTriggeredRef.current = true
+    void loadNotifications({ append: true })
+  }, [
+    hasLoadedNotifications,
+    hasMoreNotificationsServer,
+    isLoadMoreNotificationsVisible,
+    isNotificationsLoading,
+    isNotificationsLoadingMore,
+    loadNotifications,
+    tab,
+  ])
 
   const saveProfile = useCallback(async () => {
     if (isSavingProfile) {
@@ -1034,6 +1401,20 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setTopUpError('')
     setTopUpDialogOpen(true)
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('mobileAction') !== 'shop') {
+      return
+    }
+    params.delete('mobileAction')
+    const nextSearch = params.toString()
+    window.history.replaceState({}, '', `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`)
+    handleOpenTopUpDialog()
+  }, [handleOpenTopUpDialog])
 
   const handleCloseTopUpDialog = useCallback(() => {
     setTopUpDialogOpen(false)
@@ -1252,6 +1633,35 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const handleCloseMobileProfileMenu = useCallback(() => {
     setMobileProfileMenuAnchorEl(null)
   }, [])
+
+  const handleOpenContentSortMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (activeContentSortOptions.length === 0) {
+        return
+      }
+      setContentSortMenuAnchorEl(event.currentTarget)
+    },
+    [activeContentSortOptions.length],
+  )
+
+  const handleCloseContentSortMenu = useCallback(() => {
+    setContentSortMenuAnchorEl(null)
+  }, [])
+
+  const handleSelectContentSortMode = useCallback(
+    (nextValue: string) => {
+      if (tab === 'notifications') {
+        setNotificationSortMode(nextValue as NotificationSortMode)
+      } else {
+        setContentSortModeByTab((previous) => ({
+          ...previous,
+          [tab]: nextValue as ProfileContentSortMode,
+        }))
+      }
+      setContentSortMenuAnchorEl(null)
+    },
+    [tab],
+  )
 
   const handleMobilePrimaryTabChange = useCallback(
     (newMobileTab: 'content' | 'favorites' | 'notifications' | 'subscriptions') => {
@@ -1707,30 +2117,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           justifyContent="space-between"
         >
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.85rem' }}>
-            Всего уведомлений: {filteredNotifications.length.toLocaleString('ru-RU')}
+            Всего уведомлений: {notificationCounts.total_count.toLocaleString('ru-RU')}
           </Typography>
-          <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
-            <Select
-              value={notificationSortMode}
-              onChange={(event: SelectChangeEvent<NotificationSortMode>) =>
-                setNotificationSortMode(event.target.value as NotificationSortMode)
-              }
-              displayEmpty
-              sx={{
-                borderRadius: '12px',
-                backgroundColor: 'var(--morius-elevated-bg)',
-                '& .MuiSelect-select': {
-                  py: 1,
-                },
-              }}
-            >
-              {NOTIFICATION_SORT_OPTIONS.map((option) => (
-                <MenuItem key={`profile-notification-sort-${option.value}`} value={option.value}>
-                  {option.label}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem' }}>
+            Сортировка: {activeContentSortLabel}
+          </Typography>
         </Stack>
 
         <Stack spacing={0.9}>
@@ -1757,7 +2148,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 sx={{
                   position: 'relative',
                   p: 1.05,
-                  pr: { xs: 1.05, md: 1.9 },
+                  pr: 1.05,
+                  pb: { xs: 1.6, md: 1.8 },
                   borderRadius: '14px',
                   border: notification.is_read
                     ? 'var(--morius-border-width) solid var(--morius-card-border)'
@@ -1775,8 +2167,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     : undefined,
                 }}
               >
-                <Button
-                  size="small"
+                <IconButton
                   disabled={isDeleting}
                   onClick={(event) => {
                     event.stopPropagation()
@@ -1784,27 +2175,33 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   }}
                   sx={{
                     position: 'absolute',
-                    top: 8,
                     right: 8,
-                    minWidth: 0,
-                    px: 0.8,
-                    py: 0.35,
-                    borderRadius: '10px',
+                    bottom: 8,
+                    width: 30,
+                    height: 30,
+                    borderRadius: '999px',
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
                     backgroundColor: 'var(--morius-card-bg)',
                     color: 'var(--morius-text-secondary)',
-                    fontSize: '0.72rem',
-                    textTransform: 'none',
                     opacity: { xs: 1, md: hoveredNotificationId === notification.id ? 1 : 0 },
                     pointerEvents: { xs: 'auto', md: hoveredNotificationId === notification.id ? 'auto' : 'none' },
                     transition: 'opacity 160ms ease',
                     '&:hover': {
-                      backgroundColor: 'transparent',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, black 12%)',
                     },
                   }}
                 >
-                  {isDeleting ? '...' : 'Удалить'}
-                </Button>
+                  {isDeleting ? (
+                    <Typography sx={{ fontSize: '0.74rem', lineHeight: 1 }}>...</Typography>
+                  ) : (
+                    <SvgIcon sx={{ width: 17, height: 17 }}>
+                      <path
+                        fill="currentColor"
+                        d="M6 7h2v10H6V7Zm5 0h2v10h-2V7ZM4 4h11v2H4V4Zm2-2h7l1 1h3v2H3V3h3l1-1Zm-1 4h9l-.7 12.1c-.05.85-.75 1.5-1.6 1.5H7.3c-.85 0-1.55-.65-1.6-1.5L5 6Z"
+                      />
+                    </SvgIcon>
+                  )}
+                </IconButton>
 
                 <Stack direction="row" spacing={0.9} alignItems="flex-start">
                   <Box
@@ -1835,14 +2232,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     />
                   </Box>
 
-                  <Stack spacing={0.36} sx={{ minWidth: 0, flex: 1, pr: { xs: 0, md: 6.2 } }}>
+                  <Stack spacing={0.36} sx={{ minWidth: 0, flex: 1 }}>
                     <Stack
                       direction={{ xs: 'column', sm: 'row' }}
                       spacing={{ xs: 0.2, sm: 0.75 }}
-                      alignItems={{ xs: 'flex-start', sm: 'center' }}
+                      alignItems={{ xs: 'flex-start', sm: 'flex-start' }}
                       justifyContent="space-between"
                     >
-                      <Typography sx={{ fontSize: '0.96rem', fontWeight: 800, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.96rem', fontWeight: 800, minWidth: 0, flex: 1, pr: 1.2 }}>
                         {notification.title || 'Уведомление'}
                       </Typography>
                       <Typography
@@ -1851,6 +2248,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           fontSize: '0.76rem',
                           whiteSpace: 'nowrap',
                           flexShrink: 0,
+                          textAlign: 'right',
+                          ml: { xs: 0, sm: 1.2 },
                         }}
                       >
                         {formatNotificationDate(notification.created_at)}
@@ -1879,7 +2278,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           })}
         </Stack>
 
-        {hasMoreNotifications ? <Box ref={loadMoreNotificationsRef} sx={{ height: 1, width: '100%' }} /> : null}
+        {hasMoreNotificationsServer ? <Box ref={loadMoreNotificationsRef} sx={{ height: 1, width: '100%' }} /> : null}
+        {isNotificationsLoadingMore ? (
+          <Stack alignItems="center" sx={{ py: 0.4 }}>
+            <CircularProgress size={20} />
+          </Stack>
+        ) : null}
       </Stack>
     )
   }
@@ -2155,6 +2559,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={buildUnifiedMobileQuickActions({
+          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => onNavigate('/worlds/new'),
+          onOpenShop: handleOpenTopUpDialog,
+        })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
@@ -2180,7 +2591,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       <Box
         sx={{
           pt: 'var(--morius-header-menu-top)',
-          pb: { xs: 5, md: 6 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 1.2, md: 3.2 },
         }}
       >
@@ -3065,7 +3476,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   </Box>
                 ) : null}
 
-                <Stack direction="row" spacing={0.6} sx={{ pt: 0.8, minWidth: 0 }}>
+                <Stack direction="row" spacing={0.6} sx={{ pt: 0.8, minWidth: 0, width: '100%' }}>
                   <TextField
                     size="small"
                     value={contentSearchQuery}
@@ -3082,15 +3493,24 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     }}
                   />
                   <IconButton
-                    onClick={() => setContentSearchQuery('')}
+                    onClick={handleOpenContentSortMenu}
+                    disabled={activeContentSortOptions.length === 0}
+                    title={activeContentSortLabel}
+                    aria-label={activeContentSortLabel}
                     sx={{
                       width: 40,
                       height: 40,
                       borderRadius: '12px',
-                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      border:
+                        !isActiveContentSortDefault || Boolean(contentSortMenuAnchorEl)
+                          ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
+                          : 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-elevated-bg)',
                       '&:hover': {
-                        backgroundColor: 'transparent',
+                        backgroundColor:
+                          activeContentSortOptions.length > 0
+                            ? 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-card-bg) 12%)'
+                            : 'var(--morius-elevated-bg)',
                       },
                     }}
                   >
@@ -3099,11 +3519,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 </Stack>
               </Box>
 
-              <Stack spacing={1.15} sx={{ display: { xs: 'none', lg: 'flex' }, mb: 1.15 }}>
+              <Stack spacing={1.15} sx={{ display: { xs: 'none', lg: 'flex' }, mb: 1.15, width: '100%', minWidth: 0 }}>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.02 }}>
                   {activeContentHeading}
                 </Typography>
-                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ maxWidth: 720 }}>
+                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
                   <TextField
                     size="small"
                     value={contentSearchQuery}
@@ -3120,15 +3540,24 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     }}
                   />
                   <IconButton
-                    onClick={() => setContentSearchQuery('')}
+                    onClick={handleOpenContentSortMenu}
+                    disabled={activeContentSortOptions.length === 0}
+                    title={activeContentSortLabel}
+                    aria-label={activeContentSortLabel}
                     sx={{
                       width: 46,
                       height: 46,
                       borderRadius: '14px',
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
+                      border:
+                        !isActiveContentSortDefault || Boolean(contentSortMenuAnchorEl)
+                          ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
+                          : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 90%, transparent)',
                       backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
                       '&:hover': {
-                        backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)',
+                        backgroundColor:
+                          activeContentSortOptions.length > 0
+                            ? 'color-mix(in srgb, var(--morius-card-bg) 90%, #000 10%)'
+                            : 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
                       },
                     }}
                   >
@@ -3388,6 +3817,40 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Menu
+        anchorEl={contentSortMenuAnchorEl}
+        open={Boolean(contentSortMenuAnchorEl) && activeContentSortOptions.length > 0}
+        onClose={handleCloseContentSortMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 0.45,
+            borderRadius: '12px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            minWidth: 208,
+          },
+        }}
+      >
+        {activeContentSortOptions.map((option) => {
+          const isSelected = option.value === activeContentSortMode
+          return (
+            <MenuItem
+              key={`profile-content-sort-${tab}-${option.value}`}
+              onClick={() => handleSelectContentSortMode(option.value)}
+              sx={{
+                color: isSelected ? 'var(--morius-accent)' : 'rgba(220, 231, 245, 0.92)',
+                fontSize: '0.9rem',
+                fontWeight: isSelected ? 700 : 500,
+              }}
+            >
+              {option.label}
+            </MenuItem>
+          )
+        })}
+      </Menu>
 
       <Menu
         anchorEl={mobileProfileMenuAnchorEl}
@@ -3650,8 +4113,21 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         open={adminOpen}
         authToken={authToken}
         currentUserEmail={user.email}
+        currentUserRole={user.role}
         onNavigate={onNavigate}
         onClose={() => setAdminOpen(false)}
+      />
+
+      <Footer
+        socialLinks={[
+          { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+          { label: 'Телега', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+        ]}
+        infoLinks={[
+          { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+          { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+        ]}
+        onNavigate={onNavigate}
       />
     </Box>
   )

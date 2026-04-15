@@ -1,4 +1,5 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography, type DialogProps } from '@mui/material'
+import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 
 type PaymentSuccessDialogProps = {
   open: boolean
@@ -8,6 +9,7 @@ type PaymentSuccessDialogProps = {
 }
 
 function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: PaymentSuccessDialogProps) {
+  const mobileSheet = useMobileDialogSheet({ onClose })
   return (
     <Dialog
       open={open}
@@ -15,19 +17,22 @@ function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: Pay
       maxWidth="xs"
       fullWidth
       TransitionComponent={transitionComponent}
+      sx={mobileSheet.dialogSx}
       BackdropProps={{
         sx: {
-          backgroundColor: 'rgba(2, 4, 8, 0.76)',
-          backdropFilter: 'blur(5px)',
+          ...mobileSheet.backdropSx,
+          backgroundColor: 'rgba(1, 4, 8, 0.88)',
         },
       }}
       PaperProps={{
+        ...mobileSheet.paperTouchHandlers,
         sx: {
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
           background: 'var(--morius-card-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          ...mobileSheet.paperSx,
         },
       }}
     >

@@ -20,8 +20,13 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
+    normalize_story_character_race,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
+from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
 from app.services.story_queries import (
     get_story_character_for_user_or_404,
     get_story_main_hero_card,
@@ -136,6 +141,11 @@ def select_story_main_hero(
         lock_card=False,
     )
     db.add(main_hero_card)
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -195,6 +205,11 @@ def create_story_npc_from_character(
         lock_card=False,
     )
     db.add(npc_card)
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -254,6 +269,11 @@ def update_story_world_card_ai_edit(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
 
     world_card.ai_edit_enabled = bool(payload.ai_edit_enabled)
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -272,6 +292,10 @@ def create_story_world_card(
     game = get_user_story_game_or_404(db, user.id, game_id)
     normalized_title = normalize_story_world_card_title(payload.title)
     normalized_content = normalize_story_world_card_content(payload.content)
+    normalized_race = normalize_story_character_race(payload.race)
+    normalized_clothing = normalize_story_character_clothing(payload.clothing)
+    normalized_inventory = normalize_story_character_inventory(payload.inventory)
+    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(payload.kind)
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
@@ -307,6 +331,10 @@ def create_story_world_card(
         game_id=game.id,
         title=normalized_title,
         content=normalized_content,
+        race=normalized_race,
+        clothing=normalized_clothing,
+        inventory=normalized_inventory,
+        health_status=normalized_health_status,
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         avatar_url=normalized_avatar,
@@ -319,6 +347,11 @@ def create_story_world_card(
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
     db.add(world_card)
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -352,6 +385,10 @@ def update_story_world_card(
 
     normalized_title = normalize_story_world_card_title(payload.title)
     normalized_content = normalize_story_world_card_content(payload.content)
+    normalized_race = normalize_story_character_race(payload.race)
+    normalized_clothing = normalize_story_character_clothing(payload.clothing)
+    normalized_inventory = normalize_story_character_inventory(payload.inventory)
+    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(world_card.kind)
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
@@ -378,6 +415,10 @@ def update_story_world_card(
 
     world_card.title = normalized_title
     world_card.content = normalized_content
+    world_card.race = normalized_race
+    world_card.clothing = normalized_clothing
+    world_card.inventory = normalized_inventory
+    world_card.health_status = normalized_health_status
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
     if "character_id" in payload.model_fields_set:
         if payload.character_id is None:
@@ -386,6 +427,11 @@ def update_story_world_card(
             linked_character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
             world_card.character_id = linked_character.id
     world_card.memory_turns = normalized_memory_turns
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -430,6 +476,11 @@ def delete_story_world_card(
         .values(world_card_id=None)
     )
     db.delete(world_card)
+    sync_story_character_state_payload_from_world_cards(
+        db=db,
+        game=game,
+        sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
+    )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()

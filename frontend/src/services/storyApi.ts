@@ -1,5 +1,6 @@
 ﻿import type {
   StoryCharacter,
+  StoryCharacterRace,
   StoryCharacterAvatarGenerationPayload,
   StoryCharacterEmotionAssets,
   StoryCharacterEmotionId,
@@ -14,6 +15,7 @@
   StoryGameSummary,
   StoryGameVisibility,
   StoryImageModelId,
+  StoryMemoryOptimizationMode,
   StoryNarratorModelId,
   StoryInstructionCard,
   StoryInstructionTemplate,
@@ -44,7 +46,7 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
 const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
 const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
-
+const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
   status: 'none',
   requested_at: null,
@@ -71,6 +73,22 @@ function delay(ms: number): Promise<void> {
   })
 }
 
+function normalizeStoryProviderErrorMessage(detail: string): string {
+  const normalizedDetail = detail.replace(/\s+/g, ' ').trim()
+  if (!normalizedDetail) {
+    return 'Story generation failed'
+  }
+
+  let cleanedDetail = normalizedDetail
+  const loweredDetail = normalizedDetail.toLocaleLowerCase()
+  const structuredPayloadStart = normalizedDetail.indexOf('{')
+  if (loweredDetail.startsWith('openrouter chat error') && structuredPayloadStart >= 0) {
+    cleanedDetail = normalizedDetail.slice(0, structuredPayloadStart).replace(/[.:,\s]+$/, '').trim()
+  }
+
+  return cleanedDetail
+}
+
 export type StoryGenerationStreamOptions = {
   token: string
   gameId: number
@@ -81,6 +99,7 @@ export type StoryGenerationStreamOptions = {
   storyLlmModel?: StoryNarratorModelId
   responseMaxTokens?: number
   memoryOptimizationEnabled?: boolean
+  storyRepetitionPenalty?: number
   storyTopK?: number
   storyTopR?: number
   storyTemperature?: number
@@ -105,6 +124,10 @@ export type StoryInstructionCardInput = {
 export type StoryWorldCardInput = {
   title: string
   content: string
+  race?: string
+  clothing?: string
+  inventory?: string
+  health_status?: string
   triggers: string[]
 }
 
@@ -113,6 +136,10 @@ export type StoryCommunityWorldReportReason = 'cp' | 'politics' | 'racism' | 'na
 export type StoryCharacterInput = {
   name: string
   description: string
+  race?: string
+  clothing?: string
+  inventory?: string
+  health_status?: string
   note?: string
   triggers: string[]
   avatar_url: string | null
@@ -181,7 +208,8 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
       continue
     }
 
-    throw await parseApiError(response)
+    const parsedError = await parseApiError(response)
+    throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
 
   throw new Error(`Failed to connect to API (${targetUrl}).`)
@@ -277,6 +305,216 @@ function normalizeStoryPublicationState(rawValue: unknown): StoryPublicationStat
   }
 }
 
+function normalizeStoryStringArray(rawValue: unknown): string[] {
+  if (!Array.isArray(rawValue)) {
+    return []
+  }
+  return rawValue
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameSummary {
+  const game = rawGame as Partial<StoryGameSummary>
+  return {
+    ...rawGame,
+    id: typeof game.id === 'number' && Number.isFinite(game.id) ? Math.trunc(game.id) : 0,
+    title: typeof game.title === 'string' ? game.title : '',
+    description: typeof game.description === 'string' ? game.description : '',
+    latest_message_preview: typeof game.latest_message_preview === 'string' ? game.latest_message_preview : null,
+    turn_count: typeof game.turn_count === 'number' && Number.isFinite(game.turn_count) ? Math.max(0, Math.trunc(game.turn_count)) : 0,
+    opening_scene: typeof game.opening_scene === 'string' ? game.opening_scene : '',
+    visibility: game.visibility === 'public' ? 'public' : 'private',
+    publication: normalizeStoryPublicationState(game.publication ?? DEFAULT_PUBLICATION_STATE),
+    age_rating: game.age_rating === '6+' || game.age_rating === '18+' ? game.age_rating : '16+',
+    genres: normalizeStoryStringArray(game.genres),
+    cover_image_url: typeof game.cover_image_url === 'string' ? game.cover_image_url : null,
+    cover_scale: typeof game.cover_scale === 'number' && Number.isFinite(game.cover_scale) ? Math.max(1, Math.min(3, game.cover_scale)) : 1,
+    cover_position_x:
+      typeof game.cover_position_x === 'number' && Number.isFinite(game.cover_position_x)
+        ? Math.max(0, Math.min(100, game.cover_position_x))
+        : 50,
+    cover_position_y:
+      typeof game.cover_position_y === 'number' && Number.isFinite(game.cover_position_y)
+        ? Math.max(0, Math.min(100, game.cover_position_y))
+        : 50,
+    source_world_id:
+      typeof game.source_world_id === 'number' && Number.isFinite(game.source_world_id)
+        ? Math.trunc(game.source_world_id)
+        : null,
+    community_views:
+      typeof game.community_views === 'number' && Number.isFinite(game.community_views)
+        ? Math.max(0, Math.trunc(game.community_views))
+        : 0,
+    community_launches:
+      typeof game.community_launches === 'number' && Number.isFinite(game.community_launches)
+        ? Math.max(0, Math.trunc(game.community_launches))
+        : 0,
+    community_rating_avg:
+      typeof game.community_rating_avg === 'number' && Number.isFinite(game.community_rating_avg)
+        ? game.community_rating_avg
+        : 0,
+    community_rating_count:
+      typeof game.community_rating_count === 'number' && Number.isFinite(game.community_rating_count)
+        ? Math.max(0, Math.trunc(game.community_rating_count))
+        : 0,
+    context_limit_chars:
+      typeof game.context_limit_chars === 'number' && Number.isFinite(game.context_limit_chars)
+        ? Math.max(0, Math.trunc(game.context_limit_chars))
+        : 0,
+    response_max_tokens:
+      typeof game.response_max_tokens === 'number' && Number.isFinite(game.response_max_tokens)
+        ? Math.max(0, Math.trunc(game.response_max_tokens))
+        : 0,
+    response_max_tokens_enabled: Boolean(game.response_max_tokens_enabled),
+    story_llm_model:
+      typeof game.story_llm_model === 'string'
+        ? (game.story_llm_model as StoryGameSummary['story_llm_model'])
+        : 'deepseek/deepseek-v3.2',
+    image_model:
+      typeof game.image_model === 'string'
+        ? (game.image_model as StoryGameSummary['image_model'])
+        : 'black-forest-labs/flux.2-pro',
+    image_style_prompt: typeof game.image_style_prompt === 'string' ? game.image_style_prompt : '',
+    memory_optimization_enabled: Boolean(game.memory_optimization_enabled),
+    memory_optimization_mode:
+      typeof game.memory_optimization_mode === 'string'
+        ? (game.memory_optimization_mode as StoryGameSummary['memory_optimization_mode'])
+        : 'standard',
+    story_repetition_penalty:
+      typeof game.story_repetition_penalty === 'number' && Number.isFinite(game.story_repetition_penalty)
+        ? Math.max(1, Math.min(2, Math.round(game.story_repetition_penalty * 100) / 100))
+        : STORY_DEFAULT_REPETITION_PENALTY,
+    story_top_k: typeof game.story_top_k === 'number' && Number.isFinite(game.story_top_k) ? Math.trunc(game.story_top_k) : 0,
+    story_top_r: typeof game.story_top_r === 'number' && Number.isFinite(game.story_top_r) ? game.story_top_r : 1,
+    story_temperature:
+      typeof game.story_temperature === 'number' && Number.isFinite(game.story_temperature) ? game.story_temperature : 1,
+    show_gg_thoughts: Boolean(game.show_gg_thoughts),
+    show_npc_thoughts: Boolean(game.show_npc_thoughts),
+    ambient_enabled: Boolean(game.ambient_enabled),
+    character_state_enabled: Boolean(game.character_state_enabled),
+    environment_enabled: Boolean(game.environment_enabled),
+    ambient_profile:
+      game.ambient_profile && typeof game.ambient_profile === 'object'
+        ? (game.ambient_profile as StoryGameSummary['ambient_profile'])
+        : null,
+    environment_current_datetime:
+      typeof game.environment_current_datetime === 'string' ? game.environment_current_datetime : null,
+    environment_current_weather:
+      game.environment_current_weather && typeof game.environment_current_weather === 'object'
+        ? (game.environment_current_weather as Record<string, unknown>)
+        : null,
+    environment_tomorrow_weather:
+      game.environment_tomorrow_weather && typeof game.environment_tomorrow_weather === 'object'
+        ? (game.environment_tomorrow_weather as Record<string, unknown>)
+        : null,
+    current_location_label: typeof game.current_location_label === 'string' ? game.current_location_label : null,
+    emotion_visualization_enabled: Boolean(game.emotion_visualization_enabled),
+    last_activity_at: typeof game.last_activity_at === 'string' ? game.last_activity_at : new Date(0).toISOString(),
+    created_at: typeof game.created_at === 'string' ? game.created_at : new Date(0).toISOString(),
+    updated_at: typeof game.updated_at === 'string' ? game.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryInstructionCardPayload(rawCard: StoryInstructionCard): StoryInstructionCard {
+  const card = rawCard as Partial<StoryInstructionCard>
+  return {
+    ...rawCard,
+    id: typeof card.id === 'number' && Number.isFinite(card.id) ? Math.trunc(card.id) : 0,
+    game_id: typeof card.game_id === 'number' && Number.isFinite(card.game_id) ? Math.trunc(card.game_id) : 0,
+    title: typeof card.title === 'string' ? card.title : '',
+    content: typeof card.content === 'string' ? card.content : '',
+    is_active: Boolean(card.is_active),
+    created_at: typeof card.created_at === 'string' ? card.created_at : new Date(0).toISOString(),
+    updated_at: typeof card.updated_at === 'string' ? card.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryPlotCardPayload(rawCard: StoryPlotCard): StoryPlotCard {
+  const card = rawCard as Partial<StoryPlotCard>
+  return {
+    ...rawCard,
+    id: typeof card.id === 'number' && Number.isFinite(card.id) ? Math.trunc(card.id) : 0,
+    game_id: typeof card.game_id === 'number' && Number.isFinite(card.game_id) ? Math.trunc(card.game_id) : 0,
+    title: typeof card.title === 'string' ? card.title : '',
+    content: typeof card.content === 'string' ? card.content : '',
+    triggers: normalizeStoryStringArray(card.triggers),
+    memory_turns:
+      typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) ? Math.trunc(card.memory_turns) : null,
+    ai_edit_enabled: Boolean(card.ai_edit_enabled),
+    is_enabled: Boolean(card.is_enabled),
+    source: card.source === 'ai' ? 'ai' : 'user',
+    created_at: typeof card.created_at === 'string' ? card.created_at : new Date(0).toISOString(),
+    updated_at: typeof card.updated_at === 'string' ? card.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryWorldCardPayload(rawCard: StoryWorldCard): StoryWorldCard {
+  const card = rawCard as Partial<StoryWorldCard>
+  return {
+    ...rawCard,
+    id: typeof card.id === 'number' && Number.isFinite(card.id) ? Math.trunc(card.id) : 0,
+    game_id: typeof card.game_id === 'number' && Number.isFinite(card.game_id) ? Math.trunc(card.game_id) : 0,
+    title: typeof card.title === 'string' ? card.title : '',
+    content: typeof card.content === 'string' ? card.content : '',
+    race: typeof card.race === 'string' ? card.race : '',
+    clothing: typeof card.clothing === 'string' ? card.clothing : '',
+    inventory: typeof card.inventory === 'string' ? card.inventory : '',
+    health_status: typeof card.health_status === 'string' ? card.health_status : '',
+    triggers: normalizeStoryStringArray(card.triggers),
+    kind: card.kind === 'npc' || card.kind === 'main_hero' ? card.kind : 'world',
+    avatar_url: typeof card.avatar_url === 'string' ? card.avatar_url : null,
+    avatar_original_url: typeof card.avatar_original_url === 'string' ? card.avatar_original_url : null,
+    avatar_scale:
+      typeof card.avatar_scale === 'number' && Number.isFinite(card.avatar_scale)
+        ? Math.max(1, Math.min(3, card.avatar_scale))
+        : 1,
+    character_id:
+      typeof card.character_id === 'number' && Number.isFinite(card.character_id) ? Math.trunc(card.character_id) : null,
+    memory_turns:
+      typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) ? Math.trunc(card.memory_turns) : null,
+    is_locked: Boolean(card.is_locked),
+    ai_edit_enabled: Boolean(card.ai_edit_enabled),
+    source: card.source === 'ai' ? 'ai' : 'user',
+    created_at: typeof card.created_at === 'string' ? card.created_at : new Date(0).toISOString(),
+    updated_at: typeof card.updated_at === 'string' ? card.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePayload {
+  const payload = rawPayload as Partial<StoryGamePayload>
+  return {
+    ...rawPayload,
+    game: normalizeStoryGameSummaryPayload((payload.game ?? {}) as StoryGameSummary),
+    messages: Array.isArray(payload.messages) ? payload.messages.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    has_older_messages: Boolean(payload.has_older_messages),
+    turn_images: Array.isArray(payload.turn_images) ? payload.turn_images.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    instruction_cards: Array.isArray(payload.instruction_cards)
+      ? payload.instruction_cards
+          .filter((item): item is StoryInstructionCard => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryInstructionCardPayload(item))
+          .filter((item) => item.id > 0)
+      : [],
+    plot_cards: Array.isArray(payload.plot_cards)
+      ? payload.plot_cards
+          .filter((item): item is StoryPlotCard => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryPlotCardPayload(item))
+          .filter((item) => item.id > 0)
+      : [],
+    plot_card_events: Array.isArray(payload.plot_card_events) ? payload.plot_card_events.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    memory_blocks: Array.isArray(payload.memory_blocks) ? payload.memory_blocks.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    world_cards: Array.isArray(payload.world_cards)
+      ? payload.world_cards
+          .filter((item): item is StoryWorldCard => Boolean(item) && typeof item === 'object')
+          .map((item) => normalizeStoryWorldCardPayload(item))
+          .filter((item) => item.id > 0)
+      : [],
+    world_card_events: Array.isArray(payload.world_card_events) ? payload.world_card_events.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    can_redo_assistant_step: Boolean(payload.can_redo_assistant_step),
+  }
+}
+
 function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryCharacter {
   const character = rawCharacter as Partial<StoryCharacter>
   const normalizedTriggers = Array.isArray(character.triggers)
@@ -289,6 +527,10 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     user_id: typeof character.user_id === 'number' && Number.isFinite(character.user_id) ? Math.trunc(character.user_id) : 0,
     name: typeof character.name === 'string' ? character.name : '',
     description: typeof character.description === 'string' ? character.description : '',
+    race: typeof character.race === 'string' ? character.race : '',
+    clothing: typeof character.clothing === 'string' ? character.clothing : '',
+    inventory: typeof character.inventory === 'string' ? character.inventory : '',
+    health_status: typeof character.health_status === 'string' ? character.health_status : '',
     note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
@@ -406,6 +648,10 @@ function normalizeStoryCommunityCharacterSummaryPayload(
     id: typeof character.id === 'number' && Number.isFinite(character.id) ? Math.trunc(character.id) : 0,
     name: typeof character.name === 'string' ? character.name : '',
     description: typeof character.description === 'string' ? character.description : '',
+    race: typeof character.race === 'string' ? character.race : '',
+    clothing: typeof character.clothing === 'string' ? character.clothing : '',
+    inventory: typeof character.inventory === 'string' ? character.inventory : '',
+    health_status: typeof character.health_status === 'string' ? character.health_status : '',
     note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
@@ -444,6 +690,17 @@ function normalizeStoryCommunityCharacterSummaryPayload(
   }
 }
 
+function normalizeStoryCharacterRacePayload(rawRace: StoryCharacterRace): StoryCharacterRace {
+  const race = rawRace as Partial<StoryCharacterRace>
+  return {
+    ...rawRace,
+    id: typeof race.id === 'number' && Number.isFinite(race.id) ? Math.trunc(race.id) : 0,
+    name: typeof race.name === 'string' ? race.name : '',
+    created_at: typeof race.created_at === 'string' ? race.created_at : new Date(0).toISOString(),
+    updated_at: typeof race.updated_at === 'string' ? race.updated_at : new Date(0).toISOString(),
+  }
+}
+
 export async function listStoryGames(
   token: string,
   options: {
@@ -473,11 +730,31 @@ export async function listCommunityWorlds(
   token: string,
   options: {
     limit?: number
+    offset?: number
+    sort?: 'updated_desc' | 'rating_desc' | 'launches_desc' | 'views_desc'
+    query?: string
+    ageRating?: '6+' | '16+' | '18+' | null
+    genre?: string | null
   } = {},
 ): Promise<StoryCommunityWorldSummary[]> {
   const params = new URLSearchParams()
   if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
     params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.sort === 'string' && options.sort.trim()) {
+    params.set('sort', options.sort.trim())
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  if (typeof options.ageRating === 'string' && options.ageRating.trim()) {
+    params.set('age_rating', options.ageRating.trim())
+  }
+  if (typeof options.genre === 'string' && options.genre.trim()) {
+    params.set('genre', options.genre.trim())
   }
   const query = params.toString()
   const path = query ? `/api/story/community/worlds?${query}` : '/api/story/community/worlds'
@@ -645,8 +922,36 @@ export async function unfavoriteCommunityWorld(payload: {
   })
 }
 
-export async function listCommunityCharacters(token: string): Promise<StoryCommunityCharacterSummary[]> {
-  const response = await request<StoryCommunityCharacterSummary[]>('/api/story/community/characters', {
+export async function listCommunityCharacters(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+    sort?: 'updated_desc' | 'rating_desc' | 'additions_desc'
+    query?: string
+    addedFilter?: 'all' | 'added' | 'not_added'
+  } = {},
+): Promise<StoryCommunityCharacterSummary[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.sort === 'string' && options.sort.trim()) {
+    params.set('sort', options.sort.trim())
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  if (typeof options.addedFilter === 'string' && options.addedFilter.trim()) {
+    params.set('added_filter', options.addedFilter.trim())
+  }
+  const query = params.toString()
+  const response = await request<StoryCommunityCharacterSummary[]>(
+    query ? `/api/story/community/characters?${query}` : '/api/story/community/characters',
+    {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -719,8 +1024,36 @@ export async function addCommunityCharacter(payload: {
   return normalizeStoryCommunityCharacterSummaryPayload(response)
 }
 
-export async function listCommunityInstructionTemplates(token: string): Promise<StoryCommunityInstructionTemplateSummary[]> {
-  return request<StoryCommunityInstructionTemplateSummary[]>('/api/story/community/instruction-templates', {
+export async function listCommunityInstructionTemplates(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+    sort?: 'updated_desc' | 'rating_desc' | 'additions_desc'
+    query?: string
+    addedFilter?: 'all' | 'added' | 'not_added'
+  } = {},
+): Promise<StoryCommunityInstructionTemplateSummary[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.sort === 'string' && options.sort.trim()) {
+    params.set('sort', options.sort.trim())
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  if (typeof options.addedFilter === 'string' && options.addedFilter.trim()) {
+    params.set('added_filter', options.addedFilter.trim())
+  }
+  const query = params.toString()
+  return request<StoryCommunityInstructionTemplateSummary[]>(
+    query ? `/api/story/community/instruction-templates?${query}` : '/api/story/community/instruction-templates',
+    {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -796,6 +1129,37 @@ export async function listStoryCharacters(token: string): Promise<StoryCharacter
     },
   })
   return normalizeStoryCharacterListPayload(response)
+}
+
+export async function listStoryCharacterRaces(payload: { token: string }): Promise<StoryCharacterRace[]> {
+  const response = await request<StoryCharacterRace[]>('/api/story/character-races', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+  return Array.isArray(response)
+    ? response
+        .filter((item): item is StoryCharacterRace => Boolean(item) && typeof item === 'object')
+        .map((item) => normalizeStoryCharacterRacePayload(item))
+        .filter((item) => item.id > 0 && item.name.trim().length > 0)
+    : []
+}
+
+export async function createStoryCharacterRace(payload: {
+  token: string
+  name: string
+}): Promise<StoryCharacterRace> {
+  const response = await request<StoryCharacterRace>('/api/story/character-races', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+    body: JSON.stringify({
+      name: payload.name,
+    }),
+  })
+  return normalizeStoryCharacterRacePayload(response)
 }
 
 export async function createStoryCharacter(payload: {
@@ -1167,13 +1531,14 @@ export async function getStoryGame(payload: {
   }
   const queryString = queryParams.toString()
   const path = queryString ? `/api/story/games/${payload.gameId}?${queryString}` : `/api/story/games/${payload.gameId}`
-  return request<StoryGamePayload>(path, {
+  const response = await request<StoryGamePayload>(path, {
     method: 'GET',
     cache: 'no-store',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
+  return normalizeStoryGamePayload(response)
 }
 
 export async function createStoryBugReport(payload: {
@@ -1204,12 +1569,15 @@ export async function updateStoryGameSettings(payload: {
   imageModel?: StoryImageModelId
   imageStylePrompt?: string
   memoryOptimizationEnabled?: boolean
+  memoryOptimizationMode?: StoryMemoryOptimizationMode
+  storyRepetitionPenalty?: number
   storyTopK?: number
   storyTopR?: number
   storyTemperature?: number
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
+  characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
   environmentEnabled?: boolean
   environmentCurrentDatetime?: string | null
@@ -1239,6 +1607,12 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.memoryOptimizationEnabled === 'boolean') {
     requestPayload.memory_optimization_enabled = payload.memoryOptimizationEnabled
   }
+  if (typeof payload.memoryOptimizationMode === 'string') {
+    requestPayload.memory_optimization_mode = payload.memoryOptimizationMode
+  }
+  if (typeof payload.storyRepetitionPenalty === 'number') {
+    requestPayload.story_repetition_penalty = payload.storyRepetitionPenalty
+  }
   if (typeof payload.storyTopK === 'number') {
     requestPayload.story_top_k = payload.storyTopK
   }
@@ -1256,6 +1630,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled
+  }
+  if (typeof payload.characterStateEnabled === 'boolean') {
+    requestPayload.character_state_enabled = payload.characterStateEnabled
   }
   if (typeof payload.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
@@ -1408,6 +1785,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   if (typeof options.memoryOptimizationEnabled === 'boolean') {
     requestPayload.memory_optimization_enabled = options.memoryOptimizationEnabled
   }
+  if (typeof options.storyRepetitionPenalty === 'number') {
+    requestPayload.story_repetition_penalty = options.storyRepetitionPenalty
+  }
   if (typeof options.storyTopK === 'number') {
     requestPayload.story_top_k = options.storyTopK
   }
@@ -1448,7 +1828,8 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   if (!response.ok) {
-    throw await parseApiError(response)
+    const parsedError = await parseApiError(response)
+    throw new Error(normalizeStoryProviderErrorMessage(parsedError.message))
   }
 
   if (!response.body) {
@@ -1549,7 +1930,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       } catch {
         // Use fallback detail for malformed error payloads.
       }
-      streamError = new Error(detail)
+      streamError = new Error(normalizeStoryProviderErrorMessage(detail))
       streamTerminalEventReceived = true
     }
   }
@@ -1851,6 +2232,10 @@ export async function createStoryWorldCard(payload: {
   gameId: number
   title: string
   content: string
+  race?: string
+  clothing?: string
+  inventory?: string
+  health_status?: string
   triggers: string[]
   kind?: 'world' | 'npc' | 'main_hero'
   avatar_url?: string | null
@@ -1862,6 +2247,10 @@ export async function createStoryWorldCard(payload: {
   const body: Record<string, unknown> = {
     title: payload.title,
     content: payload.content,
+    race: payload.race ?? '',
+    clothing: payload.clothing ?? '',
+    inventory: payload.inventory ?? '',
+    health_status: payload.health_status ?? '',
     triggers: payload.triggers,
     kind: payload.kind ?? 'world',
     avatar_url: payload.avatar_url ?? null,
@@ -1976,6 +2365,10 @@ export async function updateStoryWorldCard(payload: {
   cardId: number
   title: string
   content: string
+  race?: string
+  clothing?: string
+  inventory?: string
+  health_status?: string
   triggers: string[]
   character_id?: number | null
   memory_turns?: number | null
@@ -1983,6 +2376,10 @@ export async function updateStoryWorldCard(payload: {
   const body: Record<string, unknown> = {
     title: payload.title,
     content: payload.content,
+    race: payload.race ?? '',
+    clothing: payload.clothing ?? '',
+    inventory: payload.inventory ?? '',
+    health_status: payload.health_status ?? '',
     triggers: payload.triggers,
   }
   if (payload.character_id !== undefined) {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -8,6 +9,7 @@ from sqlalchemy import select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models import (
+    StoryCharacterStateSnapshot,
     StoryGame,
     StoryMemoryBlock,
     StoryMessage,
@@ -17,6 +19,7 @@ from app.models import (
     StoryWorldCard,
     StoryWorldCardChangeEvent,
 )
+from app.services.story_character_state_snapshots import restore_story_character_state_from_latest_snapshot
 from app.services.media import normalize_avatar_value
 from app.services.story_cards import (
     normalize_story_plot_card_memory_turns_for_storage,
@@ -30,6 +33,10 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
+    normalize_story_character_race,
 )
 from app.services.story_events import (
     STORY_WORLD_CARD_EVENT_ADDED,
@@ -56,6 +63,7 @@ from app.services.story_world_cards import (
 
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
+logger = logging.getLogger(__name__)
 
 
 def _utcnow() -> datetime:
@@ -75,6 +83,32 @@ def _extract_snapshot_card_id(snapshot: dict[str, object] | None) -> int | None:
             if parsed_card_id > 0:
                 return parsed_card_id
     return None
+
+
+def _restore_story_environment_state_after_assistant_step_change(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> None:
+    try:
+        from app.services import story_memory_pipeline
+    except Exception:
+        logger.exception(
+            "Failed to import story_memory_pipeline for environment restore: game_id=%s",
+            game.id,
+        )
+        return
+
+    try:
+        story_memory_pipeline._restore_story_environment_state_from_latest_weather_memory_block(
+            db=db,
+            game=game,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to restore story environment after assistant-step change: game_id=%s",
+            game.id,
+        )
 
 
 def restore_story_world_card_from_snapshot(
@@ -98,6 +132,10 @@ def restore_story_world_card_from_snapshot(
 
     source = normalize_story_world_card_source(str(snapshot.get("source", "")))
     kind = normalize_story_world_card_kind(str(snapshot.get("kind", "")))
+    race = normalize_story_character_race(snapshot.get("race"))
+    clothing = normalize_story_character_clothing(snapshot.get("clothing"))
+    inventory = normalize_story_character_inventory(snapshot.get("inventory"))
+    health_status = normalize_story_character_health_status(snapshot.get("health_status"))
     raw_avatar = snapshot.get("avatar_url")
     avatar_url = normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
     if avatar_url is not None and avatar_url.startswith("data:image/"):
@@ -171,6 +209,10 @@ def restore_story_world_card_from_snapshot(
             game_id=game_id,
             title=normalize_story_world_card_title(title),
             content=normalize_story_world_card_content(content),
+            race=race,
+            clothing=clothing,
+            inventory=inventory,
+            health_status=health_status,
             triggers=serialize_story_world_card_triggers(triggers),
             kind=kind,
             avatar_url=avatar_url,
@@ -188,6 +230,10 @@ def restore_story_world_card_from_snapshot(
 
     world_card.title = normalize_story_world_card_title(title)
     world_card.content = normalize_story_world_card_content(content)
+    world_card.race = race
+    world_card.clothing = clothing
+    world_card.inventory = inventory
+    world_card.health_status = health_status
     world_card.triggers = serialize_story_world_card_triggers(triggers)
     world_card.kind = kind
     world_card.avatar_url = avatar_url
@@ -217,6 +263,7 @@ def undo_story_world_card_change_event(
     event: StoryWorldCardChangeEvent,
     *,
     commit: bool = True,
+    touch_game: bool = True,
 ) -> None:
     if event.undone_at is not None:
         return
@@ -268,7 +315,8 @@ def undo_story_world_card_change_event(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
 
     event.undone_at = _utcnow()
-    touch_story_game(game)
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
         db.refresh(event)
@@ -282,6 +330,7 @@ def redo_story_world_card_change_event(
     event: StoryWorldCardChangeEvent,
     *,
     commit: bool = True,
+    touch_game: bool = True,
 ) -> None:
     if event.undone_at is None:
         return
@@ -331,7 +380,8 @@ def redo_story_world_card_change_event(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported world card event action")
 
     event.undone_at = None
-    touch_story_game(game)
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
         db.refresh(event)
@@ -449,6 +499,7 @@ def undo_story_plot_card_change_event(
     event: StoryPlotCardChangeEvent,
     *,
     commit: bool = True,
+    touch_game: bool = True,
 ) -> None:
     if event.undone_at is not None:
         return
@@ -500,7 +551,8 @@ def undo_story_plot_card_change_event(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
 
     event.undone_at = _utcnow()
-    touch_story_game(game)
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
         db.refresh(event)
@@ -514,6 +566,7 @@ def redo_story_plot_card_change_event(
     event: StoryPlotCardChangeEvent,
     *,
     commit: bool = True,
+    touch_game: bool = True,
 ) -> None:
     if event.undone_at is None:
         return
@@ -563,7 +616,8 @@ def redo_story_plot_card_change_event(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported plot card event action")
 
     event.undone_at = None
-    touch_story_game(game)
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
         db.refresh(event)
@@ -578,6 +632,7 @@ def rollback_story_card_events_for_assistant_message(
     assistant_message_id: int,
     commit: bool = True,
     purge_events: bool = True,
+    touch_game: bool = True,
 ) -> None:
     now = _utcnow()
     world_events = list_story_world_card_events(
@@ -587,7 +642,7 @@ def rollback_story_card_events_for_assistant_message(
         include_undone=False,
     )
     for event in reversed(world_events):
-        undo_story_world_card_change_event(db, game, event, commit=False)
+        undo_story_world_card_change_event(db, game, event, commit=False, touch_game=False)
 
     plot_events = list_story_plot_card_events(
         db,
@@ -596,7 +651,7 @@ def rollback_story_card_events_for_assistant_message(
         include_undone=False,
     )
     for event in reversed(plot_events):
-        undo_story_plot_card_change_event(db, game, event, commit=False)
+        undo_story_plot_card_change_event(db, game, event, commit=False, touch_game=False)
 
     memory_blocks = db.scalars(
         select(StoryMemoryBlock).where(
@@ -610,6 +665,19 @@ def rollback_story_card_events_for_assistant_message(
     else:
         for block in memory_blocks:
             block.undone_at = now
+
+    character_state_snapshots = db.scalars(
+        select(StoryCharacterStateSnapshot).where(
+            StoryCharacterStateSnapshot.game_id == game.id,
+            StoryCharacterStateSnapshot.assistant_message_id == assistant_message_id,
+        )
+    ).all()
+    if purge_events:
+        for snapshot in character_state_snapshots:
+            db.delete(snapshot)
+    else:
+        for snapshot in character_state_snapshots:
+            snapshot.undone_at = now
 
     if purge_events:
         for event in list_story_world_card_events(
@@ -633,8 +701,20 @@ def rollback_story_card_events_for_assistant_message(
             )
         ).all():
             db.delete(block)
+        for snapshot in db.scalars(
+            select(StoryCharacterStateSnapshot).where(
+                StoryCharacterStateSnapshot.game_id == game.id,
+                StoryCharacterStateSnapshot.assistant_message_id == assistant_message_id,
+            )
+        ).all():
+            db.delete(snapshot)
 
-    touch_story_game(game)
+    restore_story_character_state_from_latest_snapshot(db=db, game=game)
+
+    _restore_story_environment_state_after_assistant_step_change(db=db, game=game)
+
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
     else:
@@ -647,6 +727,7 @@ def reapply_story_card_events_for_assistant_message(
     game: StoryGame,
     assistant_message_id: int,
     commit: bool = True,
+    touch_game: bool = True,
 ) -> None:
     world_events = [
         event
@@ -659,7 +740,7 @@ def reapply_story_card_events_for_assistant_message(
         if event.undone_at is not None
     ]
     for event in world_events:
-        redo_story_world_card_change_event(db, game, event, commit=False)
+        redo_story_world_card_change_event(db, game, event, commit=False, touch_game=False)
 
     plot_events = [
         event
@@ -672,7 +753,7 @@ def reapply_story_card_events_for_assistant_message(
         if event.undone_at is not None
     ]
     for event in plot_events:
-        redo_story_plot_card_change_event(db, game, event, commit=False)
+        redo_story_plot_card_change_event(db, game, event, commit=False, touch_game=False)
 
     for block in db.scalars(
         select(StoryMemoryBlock).where(
@@ -683,7 +764,21 @@ def reapply_story_card_events_for_assistant_message(
     ).all():
         block.undone_at = None
 
-    touch_story_game(game)
+    for snapshot in db.scalars(
+        select(StoryCharacterStateSnapshot).where(
+            StoryCharacterStateSnapshot.game_id == game.id,
+            StoryCharacterStateSnapshot.assistant_message_id == assistant_message_id,
+            StoryCharacterStateSnapshot.undone_at.is_not(None),
+        )
+    ).all():
+        snapshot.undone_at = None
+
+    restore_story_character_state_from_latest_snapshot(db=db, game=game)
+
+    _restore_story_environment_state_after_assistant_step_change(db=db, game=game)
+
+    if touch_game:
+        touch_story_game(game)
     if commit:
         db.commit()
     else:
@@ -728,6 +823,7 @@ def undo_story_assistant_step(
             assistant_message_id=last_message.id,
             commit=False,
             purge_events=False,
+            touch_game=False,
         )
         last_message.undone_at = _utcnow()
         touch_story_game(game)
@@ -796,6 +892,7 @@ def redo_story_assistant_step(
             game=game,
             assistant_message_id=latest_undone_message.id,
             commit=False,
+            touch_game=False,
         )
         latest_undone_message.undone_at = None
         touch_story_game(game)

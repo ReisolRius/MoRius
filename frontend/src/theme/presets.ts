@@ -102,7 +102,7 @@ const yamiRiusColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
   appBackground: '#292929',
   appBase: '#292929',
-  appSurface: '#222222',
+  appSurface: '#191919',
   appElevated: '#333333',
   inputBg: '#222222',
   appBorder: '#3A3A3A',

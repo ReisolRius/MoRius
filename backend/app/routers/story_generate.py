@@ -17,7 +17,12 @@ from app.models import StoryGame, StoryMessage
 from app.schemas import StoryGenerateRequest
 from app.services.auth_identity import get_current_user
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
-from app.services.story_cards import story_plot_card_to_out
+from app.services.story_cards import (
+    coerce_story_plot_card_enabled,
+    deserialize_story_plot_card_triggers,
+    normalize_story_plot_card_triggers,
+    story_plot_card_to_out,
+)
 from app.services.story_events import (
     story_plot_card_change_event_to_out,
     story_world_card_change_event_to_out,
@@ -77,6 +82,13 @@ def _fallback_is_story_provider_failure_detail(detail: str | None) -> bool:
     if not normalized_detail:
         return False
     return any(marker in normalized_detail for marker in _FALLBACK_OPENROUTER_FAILURE_MARKERS)
+
+
+def _fallback_public_story_provider_failure_detail(detail: str | None) -> str:
+    normalized_detail = re.sub(r"\s+", " ", str(detail or "").replace("\r\n", "\n").strip())
+    if normalized_detail.casefold().startswith("openrouter chat error") and "{" in normalized_detail:
+        normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")
+    return normalized_detail[:500] or "Provider returned error"
 
 
 def _fallback_derive_story_title(prompt: str) -> str:
@@ -260,11 +272,17 @@ def _fallback_list_story_prompt_memory_cards(
     _ = memory_optimization_enabled
     cards_payload: list[dict[str, str]] = []
     for card in list_story_plot_cards(db, game.id):
-        if not bool(getattr(card, "is_enabled", True)):
-            continue
         title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
         content = str(getattr(card, "content", "") or "").replace("\r\n", "\n").strip()
         if not title or not content:
+            continue
+        triggers = normalize_story_plot_card_triggers(
+            deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+            fallback_title=title,
+        )
+        if triggers:
+            continue
+        if not coerce_story_plot_card_enabled(getattr(card, "is_enabled", True), triggers=triggers):
             continue
         cards_payload.append({"title": title[:160], "content": content[:6_000]})
     return cards_payload[:12]
@@ -523,6 +541,7 @@ def _fallback_iter_story_provider_chunks(
     story_model_name: str | None,
     story_response_max_tokens: int | None,
     story_temperature: float,
+    story_repetition_penalty: float,
     story_top_k: int,
     story_top_r: float,
     use_plot_memory: bool,
@@ -565,6 +584,7 @@ def _fallback_iter_story_provider_chunks(
             story_model_name=story_model_name,
             story_response_max_tokens=story_response_max_tokens,
             story_temperature=story_temperature,
+            story_repetition_penalty=story_repetition_penalty,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=use_plot_memory,
@@ -615,6 +635,7 @@ def _fallback_iter_story_provider_chunks(
             context_limit_chars=context_limit_chars,
         ),
         "temperature": float(story_temperature),
+        "repetition_penalty": float(story_repetition_penalty),
         "top_p": float(story_top_r),
         "stream": True,
     }
@@ -831,7 +852,7 @@ def _fallback_resolve_story_turn_postprocess_payload(
             latest_user_prompt=latest_user_prompt,
             latest_assistant_text=latest_assistant_text,
             previous_assistant_text=previous_assistant_text,
-            include_location=bool(location_enabled),
+            include_location=False,
             include_weather=bool(environment_enabled),
         )
     except HTTPException:
@@ -1242,7 +1263,7 @@ def _generate_story_response_fallback_impl(
         if exc.status_code == status.HTTP_400_BAD_REQUEST and _fallback_is_story_provider_failure_detail(detail):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(detail or "Provider returned error")[:500],
+                detail=_fallback_public_story_provider_failure_detail(detail),
             ) from exc
         raise
     except Exception as exc:
@@ -1259,7 +1280,7 @@ def _generate_story_response_fallback_impl(
         if _fallback_is_story_provider_failure_detail(detail):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(detail or "Provider returned error")[:500],
+                detail=_fallback_public_story_provider_failure_detail(detail),
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1275,9 +1296,11 @@ def generate_story_response_route(
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     try:
-        from app import main as monolith_main
-    except Exception as exc:
-        logger.exception("Story runtime import failed before generate route dispatch: game_id=%s", game_id)
+        from app.services.story_generation_entry import (
+            generate_story_response_impl as primary_generate_story_response_impl,
+        )
+    except Exception:
+        logger.exception("Primary story runtime import failed before generate route dispatch: game_id=%s", game_id)
         return _generate_story_response_fallback_impl(
             game_id=game_id,
             payload=payload,
@@ -1286,30 +1309,17 @@ def generate_story_response_route(
         )
 
     try:
-        return monolith_main.generate_story_response_impl(
+        return primary_generate_story_response_impl(
             game_id=game_id,
             payload=payload,
             authorization=authorization,
             db=db,
         )
-    except HTTPException as exc:
-        detail = str(getattr(exc, "detail", "") or "").strip()
-        normalized_detail = detail.casefold()
-        should_fallback = (
-            exc.status_code == status.HTTP_409_CONFLICT
-            and "story state could not be prepared before generation" in normalized_detail
-        ) or exc.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR
-        if not should_fallback:
-            raise
-        logger.warning(
-            "Monolith story generate failed before stream start, falling back: game_id=%s status=%s detail=%s",
-            game_id,
-            exc.status_code,
-            detail or "n/a",
-        )
+    except HTTPException:
+        raise
     except Exception:
         logger.exception(
-            "Monolith story generate crashed before stream start, falling back: game_id=%s",
+            "Primary story generate crashed before stream start, falling back: game_id=%s",
             game_id,
         )
     return _generate_story_response_fallback_impl(

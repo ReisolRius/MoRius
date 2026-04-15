@@ -17,6 +17,57 @@ _bind_monolith_names()
 if "STORY_DEFAULT_REPETITION_PENALTY" not in globals():
     STORY_DEFAULT_REPETITION_PENALTY = 1.05
 
+if "STORY_DISABLE_THINKING_MODEL_IDS" not in globals():
+    STORY_DISABLE_THINKING_MODEL_IDS: set[str] = set()
+
+
+def _build_story_provider_messages(
+    context_messages: list[StoryMessage],
+    instruction_cards: list[dict[str, str]],
+    plot_cards: list[dict[str, str]],
+    world_cards: list[dict[str, Any]],
+    *,
+    use_plot_memory: bool = False,
+    context_limit_tokens: int,
+    response_max_tokens: int | None = None,
+    translate_for_model: bool = False,
+    model_name: str | None = None,
+    story_narrator_mode: str | None = None,
+    story_romance_enabled: bool = False,
+    show_gg_thoughts: bool = False,
+    show_npc_thoughts: bool = False,
+) -> list[dict[str, str]]:
+    _ = (story_narrator_mode, story_romance_enabled)
+    return monolith_main._build_story_provider_messages(
+        context_messages,
+        instruction_cards,
+        plot_cards,
+        world_cards,
+        use_plot_memory=use_plot_memory,
+        context_limit_tokens=context_limit_tokens,
+        response_max_tokens=response_max_tokens,
+        translate_for_model=translate_for_model,
+        model_name=model_name,
+        show_gg_thoughts=show_gg_thoughts,
+        show_npc_thoughts=show_npc_thoughts,
+    )
+
+
+def _should_lock_openrouter_story_request_to_selected_model(model_name: str | None) -> bool:
+    _ = model_name
+    return False
+
+
+def _apply_openrouter_story_response_limit(payload: dict[str, Any], max_tokens: int | None) -> None:
+    if max_tokens is None:
+        return
+    payload["max_tokens"] = int(max_tokens)
+
+
+def _should_translate_story_input_for_model(model_name: str | None) -> bool:
+    _ = model_name
+    return _is_story_input_translation_enabled()
+
 
 def _select_story_repetition_penalty_value(
     *,
@@ -66,7 +117,7 @@ def _apply_openrouter_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name == "z-ai/glm-5":
+    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1"}:
         payload["reasoning"] = {
             "effort": "minimal",
             "exclude": True,

@@ -18,6 +18,7 @@ ROLE_USER = "user"
 ROLE_ADMINISTRATOR = "administrator"
 ROLE_MODERATOR = "moderator"
 ADMIN_PANEL_ALLOWED_ROLES = {ROLE_ADMINISTRATOR, ROLE_MODERATOR}
+MANUALLY_ASSIGNABLE_ROLES = {ROLE_USER, ROLE_MODERATOR}
 PRIVILEGED_ROLE_BY_EMAIL = {
     "alexunderstood8@gmail.com": ROLE_ADMINISTRATOR,
     "borisow.n2011@gmail.com": ROLE_MODERATOR,
@@ -37,10 +38,22 @@ def is_privileged_email(email: str) -> bool:
 
 
 def sync_user_role_with_email(user: User) -> bool:
-    expected_role = resolve_forced_role_for_email(user.email)
-    if user.role == expected_role:
+    forced_role = PRIVILEGED_ROLE_BY_EMAIL.get(normalize_email(user.email))
+    if forced_role is not None:
+        if user.role == forced_role:
+            return False
+        user.role = forced_role
+        return True
+
+    normalized_role = str(getattr(user, "role", "") or "").strip().lower()
+    if normalized_role not in MANUALLY_ASSIGNABLE_ROLES:
+        if user.role == ROLE_USER:
+            return False
+        user.role = ROLE_USER
+        return True
+    if user.role == normalized_role:
         return False
-    user.role = expected_role
+    user.role = normalized_role
     return True
 
 

@@ -89,6 +89,16 @@ class UserNotificationOut(BaseModel):
 
 class UserNotificationUnreadCountOut(BaseModel):
     unread_count: int = Field(default=0, ge=0)
+    total_count: int = Field(default=0, ge=0)
+
+
+class UserNotificationListResponseOut(BaseModel):
+    items: list[UserNotificationOut]
+    unread_count: int = Field(default=0, ge=0)
+    total_count: int = Field(default=0, ge=0)
+    limit: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0)
+    has_more: bool = False
 
 
 class OnboardingGuideStateOut(BaseModel):
@@ -255,11 +265,17 @@ class AdminUserOut(BaseModel):
 
 class AdminUserListResponse(BaseModel):
     users: list[AdminUserOut]
+    total_count: int = Field(default=0, ge=0)
+    has_more: bool = False
 
 
 class AdminUserTokensUpdateRequest(BaseModel):
     operation: Literal["add", "subtract"]
     amount: int = Field(ge=1, le=1_000_000_000)
+
+
+class AdminUserModeratorUpdateRequest(BaseModel):
+    is_moderator: bool
 
 
 class AdminUserBanRequest(BaseModel):
@@ -369,13 +385,15 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=500, le=25_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=32_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     image_model: str | None = Field(default=None, max_length=120)
     image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
+    memory_optimization_mode: str | None = Field(default=None, max_length=32)
+    story_repetition_penalty: float | None = Field(default=None, ge=1.0, le=2.0)
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
     story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -402,13 +420,15 @@ class StoryGameCloneRequest(BaseModel):
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=500, le=25_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=32_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     image_model: str | None = Field(default=None, max_length=120)
     image_style_prompt: str | None = Field(default=None, max_length=320)
     memory_optimization_enabled: bool | None = None
+    memory_optimization_mode: str | None = Field(default=None, max_length=32)
+    story_repetition_penalty: float | None = Field(default=None, ge=1.0, le=2.0)
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
     story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -417,6 +437,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
     environment_enabled: bool | None = None
+    character_state_enabled: bool | None = None
     environment_current_datetime: str | None = Field(default=None, max_length=64)
     environment_current_weather: dict[str, Any] | None = None
     environment_tomorrow_weather: dict[str, Any] | None = None
@@ -450,6 +471,7 @@ class StoryGenerateRequest(BaseModel):
     story_llm_model: str | None = Field(default=None, max_length=120)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     memory_optimization_enabled: bool | None = None
+    story_repetition_penalty: float | None = Field(default=None, ge=1.0, le=2.0)
     story_top_k: int | None = Field(default=None, ge=0, le=200)
     story_top_r: float | None = Field(default=None, ge=0.1, le=1.0)
     story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
@@ -473,6 +495,204 @@ class StoryTurnImageGenerateOut(BaseModel):
     image_url: str | None
     image_data_url: str | None
     user: UserOut | None = None
+
+
+class StoryTurnAudioGenerateRequest(BaseModel):
+    assistant_message_id: int = Field(ge=1)
+
+
+class StoryTurnAudioGenerateOut(BaseModel):
+    assistant_message_id: int
+    audio_url: str | None = None
+    audio_data_url: str | None = None
+    transcript: str | None = None
+    duration_seconds: float | None = None
+    user: UserOut | None = None
+
+
+class StoryMapPointOut(BaseModel):
+    x: float
+    y: float
+
+
+class StoryMapRegionOut(BaseModel):
+    id: str
+    name: str
+    kind: str = ""
+    color: str = ""
+    description: str = ""
+    polygon: list[StoryMapPointOut] = Field(default_factory=list)
+
+
+class StoryMapLocationOut(BaseModel):
+    id: str
+    region_id: str = ""
+    name: str
+    kind: str = ""
+    description: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    x: float
+    y: float
+    importance: float = 0.0
+
+
+class StoryMapPoiOut(BaseModel):
+    id: str
+    location_id: str = ""
+    name: str
+    kind: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    x: float
+    y: float
+    importance: float = 0.0
+
+
+class StoryMapRouteOut(BaseModel):
+    id: str
+    from_location_id: str
+    to_location_id: str
+    kind: str = ""
+    travel_minutes: int = 0
+    path: list[StoryMapPointOut] = Field(default_factory=list)
+
+
+class StoryMapLandmarkOut(BaseModel):
+    id: str
+    region_id: str = ""
+    name: str = ""
+    kind: str = ""
+    description: str = ""
+    x: float
+    y: float
+
+
+class StoryMapTravelModeOut(BaseModel):
+    id: str
+    label: str
+    description: str = ""
+    speed_multiplier: float = 1.0
+    is_default: bool = False
+
+
+class StoryMapTravelStepOut(BaseModel):
+    route_id: str
+    from_location_id: str
+    to_location_id: str
+    from_name: str = ""
+    to_name: str = ""
+    kind: str = ""
+    travel_minutes: int = 0
+
+
+class StoryMapTravelLogEntryOut(BaseModel):
+    assistant_message_id: int | None = None
+    from_location_id: str
+    to_location_id: str
+    route_ids: list[str] = Field(default_factory=list)
+    travel_minutes: int = 0
+    weather_multiplier: float = 1.0
+    travel_mode: str = ""
+    travel_mode_label: str = ""
+    distance_km: float = 0.0
+    arrived_at: str | None = None
+    summary: str = ""
+
+
+class StoryMapStateOut(BaseModel):
+    is_enabled: bool
+    theme: str
+    seed: str
+    canvas_width: int
+    canvas_height: int
+    layout_version: int = 1
+    world_description: str
+    start_location: str
+    overlay_mode: str
+    default_view: str
+    current_location_id: str | None = None
+    current_region_id: str | None = None
+    current_poi_id: str | None = None
+    current_location_label: str = ""
+    current_poi_label: str = ""
+    current_anchor_x: float | None = None
+    current_anchor_y: float | None = None
+    current_anchor_label: str = ""
+    current_anchor_scope: Literal["location", "poi", "waypoint"] = "location"
+    last_sync_warning: str = ""
+    regions: list[StoryMapRegionOut] = Field(default_factory=list)
+    locations: list[StoryMapLocationOut] = Field(default_factory=list)
+    pois: list[StoryMapPoiOut] = Field(default_factory=list)
+    routes: list[StoryMapRouteOut] = Field(default_factory=list)
+    landmarks: list[StoryMapLandmarkOut] = Field(default_factory=list)
+    travel_log: list[StoryMapTravelLogEntryOut] = Field(default_factory=list)
+    updated_at: str | None = None
+
+
+class StoryMapInitializeRequest(BaseModel):
+    world_description: str = Field(default="", max_length=1_500)
+    start_location: str = Field(default="", max_length=300)
+    theme: str | None = Field(default=None, max_length=80)
+
+
+class StoryMapImageOut(BaseModel):
+    id: int
+    scope: str
+    target_region_id: str | None = None
+    target_location_id: str | None = None
+    target_label: str = ""
+    model: str = ""
+    prompt: str = ""
+    revised_prompt: str | None = None
+    image_url: str | None = None
+    image_data_url: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryMapImageGenerateRequest(BaseModel):
+    scope: str = Field(default="world", max_length=32)
+    image_model: str | None = Field(default=None, max_length=120)
+    target_region_id: str | None = Field(default=None, max_length=48)
+    target_location_id: str | None = Field(default=None, max_length=48)
+
+
+class StoryMapImageGenerateOut(StoryMapImageOut):
+    user: UserOut | None = None
+
+
+class StoryMapTravelRequest(BaseModel):
+    destination_location_id: str | None = Field(default=None, max_length=48)
+    destination_poi_id: str | None = Field(default=None, max_length=48)
+    travel_mode: str | None = Field(default=None, max_length=32)
+    destination_x: float | None = None
+    destination_y: float | None = None
+    destination_label: str | None = Field(default=None, max_length=160)
+
+
+class StoryMapTravelPreviewOut(BaseModel):
+    reachable: bool
+    destination_location_id: str
+    destination_name: str | None = None
+    destination_poi_id: str | None = None
+    destination_poi_name: str | None = None
+    destination_label: str | None = None
+    from_location_id: str | None = None
+    from_location_name: str | None = None
+    from_poi_id: str | None = None
+    from_poi_name: str | None = None
+    route_ids: list[str] = Field(default_factory=list)
+    route_steps: list[StoryMapTravelStepOut] = Field(default_factory=list)
+    base_travel_minutes: int = 0
+    adjusted_travel_minutes: int = 0
+    weather_multiplier: float = 1.0
+    environment_time_enabled: bool = False
+    travel_mode: str | None = None
+    travel_mode_label: str | None = None
+    available_modes: list[StoryMapTravelModeOut] = Field(default_factory=list)
+    distance_km: float = 0.0
+    arrival_datetime: str | None = None
+    detail: str = ""
+    scope: Literal["location", "poi", "waypoint"] = "location"
 
 
 class StoryCharacterAvatarGenerateRequest(BaseModel):
@@ -560,6 +780,10 @@ class StoryInstructionTemplateUpdateRequest(BaseModel):
 class StoryWorldCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=6_000)
+    race: str = Field(default="", max_length=120)
+    clothing: str = Field(default="", max_length=1_000)
+    inventory: str = Field(default="", max_length=1_000)
+    health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -572,6 +796,10 @@ class StoryWorldCardCreateRequest(BaseModel):
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=6_000)
+    race: str = Field(default="", max_length=120)
+    clothing: str = Field(default="", max_length=1_000)
+    inventory: str = Field(default="", max_length=1_000)
+    health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
@@ -598,6 +826,10 @@ class StoryPlotCardEnabledUpdateRequest(BaseModel):
 class StoryCharacterCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=6_000)
+    race: str = Field(default="", max_length=120)
+    clothing: str = Field(default="", max_length=1_000)
+    inventory: str = Field(default="", max_length=1_000)
+    health_status: str = Field(default="", max_length=1_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -614,6 +846,10 @@ class StoryCharacterCreateRequest(BaseModel):
 class StoryCharacterUpdateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=6_000)
+    race: str = Field(default="", max_length=120)
+    clothing: str = Field(default="", max_length=1_000)
+    inventory: str = Field(default="", max_length=1_000)
+    health_status: str = Field(default="", max_length=1_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -801,6 +1037,10 @@ class StoryWorldCardOut(BaseModel):
     game_id: int
     title: str
     content: str
+    race: str = ""
+    clothing: str = ""
+    inventory: str = ""
+    health_status: str = ""
     triggers: list[str]
     kind: str
     avatar_url: str | None
@@ -820,6 +1060,10 @@ class StoryCharacterOut(BaseModel):
     user_id: int
     name: str
     description: str
+    race: str = ""
+    clothing: str = ""
+    inventory: str = ""
+    health_status: str = ""
     note: str
     triggers: list[str]
     avatar_url: str | None
@@ -895,6 +1139,10 @@ class StoryWorldCardSnapshotOut(BaseModel):
     id: int | None
     title: str
     content: str
+    race: str = ""
+    clothing: str = ""
+    inventory: str = ""
+    health_status: str = ""
     triggers: list[str]
     kind: str
     avatar_url: str | None
@@ -947,12 +1195,15 @@ class StoryGameSummaryOut(BaseModel):
     image_model: str
     image_style_prompt: str
     memory_optimization_enabled: bool
+    memory_optimization_mode: str
+    story_repetition_penalty: float
     story_top_k: int
     story_top_r: float
     story_temperature: float
     show_gg_thoughts: bool
     show_npc_thoughts: bool
     ambient_enabled: bool
+    character_state_enabled: bool = False
     environment_enabled: bool = False
     emotion_visualization_enabled: bool
     ambient_profile: dict[str, Any] | None
@@ -1014,6 +1265,10 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     id: int
     name: str
     description: str
+    race: str = ""
+    clothing: str = ""
+    inventory: str = ""
+    health_status: str = ""
     note: str
     triggers: list[str]
     avatar_url: str | None
@@ -1086,6 +1341,17 @@ class AdminModerationQueueItemOut(BaseModel):
     publication: StoryPublicationStateOut
     created_at: datetime
     updated_at: datetime
+
+
+class StoryCharacterRaceOut(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryCharacterRaceCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
 
 
 class AdminModerationQueueResponse(BaseModel):

@@ -31,6 +31,11 @@ import worldIcon from './icons/world.svg'
 import menuSettingsIcon from './icons/menu-settings.svg'
 import menuShopIcon from './icons/menu-shop.svg'
 import profileSearchFilterIcon from './icons/profile-search-filter.svg'
+import searchIcon from './icons/search.svg'
+import searchCloseIcon from './icons/search-close.svg'
+import cardsWorldIcon from './icons/cards-world.svg'
+import cardsRulesIcon from './icons/cards-rules.svg'
+import cardsPlotIcon from './icons/cards-plot.svg'
 import sidebarBookIcon from './icons/custom/book.svg'
 import sidebarCommunityIcon from './icons/custom/community.svg'
 import sidebarHelpIcon from './icons/custom/help.svg'
@@ -52,6 +57,9 @@ export const icons = {
   ai: aiIcon,
   arrowback: arrowBackIcon,
   back: backIcon,
+  cardsPlot: cardsPlotIcon,
+  cardsRules: cardsRulesIcon,
+  cardsWorld: cardsWorldIcon,
   coin: coinIcon,
   communityAge: communityAgeIcon,
   communityAdd: communityAddIcon,
@@ -78,6 +86,8 @@ export const icons = {
   menuSettings: menuSettingsIcon,
   menuShop: menuShopIcon,
   profileSearchFilter: profileSearchFilterIcon,
+  search: searchIcon,
+  searchClose: searchCloseIcon,
   sidebarBook: sidebarBookIcon,
   sidebarCommunity: sidebarCommunityIcon,
   sidebarHelp: sidebarHelpIcon,

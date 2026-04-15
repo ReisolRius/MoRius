@@ -1,5 +1,6 @@
 import { Box, ButtonBase, Stack, Typography } from '@mui/material'
 import type { ReactNode } from 'react'
+import CharacterNoteBadge from './CharacterNoteBadge'
 import DeferredImage from '../media/DeferredImage'
 
 type CharacterShowcaseCardProps = {
@@ -99,28 +100,12 @@ function CharacterShowcaseCard({
             sx={{
               position: 'absolute',
               left: 12,
-              top: 12,
+              bottom: 12,
               maxWidth: 'calc(100% - 72px)',
-              px: 0.9,
-              py: 0.45,
-              borderRadius: '999px',
-              backgroundColor: 'rgba(8, 12, 18, 0.62)',
-              border: 'var(--morius-border-width) solid rgba(207, 219, 233, 0.22)',
+              zIndex: 2,
             }}
           >
-            <Typography
-              sx={{
-                color: 'rgba(232, 239, 247, 0.92)',
-                fontSize: '0.7rem',
-                fontWeight: 800,
-                letterSpacing: '0.03em',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-            >
-              {eyebrow}
-            </Typography>
+            <CharacterNoteBadge note={eyebrow} maxWidth="100%" />
           </Box>
         ) : null}
         {actionSlot ? (
@@ -218,8 +203,6 @@ function CharacterShowcaseCard({
         overflow: 'hidden',
         justifyContent: 'stretch',
         alignItems: 'stretch',
-        contentVisibility: 'auto',
-        containIntrinsicSize: `${minHeight}px`,
         boxShadow: highlighted ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 12px 26px rgba(0, 0, 0, 0.18)' : 'none',
         transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
         '&:hover': {

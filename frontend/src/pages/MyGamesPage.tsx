@@ -34,6 +34,7 @@ import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
+import Footer from '../components/Footer'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -47,6 +48,7 @@ import { getDisplayStoryTitle, loadStoryTitleMap, persistStoryTitleMap, setStory
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
+import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 
 type MyGamesPageProps = {
   user: AuthUser
@@ -154,6 +156,13 @@ function normalizeGamePreview(value: string | null | undefined): string {
     return compact
   }
   return `${compact.slice(0, 142)}...`
+}
+
+function clampCoverPosition(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 50
+  }
+  return Math.max(0, Math.min(value, 100))
 }
 
 function formatTurnCountLabel(value: number): string {
@@ -274,6 +283,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
   const [gameMenuAnchorEl, setGameMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [gameMenuGameId, setGameMenuGameId] = useState<number | null>(null)
+  const [confirmDeleteGameId, setConfirmDeleteGameId] = useState<number | null>(null)
   const [deletingGameId, setDeletingGameId] = useState<number | null>(null)
   const [cloneDialogSourceGame, setCloneDialogSourceGame] = useState<StoryGameSummary | null>(null)
   const [cloneSelection, setCloneSelection] = useState<CloneSelectionState>({ ...DEFAULT_CLONE_SELECTION })
@@ -290,6 +300,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     try {
       const loadedGames = await listStoryGames(authToken, { compact: true })
       const sortedGames = sortGamesByActivity(loadedGames)
+      rememberLastPlayedGameCard(sortedGames[0] ?? null)
       setGames(sortedGames)
       setCustomTitleMap((previousMap) => {
         let nextMap = previousMap
@@ -326,6 +337,10 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   useEffect(() => {
     void loadGames()
   }, [loadGames])
+
+  useEffect(() => {
+    rememberLastPlayedGameCard(games[0] ?? null)
+  }, [games])
 
   useEffect(() => {
     const missingSourceWorldIds = Array.from(
@@ -414,6 +429,14 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     handleCloseGameMenu()
   }, [gameMenuGameId, games, handleCloseGameMenu])
 
+  const handleRequestDeleteGameFromMenu = useCallback(() => {
+    if (!gameMenuGameId || deletingGameId !== null) {
+      return
+    }
+    setConfirmDeleteGameId(gameMenuGameId)
+    handleCloseGameMenu()
+  }, [deletingGameId, gameMenuGameId, handleCloseGameMenu])
+
   const handleCloseCloneDialog = useCallback(() => {
     if (isGameCloning) {
       return
@@ -456,41 +479,45 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
   }, [authToken, cloneDialogSourceGame, cloneSelection, isGameCloning, loadGames])
 
-  const handleDeleteGameFromMenu = useCallback(async () => {
-    if (!gameMenuGameId || deletingGameId !== null) {
+  const handleConfirmDeleteGame = useCallback(async () => {
+    if (!confirmDeleteGameId || deletingGameId !== null) {
       return
     }
-    setDeletingGameId(gameMenuGameId)
+    const targetGameId = confirmDeleteGameId
+    setDeletingGameId(targetGameId)
     setErrorMessage('')
     try {
       await deleteStoryGame({
         token: authToken,
-        gameId: gameMenuGameId,
+        gameId: targetGameId,
       })
-      setGames((previous) => previous.filter((game) => game.id !== gameMenuGameId))
+      setGames((previous) => previous.filter((game) => game.id !== targetGameId))
       setGamePreviews((previous) => {
         const next = { ...previous }
-        delete next[gameMenuGameId]
+        delete next[targetGameId]
         return next
       })
       setCustomTitleMap((previous) => {
-        if (!(gameMenuGameId in previous)) {
+        if (!(targetGameId in previous)) {
           return previous
         }
         const next = { ...previous }
-        delete next[gameMenuGameId]
+        delete next[targetGameId]
         persistStoryTitleMap(next)
         return next
       })
-      setGameMenuAnchorEl(null)
-      setGameMenuGameId(null)
+      if (gameMenuGameId === targetGameId) {
+        setGameMenuAnchorEl(null)
+        setGameMenuGameId(null)
+      }
+      setConfirmDeleteGameId(null)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось удалить мир'
       setErrorMessage(detail)
     } finally {
       setDeletingGameId(null)
     }
-  }, [authToken, deletingGameId, gameMenuGameId])
+  }, [authToken, confirmDeleteGameId, deletingGameId, gameMenuGameId])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -782,6 +809,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     }
     return games.find((game) => game.id === gameMenuGameId) ?? null
   }, [gameMenuGameId, games])
+  const confirmDeleteGameTarget = useMemo(() => {
+    if (!confirmDeleteGameId) {
+      return null
+    }
+    return games.find((game) => game.id === confirmDeleteGameId) ?? null
+  }, [confirmDeleteGameId, games])
   const pageTitle = mode === 'all' ? 'Сообщество' : mode === 'publications' ? 'Публикации' : 'Библиотека'
   const profileName = user.display_name || 'Игрок'
 
@@ -799,6 +832,22 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={buildUnifiedMobileQuickActions({
+          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => onNavigate('/worlds/new'),
+          onOpenShop: handleOpenTopUpDialog,
+          continueDescription: games[0]
+            ? normalizeGamePreview(games[0].description || games[0].latest_message_preview || games[0].opening_scene)
+            : undefined,
+          continueHeadline: games[0] ? resolveDisplayTitle(games[0].id) : undefined,
+          continueImageSrc: games[0]?.cover_image_url?.trim() || undefined,
+          continueImageMode: games[0]?.cover_image_url ? 'cover' : undefined,
+          continueImagePosition: games[0]
+            ? `${clampCoverPosition(games[0].cover_position_x)}% ${clampCoverPosition(games[0].cover_position_y)}%`
+            : undefined,
+        })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: mode === 'my', onClick: () => onNavigate('/games') },
@@ -829,7 +878,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <Box
         sx={{
           pt: 'var(--morius-header-menu-top)',
-          pb: { xs: 5, md: 6 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
       >
@@ -1215,13 +1264,65 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             </Stack>
           </MenuItem>
         ) : null}
-        <MenuItem onClick={() => void handleDeleteGameFromMenu()} disabled={deletingGameId !== null}>
+        <MenuItem onClick={handleRequestDeleteGameFromMenu} disabled={deletingGameId !== null}>
           <Stack direction="row" spacing={1} alignItems="center">
             <DeleteGlyph />
             <Box component="span">{deletingGameId === gameMenuGameId ? 'Удаляем...' : 'Удалить'}</Box>
           </Stack>
         </MenuItem>
       </Menu>
+
+      <BaseDialog
+        open={Boolean(confirmDeleteGameTarget)}
+        onClose={() => {
+          if (deletingGameId === null) {
+            setConfirmDeleteGameId(null)
+          }
+        }}
+        maxWidth="xs"
+        transitionComponent={DialogTransition}
+        paperSx={{
+          borderRadius: 'var(--morius-radius)',
+          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          background: APP_CARD_BACKGROUND,
+        }}
+        rawChildren
+      >
+        <DialogTitle sx={{ fontWeight: 700 }}>Удалить мир?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: APP_TEXT_SECONDARY }}>
+            {confirmDeleteGameTarget
+              ? `Мир «${resolveDisplayTitle(confirmDeleteGameTarget.id)}» будет удален без возможности восстановления.`
+              : 'Это действие нельзя отменить.'}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button
+            onClick={() => setConfirmDeleteGameId(null)}
+            disabled={deletingGameId !== null}
+            sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleConfirmDeleteGame()}
+            disabled={deletingGameId !== null}
+            sx={{
+              textTransform: 'none',
+              color: 'rgba(251, 190, 190, 0.94)',
+              border: `var(--morius-border-width) solid color-mix(in srgb, #d87a7a 56%, ${APP_BORDER_COLOR})`,
+              backgroundColor: 'rgba(184, 78, 78, 0.24)',
+              '&:hover': { backgroundColor: 'rgba(196, 88, 88, 0.34)' },
+            }}
+          >
+            {deletingGameId !== null ? (
+              <CircularProgress size={16} sx={{ color: 'rgba(251, 190, 190, 0.94)' }} />
+            ) : (
+              'Удалить'
+            )}
+          </Button>
+        </DialogActions>
+      </BaseDialog>
 
       <BaseDialog
         open={Boolean(cloneDialogSourceGame)}
@@ -1441,6 +1542,18 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         authToken={authToken}
         mode="manage"
         onClose={() => setInstructionTemplateDialogOpen(false)}
+      />
+
+      <Footer
+        socialLinks={[
+          { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+          { label: 'Телега', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+        ]}
+        infoLinks={[
+          { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+          { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+        ]}
+        onNavigate={onNavigate}
       />
     </Box>
   )

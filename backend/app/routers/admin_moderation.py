@@ -80,6 +80,7 @@ from app.services.story_characters import (
     unlink_story_character_from_world_cards,
 )
 from app.services.story_games import (
+    delete_story_game_with_relations,
     normalize_story_cover_image_url,
     normalize_story_cover_position,
     normalize_story_cover_scale,
@@ -521,25 +522,7 @@ def _build_publication_return_notification(
 
 
 def _delete_story_game_publication_copy_with_relations(db: Session, *, game_id: int) -> None:
-    db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
-    db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
-    db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == game_id))
-    db.execute(sa_delete(StoryMapImage).where(StoryMapImage.game_id == game_id))
-    db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id))
-    db.execute(sa_delete(StoryCharacterStateSnapshot).where(StoryCharacterStateSnapshot.game_id == game_id))
-    db.execute(sa_delete(StoryMessage).where(StoryMessage.game_id == game_id))
-    db.execute(sa_delete(StoryInstructionCard).where(StoryInstructionCard.game_id == game_id))
-    db.execute(sa_delete(StoryPlotCard).where(StoryPlotCard.game_id == game_id))
-    db.execute(sa_delete(StoryWorldCard).where(StoryWorldCard.game_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldComment).where(StoryCommunityWorldComment.world_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldRating).where(StoryCommunityWorldRating.world_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldView).where(StoryCommunityWorldView.world_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldLaunch).where(StoryCommunityWorldLaunch.world_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldFavorite).where(StoryCommunityWorldFavorite.world_id == game_id))
-    db.execute(sa_delete(StoryCommunityWorldReport).where(StoryCommunityWorldReport.world_id == game_id))
-    game = db.scalar(select(StoryGame).where(StoryGame.id == game_id))
-    if game is not None:
-        db.delete(game)
+    delete_story_game_with_relations(db, game_id=game_id)
 
 
 def _delete_story_character_publication_copy_with_relations(db: Session, *, character_id: int) -> None:

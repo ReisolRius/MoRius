@@ -1,4 +1,4 @@
-﻿import {
+import {
   forwardRef,
   useCallback,
   useEffect,
@@ -19,12 +19,13 @@ import {
   Stack,
   TextField,
   Typography,
+  useMediaQuery,
   type GrowProps,
 } from '@mui/material'
-import reloadIconMarkup from '../assets/icons/reload.svg?raw'
+import dashboardContinueIconMarkup from '../assets/icons/dashboard-continue.svg?raw'
+import dashboardQuickStartIconMarkup from '../assets/icons/dashboard-quick-start.svg?raw'
 import sidebarPlusIconMarkup from '../assets/icons/custom/plus.svg?raw'
 import sidebarVectorAltIconMarkup from '../assets/icons/custom/vector-1.svg?raw'
-import sidebarVectorIconMarkup from '../assets/icons/custom/vector.svg?raw'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import quickStartDashboardImage from '../assets/images/dashboard/quick-start.png'
@@ -45,6 +46,8 @@ import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
+import Footer from '../components/Footer'
+import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -96,7 +99,10 @@ type DashboardQuickAction = {
   key: 'continue' | 'quick-start' | 'new-world' | 'shop'
   title: string
   description: string
+  headline?: string
   imageSrc?: string
+  imageMode?: 'contain' | 'cover'
+  imagePosition?: string
   iconMarkup: string
   onClick: () => void
   disabled?: boolean
@@ -214,6 +220,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
+  const handledMobileActionRef = useRef<string | null>(null)
+  const isPhoneLayout = useMediaQuery('(max-width:899.95px)')
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -957,6 +965,11 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 50
   const selectedDashboardNewsImage =
     selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
+
+  useEffect(() => {
+    rememberLastPlayedGameCard(dashboardLastPlayedGame)
+  }, [dashboardLastPlayedGame])
+
   const handleDashboardContinue = useCallback(async () => {
     if (isDashboardDataLoading || isDashboardContinueResolving) {
       return
@@ -1000,10 +1013,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         key: 'continue',
         title: 'Продолжить',
         description: hasDashboardLastPlayedGame
-          ? buildDashboardGameDescription(dashboardLastPlayedGame!).slice(0, 110)
+          ? buildDashboardGameDescription(dashboardLastPlayedGame!)
           : `Добро пожаловать, ${profileName}. Начните новую историю или быстро вернитесь в библиотеку миров.`,
+        headline: hasDashboardLastPlayedGame ? buildDashboardGameHeadline(dashboardLastPlayedGame!) : undefined,
         imageSrc: dashboardHeroCoverUrl || undefined,
-        iconMarkup: reloadIconMarkup,
+        imageMode: dashboardHeroCoverUrl ? 'cover' : 'contain',
+        imagePosition: `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`,
+        iconMarkup: dashboardContinueIconMarkup,
         onClick: () => void handleDashboardContinue(),
         disabled: false,
       },
@@ -1012,7 +1028,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         title: 'Быстрый старт',
         description: 'Выберите жанр, класс, имя героя и получите готовую стартовую сцену за пару шагов.',
         imageSrc: quickStartDashboardImage,
-        iconMarkup: sidebarVectorIconMarkup,
+        iconMarkup: dashboardQuickStartIconMarkup,
         onClick: () => setIsQuickStartDialogOpen(true),
         disabled: false,
       },
@@ -1037,6 +1053,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     ],
     [
       dashboardHeroCoverUrl,
+      dashboardHeroCoverPositionX,
+      dashboardHeroCoverPositionY,
       dashboardLastPlayedGame,
       handleDashboardContinue,
       handleOpenTopUpDialog,
@@ -1046,6 +1064,41 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       profileName,
     ],
   )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const params = new URLSearchParams(window.location.search)
+    const requestedAction = params.get('mobileAction')
+    if (!requestedAction || handledMobileActionRef.current === requestedAction) {
+      return
+    }
+
+    const clearRequestedAction = () => {
+      params.delete('mobileAction')
+      const nextSearch = params.toString()
+      const nextHref = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`
+      window.history.replaceState({}, '', nextHref)
+    }
+
+    if (requestedAction === 'quick-start') {
+      handledMobileActionRef.current = requestedAction
+      clearRequestedAction()
+      setIsQuickStartDialogOpen(true)
+      return
+    }
+
+    if (requestedAction === 'continue') {
+      if (isDashboardDataLoading || isDashboardContinueResolving) {
+        return
+      }
+      handledMobileActionRef.current = requestedAction
+      clearRequestedAction()
+      void handleDashboardContinue()
+    }
+  }, [handleDashboardContinue, isDashboardContinueResolving, isDashboardDataLoading])
 
   return (
     <Box
@@ -1061,6 +1114,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={dashboardQuickActions}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: true, onClick: () => onNavigate('/dashboard') },
           { key: 'games-all', label: 'Сообщество', onClick: () => onNavigate('/games/all') },
@@ -1086,169 +1141,205 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <Box
         sx={{
           pt: 'var(--morius-header-menu-top)',
-          pb: { xs: 5, md: 6 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
-          <Stack alignItems="center" spacing={0.35} sx={{ mb: 1.6 }}>
+          <Stack alignItems="center" spacing={0.35} sx={{ mb: 'var(--morius-cards-title-gap)' }}>
             <Typography sx={{ fontSize: { xs: '2rem', md: '2.35rem' }, fontWeight: 900, color: APP_TEXT_PRIMARY, textAlign: 'center' }}>
               Главная
             </Typography>
           </Stack>
 
-          <Box sx={{ display: 'grid', gap: 1.35, mb: 2.4 }}>
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.2,
-                gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
-              }}
-            >
-              {dashboardQuickActions.map((action) => {
-                const isContinueCard = action.key === 'continue'
-                const hasContinueCover = isContinueCard && Boolean(action.imageSrc)
-                const isActionDisabled = Boolean(action.disabled) || (isContinueCard && isDashboardContinueResolving)
+          <Box sx={{ display: 'grid', gap: 1, mb: 'var(--morius-cards-title-gap)' }}>
+            {!isPhoneLayout ? (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
+                }}
+              >
+                {dashboardQuickActions.map((action) => {
+                  const isContinueCard = action.key === 'continue'
+                  const hasContinueCover = action.imageMode === 'cover' && Boolean(action.imageSrc)
+                  const isActionDisabled = Boolean(action.disabled) || (isContinueCard && isDashboardContinueResolving)
 
-                return (
-                  <ButtonBase
-                    key={action.key}
-                    onClick={action.onClick}
-                    disabled={isActionDisabled}
-                    sx={{
-                      position: 'relative',
-                      overflow: 'hidden',
-                      minHeight: 146,
-                      borderRadius: '18px',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_CARD_BACKGROUND,
-                      justifyContent: 'flex-start',
-                      alignItems: 'stretch',
-                      textAlign: 'left',
-                      boxShadow: '0 20px 34px rgba(0, 0, 0, 0.18)',
-                      transition: 'border-color 180ms ease, transform 180ms ease, opacity 180ms ease',
-                      '&:hover': {
+                  return (
+                    <ButtonBase
+                      key={action.key}
+                      onClick={action.onClick}
+                      disabled={isActionDisabled}
+                      sx={{
+                        position: 'relative',
+                        overflow: 'hidden',
+                        minHeight: 140,
+                        borderRadius: '12px',
+                        border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                         backgroundColor: APP_CARD_BACKGROUND,
-                        borderColor: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))',
-                        transform: isActionDisabled ? 'none' : 'translateY(-2px)',
-                      },
-                    }}
-                  >
-                    {hasContinueCover ? (
-                      <>
-                        <DeferredImage
-                          src={action.imageSrc}
-                          alt=""
-                          rootMargin="0px"
-                          objectFit="cover"
-                          objectPosition={`${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`}
-                          imgSx={{ opacity: 0.82 }}
-                        />
+                        justifyContent: 'flex-start',
+                        alignItems: 'stretch',
+                        textAlign: 'left',
+                        boxShadow: '0 20px 34px rgba(0, 0, 0, 0.18)',
+                        transition: 'border-color 180ms ease, transform 180ms ease, opacity 180ms ease',
+                        '&:hover': {
+                          backgroundColor: APP_CARD_BACKGROUND,
+                          borderColor: 'color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))',
+                          transform: isActionDisabled ? 'none' : 'translateY(-2px)',
+                        },
+                      }}
+                    >
+                      {hasContinueCover ? (
+                        <>
+                          <DeferredImage
+                            src={action.imageSrc}
+                            alt=""
+                            rootMargin="0px"
+                            objectFit="cover"
+                            objectPosition={action.imagePosition ?? `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`}
+                            imgSx={{ opacity: 0.82 }}
+                          />
+                          <Box
+                            aria-hidden
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              background:
+                                'linear-gradient(180deg, rgba(8, 12, 18, 0.54) 0%, rgba(8, 12, 18, 0.74) 52%, rgba(8, 12, 18, 0.9) 100%)',
+                            }}
+                          />
+                        </>
+                      ) : (
                         <Box
                           aria-hidden
                           sx={{
                             position: 'absolute',
                             inset: 0,
                             background:
-                              'linear-gradient(180deg, rgba(8, 12, 18, 0.54) 0%, rgba(8, 12, 18, 0.74) 52%, rgba(8, 12, 18, 0.9) 100%)',
+                              'linear-gradient(180deg, rgba(16, 19, 26, 0.96) 0%, rgba(12, 16, 22, 0.94) 100%)',
                           }}
                         />
-                      </>
-                    ) : (
-                      <Box
-                        aria-hidden
-                        sx={{
-                          position: 'absolute',
-                          inset: 0,
-                          background:
-                            'linear-gradient(180deg, rgba(16, 19, 26, 0.96) 0%, rgba(12, 16, 22, 0.94) 100%)',
-                        }}
-                      />
-                    )}
+                      )}
 
-                    {!isContinueCard && action.imageSrc ? (
-                      <DeferredImage
-                        src={action.imageSrc}
-                        alt=""
-                        rootMargin="0px"
-                        objectFit="contain"
-                        objectPosition="right bottom"
-                        sx={{
-                          inset: 'auto',
-                          right: { xs: 0, md: 4 },
-                          bottom: { xs: -4, md: -2 },
-                          width: { xs: 114, md: 124 },
-                          height: { xs: 114, md: 124 },
-                        }}
-                        imgSx={{ opacity: 1 }}
-                      />
-                    ) : null}
-
-                    <Stack
-                      spacing={1}
-                      sx={{
-                        position: 'relative',
-                        zIndex: 1,
-                        width: '100%',
-                        minHeight: '100%',
-                        p: 1.45,
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Stack spacing={1}>
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                          <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
-                            <Box
-                              sx={{
-                                width: 26,
-                                height: 26,
-                                display: 'grid',
-                                placeItems: 'center',
-                                flexShrink: 0,
-                                color: APP_TEXT_PRIMARY,
-                              }}
-                            >
-                              <ThemedSvgIcon markup={action.iconMarkup} size={18} />
-                            </Box>
-                            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.04rem', fontWeight: 900, lineHeight: 1.05 }}>
-                              {action.title}
-                            </Typography>
-                          </Stack>
-                        </Stack>
-
-                        <Typography
+                      {!isContinueCard && action.imageSrc ? (
+                        <DeferredImage
+                          src={action.imageSrc}
+                          alt=""
+                          rootMargin="0px"
+                          objectFit="contain"
+                          objectPosition="right bottom"
                           sx={{
-                            color: hasContinueCover ? 'rgba(235, 242, 251, 0.9)' : APP_TEXT_SECONDARY,
-                            fontSize: '0.9rem',
-                            lineHeight: 1.45,
-                            maxWidth: isContinueCard ? '100%' : '66%',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 3,
-                            WebkitBoxOrient: 'vertical',
-                            overflow: 'hidden',
+                            inset: 'auto',
+                            right: { xs: 0, md: 4 },
+                            bottom: { xs: -4, md: -2 },
+                            width: { xs: 114, md: 124 },
+                            height: { xs: 114, md: 124 },
                           }}
-                        >
-                          {action.description}
-                        </Typography>
+                          imgSx={{ opacity: 1 }}
+                        />
+                      ) : null}
+
+                      <Stack
+                        spacing={0.8}
+                        sx={{
+                          position: 'relative',
+                          zIndex: 1,
+                          width: '100%',
+                          minHeight: '100%',
+                          p: 1.2,
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <Stack spacing={0.8}>
+                          <Stack spacing={action.headline ? 0.15 : 0.4}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                              <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
+                                <Box
+                                  sx={{
+                                    width: 26,
+                                    height: 26,
+                                    display: 'grid',
+                                    placeItems: 'center',
+                                    flexShrink: 0,
+                                    color: APP_TEXT_PRIMARY,
+                                  }}
+                                >
+                                  <ThemedSvgIcon markup={action.iconMarkup} size={18} />
+                                </Box>
+                                <Typography
+                                  sx={{
+                                    color: action.headline && hasContinueCover ? 'rgba(236, 243, 250, 0.82)' : APP_TEXT_PRIMARY,
+                                    fontSize: action.headline ? '0.84rem' : '1.04rem',
+                                    fontWeight: 900,
+                                    lineHeight: 1.05,
+                                  }}
+                                >
+                                  {action.title}
+                                </Typography>
+                              </Stack>
+                            </Stack>
+
+                            {action.headline ? (
+                              <Typography
+                                sx={{
+                                  color: APP_TEXT_PRIMARY,
+                                  fontSize: '1.18rem',
+                                  fontWeight: 900,
+                                  lineHeight: 1.08,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 1,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {action.headline}
+                              </Typography>
+                            ) : null}
+                          </Stack>
+
+                          <Typography
+                            sx={{
+                              color: hasContinueCover ? 'rgba(235, 242, 251, 0.9)' : APP_TEXT_SECONDARY,
+                              fontSize: '0.9rem',
+                              lineHeight: 1.45,
+                              maxWidth: isContinueCard ? '100%' : '66%',
+                              display: '-webkit-box',
+                              WebkitLineClamp: action.headline ? 2 : 3,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {action.description}
+                          </Typography>
+                        </Stack>
                       </Stack>
-                    </Stack>
-                  </ButtonBase>
-                )
-              })}
-            </Box>
+                    </ButtonBase>
+                  )
+                })}
+              </Box>
+            ) : null}
 
             <Box
               sx={{
                 display: 'grid',
                 gap: 1.25,
                 gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.7fr) minmax(310px, 1fr)' },
+                minWidth: 0,
+                maxWidth: '100%',
+                '@media (max-width:699.95px)': {
+                  display: 'none',
+                },
               }}
             >
               <Box
                 sx={{
                   position: 'relative',
+                  width: '100%',
+                  minWidth: 0,
+                  maxWidth: '100%',
                   overflow: 'hidden',
-                  minHeight: { xs: 290, md: 330 },
+                  minHeight: { xs: 520, sm: 430, md: 330 },
                   borderRadius: '20px',
                   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   background: APP_CARD_BACKGROUND,
@@ -1300,6 +1391,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         width: '100%',
                         minHeight: '100%',
                         p: { xs: 1.6, md: 1.9 },
+                        '@media (max-width:569.95px)': {
+                          justifyContent: 'flex-end',
+                          p: 1.25,
+                        },
                       }}
                     >
                       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
@@ -1363,22 +1458,31 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 )}
               </Box>
 
-              <Stack spacing={1.05}>
+              <Stack spacing={1.05} sx={{ minWidth: 0, maxWidth: '100%' }}>
                 {dashboardNewsError ? (
                   <Alert severity="error" sx={{ borderRadius: '16px' }}>
                     {dashboardNewsError}
                   </Alert>
                 ) : null}
 
-                <Stack
-                  direction={{ xs: 'row', xl: 'column' }}
-                  spacing={1.05}
+                <Box
                   sx={{
+                    display: 'flex',
+                    flexDirection: { xs: 'row', xl: 'column' },
+                    gap: 1.05,
+                    width: '100%',
+                    minWidth: 0,
+                    maxWidth: '100%',
                     overflowX: { xs: 'auto', xl: 'visible' },
                     overflowY: 'visible',
                     pb: { xs: 0.2, xl: 0 },
                     pr: { xs: 0.2, xl: 0 },
-                    scrollSnapType: { xs: 'x proximity', xl: 'none' },
+                    scrollSnapType: { xs: 'x mandatory', xl: 'none' },
+                    scrollPaddingInline: { xs: '1px', xl: 0 },
+                    scrollbarWidth: 'none',
+                    '&::-webkit-scrollbar': {
+                      display: 'none',
+                    },
                   }}
                 >
                   {isDashboardNewsLoading && dashboardNews.length === 0
@@ -1386,13 +1490,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         <Box
                           key={itemKey}
                           sx={{
-                            width: { xs: 280, xl: '100%' },
-                            minWidth: { xs: 280, xl: 0 },
+                            width: { xs: '100%', xl: '100%' },
+                            minWidth: { xs: '100%', xl: 0 },
+                            maxWidth: { xs: '100%', xl: '100%' },
+                            flex: { xs: '0 0 100%', xl: '0 0 auto' },
                             minHeight: 96,
                             borderRadius: '18px',
                             p: 1.25,
                             border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                             background: APP_CARD_BACKGROUND,
+                            scrollSnapAlign: 'start',
+                            boxSizing: 'border-box',
                           }}
                         >
                           <Stack spacing={0.55}>
@@ -1409,39 +1517,42 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             key={item.id}
                             onClick={() => setSelectedDashboardNewsId(item.id)}
                             sx={{
-                              width: { xs: 280, xl: '100%' },
-                              minWidth: { xs: 280, xl: 0 },
+                              width: { xs: '100%', xl: '100%' },
+                              minWidth: { xs: '100%', xl: 0 },
+                              maxWidth: { xs: '100%', xl: '100%' },
+                              flex: { xs: '0 0 100%', xl: '0 0 auto' },
                               minHeight: 104,
                               justifyContent: 'flex-start',
                               alignItems: 'stretch',
                               textAlign: 'left',
-                              borderRadius: '18px',
-                              p: 1.25,
+                              borderRadius: '12px',
+                              p: 1.2,
+                              scrollSnapAlign: 'start',
+                              boxSizing: 'border-box',
                               border: `var(--morius-border-width) solid ${
                                 isSelected ? 'color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))' : APP_BORDER_COLOR
                               }`,
                               background: isSelected
                                 ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))'
                                 : APP_CARD_BACKGROUND,
-                              scrollSnapAlign: { xs: 'start', xl: 'none' },
                               '&:hover': {
                                 backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
                                 borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
                               },
                             }}
                           >
-                            <Stack spacing={0.46}>
+                            <Stack spacing={0.4}>
                               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.76rem', fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                                 {item.category}
                               </Typography>
-                              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 800 }}>
+                              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.95rem', fontWeight: 800 }}>
                                 {item.title}
                               </Typography>
                               <Typography
                                 sx={{
                                   color: APP_TEXT_SECONDARY,
-                                  fontSize: '0.88rem',
-                                  lineHeight: 1.42,
+                                  fontSize: '0.85rem',
+                                  lineHeight: 1.4,
                                   display: '-webkit-box',
                                   WebkitLineClamp: 2,
                                   WebkitBoxOrient: 'vertical',
@@ -1454,7 +1565,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                           </ButtonBase>
                         )
                       })}
-                </Stack>
+                </Box>
               </Stack>
             </Box>
           </Box>
@@ -1827,6 +1938,18 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         mode="manage"
         onClose={() => setInstructionTemplateDialogOpen(false)}
       />
+
+      <Footer
+        socialLinks={[
+          { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+          { label: 'Телега', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+        ]}
+        infoLinks={[
+          { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+          { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+        ]}
+        onNavigate={onNavigate}
+      />
     </Box>
   )
 }
@@ -1877,8 +2000,18 @@ function clampCoverPosition(rawValue: number): number {
   return Math.max(0, Math.min(rawValue, 100))
 }
 
+function buildDashboardGameHeadline(game: StoryGameSummary): string {
+  const normalizedTitle = game.title.replace(/\s+/g, ' ').trim()
+  if (normalizedTitle) {
+    return normalizedTitle
+  }
+  return `Игра #${game.id}`
+}
+
 function buildDashboardGameDescription(game: StoryGameSummary): string {
-  const descriptionSource = (game.description || game.opening_scene || '').replace(/\s+/g, ' ').trim()
+  const descriptionSource = (game.description || game.latest_message_preview || game.opening_scene || '')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!descriptionSource) {
     return 'Продолжите историю с последнего хода.'
   }

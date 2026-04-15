@@ -74,12 +74,13 @@ def _build_mail_from_header() -> str:
     return _build_mail_from_header_for_email(settings.smtp_from_email)
 
 
-def _send_email_verification_code_via_resend(
+def _send_email_via_resend(
     *,
     recipient_email: str,
     from_header: str,
     subject: str,
     text_body: str,
+    html_body: str | None = None,
 ) -> None:
     headers = {
         "Authorization": f"Bearer {settings.resend_api_key}",
@@ -91,6 +92,8 @@ def _send_email_verification_code_via_resend(
         "subject": subject,
         "text": text_body,
     }
+    if html_body and html_body.strip():
+        payload["html"] = html_body
 
     try:
         response = HTTP_SESSION.post(
@@ -130,29 +133,31 @@ def _build_verification_email_text(*, verification_code: str, ttl_minutes: int) 
     )
 
 
-def send_email_verification_code(recipient_email: str, verification_code: str) -> None:
-    ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
-    subject = _build_verification_email_subject()
-    text_body = _build_verification_email_text(
-        verification_code=verification_code,
-        ttl_minutes=ttl_minutes,
-    )
-
+def send_email_message(
+    *,
+    recipient_email: str,
+    subject: str,
+    text_body: str,
+    html_body: str | None = None,
+) -> None:
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = _build_mail_from_header()
     message["To"] = recipient_email
     message.set_content(text_body, subtype="plain", charset="utf-8")
+    if html_body and html_body.strip():
+        message.add_alternative(html_body, subtype="html", charset="utf-8")
 
     if settings.resend_api_key:
         if not settings.resend_from_email:
             raise RuntimeError("RESEND_FROM_EMAIL is required when RESEND_API_KEY is set")
 
-        _send_email_verification_code_via_resend(
+        _send_email_via_resend(
             recipient_email=recipient_email,
             from_header=_build_mail_from_header_for_email(settings.resend_from_email),
             subject=subject,
             text_body=text_body,
+            html_body=html_body,
         )
         return
 
@@ -177,6 +182,20 @@ def send_email_verification_code(recipient_email: str, verification_code: str) -
         if settings.smtp_user:
             smtp.login(settings.smtp_user, settings.smtp_password)
         smtp.send_message(message)
+
+
+def send_email_verification_code(recipient_email: str, verification_code: str) -> None:
+    ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
+    subject = _build_verification_email_subject()
+    text_body = _build_verification_email_text(
+        verification_code=verification_code,
+        ttl_minutes=ttl_minutes,
+    )
+    send_email_message(
+        recipient_email=recipient_email,
+        subject=subject,
+        text_body=text_body,
+    )
 
 
 def close_http_session() -> None:

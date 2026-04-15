@@ -14,6 +14,10 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
+    normalize_story_character_race,
 )
 
 STORY_WORLD_CARD_SOURCE_USER = "user"
@@ -262,6 +266,10 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         game_id=card.game_id,
         title=card.title,
         content=card.content,
+        race=normalize_story_character_race(getattr(card, "race", "")),
+        clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
+        inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
+        health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
         triggers=deserialize_story_world_card_triggers(card.triggers),
         kind=normalized_kind,
         avatar_url=avatar_url,
@@ -297,6 +305,10 @@ def build_story_world_card_from_character(
         game_id=game_id,
         title=normalized_name,
         content=normalized_content,
+        race=normalize_story_character_race(getattr(character, "race", "")),
+        clothing=normalize_story_character_clothing(getattr(character, "clothing", "")),
+        inventory=normalize_story_character_inventory(getattr(character, "inventory", "")),
+        health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         avatar_url=normalize_story_character_avatar_url(character.avatar_url),

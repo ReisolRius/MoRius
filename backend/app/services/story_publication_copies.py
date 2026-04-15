@@ -20,7 +20,11 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
     normalize_story_character_note,
+    normalize_story_character_race,
     normalize_story_character_source,
     serialize_triggers,
     deserialize_triggers,
@@ -31,6 +35,7 @@ from app.services.story_emotions import (
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PUBLIC,
     clone_story_world_cards_to_game,
+    normalize_story_memory_optimization_mode,
     refresh_story_game_public_card_snapshots,
     serialize_story_ambient_profile,
     serialize_story_game_genres,
@@ -65,6 +70,10 @@ def upsert_story_character_publication_copy_from_source(
             user_id=source_character.user_id,
             name=source_character.name,
             description=source_character.description,
+            race=normalize_story_character_race(getattr(source_character, "race", "")),
+            clothing=normalize_story_character_clothing(getattr(source_character, "clothing", "")),
+            inventory=normalize_story_character_inventory(getattr(source_character, "inventory", "")),
+            health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
             note=normalize_story_character_note(source_character.note),
             triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
             avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
@@ -100,6 +109,10 @@ def upsert_story_character_publication_copy_from_source(
 
     publication.name = source_character.name
     publication.description = source_character.description
+    publication.race = normalize_story_character_race(getattr(source_character, "race", ""))
+    publication.clothing = normalize_story_character_clothing(getattr(source_character, "clothing", ""))
+    publication.inventory = normalize_story_character_inventory(getattr(source_character, "inventory", ""))
+    publication.health_status = normalize_story_character_health_status(getattr(source_character, "health_status", ""))
     publication.note = normalize_story_character_note(source_character.note)
     publication.triggers = serialize_triggers(deserialize_triggers(source_character.triggers))
     publication.avatar_url = normalize_story_character_avatar_url(source_character.avatar_url)
@@ -207,6 +220,9 @@ def upsert_story_game_publication_copy_from_source(
             image_model=normalized_source.image_model,
             image_style_prompt=normalized_source.image_style_prompt,
             memory_optimization_enabled=normalized_source.memory_optimization_enabled,
+            memory_optimization_mode=normalize_story_memory_optimization_mode(
+                getattr(normalized_source, "memory_optimization_mode", None)
+            ),
             story_top_k=normalized_source.story_top_k,
             story_top_r=normalized_source.story_top_r,
             story_temperature=normalized_source.story_temperature,
@@ -252,6 +268,9 @@ def upsert_story_game_publication_copy_from_source(
     publication.image_model = normalized_source.image_model
     publication.image_style_prompt = normalized_source.image_style_prompt
     publication.memory_optimization_enabled = normalized_source.memory_optimization_enabled
+    publication.memory_optimization_mode = normalize_story_memory_optimization_mode(
+        getattr(normalized_source, "memory_optimization_mode", None)
+    )
     publication.story_top_k = normalized_source.story_top_k
     publication.story_top_r = normalized_source.story_top_r
     publication.story_temperature = normalized_source.story_temperature

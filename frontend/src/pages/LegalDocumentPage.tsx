@@ -1,5 +1,6 @@
 import { Box, Button, Container, Stack, Typography } from '@mui/material'
 import { brandLogo } from '../assets'
+import Footer from '../components/Footer'
 
 type LegalDocumentPageProps = {
   title: string
@@ -67,6 +68,18 @@ function LegalDocumentPage({ title, content, onNavigate }: LegalDocumentPageProp
           </Box>
         </Stack>
       </Container>
+
+      <Footer
+        socialLinks={[
+          { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+          { label: 'Телега', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+        ]}
+        infoLinks={[
+          { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+          { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+        ]}
+        onNavigate={onNavigate}
+      />
     </Box>
   )
 }

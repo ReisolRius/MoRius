@@ -64,11 +64,8 @@ def build_staff_notification_drafts(
     action_url: str | None = None,
     actor_user_id: int | None = None,
 ) -> list[NotificationDraft]:
-    excluded_user_id = int(actor_user_id) if actor_user_id is not None else None
     drafts: list[NotificationDraft] = []
     for recipient_user_id in list_moderation_recipient_user_ids(db):
-        if excluded_user_id is not None and recipient_user_id == excluded_user_id:
-            continue
         drafts.append(
             NotificationDraft(
                 user_id=recipient_user_id,
@@ -239,6 +236,15 @@ def count_unread_user_notifications(db: Session, *, user_id: int) -> int:
     return max(int(value or 0), 0)
 
 
+def count_total_user_notifications(db: Session, *, user_id: int) -> int:
+    value = db.scalar(
+        select(func.count())
+        .select_from(UserNotification)
+        .where(UserNotification.user_id == user_id)
+    )
+    return max(int(value or 0), 0)
+
+
 def attach_user_notification_unread_count(db: Session, user: User | None) -> User | None:
     if user is None:
         return None
@@ -252,14 +258,20 @@ def list_user_notifications_out(
     user_id: int,
     limit: int = USER_NOTIFICATION_MAX_LIMIT,
     offset: int = 0,
+    sort_desc: bool = True,
 ) -> list[UserNotificationOut]:
     normalized_limit = max(1, min(int(limit or USER_NOTIFICATION_MAX_LIMIT), USER_NOTIFICATION_MAX_LIMIT))
     normalized_offset = max(0, int(offset or 0))
+    order_by = (
+        (UserNotification.created_at.desc(), UserNotification.id.desc())
+        if sort_desc
+        else (UserNotification.created_at.asc(), UserNotification.id.asc())
+    )
     rows = db.execute(
         select(UserNotification, User)
         .join(User, User.id == UserNotification.actor_user_id, isouter=True)
         .where(UserNotification.user_id == user_id)
-        .order_by(UserNotification.created_at.desc(), UserNotification.id.desc())
+        .order_by(*order_by)
         .offset(normalized_offset)
         .limit(normalized_limit)
     ).all()

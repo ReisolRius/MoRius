@@ -12,10 +12,15 @@ export type StoryPublicationState = {
 }
 export type StoryNarratorModelId =
   | 'z-ai/glm-5'
+  | 'z-ai/glm-5.1'
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-v3.2'
   | 'x-ai/grok-4.1-fast'
+  | 'mistralai/mistral-nemo'
   | 'xiaomi/mimo-v2-flash'
+  | 'xiaomi/mimo-v2-pro'
+  | 'aion-labs/aion-2.0'
+export type StoryMemoryOptimizationMode = 'standard' | 'enhanced' | 'maximum'
 export type StoryImageModelId =
   | 'black-forest-labs/flux.2-pro'
   | 'bytedance-seed/seedream-4.5'
@@ -77,12 +82,15 @@ export type StoryGameSummary = {
   image_model: StoryImageModelId
   image_style_prompt: string
   memory_optimization_enabled: boolean
+  memory_optimization_mode: StoryMemoryOptimizationMode
+  story_repetition_penalty: number
   story_top_k: number
   story_top_r: number
   story_temperature: number
   show_gg_thoughts: boolean
   show_npc_thoughts: boolean
   ambient_enabled: boolean
+  character_state_enabled: boolean
   environment_enabled?: boolean
   ambient_profile: StoryAmbientProfile | null
   environment_current_datetime?: string | null
@@ -194,6 +202,10 @@ export type StoryWorldCard = {
   game_id: number
   title: string
   content: string
+  race: string
+  clothing: string
+  inventory: string
+  health_status: string
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
@@ -214,6 +226,10 @@ export type StoryWorldCardSnapshot = {
   id: number | null
   title: string
   content: string
+  race: string
+  clothing: string
+  inventory: string
+  health_status: string
   triggers: string[]
   kind: StoryWorldCardKind
   avatar_url: string | null
@@ -246,6 +262,10 @@ export type StoryCharacter = {
   user_id: number
   name: string
   description: string
+  race: string
+  clothing: string
+  inventory: string
+  health_status: string
   note: string
   triggers: string[]
   avatar_url: string | null
@@ -269,6 +289,10 @@ export type StoryCommunityCharacterSummary = {
   id: number
   name: string
   description: string
+  race: string
+  clothing: string
+  inventory: string
+  health_status: string
   note: string
   triggers: string[]
   avatar_url: string | null
@@ -287,6 +311,13 @@ export type StoryCommunityCharacterSummary = {
   user_rating: number | null
   is_added_by_user: boolean
   is_reported_by_user: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type StoryCharacterRace = {
+  id: number
+  name: string
   created_at: string
   updated_at: string
 }

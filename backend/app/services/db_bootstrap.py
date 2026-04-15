@@ -3,12 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, or_, text
 
-from app.database import Base, engine
+from app.database import Base, SessionLocal, engine
 from app.models import (
     CoinPurchase,
     StoryCharacter,
+    StoryCharacterRace,
     StoryBugReport,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
@@ -35,6 +36,7 @@ from app.models import (
     User,
     UserFollow,
 )
+from app.services.media import MEDIA_URL_PREFIX, parse_media_token
 
 
 @dataclass(frozen=True)
@@ -252,6 +254,16 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN memory_optimization_enabled INTEGER NOT NULL DEFAULT 1"
         )
+    if "memory_optimization_mode" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN memory_optimization_mode VARCHAR(32) NOT NULL DEFAULT 'standard'"
+        )
+    if "story_repetition_penalty" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN story_repetition_penalty FLOAT NOT NULL DEFAULT 1.05"
+        )
     if "story_top_k" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -404,6 +416,26 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN character_id INTEGER"
+        )
+    if "race" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN race VARCHAR(120) NOT NULL DEFAULT ''"
+        )
+    if "clothing" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN clothing TEXT NOT NULL DEFAULT ''"
+        )
+    if "inventory" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN inventory TEXT NOT NULL DEFAULT ''"
+        )
+    if "health_status" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN health_status TEXT NOT NULL DEFAULT ''"
         )
     if "memory_turns" not in existing_columns:
         alter_statements.append(
@@ -558,6 +590,26 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN note VARCHAR(20) NOT NULL DEFAULT ''"
         )
+    if "race" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN race VARCHAR(120) NOT NULL DEFAULT ''"
+        )
+    if "clothing" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN clothing TEXT NOT NULL DEFAULT ''"
+        )
+    if "inventory" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN inventory TEXT NOT NULL DEFAULT ''"
+        )
+    if "health_status" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN health_status TEXT NOT NULL DEFAULT ''"
+        )
     if "visibility" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryCharacter.__tablename__} "
@@ -630,6 +682,10 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+
+
+def _ensure_story_character_races_schema() -> None:
+    StoryCharacterRace.__table__.create(bind=engine, checkfirst=True)
 
 
 def _ensure_story_instruction_template_community_columns_exist(private_visibility: str) -> None:
@@ -880,6 +936,10 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCharacter.__tablename__} (visibility, source_character_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_characters_source_character_id_id "
         f"ON {StoryCharacter.__tablename__} (source_character_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_character_races_user_name_id "
+        f"ON {StoryCharacterRace.__tablename__} (user_id, name, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_character_races_user_name_key_id "
+        f"ON {StoryCharacterRace.__tablename__} (user_id, name_key, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_id_id "
         f"ON {StoryWorldCardChangeEvent.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_undone_id "
@@ -950,6 +1010,136 @@ def _ensure_performance_indexes_exist() -> None:
             _execute_schema_statement(connection, statement)
 
 
+LEGACY_STORY_AVATAR_MEDIA_SPECS: dict[str, tuple[type[object], str]] = {
+    "story-character-avatar": (StoryCharacter, "avatar_url"),
+    "story-character-avatar-original": (StoryCharacter, "avatar_original_url"),
+    "story-world-card-avatar": (StoryWorldCard, "avatar_url"),
+    "story-world-card-avatar-original": (StoryWorldCard, "avatar_original_url"),
+}
+
+
+def _resolve_legacy_story_avatar_media_value(
+    raw_value: str | None,
+    *,
+    db,
+    max_depth: int = 6,
+    visited_tokens: set[str] | None = None,
+) -> str | None:
+    normalized_value = str(raw_value or "").strip()
+    if not normalized_value:
+        return None
+    if not normalized_value.startswith(MEDIA_URL_PREFIX):
+        return normalized_value
+    if max_depth <= 0:
+        return None
+
+    token = normalized_value[len(MEDIA_URL_PREFIX) :].strip()
+    if not token:
+        return None
+
+    known_tokens = visited_tokens or set()
+    if token in known_tokens:
+        return None
+    known_tokens.add(token)
+
+    payload = parse_media_token(token)
+    if payload is None:
+        return None
+
+    kind = str(payload.get("kind") or "").strip()
+    entity_id_raw = payload.get("entity_id")
+    try:
+        entity_id = int(entity_id_raw)
+    except (TypeError, ValueError):
+        return None
+
+    spec = LEGACY_STORY_AVATAR_MEDIA_SPECS.get(kind)
+    if spec is None:
+        return None
+
+    model_class, field_name = spec
+    record = db.get(model_class, entity_id)
+    if record is None:
+        return None
+
+    nested_value = getattr(record, field_name, None)
+    return _resolve_legacy_story_avatar_media_value(
+        nested_value,
+        db=db,
+        max_depth=max_depth - 1,
+        visited_tokens=known_tokens,
+    )
+
+
+def _repair_legacy_story_avatar_media_tokens() -> None:
+    with SessionLocal() as db:
+        changed = False
+        character_records = (
+            db.query(StoryCharacter)
+            .filter(
+                or_(
+                    StoryCharacter.avatar_url.like(f"{MEDIA_URL_PREFIX}%"),
+                    StoryCharacter.avatar_original_url.like(f"{MEDIA_URL_PREFIX}%"),
+                )
+            )
+            .all()
+        )
+        for character in character_records:
+            resolved_avatar_url = _resolve_legacy_story_avatar_media_value(
+                getattr(character, "avatar_url", None),
+                db=db,
+            )
+            resolved_avatar_original_url = _resolve_legacy_story_avatar_media_value(
+                getattr(character, "avatar_original_url", None),
+                db=db,
+            )
+            if resolved_avatar_url is None and resolved_avatar_original_url is not None:
+                resolved_avatar_url = resolved_avatar_original_url
+            if resolved_avatar_original_url is None and resolved_avatar_url is not None:
+                resolved_avatar_original_url = resolved_avatar_url
+
+            if resolved_avatar_url != getattr(character, "avatar_url", None):
+                character.avatar_url = resolved_avatar_url
+                changed = True
+            if resolved_avatar_original_url != getattr(character, "avatar_original_url", None):
+                character.avatar_original_url = resolved_avatar_original_url
+                changed = True
+
+        world_card_records = (
+            db.query(StoryWorldCard)
+            .filter(
+                or_(
+                    StoryWorldCard.avatar_url.like(f"{MEDIA_URL_PREFIX}%"),
+                    StoryWorldCard.avatar_original_url.like(f"{MEDIA_URL_PREFIX}%"),
+                )
+            )
+            .all()
+        )
+        for world_card in world_card_records:
+            resolved_avatar_url = _resolve_legacy_story_avatar_media_value(
+                getattr(world_card, "avatar_url", None),
+                db=db,
+            )
+            resolved_avatar_original_url = _resolve_legacy_story_avatar_media_value(
+                getattr(world_card, "avatar_original_url", None),
+                db=db,
+            )
+            if resolved_avatar_url is None and resolved_avatar_original_url is not None:
+                resolved_avatar_url = resolved_avatar_original_url
+            if resolved_avatar_original_url is None and resolved_avatar_url is not None:
+                resolved_avatar_original_url = resolved_avatar_url
+
+            if resolved_avatar_url != getattr(world_card, "avatar_url", None):
+                world_card.avatar_url = resolved_avatar_url
+                changed = True
+            if resolved_avatar_original_url != getattr(world_card, "avatar_original_url", None):
+                world_card.avatar_original_url = resolved_avatar_original_url
+                changed = True
+
+        if changed:
+            db.commit()
+
+
 def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -> None:
     if database_url.startswith("sqlite:///"):
         raw_path = database_url.replace("sqlite:///", "")
@@ -970,7 +1160,9 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_plot_card_extended_columns_exist()
     _ensure_story_character_avatar_scale_column_exists()
     _ensure_story_character_community_columns_exist(defaults.private_visibility)
+    _ensure_story_character_races_schema()
     _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)
     _ensure_story_turn_image_history_schema()
     _ensure_story_soft_undo_columns_exist()
+    _repair_legacy_story_avatar_media_tokens()
     _ensure_performance_indexes_exist()

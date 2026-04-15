@@ -21,6 +21,8 @@ from app.schemas import (
 from app.services.auth_identity import get_current_user
 from app.services.story_cards import (
     STORY_PLOT_CARD_SOURCE_USER,
+    coerce_story_plot_card_enabled,
+    deserialize_story_plot_card_triggers,
     normalize_story_plot_card_memory_turns_for_storage,
     normalize_story_plot_card_triggers,
     normalize_story_instruction_content,
@@ -194,10 +196,9 @@ def create_story_plot_card(
         explicit="memory_turns" in payload.model_fields_set,
         current_value=None,
     )
-    normalized_is_enabled = (
-        bool(payload.is_enabled)
-        if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None
-        else True
+    normalized_is_enabled = coerce_story_plot_card_enabled(
+        payload.is_enabled if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None else True,
+        triggers=normalized_triggers,
     )
     plot_card = StoryPlotCard(
         game_id=game.id,
@@ -242,6 +243,7 @@ def update_story_plot_card(
         payload.triggers,
         fallback_title=normalized_title,
     )
+    previous_triggers = deserialize_story_plot_card_triggers(str(getattr(plot_card, "triggers", "") or ""))
     if "memory_turns" in payload.model_fields_set:
         normalized_memory_turns = normalize_story_plot_card_memory_turns_for_storage(
             payload.memory_turns,
@@ -254,13 +256,17 @@ def update_story_plot_card(
             explicit=False,
             current_value=plot_card.memory_turns,
         )
+    requested_is_enabled = (
+        payload.is_enabled
+        if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None
+        else coerce_story_plot_card_enabled(getattr(plot_card, "is_enabled", True), triggers=previous_triggers)
+    )
 
     plot_card.title = normalized_title
     plot_card.content = normalized_content
     plot_card.triggers = serialize_story_plot_card_triggers(normalized_triggers)
     plot_card.memory_turns = normalized_memory_turns
-    if "is_enabled" in payload.model_fields_set and payload.is_enabled is not None:
-        plot_card.is_enabled = bool(payload.is_enabled)
+    plot_card.is_enabled = coerce_story_plot_card_enabled(requested_is_enabled, triggers=normalized_triggers)
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()
@@ -314,7 +320,8 @@ def update_story_plot_card_enabled(
     if plot_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card not found")
 
-    plot_card.is_enabled = bool(payload.is_enabled)
+    triggers = deserialize_story_plot_card_triggers(str(getattr(plot_card, "triggers", "") or ""))
+    plot_card.is_enabled = coerce_story_plot_card_enabled(payload.is_enabled, triggers=triggers)
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()

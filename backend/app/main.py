@@ -113,6 +113,10 @@ from app.services.media import (
 )
 from app.services.story_characters import (
     normalize_story_avatar_scale as _normalize_story_avatar_scale,
+    normalize_story_character_clothing as _normalize_story_character_clothing,
+    normalize_story_character_health_status as _normalize_story_character_health_status,
+    normalize_story_character_inventory as _normalize_story_character_inventory,
+    normalize_story_character_race as _normalize_story_character_race,
 )
 from app.services.story_emotions import (
     STORY_CHARACTER_EMOTION_IDS as _STORY_CHARACTER_EMOTION_IDS,
@@ -125,6 +129,7 @@ from app.services.story_cards import (
     STORY_PLOT_CARD_MAX_TITLE_LENGTH,
     STORY_PLOT_CARD_SOURCE_AI,
     STORY_PLOT_CARD_SOURCE_USER,
+    coerce_story_plot_card_enabled as _coerce_story_plot_card_enabled,
     deserialize_story_plot_card_triggers as _deserialize_story_plot_card_triggers,
     normalize_story_plot_card_content as _normalize_story_plot_card_content,
     normalize_story_plot_card_source as _normalize_story_plot_card_source,
@@ -153,6 +158,7 @@ from app.services.story_memory import (
     normalize_story_memory_block_content as _normalize_story_memory_block_content,
     normalize_story_memory_block_title as _normalize_story_memory_block_title,
     normalize_story_memory_layer as _normalize_story_memory_layer,
+    strip_story_location_time_context as _strip_story_location_time_context,
     story_memory_block_to_out as _story_memory_block_to_out,
 )
 try:
@@ -268,9 +274,9 @@ STORY_GAME_VISIBILITY_VALUES = {
 }
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
-STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 25_000
-STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
+STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 32_000
+STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
@@ -329,6 +335,32 @@ STORY_ENVIRONMENT_SEASON_LABELS_RU = {
 STORY_MEMORY_LAYER_RAW_BUDGET_SHARE = 0.50
 STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE = 0.30
 STORY_MEMORY_LAYER_SUPER_BUDGET_SHARE = 0.20
+STORY_MEMORY_OPTIMIZATION_MODE_STANDARD = "standard"
+STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED = "enhanced"
+STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM = "maximum"
+STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE = STORY_MEMORY_OPTIMIZATION_MODE_STANDARD
+STORY_MEMORY_OPTIMIZATION_MODE_VALUES = {
+    STORY_MEMORY_OPTIMIZATION_MODE_STANDARD,
+    STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED,
+    STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM,
+}
+STORY_MEMORY_LAYER_BUDGET_SHARES_BY_MODE = {
+    STORY_MEMORY_OPTIMIZATION_MODE_STANDARD: {
+        STORY_MEMORY_LAYER_RAW: 0.50,
+        STORY_MEMORY_LAYER_COMPRESSED: 0.30,
+        STORY_MEMORY_LAYER_SUPER: 0.20,
+    },
+    STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED: {
+        STORY_MEMORY_LAYER_RAW: 0.30,
+        STORY_MEMORY_LAYER_COMPRESSED: 0.50,
+        STORY_MEMORY_LAYER_SUPER: 0.20,
+    },
+    STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM: {
+        STORY_MEMORY_LAYER_RAW: 0.30,
+        STORY_MEMORY_LAYER_COMPRESSED: 0.40,
+        STORY_MEMORY_LAYER_SUPER: 0.30,
+    },
+}
 STORY_MEMORY_KEY_BUDGET_SHARE = 0.10
 STORY_MEMORY_KEY_MIN_BUDGET_TOKENS = 500
 STORY_PLOT_CARD_CONTEXT_MAX_SHARE = 0.35
@@ -984,6 +1016,10 @@ STORY_NPC_SPEAKER_LINE_PATTERN = re.compile(
     r"^\s*([A-ZА-ЯЁ][^:\n]{0,80}?)(?:\s*\((?:в голове|мысленно|мысли)\))?\s*:\s*([\s\S]+?)\s*$",
     re.IGNORECASE,
 )
+STORY_PLAIN_SPEAKER_LINE_PATTERN = re.compile(
+    r"^\s*([A-ZА-ЯЁ][^:\n]{0,80}?)(?:\s*\((в голове|мысленно|мысли)\))?\s*:\s*([\s\S]+?)\s*$",
+    re.IGNORECASE,
+)
 STORY_NPC_ROLE_SUFFIX_PATTERN = re.compile(
     r"\s*\((?:г|р|gg|mc|npc|pc|hero|player|main_hero|mainhero)\)\s*$",
     re.IGNORECASE,
@@ -1049,14 +1085,19 @@ STORY_STREAM_TRANSLATION_MIN_CHARS = 24
 STORY_STREAM_TRANSLATION_MAX_CHARS = 180
 STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
     "z-ai/glm-5",
+    "z-ai/glm-5.1",
     "z-ai/glm-4.7",
 }
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": "z-ai/glm-5",
+    "z-ai/glm-5.1": "z-ai/glm-5.1",
     "z-ai/glm-4.7": "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2": "z-ai/glm-5",
     "x-ai/grok-4.1-fast": "z-ai/glm-5",
+    "mistralai/mistral-nemo": "z-ai/glm-5",
     "xiaomi/mimo-v2-flash": "z-ai/glm-5",
+    "xiaomi/mimo-v2-pro": "z-ai/glm-5",
+    "aion-labs/aion-2.0": "z-ai/glm-5",
     "arcee-ai/trinity-large-preview:free": "z-ai/glm-5",
 }
 STORY_LEGACY_MODEL_ALIASES = {
@@ -1068,20 +1109,31 @@ STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
 STORY_NON_SAMPLING_MODEL_HINTS = {
     "meta-llama/llama-3.3-70b-instruct:free",
 }
-STORY_OPENROUTER_PROVIDER_TOGETHER = "together"
+STORY_OPENROUTER_PROVIDER_FRIENDLI = "friendli"
+STORY_OPENROUTER_PROVIDER_MISTRAL = "mistral"
 STORY_OPENROUTER_PROVIDER_NOVITA_FP8 = "novita/fp8"
+STORY_OPENROUTER_PROVIDER_XIAOMI_FP8 = "xiaomi/fp8"
+STORY_OPENROUTER_PROVIDER_AION_LABS = "aion-labs"
 STORY_OPENROUTER_PROVIDER_XAI = "xai"
 STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL = {
-    "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_TOGETHER,
+    "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_FRIENDLI,
+    "z-ai/glm-5.1": STORY_OPENROUTER_PROVIDER_FRIENDLI,
     "deepseek/deepseek-v3.2": STORY_OPENROUTER_PROVIDER_NOVITA_FP8,
+    "mistralai/mistral-nemo": STORY_OPENROUTER_PROVIDER_MISTRAL,
+    "xiaomi/mimo-v2-pro": STORY_OPENROUTER_PROVIDER_XIAOMI_FP8,
+    "aion-labs/aion-2.0": STORY_OPENROUTER_PROVIDER_AION_LABS,
     "x-ai/grok-4.1-fast": STORY_OPENROUTER_PROVIDER_XAI,
 }
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
+    "z-ai/glm-5.1",
     "z-ai/glm-4.7",
     "deepseek/deepseek-v3.2",
     "x-ai/grok-4.1-fast",
+    "mistralai/mistral-nemo",
     "xiaomi/mimo-v2-flash",
+    "xiaomi/mimo-v2-pro",
+    "aion-labs/aion-2.0",
     "arcee-ai/trinity",
 }
 
@@ -1091,6 +1143,15 @@ def _is_story_provider_failure_detail(detail: str | None) -> bool:
     if not normalized_detail:
         return False
     return any(marker in normalized_detail for marker in STORY_PROVIDER_FAILURE_DETAIL_MARKERS)
+
+
+def _public_story_provider_failure_detail(detail: str | None) -> str:
+    normalized_detail = re.sub(r"\s+", " ", str(detail or "").replace("\r\n", "\n").strip())
+    if normalized_detail.casefold().startswith("openrouter chat error") and "{" in normalized_detail:
+        normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")
+    return normalized_detail[:500] or "Provider returned error"
+
+
 STORY_PAID_MODEL_CONTEXT_LIMIT_FACTOR = 0.75
 STORY_PAID_MODEL_CONTEXT_LIMIT_MIN = 1_200
 STORY_PROMPT_COMPACT_MAX_INSTRUCTION_CARDS = 12
@@ -1264,24 +1325,29 @@ STORY_STRICT_RUSSIAN_OUTPUT_RULES = (
     "7) If any phrase sounds machine-translated, broken, unnatural, or semantically awkward in Russian, rewrite it immediately into fluent literary Russian.",
     "8) Prefer Russian wording for foreign terms whenever meaning can be preserved without loss.",
 )
-STORY_DIALOGUE_FORMAT_RULES = (
+STORY_DIALOGUE_FORMAT_RULES_V2 = (
     "Следуй карточкам инструкций и мира молча, не перечисляй их.",
     "Если история и активные карточки мира конфликтуют, приоритет всегда у активных карточек мира.",
     "Если в текущей сцене введен новый именованный персонаж, используй именно это имя в [[NPC:...]] и не подменяй его другим известным персонажем.",
-    "Каждый абзац начинается ровно одним маркером и пробелом.",
-    "Допустимые маркеры:",
-    "1) [[NARRATOR]] текст",
-    "2) [[NPC:ИмяИлиРоль]] текст",
-    "3) [[GG:Имя]] текст",
-    "4) [[NPC_THOUGHT:ИмяИлиРоль]] текст",
-    "5) [[GG_THOUGHT:Имя]] текст",
+    "Обычный нарратив, описания, действия, паузы, реакции, жесты, мимику, молчание и окружение пиши обычным текстом без маркера.",
+    "Маркер ставь только на абзац, где есть прямая речь или внутренняя мысль персонажа.",
+    "Немаркированная прямая речь запрещена.",
+    "Если в абзаце есть произнесенные вслух слова персонажа, абзац обязан начинаться с [[NPC:...]] или [[GG:...]].",
+    "Допустимые маркеры только такие:",
+    "1) [[NPC:ИмяИлиРоль]] текст",
+    "2) [[GG:Имя]] текст",
+    "3) [[NPC_THOUGHT:ИмяИлиРоль]] текст",
+    "4) [[GG_THOUGHT:Имя]] текст",
     "Одна реплика или мысль = один абзац.",
     "Для речи используй только [[NPC:...]] и [[GG:...]].",
     "Для мыслей используй только [[NPC_THOUGHT:...]] и [[GG_THOUGHT:...]].",
+    "Если имя персонажа просто упомянуто в повествовании, это не реплика и не мысль.",
+    "Не помечай как [[NPC:...]] или [[GG:...]] абзац, где персонаж ничего не произносит вслух.",
     "Не используй заглушки типа НПС/NPC/Персонаж/Реплика/Голос.",
     "Если говорящий есть в карточке мира или героя, используй точный title карточки.",
     "Без JSON, markdown, списков и код-блоков.",
 )
+
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 
 if settings.app_allowed_hosts and settings.app_allowed_hosts != ["*"]:
@@ -1765,7 +1831,19 @@ def create_story_quick_start_game_fallback(
 def _normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
-    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+    normalized = int(value)
+    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+
+
+def _normalize_story_memory_optimization_mode(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_MEMORY_OPTIMIZATION_MODE_VALUES:
+        return normalized
+    if normalized in {"усиленный", "enhanced"}:
+        return STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED
+    if normalized in {"максимальные", "максимальный", "maximum", "max"}:
+        return STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM
+    return STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE
 
 
 def _normalize_story_response_max_tokens(value: int | None) -> int:
@@ -3486,6 +3564,10 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "id": card.id,
         "title": card.title,
         "content": card.content,
+        "race": _normalize_story_character_race(getattr(card, "race", "")),
+        "clothing": _normalize_story_character_clothing(getattr(card, "clothing", "")),
+        "inventory": _normalize_story_character_inventory(getattr(card, "inventory", "")),
+        "health_status": _normalize_story_character_health_status(getattr(card, "health_status", "")),
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
         "kind": card_kind,
         "avatar_url": _normalize_avatar_value(card.avatar_url),
@@ -3574,6 +3656,58 @@ def _transliterate_story_latin_name_to_cyrillic(value: str) -> str:
     return re.sub(r"\s+", " ", "".join(converted_chars)).strip(" -")
 
 
+def _build_story_speaker_identity_keys(speaker_name: str) -> set[str]:
+    normalized_speaker = " ".join(str(speaker_name or "").split()).strip()
+    if not normalized_speaker:
+        return set()
+
+    speaker_keys = {_normalize_story_identity_key(normalized_speaker)}
+    if _contains_story_latin_letters(normalized_speaker) and not _contains_story_cyrillic_letters(normalized_speaker):
+        transliterated = _transliterate_story_latin_name_to_cyrillic(normalized_speaker)
+        transliterated_key = _normalize_story_identity_key(transliterated)
+        if transliterated_key:
+            speaker_keys.add(transliterated_key)
+
+    return {key for key in speaker_keys if key}
+
+
+def _is_story_identity_key_at_least_as_specific(candidate_key: str, speaker_key: str) -> bool:
+    candidate_tokens = _normalize_story_match_tokens(candidate_key)
+    speaker_tokens = _normalize_story_match_tokens(speaker_key)
+    if candidate_tokens and speaker_tokens and len(candidate_tokens) != len(speaker_tokens):
+        return len(candidate_tokens) > len(speaker_tokens)
+    return len(candidate_key) >= len(speaker_key)
+
+
+def _score_story_speaker_identity_match(
+    *,
+    speaker_keys: set[str],
+    title: str,
+    candidate_keys: set[str],
+) -> int:
+    title_key = _normalize_story_identity_key(title)
+    best_score = 0
+
+    for speaker_key in speaker_keys:
+        if not speaker_key:
+            continue
+        if speaker_key == title_key:
+            return 120
+        for candidate_key in candidate_keys:
+            if not candidate_key:
+                continue
+            if speaker_key == candidate_key:
+                best_score = max(best_score, 100 if candidate_key == title_key else 90)
+                continue
+            if not _are_story_identity_keys_related(speaker_key, candidate_key):
+                continue
+            if not _is_story_identity_key_at_least_as_specific(candidate_key, speaker_key):
+                continue
+            best_score = max(best_score, 70 if candidate_key == title_key else 60)
+
+    return best_score
+
+
 def _resolve_story_speaker_name_to_world_title(
     speaker_name: str,
     world_cards: list[dict[str, Any]],
@@ -3582,23 +3716,13 @@ def _resolve_story_speaker_name_to_world_title(
     if not normalized_speaker:
         return None
 
-    speaker_tokens = [token for token in _normalize_story_match_tokens(normalized_speaker) if token]
-    speaker_translit = ""
-    if _contains_story_latin_letters(normalized_speaker) and not _contains_story_cyrillic_letters(normalized_speaker):
-        speaker_translit = _transliterate_story_latin_name_to_cyrillic(normalized_speaker)
-        if speaker_translit:
-            speaker_tokens.extend(token for token in _normalize_story_match_tokens(speaker_translit) if token)
-
-    if not speaker_tokens:
+    speaker_keys = _build_story_speaker_identity_keys(normalized_speaker)
+    if not speaker_keys:
         return None
 
-    speaker_key = normalized_speaker.casefold()
     best_title = ""
     best_score = 0
-    translit_tokens = [token for token in _normalize_story_match_tokens(speaker_translit) if token]
-    speaker_has_latin_only = _contains_story_latin_letters(normalized_speaker) and not _contains_story_cyrillic_letters(
-        normalized_speaker
-    )
+    ambiguous = False
 
     for card in world_cards:
         if not isinstance(card, dict):
@@ -3610,43 +3734,29 @@ def _resolve_story_speaker_name_to_world_title(
         title = " ".join(str(card.get("title", "")).split()).strip()
         if not title:
             continue
-        if title.casefold() == speaker_key:
-            return title
-
-        title_tokens = [token for token in _normalize_story_match_tokens(title) if token]
-        score = 0
-        if title_tokens:
-            overlap = 0
-            for token in speaker_tokens:
-                if any(_is_story_token_match(token, title_token) for title_token in title_tokens):
-                    overlap += 1
-            if overlap > 0:
-                score = max(score, overlap * 3)
-
-            if translit_tokens and any(
-                _is_story_token_match(translit_token, title_token)
-                for translit_token in translit_tokens
-                for title_token in title_tokens
-            ):
-                score = max(score, 6)
-
         raw_triggers = card.get("triggers")
-        triggers = [title]
         if isinstance(raw_triggers, list):
-            triggers.extend(trigger for trigger in raw_triggers if isinstance(trigger, str))
-        for trigger in triggers:
-            if _is_story_trigger_match(trigger, speaker_tokens):
-                score = max(score, 5)
-                break
-
-        if speaker_has_latin_only and _contains_story_cyrillic_letters(title):
-            score += 1
+            identity_triggers = _filter_story_identity_triggers(title, [trigger for trigger in raw_triggers if isinstance(trigger, str)])
+        else:
+            identity_triggers = []
+        candidate_keys = _build_story_identity_keys(title, identity_triggers)
+        score = _score_story_speaker_identity_match(
+            speaker_keys=speaker_keys,
+            title=title,
+            candidate_keys=candidate_keys,
+        )
+        if score <= 0:
+            continue
 
         if score > best_score:
             best_score = score
             best_title = title
+            ambiguous = False
+            continue
+        if score == best_score and best_title and title.casefold() != best_title.casefold():
+            ambiguous = True
 
-    if best_title and best_score >= 5:
+    if best_title and best_score > 0 and not ambiguous:
         return best_title
     return None
 
@@ -3951,7 +4061,7 @@ def _select_story_world_cards_for_prompt(
             continue
 
         turns_since_trigger = current_turn_index - last_trigger_turn
-        if turns_since_trigger > memory_turns:
+        if turns_since_trigger >= memory_turns:
             continue
 
         rank_key = (
@@ -4006,9 +4116,6 @@ def _select_story_plot_cards_for_prompt(
 
     ranked_cards: list[tuple[tuple[int, int, int], dict[str, str]]] = []
     for card in plot_cards:
-        if not bool(getattr(card, "is_enabled", True)):
-            continue
-
         title = " ".join(card.title.split()).strip()
         content = card.content.replace("\r\n", "\n").strip()
         if not title or not content:
@@ -4018,7 +4125,13 @@ def _select_story_plot_cards_for_prompt(
             _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
             fallback_title=title,
         )
+        effective_is_enabled = _coerce_story_plot_card_enabled(
+            getattr(card, "is_enabled", True),
+            triggers=triggers,
+        )
         if not triggers:
+            if not effective_is_enabled:
+                continue
             rank_key = (0, 0, card.id)
             ranked_cards.append((rank_key, {"title": title, "content": content}))
             continue
@@ -4036,7 +4149,7 @@ def _select_story_plot_cards_for_prompt(
             continue
 
         turns_since_trigger = current_turn_index - last_trigger_turn
-        if turns_since_trigger > memory_turns:
+        if turns_since_trigger >= memory_turns:
             continue
 
         rank_key = (
@@ -4241,6 +4354,10 @@ def _build_story_system_prompt(
         for index, card in enumerate(world_cards_for_prompt, start=1):
             raw_title = str(card.get("title", "")).replace("\r\n", " ").strip()
             raw_content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+            raw_race = " ".join(str(card.get("race", "")).replace("\r\n", " ").split()).strip()
+            raw_clothing = str(card.get("clothing", "")).replace("\r\n", "\n").strip()
+            raw_inventory = str(card.get("inventory", "")).replace("\r\n", "\n").strip()
+            raw_health_status = str(card.get("health_status", "")).replace("\r\n", "\n").strip()
             card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
             if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
                 kind_label = "главный_герой"
@@ -4262,19 +4379,42 @@ def _build_story_system_prompt(
             raw_triggers = card.get("triggers")
             trigger_values = raw_triggers if isinstance(raw_triggers, list) else []
             if compact_mode:
+                explicit_fragments = []
+                if raw_race:
+                    explicit_fragments.append(f"race={raw_race}")
+                if raw_clothing:
+                    explicit_fragments.append(f"clothing={_normalize_story_prompt_text(raw_clothing, max_chars=70)}")
+                if raw_inventory:
+                    explicit_fragments.append(f"inventory={_normalize_story_prompt_text(raw_inventory, max_chars=70)}")
+                if raw_health_status:
+                    explicit_fragments.append(f"health={_normalize_story_prompt_text(raw_health_status, max_chars=70)}")
                 trigger_line = _normalize_story_prompt_list(
                     trigger_values,
                     max_items=STORY_PROMPT_COMPACT_TRIGGER_MAX_ITEMS,
                     max_chars=STORY_PROMPT_COMPACT_TRIGGER_MAX_CHARS,
                 )
-                lines.append(f"{index}. {title} [{kind_label}] tr: {trigger_line}; {content}")
+                lines.append(
+                    f"{index}. {title} [{kind_label}] tr: {trigger_line}; "
+                    f"{f'{content} | Explicit: ' + '; '.join(explicit_fragments) if explicit_fragments else content}"
+                )
             else:
                 trigger_line = ", ".join(
                     value.strip() for value in trigger_values if isinstance(value, str) and value.strip()
                 )
                 lines.append(f"{index}. {title}: {content}")
+                lines.append(f"Explicit race: {raw_race or 'not specified'}")
+                lines.append(f"Explicit clothing: {raw_clothing or 'not specified'}")
+                lines.append(f"Explicit inventory: {raw_inventory or 'not specified'}")
+                lines.append(f"Explicit health status: {raw_health_status or 'not specified'}")
                 lines.append(f"Триггеры: {trigger_line or 'нет'}")
                 lines.append(f"Тип: {kind_label}")
+
+        lines.extend(
+            [
+                "WORLD CARD OVERRIDE RULE:",
+                "If a world card has explicit Race, Clothing, Inventory, or Health fields, those explicit fields override any older or conflicting mentions inside the generic description/content of the same card.",
+            ]
+        )
 
     main_hero_name = ""
     for card in world_cards_for_prompt:
@@ -4306,13 +4446,15 @@ def _build_story_system_prompt(
         if use_english_language_contract
         else STORY_STRICT_RUSSIAN_OUTPUT_RULES
     )
-    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES, "", *language_contract_rules])
+    lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES_V2, "", *language_contract_rules])
     if "deepseek/" in normalized_model_name:
         lines.extend(
             [
                 "",
                 "CRITICAL FORMAT MODE (DeepSeek):",
-                "Каждый абзац должен содержать ровно один маркер в самом начале.",
+                "Нарративные абзацы пиши обычным текстом без [[NARRATOR]] и без любого другого маркера.",
+                "Маркер в начале абзаца нужен только для прямой речи и внутренних мыслей.",
+                "Абзац с репликой или мыслью должен содержать ровно один маркер в самом начале.",
                 "Никогда не вставляй новый [[...]] маркер в середину уже начатого абзаца.",
                 "Между абзацами оставляй пустую строку.",
                 "АБСОЛЮТНЫЙ ЗАПРЕТ: не используй [[GG:...]] и [[GG_THOUGHT:...]].",
@@ -4346,16 +4488,15 @@ def _build_story_system_prompt(
             ]
         )
     if not show_gg_thoughts and not show_npc_thoughts:
-        allowed_markers_line = (
-            "Используй только [[NARRATOR]], [[NPC:...]]."
-            if _is_story_no_gg_roleplay_model(normalized_model_name)
-            else "Используй только [[NARRATOR]], [[NPC:...]], [[GG:...]]."
-        )
         lines.extend(
             [
                 "",
                 "ОГРАНИЧЕНИЕ ФОРМАТА: внутренние мысли отключены полностью.",
-                allowed_markers_line,
+                (
+                    "Обычный нарратив пиши без маркера. Для прямой речи используй только [[NPC:...]]."
+                    if _is_story_no_gg_roleplay_model(normalized_model_name)
+                    else "Обычный нарратив пиши без маркера. Для прямой речи используй только [[NPC:...]] и [[GG:...]]."
+                ),
             ]
         )
     lines.extend(
@@ -4424,6 +4565,42 @@ def _resolve_story_bare_speaker_marker_name(
     return speaker_name
 
 
+def _is_story_markup_body_likely_narrative(
+    text_value: str,
+    speaker_name: str | None = None,
+) -> bool:
+    normalized_text = re.sub(r"\s+", " ", str(text_value or "")).strip()
+    if not normalized_text:
+        return True
+    if re.search(r"[\"'\u00ab\u00bb\u201e\u201c\u201d]", normalized_text):
+        return False
+    if re.search(r"^\s*(?:\u2014|-)\s*\S", normalized_text):
+        return False
+    if re.search(r"[.!?\u2026]\s*(?:\u2014|-)\s*\S", normalized_text):
+        return False
+    if re.search(
+        r"\b(?:я|меня|мне|мной|мы|нас|нам|наш|наша|наше|наши|ты|тебя|тебе|тобой|вы|вас|вам|вами|ваш|ваша|ваше|ваши|i|me|my|mine|we|us|our|ours|you|your|yours)\b",
+        normalized_text,
+        flags=re.IGNORECASE,
+    ):
+        return False
+
+    normalized_line = re.sub(
+        r"^[\s\"'\.,:;!\?\(\)\[\]\u00ab\u00bb\u201e\u201c\u201d-]+",
+        "",
+        normalized_text,
+    ).casefold()
+    if re.match(
+        r"^(?:он|она|они|его|её|ее|их|кто-то|кто то|he|she|they|his|her|their)\b",
+        normalized_line,
+        flags=re.IGNORECASE,
+    ):
+        return True
+
+    normalized_speaker_name = re.sub(r"\s+", " ", str(speaker_name or "")).strip().casefold()
+    return bool(normalized_speaker_name) and normalized_line.startswith(f"{normalized_speaker_name} ")
+
+
 def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
     paragraph_value = paragraph.strip()
     if not paragraph_value:
@@ -4450,6 +4627,11 @@ def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
         bare_speaker_name = _resolve_story_bare_speaker_marker_name(raw_marker_name, raw_speaker, marker_key=marker_key)
         if not bare_speaker_name:
             return None
+        if _is_story_markup_body_likely_narrative(text_value, bare_speaker_name):
+            return {
+                "kind": "narration",
+                "text": text_value,
+            }
         return {
             "kind": "speech",
             "speaker": bare_speaker_name,
@@ -4464,6 +4646,40 @@ def _parse_story_markup_paragraph(paragraph: str) -> dict[str, str] | None:
 
     return {
         "kind": "thought" if marker_key in STORY_THOUGHT_MARKER_KEYS else "speech",
+        "speaker": speaker_name,
+        "text": text_value,
+    }
+
+
+def _parse_story_plain_speaker_line_paragraph(paragraph: str) -> dict[str, str] | None:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return None
+
+    speaker_match = STORY_PLAIN_SPEAKER_LINE_PATTERN.match(paragraph_value)
+    if speaker_match is None:
+        return None
+
+    speaker_name = _normalize_story_markup_speaker_name(speaker_match.group(1))
+    if not speaker_name:
+        return None
+
+    text_value = speaker_match.group(3).strip()
+    if not text_value:
+        return None
+
+    speaker_marker_key = _normalize_story_markup_key(speaker_name)
+    if speaker_marker_key in STORY_NARRATION_MARKER_KEYS:
+        return {
+            "kind": "narration",
+            "text": text_value,
+        }
+
+    if _is_story_markup_body_likely_narrative(text_value, speaker_name):
+        return None
+
+    return {
+        "kind": "thought" if isinstance(speaker_match.group(2), str) and speaker_match.group(2).strip() else "speech",
         "speaker": speaker_name,
         "text": text_value,
     }
@@ -4504,10 +4720,12 @@ def _coerce_story_markup_paragraph(paragraph: str) -> str | None:
         bare_speaker_name = _resolve_story_bare_speaker_marker_name(raw_marker_name, raw_speaker, marker_key=marker_key)
         if not bare_speaker_name:
             return None
+        if _is_story_markup_body_likely_narrative(text_value, bare_speaker_name):
+            return text_value
         return f"[[NPC:{bare_speaker_name}]] {text_value}"
 
     if marker_token == "NARRATOR":
-        return f"[[NARRATOR]] {text_value}"
+        return text_value
 
     if not isinstance(raw_speaker, str):
         return None
@@ -4529,12 +4747,64 @@ def _canonicalize_story_markup_markers(text_value: str) -> str:
     canonical_paragraphs: list[str] = []
     for paragraph in paragraphs:
         coerced_paragraph = _coerce_story_markup_paragraph(paragraph)
-        if coerced_paragraph is not None and _parse_story_markup_paragraph(coerced_paragraph) is not None:
-            canonical_paragraphs.append(coerced_paragraph)
-            continue
+        if coerced_paragraph is not None:
+            coerced_value = coerced_paragraph.strip()
+            if coerced_value and ("[[" not in coerced_value or _parse_story_markup_paragraph(coerced_value) is not None):
+                canonical_paragraphs.append(coerced_value)
+                continue
         canonical_paragraphs.append(paragraph)
 
     return "\n\n".join(canonical_paragraphs).strip()
+
+
+def _normalize_story_output_markup_paragraphs(text_value: str) -> str:
+    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
+    if not normalized_text:
+        return normalized_text
+
+    normalized_paragraphs: list[str] = []
+    for paragraph in re.split(r"\n{2,}", normalized_text):
+        paragraph_value = paragraph.strip()
+        if not paragraph_value:
+            continue
+
+        parsed = _parse_story_markup_paragraph(paragraph_value)
+        coerced_paragraph = None if parsed is not None else _coerce_story_markup_paragraph(paragraph_value)
+        if parsed is None and coerced_paragraph is not None:
+            coerced_value = coerced_paragraph.strip()
+            if coerced_value:
+                if "[[" not in coerced_value:
+                    normalized_paragraphs.append(coerced_value)
+                    continue
+                parsed = _parse_story_markup_paragraph(coerced_value)
+                if parsed is not None:
+                    paragraph_value = coerced_value
+
+        if parsed is None:
+            plain_speaker_parsed = _parse_story_plain_speaker_line_paragraph(paragraph_value)
+            if plain_speaker_parsed is not None:
+                paragraph_text = str(plain_speaker_parsed.get("text", "")).strip()
+                if plain_speaker_parsed.get("kind") == "narration":
+                    if paragraph_text:
+                        normalized_paragraphs.append(paragraph_text)
+                        continue
+                speaker_name = str(plain_speaker_parsed.get("speaker", "")).strip()
+                if paragraph_text and speaker_name:
+                    marker_token = "NPC_THOUGHT" if plain_speaker_parsed.get("kind") == "thought" else "NPC"
+                    normalized_paragraphs.append(f"[[{marker_token}:{speaker_name}]] {paragraph_text}")
+                    continue
+            normalized_paragraphs.append(paragraph_value)
+            continue
+
+        paragraph_text = str(parsed.get("text", "")).strip()
+        if not paragraph_text:
+            continue
+        if parsed.get("kind") == "narration":
+            normalized_paragraphs.append(paragraph_text)
+            continue
+        normalized_paragraphs.append(paragraph_value)
+
+    return "\n\n".join(normalized_paragraphs).strip()
 
 
 def _split_story_paragraph_by_inline_markup(paragraph: str) -> list[str]:
@@ -4564,6 +4834,84 @@ def _split_story_paragraph_by_inline_markup(paragraph: str) -> list[str]:
     return chunks
 
 
+def _is_story_sentence_likely_narrative_followup(sentence: str) -> bool:
+    normalized_sentence = re.sub(r"\s+", " ", str(sentence or "")).strip()
+    if not normalized_sentence:
+        return False
+    if re.match(r"^[\"'\u00ab\u00bb\u201e\u201c\u201d]", normalized_sentence):
+        return False
+    if re.match(r"^(?:\u2014|-)\s*\S", normalized_sentence):
+        return False
+    if re.match(
+        r"^(?:я|меня|мне|мной|мы|нас|нам|наш|наша|наше|наши|ты|тебя|тебе|тобой|вы|вас|вам|вами|ваш|ваша|ваше|ваши|i|me|my|mine|we|us|our|ours|you|your|yours)\b",
+        normalized_sentence,
+        flags=re.IGNORECASE,
+    ):
+        return False
+    if re.match(r"^[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]*(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]*)?\s*,", normalized_sentence):
+        return False
+    return bool(
+        re.match(
+            r"^[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]*(?:\s+[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё-]*)?\s+[a-zа-яё-]+",
+            normalized_sentence,
+        )
+    )
+
+
+def _split_story_paragraph_by_inline_plain_speaker_lines(paragraph: str) -> list[str]:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return []
+    if "[[" in paragraph_value:
+        return [paragraph_value]
+
+    sentences = _split_story_text_into_sentences(paragraph_value)
+    if len(sentences) <= 1:
+        return [paragraph_value]
+
+    chunks: list[str] = []
+    pending_narrative: list[str] = []
+    pending_dialogue: list[str] = []
+    saw_dialogue = False
+
+    def _flush_narrative() -> None:
+        if pending_narrative:
+            chunks.append(" ".join(pending_narrative).strip())
+            pending_narrative.clear()
+
+    def _flush_dialogue() -> None:
+        if pending_dialogue:
+            chunks.append(" ".join(pending_dialogue).strip())
+            pending_dialogue.clear()
+
+    for sentence in sentences:
+        plain_speaker_parsed = _parse_story_plain_speaker_line_paragraph(sentence)
+        if plain_speaker_parsed is not None and plain_speaker_parsed.get("kind") != "narration":
+            _flush_narrative()
+            _flush_dialogue()
+            pending_dialogue.append(sentence)
+            saw_dialogue = True
+            continue
+
+        if pending_dialogue:
+            if _is_story_sentence_likely_narrative_followup(sentence):
+                _flush_dialogue()
+                pending_narrative.append(sentence)
+            else:
+                pending_dialogue.append(sentence)
+            continue
+
+        pending_narrative.append(sentence)
+
+    _flush_dialogue()
+    _flush_narrative()
+
+    normalized_chunks = [chunk for chunk in chunks if chunk.strip()]
+    if not saw_dialogue or not normalized_chunks:
+        return [paragraph_value]
+    return normalized_chunks
+
+
 def _split_story_inline_markup_paragraphs(text_value: str) -> str:
     normalized_text = text_value.replace("\r\n", "\n").strip()
     if not normalized_text:
@@ -4575,8 +4923,88 @@ def _split_story_inline_markup_paragraphs(text_value: str) -> str:
 
     normalized_paragraphs: list[str] = []
     for paragraph in paragraphs:
-        normalized_paragraphs.extend(_split_story_paragraph_by_inline_markup(paragraph))
+        for chunk in _split_story_paragraph_by_inline_markup(paragraph):
+            normalized_paragraphs.extend(_split_story_paragraph_by_inline_plain_speaker_lines(chunk))
     return "\n\n".join(paragraph for paragraph in normalized_paragraphs if paragraph.strip())
+
+
+STORY_DIRECT_SPEECH_QUOTE_PATTERN = re.compile(r"[\"'«»“”]")
+STORY_DIRECT_SPEECH_PERSON_PATTERN = re.compile(
+    r"\b(?:я|мне|меня|мной|мы|нас|нам|нами|мой|моя|мои|мое|ты|тебя|тебе|тобой|вы|вас|вам|вами|ваш|ваша|ваши|ваше|i|me|my|mine|we|us|our|ours|you|your|yours)\b",
+    re.IGNORECASE,
+)
+STORY_DIRECT_SPEECH_LEADING_TOKENS = {
+    "о",
+    "эй",
+    "слушай",
+    "послушай",
+    "ну",
+    "нет",
+    "да",
+    "ладно",
+    "please",
+    "hey",
+}
+STORY_DIRECT_SPEECH_NEGATION_TOKENS = {
+    "не",
+    "don't",
+    "dont",
+}
+
+
+def _is_story_sentence_likely_unmarked_dialogue(sentence: str) -> bool:
+    compact = re.sub(r"\s+", " ", str(sentence or "")).strip()
+    if not compact:
+        return False
+    if _parse_story_plain_speaker_line_paragraph(compact) is not None:
+        return True
+    if _is_story_dialogue_like_fragment(compact):
+        return True
+    if STORY_DIRECT_SPEECH_QUOTE_PATTERN.search(compact):
+        return True
+
+    stripped = compact.lstrip("—-\"'«»“” ").strip()
+    if not stripped or _is_story_sentence_likely_narrative_followup(stripped):
+        return False
+
+    words = re.findall(r"[A-Za-zА-Яа-яЁё'-]+", stripped)
+    if not words:
+        return False
+
+    candidate_index = 0
+    lowered_words = [word.casefold() for word in words[:4]]
+    while candidate_index < len(lowered_words) and lowered_words[candidate_index] in STORY_DIRECT_SPEECH_LEADING_TOKENS:
+        candidate_index += 1
+    if candidate_index < len(lowered_words) and lowered_words[candidate_index] in STORY_DIRECT_SPEECH_NEGATION_TOKENS:
+        candidate_index += 1
+
+    if candidate_index < len(words):
+        imperative_candidate = words[candidate_index].casefold()
+        if re.fullmatch(r"[a-zа-яё-]+(?:й|йте)", imperative_candidate):
+            return True
+
+    expressive_sentence = any(char in stripped for char in "!?")
+    if expressive_sentence and STORY_DIRECT_SPEECH_PERSON_PATTERN.search(stripped):
+        return True
+
+    return False
+
+
+def _story_paragraph_has_unformatted_dialogue(paragraph: str) -> bool:
+    paragraph_value = paragraph.strip()
+    if not paragraph_value:
+        return False
+    if _parse_story_markup_paragraph(paragraph_value) is not None:
+        return False
+    if _parse_story_plain_speaker_line_paragraph(paragraph_value) is not None:
+        return True
+    if _is_story_dialogue_like_fragment(paragraph_value):
+        return True
+
+    sentences = _split_story_text_into_sentences(paragraph_value)
+    if not sentences:
+        return False
+    return any(_is_story_sentence_likely_unmarked_dialogue(sentence) for sentence in sentences)
 
 
 def _is_story_strict_markup_output(text_value: str) -> bool:
@@ -4587,7 +5015,24 @@ def _is_story_strict_markup_output(text_value: str) -> bool:
     paragraphs = [paragraph.strip() for paragraph in re.split(r"\n{2,}", normalized_text) if paragraph.strip()]
     if not paragraphs:
         return True
-    return all(_parse_story_markup_paragraph(paragraph) is not None for paragraph in paragraphs)
+    for paragraph in paragraphs:
+        if _parse_story_markup_paragraph(paragraph) is not None:
+            continue
+        if "[[" not in paragraph:
+            continue
+        coerced_paragraph = _coerce_story_markup_paragraph(paragraph)
+        if coerced_paragraph is None:
+            if _story_paragraph_has_unformatted_dialogue(paragraph):
+                return False
+            continue
+        coerced_value = coerced_paragraph.strip()
+        if not coerced_value:
+            return False
+        if "[[" in coerced_value and _parse_story_markup_paragraph(coerced_value) is None:
+            return False
+        if "[[" not in coerced_value and _story_paragraph_has_unformatted_dialogue(coerced_value):
+            return False
+    return True
 
 
 def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
@@ -4634,25 +5079,7 @@ def _merge_story_orphan_markup_paragraphs(text_value: str) -> str:
 
 
 def _prefix_story_narrator_markup(text_value: str) -> str:
-    normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
-    if not normalized_text:
-        return normalized_text
-
-    normalized_paragraphs: list[str] = []
-    for paragraph in re.split(r"\n{2,}", normalized_text):
-        paragraph_value = paragraph.strip()
-        if not paragraph_value:
-            continue
-        if _parse_story_markup_paragraph(paragraph_value) is not None:
-            normalized_paragraphs.append(paragraph_value)
-            continue
-        coerced_paragraph = _coerce_story_markup_paragraph(paragraph_value)
-        if coerced_paragraph is not None and _parse_story_markup_paragraph(coerced_paragraph) is not None:
-            normalized_paragraphs.append(coerced_paragraph)
-            continue
-        normalized_paragraphs.append(f"[[NARRATOR]] {paragraph_value}")
-
-    return "\n\n".join(normalized_paragraphs)
+    return _normalize_story_output_markup_paragraphs(text_value)
 
 
 def _strip_story_markup_for_memory_text(text_value: str) -> str:
@@ -4669,6 +5096,9 @@ def _strip_story_markup_for_memory_text(text_value: str) -> str:
         parsed = _parse_story_markup_paragraph(paragraph_value)
         if parsed is None:
             coerced_paragraph = _coerce_story_markup_paragraph(paragraph_value)
+            if coerced_paragraph is not None and "[[" not in coerced_paragraph:
+                normalized_paragraphs.append(coerced_paragraph.strip())
+                continue
             parsed = _parse_story_markup_paragraph(coerced_paragraph) if coerced_paragraph is not None else None
 
         if parsed is None:
@@ -4809,8 +5239,10 @@ def _build_story_markup_repair_messages(
             "content": (
                 "Ты нормализуешь формат ответа мастера RPG. "
                 "Верни только текст без markdown и без JSON. "
-                "Каждый абзац обязан начинаться с маркера и пробела. "
-                "Разрешенные маркеры: [[NARRATOR]], [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]. "
+                "Нарративные абзацы оставляй обычным текстом без маркера. "
+                "Если в абзаце есть прямая речь или внутренняя мысль, ставь ровно один маркер в самом начале и пробел после него. "
+                "Разрешенные маркеры: [[NPC:Имя]], [[GG:Имя]], [[NPC_THOUGHT:Имя]], [[GG_THOUGHT:Имя]]. "
+                "Не помечай абзац репликой, если персонаж в нем ничего не говорит вслух и не думает. "
                 "Сохраняй факты, последовательность событий и стиль. "
                 "Не добавляй комментариев от себя."
             ),
@@ -4834,11 +5266,32 @@ def _build_story_markup_repair_messages(
 def _repair_story_markup_with_openrouter(
     text_value: str,
     world_cards: list[dict[str, Any]],
+    *,
+    model_name: str | None = None,
 ) -> str:
-    # Do not spend an extra LLM request on markup repair.
-    # Reply text is already visible to the player by this stage.
-    _ = (text_value, world_cards)
-    return ""
+    if not settings.openrouter_api_key:
+        return ""
+
+    repair_model_name = _normalize_story_model_id(model_name)
+    if not repair_model_name:
+        return ""
+
+    repair_messages = _build_story_markup_repair_messages(text_value, world_cards)
+    estimated_response_tokens = max(min(_estimate_story_tokens(text_value) + 220, 1_400), 320)
+    repaired_text = _request_openrouter_story_text(
+        repair_messages,
+        model_name=repair_model_name,
+        allow_free_fallback=False,
+        translate_input=False,
+        fallback_model_names=[],
+        temperature=0.0,
+        max_tokens=estimated_response_tokens,
+        request_timeout=(
+            STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+            STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+        ),
+    )
+    return repaired_text.replace("\r\n", "\n").strip()
 
 
 def _trim_story_trailing_incomplete_fragment(text_value: str) -> str:
@@ -4968,7 +5421,7 @@ def _filter_story_gg_roleplay_paragraphs(
     filtered_text = "\n\n".join(filtered_paragraphs).strip()
     if filtered_text:
         return filtered_text
-    return "[[NARRATOR]] Мир замирает в напряжении и ждет твоего следующего хода."
+    return "Мир замирает в напряжении и ждет твоего следующего хода."
 
 
 def _normalize_generated_story_output(
@@ -4981,6 +5434,7 @@ def _normalize_generated_story_output(
 ) -> str:
     normalized_text = _split_story_inline_markup_paragraphs(_merge_story_orphan_markup_paragraphs(text_value))
     normalized_text = _canonicalize_story_markup_markers(normalized_text)
+    normalized_text = _normalize_story_output_markup_paragraphs(normalized_text)
     if normalized_text and normalized_text[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:
@@ -5000,6 +5454,7 @@ def _normalize_generated_story_output(
         return normalized_text
     if _is_story_strict_markup_output(normalized_text):
         strict_output = _enforce_story_output_language(normalized_text, model_name=model_name)
+        strict_output = _normalize_story_output_markup_paragraphs(strict_output)
         strict_output = _align_story_markup_speaker_names_to_world_cards(strict_output, world_cards)
         strict_output = _filter_story_gg_roleplay_paragraphs(strict_output, model_name=model_name)
         return _filter_story_disabled_thought_paragraphs(
@@ -5011,11 +5466,16 @@ def _normalize_generated_story_output(
     repaired_text = ""
     if settings.openrouter_api_key:
         try:
-            repaired_text = _repair_story_markup_with_openrouter(normalized_text, world_cards)
+            repaired_text = _repair_story_markup_with_openrouter(
+                normalized_text,
+                world_cards,
+                model_name=model_name,
+            )
         except Exception as exc:
             logger.warning("Story markup normalization failed: %s", exc)
 
     repaired_normalized = _split_story_inline_markup_paragraphs(repaired_text.replace("\r\n", "\n").strip())
+    repaired_normalized = _normalize_story_output_markup_paragraphs(repaired_normalized)
     if repaired_normalized and repaired_normalized[-1] not in STORY_OUTPUT_TERMINAL_CHARS:
         sentence_end_index = -1
         for char in STORY_OUTPUT_SENTENCE_END_CHARS:
@@ -5033,6 +5493,7 @@ def _normalize_generated_story_output(
 
     if repaired_normalized and _is_story_strict_markup_output(repaired_normalized):
         repaired_output = _enforce_story_output_language(repaired_normalized, model_name=model_name)
+        repaired_output = _normalize_story_output_markup_paragraphs(repaired_output)
         repaired_output = _align_story_markup_speaker_names_to_world_cards(repaired_output, world_cards)
         repaired_output = _filter_story_gg_roleplay_paragraphs(repaired_output, model_name=model_name)
         return _filter_story_disabled_thought_paragraphs(
@@ -5042,9 +5503,10 @@ def _normalize_generated_story_output(
         )
 
     fallback_output = _enforce_story_output_language(
-        _prefix_story_narrator_markup(normalized_text),
+        _normalize_story_output_markup_paragraphs(normalized_text),
         model_name=model_name,
     )
+    fallback_output = _normalize_story_output_markup_paragraphs(fallback_output)
     fallback_output = _align_story_markup_speaker_names_to_world_cards(fallback_output, world_cards)
     fallback_output = _filter_story_gg_roleplay_paragraphs(fallback_output, model_name=model_name)
     return _filter_story_disabled_thought_paragraphs(
@@ -6362,6 +6824,22 @@ def _resolve_story_turn_postprocess_payload(
         else bool(environment_enabled)
     )
     active_scene_world_cards = world_cards if isinstance(world_cards, list) else []
+    if character_state_enabled:
+        try:
+            from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
+
+            sync_story_character_state_payload_from_world_cards(
+                db=db,
+                game=game,
+                sync_manual_snapshot=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story character-state pre-sync failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
     scene_emotion_active_cast_entries = (
         _build_story_scene_emotion_active_cast_entries(
             latest_user_prompt=latest_user_prompt,
@@ -6374,6 +6852,7 @@ def _resolve_story_turn_postprocess_payload(
 
     try:
         return story_memory_pipeline._extract_story_postprocess_memory_payload(
+            db=db,
             game=game,
             current_location_content=story_memory_pipeline._get_story_latest_location_memory_content(
                 db=db,
@@ -8114,15 +8593,24 @@ def _resolve_story_plot_card_title(
     return ""
 
 
-def _build_story_memory_layer_budgets(context_limit_tokens: int) -> dict[str, int]:
+def _build_story_memory_layer_budgets(
+    context_limit_tokens: int,
+    *,
+    optimization_mode: str | None = None,
+) -> dict[str, int]:
     total_limit = max(_normalize_story_context_limit_chars(context_limit_tokens), 1)
     key_budget = min(
         max(int(total_limit * STORY_MEMORY_KEY_BUDGET_SHARE), STORY_MEMORY_KEY_MIN_BUDGET_TOKENS),
         total_limit,
     )
     non_key_budget = max(total_limit - key_budget, 1)
-    raw_budget = max(int(non_key_budget * STORY_MEMORY_LAYER_RAW_BUDGET_SHARE), 1)
-    compressed_budget = max(int(non_key_budget * STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE), 1)
+    normalized_mode = _normalize_story_memory_optimization_mode(optimization_mode)
+    budget_shares = STORY_MEMORY_LAYER_BUDGET_SHARES_BY_MODE.get(
+        normalized_mode,
+        STORY_MEMORY_LAYER_BUDGET_SHARES_BY_MODE[STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE],
+    )
+    raw_budget = max(int(non_key_budget * budget_shares[STORY_MEMORY_LAYER_RAW]), 1)
+    compressed_budget = max(int(non_key_budget * budget_shares[STORY_MEMORY_LAYER_COMPRESSED]), 1)
     super_budget = max(non_key_budget - raw_budget - compressed_budget, 1)
     return {
         STORY_MEMORY_LAYER_KEY: key_budget,
@@ -8977,6 +9465,7 @@ def _build_story_prompt_context_cards(
         str(getattr(game, "current_location_label", "") or ""),
         memory_blocks,
     )
+    resolved_location_label = _strip_story_location_time_context(resolved_location_label).strip(" .,:;!?…")
     if resolved_location_label:
         context_cards.append(
             {
@@ -8992,6 +9481,12 @@ def _build_story_prompt_context_cards(
 
     weather_prompt_card = None
     if story_memory_pipeline is not None:
+        time_prompt_card = story_memory_pipeline._build_story_environment_time_prompt_card(game)
+        if isinstance(time_prompt_card, dict):
+            title = " ".join(str(time_prompt_card.get("title", "")).split()).strip()
+            content = str(time_prompt_card.get("content", "")).replace("\r\n", "\n").strip()
+            if title and content:
+                context_cards.append({"title": title, "content": content})
         weather_prompt_card = story_memory_pipeline._build_story_environment_weather_prompt_card(game)
         try:
             weather_content = story_memory_pipeline._build_story_weather_prompt_content_compact(
@@ -9031,15 +9526,27 @@ def _list_story_prompt_memory_cards(
 
     all_plot_cards = _list_story_plot_cards(db, game.id)
     if context_messages is None:
-        active_plot_cards = [
-            {
-                "title": card.title.replace("\r\n", " ").strip(),
-                "content": card.content.replace("\r\n", "\n").strip(),
-                "source_kind": "plot",
-            }
-            for card in all_plot_cards
-            if bool(getattr(card, "is_enabled", True)) and card.title.strip() and card.content.strip()
-        ]
+        active_plot_cards: list[dict[str, str]] = []
+        for card in all_plot_cards:
+            title = card.title.replace("\r\n", " ").strip()
+            content = card.content.replace("\r\n", "\n").strip()
+            if not title or not content:
+                continue
+            triggers = _normalize_story_plot_card_triggers(
+                _deserialize_story_plot_card_triggers(str(getattr(card, "triggers", "") or "")),
+                fallback_title=title,
+            )
+            if triggers:
+                continue
+            if not _coerce_story_plot_card_enabled(getattr(card, "is_enabled", True), triggers=triggers):
+                continue
+            active_plot_cards.append(
+                {
+                    "title": title,
+                    "content": content,
+                    "source_kind": "plot",
+                }
+            )
     else:
         active_plot_cards = [
             {**card, "source_kind": "plot"}
@@ -9309,17 +9816,7 @@ def _upsert_story_plot_memory_card(
                     exc,
                 )
 
-    should_extract_important_payload = memory_optimization_enabled and raw_turn_has_meaningful_signal
-    if memory_optimization_enabled and not should_extract_important_payload:
-        turn_signal = _evaluate_story_turn_memory_signal(
-            latest_user_prompt=latest_user_prompt,
-            latest_assistant_text=latest_assistant_text,
-        )
-        should_extract_important_payload = (
-            int(turn_signal.get("strong_hits", 0)) > 0
-            or int(turn_signal.get("important_hits", 0)) > 0
-            or int(turn_signal.get("top_score", 0)) >= max(STORY_MEMORY_RAW_MIN_SIGNAL_SCORE - 1, 5)
-        )
+    should_extract_important_payload = memory_optimization_enabled
 
     try:
         from app.services import story_memory_pipeline
@@ -9340,6 +9837,7 @@ def _upsert_story_plot_memory_card(
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
                 postprocess_payload = story_memory_pipeline._extract_story_postprocess_memory_payload(
+                    db=db,
                     game=game,
                     current_location_content=current_location_content,
                     latest_user_prompt=latest_user_prompt,
@@ -9348,7 +9846,7 @@ def _upsert_story_plot_memory_card(
                     raw_memory_enabled=False,
                     location_enabled=True,
                     environment_enabled=environment_enabled,
-                    character_state_enabled=False,
+                    character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                     important_event_enabled=should_extract_important_payload,
                     ambient_enabled=False,
                     scene_emotion_enabled=False,
@@ -9365,7 +9863,7 @@ def _upsert_story_plot_memory_card(
             postprocess_payload.get("location")
             if isinstance(postprocess_payload, dict)
             and isinstance(postprocess_payload.get("location"), dict)
-            else ({"action": "keep"} if not allow_model_postprocess_request else None)
+            else None
         )
         environment_payload_for_sync = (
             postprocess_payload.get("environment")
@@ -9373,46 +9871,12 @@ def _upsert_story_plot_memory_card(
             and isinstance(postprocess_payload.get("environment"), dict)
             else None
         )
-        if isinstance(location_payload_for_sync, dict):
-            current_location_label_for_sync = story_memory_pipeline._resolve_story_location_memory_label(
-                label=str(getattr(game, "current_location_label", "") or ""),
-                content=str(current_location_content or ""),
-            )
-            fallback_location_payload = story_memory_pipeline._build_story_location_fallback_payload_from_player_turn(
-                latest_user_prompt=latest_user_prompt,
-                latest_assistant_text=latest_assistant_text,
-            )
-            scene_fallback_location_payload = _build_story_location_fallback_payload_from_scene_text(
-                story_memory_pipeline=story_memory_pipeline,
-                latest_user_prompt=latest_user_prompt,
-                latest_assistant_text=latest_assistant_text,
-                previous_assistant_text=previous_assistant_text,
-                opening_scene_text=str(getattr(game, "opening_scene", "") or ""),
-            )
-            location_action = str(location_payload_for_sync.get("action") or "").strip().lower()
-            if location_action == "keep":
-                if isinstance(scene_fallback_location_payload, dict) and (
-                    not current_location_label_for_sync
-                    or _should_prefer_story_scene_location_fallback(
-                        model_label=current_location_label_for_sync,
-                        fallback_label=str(scene_fallback_location_payload.get("label") or ""),
-                    )
-                ):
-                    location_payload_for_sync = scene_fallback_location_payload
-                elif isinstance(fallback_location_payload, dict) and not current_location_label_for_sync:
-                    location_payload_for_sync = fallback_location_payload
-            elif (
-                location_action == "update"
-                and isinstance(scene_fallback_location_payload, dict)
-                and _should_prefer_story_scene_location_fallback(
-                    model_label=story_memory_pipeline._resolve_story_location_memory_label(
-                        label=str(location_payload_for_sync.get("label") or ""),
-                        content=str(location_payload_for_sync.get("content") or ""),
-                    ),
-                    fallback_label=str(scene_fallback_location_payload.get("label") or ""),
-                )
-            ):
-                location_payload_for_sync = scene_fallback_location_payload
+        character_state_payload_for_sync = (
+            postprocess_payload.get("character_state")
+            if isinstance(postprocess_payload, dict)
+            and isinstance(postprocess_payload.get("character_state"), dict)
+            else None
+        )
         important_payload = (
             postprocess_payload.get("important_event")
             if memory_optimization_enabled
@@ -9434,6 +9898,28 @@ def _upsert_story_plot_memory_card(
             db=db,
             game_id=game.id,
         )
+        if bool(getattr(game, "character_state_enabled", None)):
+            try:
+                story_memory_pipeline._sync_story_character_state_cards(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    resolved_payload_override=character_state_payload_for_sync,
+                    current_location_content=current_location_content,
+                )
+                from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
+
+                apply_story_character_state_payload_to_world_cards(
+                    db=db,
+                    game=game,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Story character-state post-process failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
         if environment_enabled:
             try:
                 story_memory_pipeline._sync_story_environment_state_for_assistant_message(
@@ -9445,7 +9931,7 @@ def _upsert_story_plot_memory_card(
                     previous_assistant_text=previous_assistant_text,
                     current_location_content_override=current_location_content,
                     resolved_payload_override=environment_payload_for_sync,
-                    allow_weather_seed=allow_model_postprocess_request,
+                    allow_weather_seed=False,
                     allow_model_request=allow_model_postprocess_request,
                 )
             except Exception as exc:
@@ -9462,20 +9948,6 @@ def _upsert_story_plot_memory_card(
             assistant_message.id,
             exc,
         )
-
-    if memory_optimization_enabled and important_payload is None and bool(latest_user_prompt or latest_assistant_text):
-        try:
-            important_payload = _extract_story_important_plot_card_payload_locally(
-                latest_user_prompt=latest_user_prompt,
-                latest_assistant_text=latest_assistant_text,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Important story event fallback extraction failed: game_id=%s assistant_message_id=%s error=%s",
-                game.id,
-                assistant_message.id,
-                exc,
-            )
 
     if memory_optimization_enabled and important_payload is not None:
         title, content = important_payload
@@ -12627,7 +13099,7 @@ def generate_story_response_impl(
         if exc.status_code == status.HTTP_400_BAD_REQUEST and _is_story_provider_failure_detail(detail):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(detail or "Provider returned error")[:500],
+                detail=_public_story_provider_failure_detail(detail),
             ) from exc
         raise
     except Exception as exc:
@@ -12644,7 +13116,7 @@ def generate_story_response_impl(
         if _is_story_provider_failure_detail(detail):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(detail or "Provider returned error")[:500],
+                detail=_public_story_provider_failure_detail(detail),
             ) from exc
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

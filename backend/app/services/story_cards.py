@@ -179,6 +179,22 @@ def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str
     return normalized[:40]
 
 
+def story_plot_card_uses_trigger_mode(triggers: list[str] | None) -> bool:
+    return len(normalize_story_plot_card_triggers(triggers or [])) > 0
+
+
+def coerce_story_plot_card_enabled(value: object, *, triggers: list[str] | None = None) -> bool:
+    if story_plot_card_uses_trigger_mode(triggers):
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return True
+
+
 def serialize_story_plot_card_triggers(values: list[str]) -> str:
     return json.dumps(values, ensure_ascii=False)
 
@@ -282,7 +298,7 @@ def story_plot_card_to_out(card: StoryPlotCard) -> StoryPlotCardOut:
         triggers=triggers,
         memory_turns=serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None)),
         ai_edit_enabled=bool(card.ai_edit_enabled),
-        is_enabled=bool(getattr(card, "is_enabled", True)),
+        is_enabled=coerce_story_plot_card_enabled(getattr(card, "is_enabled", True), triggers=triggers),
         source=normalize_story_plot_card_source(card.source),
         created_at=card.created_at,
         updated_at=card.updated_at,

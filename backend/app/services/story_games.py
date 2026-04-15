@@ -1,11 +1,32 @@
 from __future__ import annotations
 import json
+import math
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
-from app.models import StoryGame, StoryInstructionCard, StoryMessage, StoryPlotCard, StoryWorldCard, User
+from app.models import (
+    StoryCharacterStateSnapshot,
+    StoryCommunityWorldComment,
+    StoryCommunityWorldFavorite,
+    StoryCommunityWorldLaunch,
+    StoryCommunityWorldRating,
+    StoryCommunityWorldReport,
+    StoryCommunityWorldView,
+    StoryGame,
+    StoryInstructionCard,
+    StoryMapImage,
+    StoryMemoryBlock,
+    StoryMessage,
+    StoryPlotCard,
+    StoryPlotCardChangeEvent,
+    StoryTurnImage,
+    StoryWorldCard,
+    StoryWorldCardChangeEvent,
+    User,
+)
 from app.schemas import (
     StoryCommunityWorldSummaryOut,
     StoryGameSummaryOut,
@@ -25,6 +46,10 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
+    normalize_story_character_race,
 )
 from app.services.story_cards import (
     deserialize_story_plot_card_triggers,
@@ -69,12 +94,17 @@ STORY_AGE_RATING_VALUES = {
 STORY_GENRE_MAX_ITEMS = 3
 STORY_GAME_GENRE_VALUES = {
     "Фэнтези",
+    "Тёмное фэнтези",
     "Фантастика (Научная фантастика)",
+    "Научная фантастика",
     "Детектив",
     "Триллер",
     "Хоррор (Ужасы)",
+    "Хоррор",
     "Мистика",
+    "Мифология",
     "Романтика (Любовный роман)",
+    "Романтическое приключение",
     "Приключения",
     "Боевик",
     "Исторический роман",
@@ -84,41 +114,43 @@ STORY_GAME_GENRE_VALUES = {
     "Постапокалипсис",
     "Киберпанк",
     "Повседневность",
+    "Школьное аниме",
 }
-STORY_CONTEXT_LIMIT_MIN_TOKENS = 500
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 25_000
-STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 1_500
+STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 32_000
+STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
+STORY_MEMORY_OPTIMIZATION_MODE_STANDARD = "standard"
+STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED = "enhanced"
+STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM = "maximum"
+STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE = STORY_MEMORY_OPTIMIZATION_MODE_STANDARD
+STORY_MEMORY_OPTIMIZATION_MODE_VALUES = {
+    STORY_MEMORY_OPTIMIZATION_MODE_STANDARD,
+    STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED,
+    STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM,
+}
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
-STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX = 1_500
-STORY_TURN_COST_STAGE_2_CONTEXT_LIMIT_MAX = 3_000
-STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX = 4_000
-STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX = 5_500
-STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX = 7_000
-STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX = 8_500
-STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX = 10_000
-STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX = 11_500
-STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX = 13_000
-STORY_TURN_COST_STAGE_10_CONTEXT_LIMIT_MAX = 15_000
-STORY_TURN_COST_STAGE_1 = 1
-STORY_TURN_COST_STAGE_2 = 2
-STORY_TURN_COST_STAGE_3 = 3
-STORY_TURN_COST_STAGE_4 = 4
-STORY_TURN_COST_STAGE_5 = 5
-STORY_TURN_COST_STAGE_6 = 6
-STORY_TURN_COST_STAGE_7 = 7
-STORY_TURN_COST_STAGE_8 = 8
-STORY_TURN_COST_STAGE_9 = 9
-STORY_TURN_COST_STAGE_10 = 10
-STORY_TURN_COST_STAGE_11 = 16
+STORY_REPETITION_PENALTY_MIN = 1.0
+STORY_REPETITION_PENALTY_MAX = 2.0
+STORY_DEFAULT_REPETITION_PENALTY = 1.05
+STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6_000
+STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
+STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
+STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4)
+STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8)
+STORY_TURN_COST_GLM51_TIERS = (3, 6, 12)
 STORY_ENVIRONMENT_TIME_MODE_GROK = "grok"
-STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 20
+STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 5
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
+STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
+STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash"
+STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO = "xiaomi/mimo-v2-pro"
+STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V32
 STORY_LLM_MODEL_LEGACY_ALIASES = {
@@ -126,10 +158,26 @@ STORY_LLM_MODEL_LEGACY_ALIASES = {
 }
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
+    STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GROK_41_FAST,
+    STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
+    STORY_LLM_MODEL_AION_2,
+}
+STORY_TURN_COST_STANDARD_LLM_MODELS = {
+    STORY_LLM_MODEL_DEEPSEEK_V32,
+    STORY_LLM_MODEL_GLM47,
+    STORY_LLM_MODEL_GROK_41_FAST,
+    STORY_LLM_MODEL_MISTRAL_NEMO,
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
+}
+STORY_TURN_COST_PREMIUM_LLM_MODELS = {
+    STORY_LLM_MODEL_GLM5,
+    STORY_LLM_MODEL_AION_2,
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
@@ -325,7 +373,8 @@ def normalize_story_image_style_prompt(value: str | None) -> str:
 def normalize_story_context_limit_chars(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
-    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(value, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+    normalized = int(value)
+    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, STORY_CONTEXT_LIMIT_MAX_TOKENS))
 
 
 def normalize_story_response_max_tokens(value: int | None) -> int:
@@ -343,29 +392,25 @@ def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
-def get_story_turn_cost_tokens(context_usage_tokens: int | None) -> int:
+def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int]:
+    normalized_model_name = coerce_story_llm_model(model_name)
+    if normalized_model_name == STORY_LLM_MODEL_GLM51:
+        return STORY_TURN_COST_GLM51_TIERS
+    if normalized_model_name in STORY_TURN_COST_PREMIUM_LLM_MODELS:
+        return STORY_TURN_COST_PREMIUM_TIERS
+    if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
+        return STORY_TURN_COST_STANDARD_TIERS
+    return STORY_TURN_COST_STANDARD_TIERS
+
+
+def get_story_turn_cost_tokens(context_usage_tokens: int | None, model_name: str | None = None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
-    if normalized_usage <= STORY_TURN_COST_STAGE_1_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_1
-    if normalized_usage <= STORY_TURN_COST_STAGE_2_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_2
-    if normalized_usage <= STORY_TURN_COST_STAGE_3_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_3
-    if normalized_usage <= STORY_TURN_COST_STAGE_4_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_4
-    if normalized_usage <= STORY_TURN_COST_STAGE_5_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_5
-    if normalized_usage <= STORY_TURN_COST_STAGE_6_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_6
-    if normalized_usage <= STORY_TURN_COST_STAGE_7_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_7
-    if normalized_usage <= STORY_TURN_COST_STAGE_8_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_8
-    if normalized_usage <= STORY_TURN_COST_STAGE_9_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_9
-    if normalized_usage <= STORY_TURN_COST_STAGE_10_CONTEXT_LIMIT_MAX:
-        return STORY_TURN_COST_STAGE_10
-    return STORY_TURN_COST_STAGE_11
+    tier_1_cost, tier_2_cost, tier_3_cost = get_story_model_turn_cost_tiers(model_name)
+    if normalized_usage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX:
+        return tier_1_cost
+    if normalized_usage <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX:
+        return tier_2_cost
+    return tier_3_cost
 
 
 def coerce_story_llm_model(value: str | None) -> str:
@@ -384,8 +429,9 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-4.7, deepseek/deepseek-v3.2, "
-                "x-ai/grok-4.1-fast, xiaomi/mimo-v2-flash"
+                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, deepseek/deepseek-v3.2, "
+                "x-ai/grok-4.1-fast, mistralai/mistral-nemo, xiaomi/mimo-v2-flash, "
+                "xiaomi/mimo-v2-pro, aion-labs/aion-2.0"
             ),
         )
     return normalized
@@ -422,6 +468,17 @@ def normalize_story_memory_optimization_enabled(value: bool | None) -> bool:
     return True
 
 
+def normalize_story_memory_optimization_mode(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_MEMORY_OPTIMIZATION_MODE_VALUES:
+        return normalized
+    if normalized in {"усиленный", "enhanced"}:
+        return STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED
+    if normalized in {"максимальные", "максимальный", "maximum", "max"}:
+        return STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM
+    return STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE
+
+
 def normalize_story_top_k(value: int | None) -> int:
     if value is None:
         return STORY_DEFAULT_TOP_K
@@ -442,6 +499,19 @@ def normalize_story_temperature(value: float | None) -> float:
     return round(clamped_value, 2)
 
 
+def normalize_story_repetition_penalty(value: float | None) -> float:
+    if value is None:
+        return STORY_DEFAULT_REPETITION_PENALTY
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return STORY_DEFAULT_REPETITION_PENALTY
+    if not math.isfinite(numeric_value):
+        return STORY_DEFAULT_REPETITION_PENALTY
+    clamped_value = max(STORY_REPETITION_PENALTY_MIN, min(numeric_value, STORY_REPETITION_PENALTY_MAX))
+    return round(clamped_value, 2)
+
+
 def normalize_story_show_gg_thoughts(value: bool | None) -> bool:
     _ = value
     return False
@@ -454,6 +524,12 @@ def normalize_story_show_npc_thoughts(value: bool | None) -> bool:
 
 
 def normalize_story_ambient_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def normalize_story_character_state_enabled(value: bool | None) -> bool:
     if value is None:
         return False
     return bool(value)
@@ -513,6 +589,71 @@ def serialize_story_environment_weather(value: dict[str, Any] | None) -> str:
         return json.dumps(value, ensure_ascii=False)
     except (TypeError, ValueError):
         return ""
+
+
+def deserialize_story_character_state_cards_payload(raw_value: str | None) -> list[dict[str, Any]]:
+    normalized_raw = str(raw_value or "").strip()
+    if not normalized_raw:
+        return []
+    try:
+        parsed = json.loads(normalized_raw)
+    except (TypeError, ValueError):
+        return []
+    if isinstance(parsed, dict):
+        parsed = parsed.get("cards")
+    if not isinstance(parsed, list):
+        return []
+
+    normalized_cards: list[dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        raw_world_card_id = item.get("world_card_id")
+        world_card_id: int | None = None
+        if isinstance(raw_world_card_id, int) and raw_world_card_id > 0:
+            world_card_id = raw_world_card_id
+        elif isinstance(raw_world_card_id, str) and raw_world_card_id.strip().isdigit():
+            parsed_world_card_id = int(raw_world_card_id.strip())
+            if parsed_world_card_id > 0:
+                world_card_id = parsed_world_card_id
+
+        name = " ".join(str(item.get("name") or item.get("title") or "").split()).strip()[:120].rstrip()
+        kind = _normalize_story_world_card_kind(str(item.get("kind") or STORY_WORLD_CARD_KIND_NPC))
+        normalized_card: dict[str, Any] = {
+            "world_card_id": world_card_id,
+            "name": name,
+            "kind": kind,
+            "is_active": bool(item.get("is_active", True)),
+            "status": str(item.get("status") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "clothing": str(item.get("clothing") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "location": str(item.get("location") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "equipment": str(item.get("equipment") or item.get("inventory") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "mood": str(item.get("mood") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "attitude_to_hero": str(item.get("attitude_to_hero") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+            "personality": str(item.get("personality") or "").replace("\r\n", "\n").strip()[:1000].rstrip(),
+        }
+        for lock_key in (
+            "status_manual_override_turns",
+            "clothing_manual_override_turns",
+            "equipment_manual_override_turns",
+            "mood_manual_override_turns",
+            "attitude_to_hero_manual_override_turns",
+        ):
+            raw_lock_value = item.get(lock_key)
+            if isinstance(raw_lock_value, int) and raw_lock_value > 0:
+                normalized_card[lock_key] = raw_lock_value
+        if normalized_card["world_card_id"] is None or not normalized_card["name"]:
+            continue
+        normalized_cards.append(normalized_card)
+    return normalized_cards
+
+
+def serialize_story_character_state_cards_payload(value: list[dict[str, Any]] | None) -> str:
+    normalized_cards = deserialize_story_character_state_cards_payload(json.dumps(value or [], ensure_ascii=False))
+    try:
+        return json.dumps(normalized_cards, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return "[]"
 
 
 def normalize_story_emotion_visualization_enabled(value: bool | None) -> bool:
@@ -672,6 +813,30 @@ def count_story_completed_turns(messages: list[StoryMessage]) -> int:
     return completed_turns
 
 
+def delete_story_game_with_relations(db: Session, *, game_id: int) -> StoryGame | None:
+    db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == game_id))
+    db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == game_id))
+    db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == game_id))
+    db.execute(sa_delete(StoryMapImage).where(StoryMapImage.game_id == game_id))
+    db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == game_id))
+    db.execute(sa_delete(StoryCharacterStateSnapshot).where(StoryCharacterStateSnapshot.game_id == game_id))
+    db.execute(sa_delete(StoryMessage).where(StoryMessage.game_id == game_id))
+    db.execute(sa_delete(StoryInstructionCard).where(StoryInstructionCard.game_id == game_id))
+    db.execute(sa_delete(StoryPlotCard).where(StoryPlotCard.game_id == game_id))
+    db.execute(sa_delete(StoryWorldCard).where(StoryWorldCard.game_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldComment).where(StoryCommunityWorldComment.world_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldRating).where(StoryCommunityWorldRating.world_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldView).where(StoryCommunityWorldView.world_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldLaunch).where(StoryCommunityWorldLaunch.world_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldFavorite).where(StoryCommunityWorldFavorite.world_id == game_id))
+    db.execute(sa_delete(StoryCommunityWorldReport).where(StoryCommunityWorldReport.world_id == game_id))
+
+    game = db.scalar(select(StoryGame).where(StoryGame.id == game_id))
+    if game is not None:
+        db.delete(game)
+    return game
+
+
 def story_game_summary_to_out(
     game: StoryGame,
     *,
@@ -705,7 +870,7 @@ def story_game_summary_to_out(
         community_launches=max(int(game.community_launches or 0), 0),
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
-        context_limit_chars=game.context_limit_chars,
+        context_limit_chars=normalize_story_context_limit_chars(getattr(game, "context_limit_chars", None)),
         response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
@@ -716,12 +881,21 @@ def story_game_summary_to_out(
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
             getattr(game, "memory_optimization_enabled", None)
         ),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(
+            getattr(game, "memory_optimization_mode", None)
+        ),
+        story_repetition_penalty=normalize_story_repetition_penalty(
+            getattr(game, "story_repetition_penalty", None)
+        ),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        character_state_enabled=normalize_story_character_state_enabled(
+            getattr(game, "character_state_enabled", None)
+        ),
         environment_enabled=normalize_story_environment_enabled(getattr(game, "environment_enabled", None)),
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(game, "emotion_visualization_enabled", None)
@@ -739,6 +913,22 @@ def story_game_summary_to_out(
         created_at=game.created_at,
         updated_at=game.updated_at,
     )
+
+
+def mask_story_game_admin_only_state(
+    summary: StoryGameSummaryOut,
+    *,
+    include_character_state: bool = False,
+    include_story_map: bool = False,
+) -> StoryGameSummaryOut:
+    updates: dict[str, Any] = {}
+    if not include_character_state:
+        updates["character_state_enabled"] = False
+    if not include_story_map:
+        updates["current_location_label"] = None
+    if not updates:
+        return summary
+    return summary.model_copy(update=updates)
 
 
 def story_game_summary_to_compact_out(
@@ -774,7 +964,7 @@ def story_game_summary_to_compact_out(
         community_launches=max(int(game.community_launches or 0), 0),
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
-        context_limit_chars=game.context_limit_chars,
+        context_limit_chars=normalize_story_context_limit_chars(getattr(game, "context_limit_chars", None)),
         response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
@@ -785,12 +975,21 @@ def story_game_summary_to_compact_out(
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
             getattr(game, "memory_optimization_enabled", None)
         ),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(
+            getattr(game, "memory_optimization_mode", None)
+        ),
+        story_repetition_penalty=normalize_story_repetition_penalty(
+            getattr(game, "story_repetition_penalty", None)
+        ),
         story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
         story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
+        character_state_enabled=normalize_story_character_state_enabled(
+            getattr(game, "character_state_enabled", None)
+        ),
         environment_enabled=normalize_story_environment_enabled(getattr(game, "environment_enabled", None)),
         emotion_visualization_enabled=normalize_story_emotion_visualization_enabled(
             getattr(game, "emotion_visualization_enabled", None)
@@ -839,29 +1038,33 @@ def story_community_world_summary_to_out(
     is_reported_by_user: bool = False,
     is_favorited_by_user: bool = False,
 ) -> StoryCommunityWorldSummaryOut:
-    summary = story_game_summary_to_out(world)
     return StoryCommunityWorldSummaryOut(
-        id=summary.id,
-        title=summary.title,
-        description=summary.description,
+        id=world.id,
+        title=world.title,
+        description=(world.description or "").strip(),
         author_id=author_id,
         author_name=author_name,
         author_avatar_url=author_avatar_url,
-        age_rating=summary.age_rating,
-        genres=summary.genres,
-        cover_image_url=summary.cover_image_url,
-        cover_scale=summary.cover_scale,
-        cover_position_x=summary.cover_position_x,
-        cover_position_y=summary.cover_position_y,
-        community_views=summary.community_views,
-        community_launches=summary.community_launches,
-        community_rating_avg=summary.community_rating_avg,
-        community_rating_count=summary.community_rating_count,
+        age_rating=coerce_story_game_age_rating(getattr(world, "age_rating", None)),
+        genres=deserialize_story_game_genres(getattr(world, "genres", None)),
+        cover_image_url=resolve_media_display_url(
+            getattr(world, "cover_image_url", None),
+            kind="story-game-cover",
+            entity_id=int(world.id),
+            version=getattr(world, "updated_at", None),
+        ),
+        cover_scale=normalize_story_cover_scale(getattr(world, "cover_scale", None)),
+        cover_position_x=normalize_story_cover_position(getattr(world, "cover_position_x", None)),
+        cover_position_y=normalize_story_cover_position(getattr(world, "cover_position_y", None)),
+        community_views=max(int(getattr(world, "community_views", 0) or 0), 0),
+        community_launches=max(int(getattr(world, "community_launches", 0) or 0), 0),
+        community_rating_avg=story_game_rating_average(world),
+        community_rating_count=max(int(getattr(world, "community_rating_count", 0) or 0), 0),
         user_rating=user_rating,
         is_reported_by_user=bool(is_reported_by_user),
         is_favorited_by_user=bool(is_favorited_by_user),
-        created_at=summary.created_at,
-        updated_at=summary.updated_at,
+        created_at=world.created_at,
+        updated_at=world.updated_at,
     )
 
 
@@ -1163,6 +1366,10 @@ def clone_story_world_cards_to_game(
                 game_id=target_game_id,
                 title=card.title,
                 content=card.content,
+                race=normalize_story_character_race(getattr(card, "race", "")),
+                clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
+                inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
+                health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
                 triggers=card.triggers,
                 kind=card_kind,
                 avatar_url=normalize_story_character_avatar_url(card.avatar_url),
@@ -1191,6 +1398,10 @@ def clone_story_world_cards_to_game(
             game_id=target_game_id,
             title=card.title,
             content=card.content,
+            race=normalize_story_character_race(getattr(card, "race", "")),
+            clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
+            inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
+            health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
             triggers=serialize_story_world_card_triggers(
                 normalize_story_world_card_triggers(
                     list(card.triggers),

@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel
 import requests
-from sqlalchemy import delete as sa_delete, func, select, update as sa_update
+from sqlalchemy import case, delete as sa_delete, func, or_, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, load_only
 
@@ -84,6 +84,7 @@ from app.services.story_games import (
     deserialize_story_game_genres,
     get_story_game_public_cards_out,
     normalize_story_ambient_enabled,
+    normalize_story_character_state_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
     normalize_story_cover_position,
@@ -100,6 +101,8 @@ from app.services.story_games import (
     normalize_story_game_visibility,
     normalize_story_llm_model,
     normalize_story_memory_optimization_enabled,
+    normalize_story_memory_optimization_mode,
+    normalize_story_repetition_penalty,
     normalize_story_show_gg_thoughts,
     normalize_story_show_npc_thoughts,
     normalize_story_temperature,
@@ -110,10 +113,12 @@ from app.services.story_games import (
     story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
+    delete_story_game_with_relations,
     story_game_summary_to_compact_out,
     story_game_summary_to_out,
 )
 from app.services.story_cards import story_plot_card_to_out
+from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
 from app.services.story_events import (
     story_plot_card_change_event_to_out,
     story_world_card_change_event_to_out,
@@ -339,7 +344,7 @@ STORY_BUG_REPORT_STATUS_OPEN = "open"
 STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
 STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8_000
 STORY_GAME_TITLE_MAX_LENGTH = 160
-STORY_CLONE_TITLE_SUFFIX = " (копия)"
+STORY_CLONE_TITLE_SUFFIX = " (РєРѕРїРёСЏ)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
 STORY_LIST_PREVIEW_MAX_CHARS = 145
 STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
@@ -350,10 +355,35 @@ STORY_CLONE_DISPLAY_SUFFIX_PATTERN = re.compile(
     r"(?:\s*(?:[\(\[]\s*)?\u043a\u043e\u043f\u0438\u044f(?:\s*[\)\]])?)+\s*$",
     re.IGNORECASE,
 )
+STORY_COMMUNITY_WORLD_SORT_OPTIONS = {"updated_desc", "rating_desc", "launches_desc", "views_desc"}
+STORY_COMMUNITY_WORLD_AGE_FILTER_OPTIONS = {"6+", "16+", "18+"}
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _normalize_story_community_world_sort(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_COMMUNITY_WORLD_SORT_OPTIONS:
+        return normalized
+    return "launches_desc"
+
+
+def _normalize_story_community_world_search_query(value: str | None) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
+def _normalize_story_community_world_age_filter(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    if normalized in STORY_COMMUNITY_WORLD_AGE_FILTER_OPTIONS:
+        return normalized
+    return None
+
+
+def _normalize_story_community_world_genre_filter(value: str | None) -> str | None:
+    normalized = " ".join(str(value or "").split()).strip()
+    return normalized or None
 
 
 def _persist_notifications(db: Session, drafts: list[NotificationDraft]) -> None:
@@ -395,28 +425,28 @@ _STORY_ENVIRONMENT_EMERGENCY_BASE_TEMPS: dict[str, tuple[int, int, int, int]] = 
 
 _STORY_ENVIRONMENT_EMERGENCY_PATTERNS: dict[str, tuple[tuple[str, str, str, str], ...]] = {
     "winter": (
-        ("Ясная морозная ночь", "Солнечное морозное утро", "Холодный ясный день", "Тихий морозный вечер"),
-        ("Облачная зимняя ночь", "Пасмурное зимнее утро", "Холодный пасмурный день", "Зимний вечер с облаками"),
-        ("Снежная ночь", "Снегопад к утру", "Холодный снег с ветром", "Снежный вечер"),
-        ("Туманная ночь", "Зябкое утро с дымкой", "Сырой зимний день", "Промозглый вечер"),
+        ("РЇСЃРЅР°СЏ РРѕСЂРѕР·РЅР°СЏ РЅРѕС‡СЊ", "РЎРѕР»РЅРµС‡РЅРѕРµ РРѕСЂРѕР·РЅРѕРµ СѓС‚СЂРѕ", "РҐРѕР»РѕРґРЅС‹Р№ СЏСЃРЅС‹Р№ РґРµРЅСЊ", "РўРёС…РёР№ РРѕСЂРѕР·РЅС‹Р№ РІРµС‡РµСЂ"),
+        ("РћР±Р»Р°С‡РЅР°СЏ Р·РёРРЅСЏСЏ РЅРѕС‡СЊ", "РџР°СЃРСѓСЂРЅРѕРµ Р·РёРРЅРµРµ СѓС‚СЂРѕ", "РҐРѕР»РѕРґРЅС‹Р№ РїР°СЃРСѓСЂРЅС‹Р№ РґРµРЅСЊ", "Р—РёРРЅРёР№ РІРµС‡РµСЂ СЃ РѕР±Р»Р°РєР°РРё"),
+        ("РЎРЅРµР¶РЅР°СЏ РЅРѕС‡СЊ", "РЎРЅРµРіРѕРїР°Рґ Рє СѓС‚СЂСѓ", "РҐРѕР»РѕРґРЅС‹Р№ СЃРЅРµРі СЃ РІРµС‚СЂРѕР", "РЎРЅРµР¶РЅС‹Р№ РІРµС‡РµСЂ"),
+        ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "Р—СЏР±РєРѕРµ СѓС‚СЂРѕ СЃ РґС‹РРєРѕР№", "РЎС‹СЂРѕР№ Р·РёРРЅРёР№ РґРµРЅСЊ", "РџСЂРѕРРѕР·РіР»С‹Р№ РІРµС‡РµСЂ"),
     ),
     "spring": (
-        ("Прохладная ночь с облаками", "Солнечное весеннее утро", "Тёплый весенний день", "Свежий вечер"),
-        ("Ясная прохладная ночь", "Светлое утро", "Ясный мягкий день", "Тихий ясный вечер"),
-        ("Влажная ночь", "Пасмурное утро", "Морось", "Дождливый вечер"),
-        ("Туманная ночь", "Утро с дымкой", "Облачно", "Сырой прохладный вечер"),
+        ("РџСЂРѕС…Р»Р°РґРЅР°СЏ РЅРѕС‡СЊ СЃ РѕР±Р»Р°РєР°РРё", "РЎРѕР»РЅРµС‡РЅРѕРµ РІРµСЃРµРЅРЅРµРµ СѓС‚СЂРѕ", "РўСРїР»С‹Р№ РІРµСЃРµРЅРЅРёР№ РґРµРЅСЊ", "РЎРІРµР¶РёР№ РІРµС‡РµСЂ"),
+        ("РЇСЃРЅР°СЏ РїСЂРѕС…Р»Р°РґРЅР°СЏ РЅРѕС‡СЊ", "РЎРІРµС‚Р»РѕРµ СѓС‚СЂРѕ", "РЇСЃРЅС‹Р№ РСЏРіРєРёР№ РґРµРЅСЊ", "РўРёС…РёР№ СЏСЃРЅС‹Р№ РІРµС‡РµСЂ"),
+        ("Р’Р»Р°Р¶РЅР°СЏ РЅРѕС‡СЊ", "РџР°СЃРСѓСЂРЅРѕРµ СѓС‚СЂРѕ", "РњРѕСЂРѕСЃСЊ", "Р”РѕР¶РґР»РёРІС‹Р№ РІРµС‡РµСЂ"),
+        ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "РЈС‚СЂРѕ СЃ РґС‹РРєРѕР№", "РћР±Р»Р°С‡РЅРѕ", "РЎС‹СЂРѕР№ РїСЂРѕС…Р»Р°РґРЅС‹Р№ РІРµС‡РµСЂ"),
     ),
     "summer": (
-        ("Тёплая ночь с облаками", "Солнечно с облаками", "Тепло, облака с прояснениями", "Тёплый вечер с облаками"),
-        ("Ясная летняя ночь", "Свежое солнечное утро", "Солнечный тёплый день", "Ясный летний вечер"),
-        ("Влажная ночь", "Пасмурное утро", "Морось", "Дождливый вечер"),
-        ("Туманная ночь", "Лёгкая дымка", "Облачно", "Прохладный вечер"),
+        ("РўСРїР»Р°СЏ РЅРѕС‡СЊ СЃ РѕР±Р»Р°РєР°РРё", "РЎРѕР»РЅРµС‡РЅРѕ СЃ РѕР±Р»Р°РєР°РРё", "РўРµРїР»Рѕ, РѕР±Р»Р°РєР° СЃ РїСЂРѕСЏСЃРЅРµРЅРёСЏРРё", "РўСРїР»С‹Р№ РІРµС‡РµСЂ СЃ РѕР±Р»Р°РєР°РРё"),
+        ("РЇСЃРЅР°СЏ Р»РµС‚РЅСЏСЏ РЅРѕС‡СЊ", "РЎРІРµР¶РѕРµ СЃРѕР»РЅРµС‡РЅРѕРµ СѓС‚СЂРѕ", "РЎРѕР»РЅРµС‡РЅС‹Р№ С‚СРїР»С‹Р№ РґРµРЅСЊ", "РЇСЃРЅС‹Р№ Р»РµС‚РЅРёР№ РІРµС‡РµСЂ"),
+        ("Р’Р»Р°Р¶РЅР°СЏ РЅРѕС‡СЊ", "РџР°СЃРСѓСЂРЅРѕРµ СѓС‚СЂРѕ", "РњРѕСЂРѕСЃСЊ", "Р”РѕР¶РґР»РёРІС‹Р№ РІРµС‡РµСЂ"),
+        ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "Р›СРіРєР°СЏ РґС‹РРєР°", "РћР±Р»Р°С‡РЅРѕ", "РџСЂРѕС…Р»Р°РґРЅС‹Р№ РІРµС‡РµСЂ"),
     ),
     "autumn": (
-        ("Прохладная ночь", "Светлое осеннее утро", "Сухой осенний день", "Свежий осенний вечер"),
-        ("Облачная ночь", "Пасмурное утро", "Хмурый день", "Облачный вечер"),
-        ("Сырая ночь", "Дождливое утро", "Морось", "Ветреный дождливый вечер"),
-        ("Туманная ночь", "Холодное утро с дымкой", "Сырой серый день", "Зябкий вечер"),
+        ("РџСЂРѕС…Р»Р°РґРЅР°СЏ РЅРѕС‡СЊ", "РЎРІРµС‚Р»РѕРµ РѕСЃРµРЅРЅРµРµ СѓС‚СЂРѕ", "РЎСѓС…РѕР№ РѕСЃРµРЅРЅРёР№ РґРµРЅСЊ", "РЎРІРµР¶РёР№ РѕСЃРµРЅРЅРёР№ РІРµС‡РµСЂ"),
+        ("РћР±Р»Р°С‡РЅР°СЏ РЅРѕС‡СЊ", "РџР°СЃРСѓСЂРЅРѕРµ СѓС‚СЂРѕ", "РҐРСѓСЂС‹Р№ РґРµРЅСЊ", "РћР±Р»Р°С‡РЅС‹Р№ РІРµС‡РµСЂ"),
+        ("РЎС‹СЂР°СЏ РЅРѕС‡СЊ", "Р”РѕР¶РґР»РёРІРѕРµ СѓС‚СЂРѕ", "РњРѕСЂРѕСЃСЊ", "Р’РµС‚СЂРµРЅС‹Р№ РґРѕР¶РґР»РёРІС‹Р№ РІРµС‡РµСЂ"),
+        ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "РҐРѕР»РѕРґРЅРѕРµ СѓС‚СЂРѕ СЃ РґС‹РРєРѕР№", "РЎС‹СЂРѕР№ СЃРµСЂС‹Р№ РґРµРЅСЊ", "Р—СЏР±РєРёР№ РІРµС‡РµСЂ"),
     ),
 }
 
@@ -464,19 +494,19 @@ def _build_story_environment_emergency_weather_payloads(*, game: StoryGame) -> t
     ).casefold()
     pattern_count = len(_STORY_ENVIRONMENT_EMERGENCY_PATTERNS[season_key])
     pattern_index = (int(_utcnow().timestamp()) + int(getattr(game, "id", 0) or 0)) % pattern_count
-    if re.search(r"\b(?:дожд|ливн|морос|гроза|снегопад|снег)\w*\b", context_text):
+    if re.search(r"\b(?:РґРѕР¶Рґ|Р»РёРІРЅ|РРѕСЂРѕСЃ|РіСЂРѕР·Р°|СЃРЅРµРіРѕРїР°Рґ|СЃРЅРµРі)\w*\b", context_text):
         pattern_index = 2
-    elif re.search(r"\b(?:туман|дымк|мгла)\w*\b", context_text):
+    elif re.search(r"\b(?:С‚СѓРР°РЅ|РґС‹РРє|РРіР»Р°)\w*\b", context_text):
         pattern_index = 3
-    elif re.search(r"\b(?:ясн|луна|лунн|звезд|звёзд|солнеч)\w*\b", context_text):
+    elif re.search(r"\b(?:СЏСЃРЅ|Р»СѓРЅР°|Р»СѓРЅРЅ|Р·РІРµР·Рґ|Р·РІСР·Рґ|СЃРѕР»РЅРµС‡)\w*\b", context_text):
         pattern_index = 1
 
     tomorrow_pattern_index = (pattern_index + 1) % pattern_count
     base_temps = _STORY_ENVIRONMENT_EMERGENCY_BASE_TEMPS[season_key]
     daily_shift = (int(getattr(game, "id", 0) or 0) % 5) - 2
-    humidity_by_pattern = ("Высокая", "Средняя", "Высокая", "Высокая")
-    wind_by_pattern = ("Слабый", "Лёгкий", "Умеренный", "Слабый")
-    fog_by_pattern = ("Нет", "Нет", "Нет", "Лёгкий")
+    humidity_by_pattern = ("Р’С‹СЃРѕРєР°СЏ", "РЎСЂРµРґРЅСЏСЏ", "Р’С‹СЃРѕРєР°СЏ", "Р’С‹СЃРѕРєР°СЏ")
+    wind_by_pattern = ("РЎР»Р°Р±С‹Р№", "Р›СРіРєРёР№", "РЈРРµСЂРµРЅРЅС‹Р№", "РЎР»Р°Р±С‹Р№")
+    fog_by_pattern = ("РќРµС‚", "РќРµС‚", "РќРµС‚", "Р›СРіРєРёР№")
 
     def _build_weather_payload(day_datetime: datetime, selected_pattern_index: int, include_timeline: bool) -> dict[str, Any]:
         summaries = _STORY_ENVIRONMENT_EMERGENCY_PATTERNS[_story_environment_emergency_season_key(day_datetime)][
@@ -490,7 +520,7 @@ def _build_story_environment_emergency_weather_payloads(*, game: StoryGame) -> t
                     "end_time": end_time,
                     "summary": summaries[slot_index],
                     "temperature_c": base_temps[slot_index] + daily_shift + (selected_pattern_index - 1),
-                    "fog": fog_by_pattern[selected_pattern_index] if slot_index in {0, 1} else "Нет",
+                    "fog": fog_by_pattern[selected_pattern_index] if slot_index in {0, 1} else "РќРµС‚",
                     "humidity": humidity_by_pattern[selected_pattern_index],
                     "wind": wind_by_pattern[selected_pattern_index],
                 }
@@ -501,9 +531,9 @@ def _build_story_environment_emergency_weather_payloads(*, game: StoryGame) -> t
         payload: dict[str, Any] = {
             "summary": str(active_entry.get("summary") or ""),
             "temperature_c": int(active_entry.get("temperature_c") or 0),
-            "fog": str(active_entry.get("fog") or "Нет"),
-            "humidity": str(active_entry.get("humidity") or "Средняя"),
-            "wind": str(active_entry.get("wind") or "Слабый"),
+            "fog": str(active_entry.get("fog") or "РќРµС‚"),
+            "humidity": str(active_entry.get("humidity") or "РЎСЂРµРґРЅСЏСЏ"),
+            "wind": str(active_entry.get("wind") or "РЎР»Р°Р±С‹Р№"),
             "day_date": day_datetime.date().isoformat(),
         }
         if include_timeline:
@@ -559,17 +589,25 @@ def _build_story_quick_start_fallback_payload(
     protagonist_name: str,
     start_mode: str,
 ) -> dict[str, object]:
-    normalized_genre = " ".join(genre.split()).strip() or "Приключение"
-    normalized_class = " ".join(hero_class.split()).strip() or "герой"
-    normalized_name = " ".join(protagonist_name.split()).strip() or "Герой"
-    opening_mode_label = "спокойный вход" if start_mode == "calm" else "сразу в гуще событий"
-    game_title = f"{normalized_name} — {normalized_genre}"[:60].rstrip(" -—,:;") or normalized_name or STORY_DEFAULT_TITLE
+    normalized_genre = " ".join(genre.split()).strip() or "РџСЂРёРєР»СЋС‡РµРЅРёРµ"
+    normalized_class = " ".join(hero_class.split()).strip() or "РіРµСЂРѕР№"
+    normalized_name = " ".join(protagonist_name.split()).strip() or "Р“РµСЂРѕР№"
+    opening_mode_label = "СЃРїРѕРєРѕР№РЅС‹Р№ РІС…РѕРґ" if start_mode == "calm" else "СЃСЂР°Р·Сѓ РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№"
+    game_title = f"{normalized_name} вЂ” {normalized_genre}"[:60].rstrip(" -вЂ”,:;") or normalized_name or STORY_DEFAULT_TITLE
     return {
         "game_title": game_title,
-        "game_description": f"{normalized_genre}. История о герое {normalized_name}.",
-        "hero_description": f"{normalized_name} — {normalized_class.lower()}.",
-        "hero_triggers": [normalized_name, normalized_class, normalized_genre, "главный герой"],
-        "opening_scene": f"{normalized_name} делает первый шаг в новую историю. Режим старта: {opening_mode_label}.",
+        "game_description": f"{normalized_genre}. РСЃС‚РѕСЂРёСЏ Рѕ РіРµСЂРѕРµ {normalized_name}.",
+        "hero_description": (
+            f"{normalized_name} вЂ” {normalized_class.lower()}, РРѕР»РѕРґРѕР№ РіРµСЂРѕР№ СЌС‚РѕРіРѕ РРёСЂР°. "
+            "Р•РіРѕ РІРЅРµС€РЅРѕСЃС‚СЊ Рё РѕРґРµР¶РґР° СЃСЂР°Р·Сѓ РІС‹РґР°СЋС‚ РІС‹Р±СЂР°РЅРЅСѓСЋ СЂРѕР»СЊ, Р° С…Р°СЂР°РєС‚РµСЂ СЃРѕС‡РµС‚Р°РµС‚ СЂРµС€РёРРѕСЃС‚СЊ Рё СЃРєСЂС‹С‚СѓСЋ СѓСЏР·РІРёРРѕСЃС‚СЊ. "
+            "РЈ РЅРµРіРѕ СѓР¶Рµ РµСЃС‚СЊ Р»РёС‡РЅР°СЏ РїСЂРёС‡РёРЅР° РёРґС‚Рё РІРїРµСЂСРґ, Рё РёРРµРЅРЅРѕ РѕРЅР° РІС‚СЏРіРёРІР°РµС‚ РµРіРѕ РІ СЃСЋР¶РµС‚."
+        ),
+        "hero_triggers": [normalized_name, normalized_class, normalized_genre, "РіР»Р°РІРЅС‹Р№ РіРµСЂРѕР№"],
+        "opening_scene": (
+            f"{normalized_name} РґРµР»Р°РµС‚ РїРµСЂРІС‹Р№ С€Р°Рі РІ РЅРѕРІСѓСЋ РёСЃС‚РѕСЂРёСЋ. "
+            f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {opening_mode_label}. "
+            "РЎС†РµРЅР° РґРѕР»Р¶РЅР° СЃСЂР°Р·Сѓ РїРѕРґРІРµСЃС‚Рё РёРіСЂРѕРєР° Рє РїРµСЂРІРѕРСѓ СЂРµС€РµРЅРёСЋ."
+        ),
     }
 
 
@@ -585,7 +623,7 @@ def _generate_story_quick_start_payload(
     normalized_genre = " ".join(genre.split()).strip()
     normalized_class = " ".join(hero_class.split()).strip()
     normalized_name = " ".join(protagonist_name.split()).strip()
-    start_mode_label = "спокойный" if start_mode == "calm" else "в гуще событий"
+    start_mode_label = "СЃРїРѕРєРѕР№РЅС‹Р№" if start_mode == "calm" else "РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№"
     fallback_payload = _build_story_quick_start_fallback_payload(
         genre=genre,
         hero_class=hero_class,
@@ -602,23 +640,28 @@ def _generate_story_quick_start_payload(
                 "Write all fields in Russian. "
                 "Use exactly these keys: game_title, game_description, hero_description, hero_triggers. "
                 "hero_description must feel specific, authored, and non-generic. "
+                "hero_description must explicitly include gender presentation, race/species or origin, "
+                "approximate age, clothing style, visible appearance details, and the requested class. "
+                "Do not reduce the hero to only name and class. "
                 "hero_triggers must be a JSON array with 4-6 short strings."
             ),
         },
         {
             "role": "user",
             "content": (
-                "Собери профиль для быстрого старта текстовой RPG.\n"
-                f"Жанр: {normalized_genre}\n"
-                f"Класс героя: {normalized_class}\n"
-                f"Имя главного героя: {normalized_name}\n"
-                f"Режим старта: {start_mode_label}\n\n"
-                "Требования:\n"
-                "1. game_title: короткое название до 60 символов.\n"
-                "2. game_description: 1-2 предложения для карточки мира.\n"
-                "3. hero_description: 4-6 предложений, конкретно и без шаблонной воды.\n"
-                "4. hero_triggers: массив из 4-6 коротких триггеров.\n"
-                "5. Героя называй только указанным именем."
+                "РЎРѕР±РµСЂРё РїСЂРѕС„РёР»СЊ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ СЃС‚Р°СЂС‚Р° С‚РµРєСЃС‚РѕРІРѕР№ RPG.\n"
+                f"Р–Р°РЅСЂ: {normalized_genre}\n"
+                f"РљР»Р°СЃСЃ РіРµСЂРѕСЏ: {normalized_class}\n"
+                f"РРСЏ РіР»Р°РІРЅРѕРіРѕ РіРµСЂРѕСЏ: {normalized_name}\n"
+                f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {start_mode_label}\n\n"
+                "РўСЂРµР±РѕРІР°РЅРёСЏ:\n"
+                "1. game_title: РєРѕСЂРѕС‚РєРѕРµ РЅР°Р·РІР°РЅРёРµ РґРѕ 60 СЃРёРРІРѕР»РѕРІ.\n"
+                "2. game_description: 1-2 РїСЂРµРґР»РѕР¶РµРЅРёСЏ РґР»СЏ РєР°СЂС‚РѕС‡РєРё РРёСЂР°.\n"
+                "3. hero_description: 4-6 РїСЂРµРґР»РѕР¶РµРЅРёР№, РєРѕРЅРєСЂРµС‚РЅРѕ Рё Р±РµР· С€Р°Р±Р»РѕРЅРЅРѕР№ РІРѕРґС‹.\n"
+                "4. hero_description РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ РґРѕР»Р¶РµРЅ СЃРѕРґРµСЂР¶Р°С‚СЊ РїРѕР» РёР»Рё РіРµРЅРґРµСЂРЅСѓСЋ РїРѕРґР°С‡Сѓ, СЂР°СЃСѓ/РїСЂРѕРёСЃС…РѕР¶РґРµРЅРёРµ, РІРѕР·СЂР°СЃС‚, РѕРґРµР¶РґСѓ, Р·Р°РРµС‚РЅС‹Рµ С‡РµСЂС‚С‹ РІРЅРµС€РЅРѕСЃС‚Рё Рё СЃР°Р РєР»Р°СЃСЃ РіРµСЂРѕСЏ.\n"
+                "5. РЎРґРµР»Р°Р№ РѕРїРёСЃР°РЅРёРµ С‚Р°РєРёР, Р±СѓРґС‚Рѕ РµРіРѕ РїСЂРёРґСѓРР°Р» Р°РІС‚РѕСЂ РРёСЂР°, Р° РЅРµ Р°РЅРєРµС‚Р°-РєРѕРЅСЃС‚СЂСѓРєС‚РѕСЂ.\n"
+                "6. hero_triggers: РР°СЃСЃРёРІ РёР· 4-6 РєРѕСЂРѕС‚РєРёС… С‚СЂРёРіРіРµСЂРѕРІ.\n"
+                "7. Р“РµСЂРѕСЏ РЅР°Р·С‹РІР°Р№ С‚РѕР»СЊРєРѕ СѓРєР°Р·Р°РЅРЅС‹Р РёРРµРЅРµР."
             ),
         },
     ]
@@ -630,23 +673,26 @@ def _generate_story_quick_start_payload(
                 "You write only the opening scene for a Russian interactive RPG. "
                 "Return strict JSON only without markdown. "
                 "Use exactly one key: opening_scene. "
-                "The scene must be vivid, specific, and unique, not generic filler."
+                "The scene must be vivid, specific, and unique, not generic filler. "
+                "It must read like the very first assistant turn already written into the story before the player's first move. "
+                "End at a strong playable moment that invites the next player action."
             ),
         },
         {
             "role": "user",
             "content": (
-                "Напиши только стартовую сцену для быстрого старта текстовой RPG.\n"
-                f"Жанр: {normalized_genre}\n"
-                f"Класс героя: {normalized_class}\n"
-                f"Имя главного героя: {normalized_name}\n"
-                f"Режим старта: {start_mode_label}\n\n"
-                "Требования:\n"
-                "1. opening_scene: 2-4 абзаца живого текста без markdown.\n"
-                "2. Если режим спокойный, начни с мягкого входа, но дай крючок.\n"
-                "3. Если режим в гуще событий, начни сразу с активной напряженной ситуации.\n"
-                "4. Сцена должна звучать как первая сцена уникального мира, а не общая болванка.\n"
-                "5. Героя называй только указанным именем."
+                "РќР°РїРёС€Рё С‚РѕР»СЊРєРѕ СЃС‚Р°СЂС‚РѕРІСѓСЋ СЃС†РµРЅСѓ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ СЃС‚Р°СЂС‚Р° С‚РµРєСЃС‚РѕРІРѕР№ RPG.\n"
+                f"Р–Р°РЅСЂ: {normalized_genre}\n"
+                f"РљР»Р°СЃСЃ РіРµСЂРѕСЏ: {normalized_class}\n"
+                f"РРСЏ РіР»Р°РІРЅРѕРіРѕ РіРµСЂРѕСЏ: {normalized_name}\n"
+                f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {start_mode_label}\n\n"
+                "РўСЂРµР±РѕРІР°РЅРёСЏ:\n"
+                "1. opening_scene: 2-4 Р°Р±Р·Р°С†Р° Р¶РёРІРѕРіРѕ С‚РµРєСЃС‚Р° Р±РµР· markdown.\n"
+                "2. Р•СЃР»Рё СЂРµР¶РёР СЃРїРѕРєРѕР№РЅС‹Р№, РЅР°С‡РЅРё СЃ РСЏРіРєРѕРіРѕ РІС…РѕРґР°, Р·РЅР°РєРѕРСЃС‚РІР° СЃ РРµСЃС‚РѕР Рё СЃСЂР°Р·Сѓ РґР°Р№ РєСЂСЋС‡РѕРє РґР»СЏ РїРµСЂРІРѕРіРѕ РґРµР№СЃС‚РІРёСЏ.\n"
+                "3. Р•СЃР»Рё СЂРµР¶РёР РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№, РЅР°С‡РЅРё СЃСЂР°Р·Сѓ СЃ Р°РєС‚РёРІРЅРѕР№ РёР»Рё РѕРїР°СЃРЅРѕР№ СЃС†РµРЅС‹, Р±РµР· РґРѕР»РіРѕРіРѕ СЂР°Р·РіРѕРЅР°.\n"
+                "4. Р­С‚Рѕ СѓР¶Рµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РїРµСЂРІС‹Р№ РѕС‚РІРµС‚ РР РІ РёРіСЂРµ РґРѕ РїРµСЂРІРѕРіРѕ С…РѕРґР° РёРіСЂРѕРєР°.\n"
+                "5. РЎС†РµРЅР° РґРѕР»Р¶РЅР° Р·Р°РєРѕРЅС‡РёС‚СЊСЃСЏ РЅР° РРѕРРµРЅС‚Рµ, РіРґРµ РёРіСЂРѕРєСѓ РµСЃС‚РµСЃС‚РІРµРЅРЅРѕ РґРµР»Р°С‚СЊ РїРµСЂРІС‹Р№ С…РѕРґ.\n"
+                "6. Р“РµСЂРѕСЏ РЅР°Р·С‹РІР°Р№ С‚РѕР»СЊРєРѕ СѓРєР°Р·Р°РЅРЅС‹Р РёРРµРЅРµР."
             ),
         },
     ]
@@ -742,20 +788,20 @@ _STORY_ENVIRONMENT_TIMELINE_SLOTS: tuple[tuple[str, str], ...] = (
     ("18:00", "00:00"),
 )
 _STORY_INTERIOR_LOCATION_KEYWORDS: tuple[str, ...] = (
-    "таверн",
-    "трактир",
-    "постоял",
-    "корчм",
-    "гостин",
-    "каба",
-    "харчевн",
-    "зал",
-    "комнат",
-    "номер",
-    "кабинет",
-    "храм",
-    "святилищ",
-    "гильди",
+    "С‚Р°РІРµСЂРЅ",
+    "С‚СЂР°РєС‚РёСЂ",
+    "РїРѕСЃС‚РѕСЏР»",
+    "РєРѕСЂС‡Р",
+    "РіРѕСЃС‚РёРЅ",
+    "РєР°Р±Р°",
+    "С…Р°СЂС‡РµРІРЅ",
+    "Р·Р°Р»",
+    "РєРѕРРЅР°С‚",
+    "РЅРѕРРµСЂ",
+    "РєР°Р±РёРЅРµС‚",
+    "С…СЂР°Р",
+    "СЃРІСЏС‚РёР»РёС‰",
+    "РіРёР»СЊРґРё",
 )
 
 
@@ -824,9 +870,9 @@ def _normalize_story_environment_slot_payload(
             raw_entry.get("temperature_c"),
             fallback=fallback_temperature,
         ),
-        "fog": " ".join(str(raw_entry.get("fog") or "нет").split()).strip()[:80] or "нет",
-        "humidity": " ".join(str(raw_entry.get("humidity") or "средняя").split()).strip()[:80] or "средняя",
-        "wind": " ".join(str(raw_entry.get("wind") or "слабый").split()).strip()[:80] or "слабый",
+        "fog": " ".join(str(raw_entry.get("fog") or "РЅРµС‚").split()).strip()[:80] or "РЅРµС‚",
+        "humidity": " ".join(str(raw_entry.get("humidity") or "СЃСЂРµРґРЅСЏСЏ").split()).strip()[:80] or "СЃСЂРµРґРЅСЏСЏ",
+        "wind": " ".join(str(raw_entry.get("wind") or "СЃР»Р°Р±С‹Р№").split()).strip()[:80] or "СЃР»Р°Р±С‹Р№",
     }
 
 
@@ -872,12 +918,12 @@ def _normalize_story_environment_weather_payload_from_grok(
             active_entry.get("temperature_c"),
             fallback=base_temperature,
         ),
-        "fog": " ".join(str(active_entry.get("fog") or raw_payload.get("fog") or "нет").split()).strip()[:80] or "нет",
+        "fog": " ".join(str(active_entry.get("fog") or raw_payload.get("fog") or "РЅРµС‚").split()).strip()[:80] or "РЅРµС‚",
         "humidity": (
-            " ".join(str(active_entry.get("humidity") or raw_payload.get("humidity") or "средняя").split()).strip()[:80]
-            or "средняя"
+            " ".join(str(active_entry.get("humidity") or raw_payload.get("humidity") or "СЃСЂРµРґРЅСЏСЏ").split()).strip()[:80]
+            or "СЃСЂРµРґРЅСЏСЏ"
         ),
-        "wind": " ".join(str(active_entry.get("wind") or raw_payload.get("wind") or "слабый").split()).strip()[:80] or "слабый",
+        "wind": " ".join(str(active_entry.get("wind") or raw_payload.get("wind") or "СЃР»Р°Р±С‹Р№").split()).strip()[:80] or "СЃР»Р°Р±С‹Р№",
         "day_date": day_date,
     }
     if include_timeline:
@@ -892,9 +938,9 @@ def _story_weather_payload_is_suspiciously_generic(payload: dict[str, Any] | Non
     if not summary:
         return True
     generic_markers = (
-        "переменная облачность",
-        "облачно",
-        "пасмурно",
+        "РїРµСЂРµРРµРЅРЅР°СЏ РѕР±Р»Р°С‡РЅРѕСЃС‚СЊ",
+        "РѕР±Р»Р°С‡РЅРѕ",
+        "РїР°СЃРСѓСЂРЅРѕ",
     )
     timeline = payload.get("timeline")
     if not isinstance(timeline, list):
@@ -936,20 +982,20 @@ def _extract_story_specific_scene_location_label(
         return ""
 
     broader_location = ""
-    if re.search(r"\bстолиц[аеиыуеой]+\b|\bв столице\b", normalized_text, flags=re.IGNORECASE):
-        broader_location = "Столица"
-    elif re.search(r"\bгород[аеуом]?\b|\bв городе\b", normalized_text, flags=re.IGNORECASE):
-        broader_location = "Город"
-    elif re.search(r"\bдеревн[яеиоуы]\b|\bв деревне\b", normalized_text, flags=re.IGNORECASE):
-        broader_location = "Деревня"
-    elif re.search(r"\bпорт[ауеом]?\b|\bв порту\b", normalized_text, flags=re.IGNORECASE):
-        broader_location = "Порт"
+    if re.search(r"\bСЃС‚РѕР»РёС†[Р°РµРёС‹СѓРµРѕР№]+\b|\bРІ СЃС‚РѕР»РёС†Рµ\b", normalized_text, flags=re.IGNORECASE):
+        broader_location = "РЎС‚РѕР»РёС†Р°"
+    elif re.search(r"\bРіРѕСЂРѕРґ[Р°РµСѓРѕР]?\b|\bРІ РіРѕСЂРѕРґРµ\b", normalized_text, flags=re.IGNORECASE):
+        broader_location = "Р“РѕСЂРѕРґ"
+    elif re.search(r"\bРґРµСЂРµРІРЅ[СЏРµРёРѕСѓС‹]\b|\bРІ РґРµСЂРµРІРЅРµ\b", normalized_text, flags=re.IGNORECASE):
+        broader_location = "Р”РµСЂРµРІРЅСЏ"
+    elif re.search(r"\bРїРѕСЂС‚[Р°СѓРµРѕР]?\b|\bРІ РїРѕСЂС‚Сѓ\b", normalized_text, flags=re.IGNORECASE):
+        broader_location = "РџРѕСЂС‚"
 
     named_location_patterns: tuple[tuple[str, str], ...] = (
-        (r"\bтаверн[аеиоуы]\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Таверна"),
-        (r"\bтрактир[аеиоуы]?\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Трактир"),
-        (r"\bпостоял(?:ый|ого|ом|ом дворе|ый двор)\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Постоялый двор"),
-        (r"\bгильди[яеиоуы]\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Гильдия"),
+        (r"\bС‚Р°РІРµСЂРЅ[Р°РµРёРѕСѓС‹]\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РўР°РІРµСЂРЅР°"),
+        (r"\bС‚СЂР°РєС‚РёСЂ[Р°РµРёРѕСѓС‹]?\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РўСЂР°РєС‚РёСЂ"),
+        (r"\bРїРѕСЃС‚РѕСЏР»(?:С‹Р№|РѕРіРѕ|РѕР|РѕР РґРІРѕСЂРµ|С‹Р№ РґРІРѕСЂ)\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РџРѕСЃС‚РѕСЏР»С‹Р№ РґРІРѕСЂ"),
+        (r"\bРіРёР»СЊРґРё[СЏРµРёРѕСѓС‹]\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "Р“РёР»СЊРґРёСЏ"),
     )
 
     venue_label = ""
@@ -957,9 +1003,9 @@ def _extract_story_specific_scene_location_label(
         match = re.search(pattern, normalized_text, flags=re.IGNORECASE)
         if match is None:
             continue
-        raw_name = " ".join(str(match.group(1) or "").split()).strip(" .,:;!?-\"'«»")
+        raw_name = " ".join(str(match.group(1) or "").split()).strip(" .,:;!?-\"'В«В»")
         raw_name = re.split(
-            r"\s+(?:в|на|у|возле|около|где|когда|пока)\b",
+            r"\s+(?:РІ|РЅР°|Сѓ|РІРѕР·Р»Рµ|РѕРєРѕР»Рѕ|РіРґРµ|РєРѕРіРґР°|РїРѕРєР°)\b",
             raw_name,
             maxsplit=1,
             flags=re.IGNORECASE,
@@ -971,13 +1017,13 @@ def _extract_story_specific_scene_location_label(
 
     if not venue_label:
         generic_patterns: tuple[tuple[str, str], ...] = (
-            (r"\bтаверн[аеиоуы]\b", "Таверна"),
-            (r"\bтрактир[аеиоуы]?\b", "Трактир"),
-            (r"\bпостоял(?:ый|ого|ом|ый двор)\b", "Постоялый двор"),
-            (r"\bгильди[яеиоуы]\b", "Гильдия"),
-            (r"\bкомнат[аеуы]\b", "Комната"),
-            (r"\bзал[аеуы]\b", "Зал"),
-            (r"\bхрам[аеуы]\b", "Храм"),
+            (r"\bС‚Р°РІРµСЂРЅ[Р°РµРёРѕСѓС‹]\b", "РўР°РІРµСЂРЅР°"),
+            (r"\bС‚СЂР°РєС‚РёСЂ[Р°РµРёРѕСѓС‹]?\b", "РўСЂР°РєС‚РёСЂ"),
+            (r"\bРїРѕСЃС‚РѕСЏР»(?:С‹Р№|РѕРіРѕ|РѕР|С‹Р№ РґРІРѕСЂ)\b", "РџРѕСЃС‚РѕСЏР»С‹Р№ РґРІРѕСЂ"),
+            (r"\bРіРёР»СЊРґРё[СЏРµРёРѕСѓС‹]\b", "Р“РёР»СЊРґРёСЏ"),
+            (r"\bРєРѕРРЅР°С‚[Р°РµСѓС‹]\b", "РљРѕРРЅР°С‚Р°"),
+            (r"\bР·Р°Р»[Р°РµСѓС‹]\b", "Р—Р°Р»"),
+            (r"\bС…СЂР°Р[Р°РµСѓС‹]\b", "РҐСЂР°Р"),
         )
         for pattern, label in generic_patterns:
             if re.search(pattern, normalized_text, flags=re.IGNORECASE):
@@ -994,10 +1040,10 @@ def _story_location_label_is_too_broad(label: str, *, combined_text: str) -> boo
     normalized_label = _normalize_story_environment_location_label(label).casefold()
     if not normalized_label:
         return True
-    if normalized_label in {"улица", "столица", "город", "деревня", "порт", "столица, улица", "город, улица"}:
+    if normalized_label in {"СѓР»РёС†Р°", "СЃС‚РѕР»РёС†Р°", "РіРѕСЂРѕРґ", "РґРµСЂРµРІРЅСЏ", "РїРѕСЂС‚", "СЃС‚РѕР»РёС†Р°, СѓР»РёС†Р°", "РіРѕСЂРѕРґ, СѓР»РёС†Р°"}:
         return True
     interior_mentioned = any(keyword in combined_text.casefold() for keyword in _STORY_INTERIOR_LOCATION_KEYWORDS)
-    if interior_mentioned and "улица" in normalized_label:
+    if interior_mentioned and "СѓР»РёС†Р°" in normalized_label:
         return True
     return False
 
@@ -1088,34 +1134,35 @@ def _request_story_grok_environment_postprocess_payload(
         "\"fog\":\"...\",\"humidity\":\"...\",\"wind\":\"...\"}]},"
         "\"tomorrow_weather\":{\"summary\":\"...\",\"temperature_c\":14,\"fog\":\"...\",\"humidity\":\"...\","
         "\"wind\":\"...\",\"day_date\":\"YYYY-MM-DD\"}}. "
-        "Infer the most specific stable current location. Prefer indoor named venues over broad geography. "
+        "Infer the most specific stable current location from explicit evidence only. Prefer indoor named venues over broad geography when they are actually present in the text. "
         "If the scene is inside a tavern, inn, room, guild hall, temple, or another interior, current_location_label must include that place and must not collapse to a street. "
-        "Example of good specificity: \"Столица, таверна Ржавый якорь\". "
+        "Never invent or expand a city, capital, district, country, kingdom, tavern name, or broader geography that is not explicit in the provided text. "
+        "If the newest texts do not clearly establish a new place, keep the saved location instead of fabricating a fuller label. "
         "For weather, base the forecast on the current season and month, keep it realistic, and make today internally consistent. "
         "current_weather.timeline must contain exactly four broad periods in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00. "
         "The active current_weather summary/details must match the period containing the supplied current time. "
         "Do not use the same weather summary for all four periods unless extreme weather is explicitly described by the scene. "
-        "Avoid lazy placeholder outputs like endless 'Переменная облачность' across the whole day."
+        "Avoid lazy placeholder outputs like endless 'РџРµСЂРµРРµРЅРЅР°СЏ РѕР±Р»Р°С‡РЅРѕСЃС‚СЊ' across the whole day."
     )
     user_prompt = (
-        f"Игровые дата и время сейчас:\n{current_datetime_iso}\n\n"
-        f"Текущее сохраненное место:\n{current_location_label or 'нет'}\n\n"
-        f"Сохраненная погода на сегодня:\n{json.dumps(existing_current_weather, ensure_ascii=False) if isinstance(existing_current_weather, dict) else 'нет'}\n\n"
-        f"Сохраненный прогноз на завтра:\n{json.dumps(existing_tomorrow_weather, ensure_ascii=False) if isinstance(existing_tomorrow_weather, dict) else 'нет'}\n\n"
-        f"Открывающая сцена:\n{opening_scene_text or 'нет'}\n\n"
-        f"Последний ход игрока:\n{latest_user_prompt or 'нет'}\n\n"
-        f"Предыдущий ответ рассказчика:\n{previous_assistant_text or 'нет'}\n\n"
-        f"Новый ответ рассказчика:\n{latest_assistant_text or 'нет'}\n\n"
-        "Нужно вернуть только JSON. "
-        f"Требуется определить место: {'да' if include_location else 'нет'}. "
-        f"Требуется определить погоду: {'да' if include_weather else 'нет'}."
+        f"РРіСЂРѕРІС‹Рµ РґР°С‚Р° Рё РІСЂРµРСЏ СЃРµР№С‡Р°СЃ:\n{current_datetime_iso}\n\n"
+        f"РўРµРєСѓС‰РµРµ СЃРѕС…СЂР°РЅРµРЅРЅРѕРµ РРµСЃС‚Рѕ:\n{current_location_label or 'РЅРµС‚'}\n\n"
+        f"РЎРѕС…СЂР°РЅРµРЅРЅР°СЏ РїРѕРіРѕРґР° РЅР° СЃРµРіРѕРґРЅСЏ:\n{json.dumps(existing_current_weather, ensure_ascii=False) if isinstance(existing_current_weather, dict) else 'РЅРµС‚'}\n\n"
+        f"РЎРѕС…СЂР°РЅРµРЅРЅС‹Р№ РїСЂРѕРіРЅРѕР· РЅР° Р·Р°РІС‚СЂР°:\n{json.dumps(existing_tomorrow_weather, ensure_ascii=False) if isinstance(existing_tomorrow_weather, dict) else 'РЅРµС‚'}\n\n"
+        f"РћС‚РєСЂС‹РІР°СЋС‰Р°СЏ СЃС†РµРЅР°:\n{opening_scene_text or 'РЅРµС‚'}\n\n"
+        f"РџРѕСЃР»РµРґРЅРёР№ С…РѕРґ РёРіСЂРѕРєР°:\n{latest_user_prompt or 'РЅРµС‚'}\n\n"
+        f"РџСЂРµРґС‹РґСѓС‰РёР№ РѕС‚РІРµС‚ СЂР°СЃСЃРєР°Р·С‡РёРєР°:\n{previous_assistant_text or 'РЅРµС‚'}\n\n"
+        f"РќРѕРІС‹Р№ РѕС‚РІРµС‚ СЂР°СЃСЃРєР°Р·С‡РёРєР°:\n{latest_assistant_text or 'РЅРµС‚'}\n\n"
+        "РќСѓР¶РЅРѕ РІРµСЂРЅСѓС‚СЊ С‚РѕР»СЊРєРѕ JSON. "
+        f"РўСЂРµР±СѓРµС‚СЃСЏ РѕРїСЂРµРґРµР»РёС‚СЊ РРµСЃС‚Рѕ: {'РґР°' if include_location else 'РЅРµС‚'}. "
+        f"РўСЂРµР±СѓРµС‚СЃСЏ РѕРїСЂРµРґРµР»РёС‚СЊ РїРѕРіРѕРґСѓ: {'РґР°' if include_weather else 'РЅРµС‚'}."
     )
 
     retry_note = ""
     for attempt_index in range(2):
         request_messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt + (f"\n\nИсправление предыдущего ответа:\n{retry_note}" if retry_note else "")},
+            {"role": "user", "content": user_prompt + (f"\n\nРСЃРїСЂР°РІР»РµРЅРёРµ РїСЂРµРґС‹РґСѓС‰РµРіРѕ РѕС‚РІРµС‚Р°:\n{retry_note}" if retry_note else "")},
         ]
         payload = {
             "model": _STORY_ENVIRONMENT_GROK_MODEL,
@@ -1159,7 +1206,7 @@ def _request_story_grok_environment_postprocess_payload(
         parsed_payload = _extract_story_json_object(raw_content)
         if not isinstance(parsed_payload, dict):
             retry_note = (
-                "Ответ был невалидным JSON. Верни только один корректный JSON-объект без markdown и без лишнего текста."
+                "РћС‚РІРµС‚ Р±С‹Р» РЅРµРІР°Р»РёРґРЅС‹Р JSON. Р’РµСЂРЅРё С‚РѕР»СЊРєРѕ РѕРґРёРЅ РєРѕСЂСЂРµРєС‚РЅС‹Р№ JSON-РѕР±СЉРµРєС‚ Р±РµР· markdown Рё Р±РµР· Р»РёС€РЅРµРіРѕ С‚РµРєСЃС‚Р°."
             )
             continue
 
@@ -1168,25 +1215,13 @@ def _request_story_grok_environment_postprocess_payload(
             resolved_location_label = _normalize_story_environment_location_label(
                 str(parsed_payload.get("current_location_label") or parsed_payload.get("location_label") or "")
             )
-            scene_location_label = _extract_story_specific_scene_location_label(
-                latest_user_prompt=latest_user_prompt,
-                previous_assistant_text=previous_assistant_text,
-                latest_assistant_text=latest_assistant_text,
-                opening_scene_text=opening_scene_text,
-                current_location_label=current_location_label,
-            )
-            if scene_location_label and (
-                not resolved_location_label
-                or _story_location_label_is_too_broad(resolved_location_label, combined_text=combined_text)
+            if resolved_location_label and _story_location_label_is_too_broad(
+                resolved_location_label,
+                combined_text=combined_text,
             ):
-                resolved_location_label = scene_location_label
-            if resolved_location_label and "," not in resolved_location_label:
-                current_location_prefix = _normalize_story_environment_location_label(
-                    str(current_location_label or "").split(",", maxsplit=1)[0]
-                )
-                if current_location_prefix in {"Столица", "Город", "Деревня", "Порт"}:
-                    resolved_location_label = f"{current_location_prefix}, {resolved_location_label}"
-
+                resolved_location_label = ""
+            if not resolved_location_label and current_location_label:
+                resolved_location_label = current_location_label
         next_current_weather = None
         next_tomorrow_weather = None
         if include_weather:
@@ -1213,7 +1248,7 @@ def _request_story_grok_environment_postprocess_payload(
                 normalized_payload["location"] = {
                     "action": "update",
                     "label": resolved_location_label,
-                    "content": f"Действие происходит {resolved_location_label}.",
+                    "content": f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {resolved_location_label}.",
                 }
             if include_weather:
                 normalized_payload["environment"] = {
@@ -1227,13 +1262,13 @@ def _request_story_grok_environment_postprocess_payload(
         retry_messages: list[str] = []
         if location_invalid:
             retry_messages.append(
-                "Место было пустым или слишком общим. Верни наиболее точную текущую локацию, а для интерьера не своди ее к улице."
+                "РњРµСЃС‚Рѕ Р±С‹Р»Рѕ РїСѓСЃС‚С‹Р РёР»Рё СЃР»РёС€РєРѕР РѕР±С‰РёР. Р’РµСЂРЅРё РЅР°РёР±РѕР»РµРµ С‚РѕС‡РЅСѓСЋ С‚РµРєСѓС‰СѓСЋ Р»РѕРєР°С†РёСЋ, Р° РґР»СЏ РёРЅС‚РµСЂСЊРµСЂР° РЅРµ СЃРІРѕРґРё РµРµ Рє СѓР»РёС†Рµ."
             )
         if weather_invalid:
             retry_messages.append(
-                "Погода на сегодня была слишком общей или ленивой. Нужны 4 разные реалистичные периода для сегодняшнего дня, а текущая summary должна совпадать с активным периодом."
+                "РџРѕРіРѕРґР° РЅР° СЃРµРіРѕРґРЅСЏ Р±С‹Р»Р° СЃР»РёС€РєРѕР РѕР±С‰РµР№ РёР»Рё Р»РµРЅРёРІРѕР№. РќСѓР¶РЅС‹ 4 СЂР°Р·РЅС‹Рµ СЂРµР°Р»РёСЃС‚РёС‡РЅС‹Рµ РїРµСЂРёРѕРґР° РґР»СЏ СЃРµРіРѕРґРЅСЏС€РЅРµРіРѕ РґРЅСЏ, Р° С‚РµРєСѓС‰Р°СЏ summary РґРѕР»Р¶РЅР° СЃРѕРІРїР°РґР°С‚СЊ СЃ Р°РєС‚РёРІРЅС‹Р РїРµСЂРёРѕРґРѕР."
             )
-        retry_note = " ".join(retry_messages) or "Исправь ответ по схеме."
+        retry_note = " ".join(retry_messages) or "РСЃРїСЂР°РІСЊ РѕС‚РІРµС‚ РїРѕ СЃС…РµРРµ."
 
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
@@ -1257,10 +1292,10 @@ def _apply_story_grok_environment_postprocess_payload(
             game.current_location_label = location_label
             content = (
                 normalize_story_memory_block_content(
-                    str(location_payload.get("content") or f"Действие происходит {location_label}.")
+                    str(location_payload.get("content") or f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {location_label}.")
                 )
                 if str(location_payload.get("content") or "").strip()
-                else f"Действие происходит {location_label}."
+                else f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {location_label}."
             )
             location_block = db.scalar(
                 select(StoryMemoryBlock)
@@ -1277,14 +1312,14 @@ def _apply_story_grok_environment_postprocess_payload(
                         game_id=game.id,
                         assistant_message_id=getattr(assistant_message, "id", None),
                         layer=STORY_MEMORY_LAYER_LOCATION,
-                        title=normalize_story_memory_block_title("Место"),
+                        title=normalize_story_memory_block_title("РњРµСЃС‚Рѕ"),
                         content=content,
                         token_count=0,
                     )
                 )
             else:
                 location_block.assistant_message_id = getattr(assistant_message, "id", None)
-                location_block.title = normalize_story_memory_block_title("Место")
+                location_block.title = normalize_story_memory_block_title("РњРµСЃС‚Рѕ")
                 location_block.content = content
                 location_block.token_count = 0
 
@@ -1531,7 +1566,7 @@ def _create_story_game_publication_copy_from_source(
         community_launches=0,
         community_rating_sum=0,
         community_rating_count=0,
-        context_limit_chars=source_game.context_limit_chars,
+        context_limit_chars=normalize_story_context_limit_chars(source_game.context_limit_chars),
         response_max_tokens=source_game.response_max_tokens,
         response_max_tokens_enabled=source_game.response_max_tokens_enabled,
         story_llm_model=source_game.story_llm_model,
@@ -1540,12 +1575,21 @@ def _create_story_game_publication_copy_from_source(
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
             getattr(source_game, "memory_optimization_enabled", None)
         ),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(
+            getattr(source_game, "memory_optimization_mode", None)
+        ),
+        story_repetition_penalty=normalize_story_repetition_penalty(
+            getattr(source_game, "story_repetition_penalty", None)
+        ),
         story_top_k=source_game.story_top_k,
         story_top_r=source_game.story_top_r,
         story_temperature=source_game.story_temperature,
         show_gg_thoughts=source_game.show_gg_thoughts,
         show_npc_thoughts=source_game.show_npc_thoughts,
         ambient_enabled=source_game.ambient_enabled,
+        character_state_enabled=normalize_story_character_state_enabled(
+            getattr(source_game, "character_state_enabled", None)
+        ),
         emotion_visualization_enabled=source_game.emotion_visualization_enabled,
         ambient_profile=source_game.ambient_profile,
         last_activity_at=_utcnow(),
@@ -1566,79 +1610,7 @@ def _create_story_game_publication_copy_from_source(
 
 
 def _delete_story_game_with_relations(db: Session, *, game_id: int) -> None:
-    db.execute(
-        sa_delete(StoryWorldCardChangeEvent).where(
-            StoryWorldCardChangeEvent.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryPlotCardChangeEvent).where(
-            StoryPlotCardChangeEvent.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryTurnImage).where(
-            StoryTurnImage.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryMemoryBlock).where(
-            StoryMemoryBlock.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryMessage).where(
-            StoryMessage.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryInstructionCard).where(
-            StoryInstructionCard.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryPlotCard).where(
-            StoryPlotCard.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryWorldCard).where(
-            StoryWorldCard.game_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldComment).where(
-            StoryCommunityWorldComment.world_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldRating).where(
-            StoryCommunityWorldRating.world_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldView).where(
-            StoryCommunityWorldView.world_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldLaunch).where(
-            StoryCommunityWorldLaunch.world_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldFavorite).where(
-            StoryCommunityWorldFavorite.world_id == game_id,
-        )
-    )
-    db.execute(
-        sa_delete(StoryCommunityWorldReport).where(
-            StoryCommunityWorldReport.world_id == game_id,
-        )
-    )
-    game = db.scalar(select(StoryGame).where(StoryGame.id == game_id))
-    if game is not None:
-        db.delete(game)
+    delete_story_game_with_relations(db, game_id=game_id)
 
 
 @router.get("/api/story/games", response_model=list[StoryGameSummaryOut])
@@ -1683,6 +1655,8 @@ def list_story_games(
                 StoryGame.story_llm_model,
                 StoryGame.image_model,
                 StoryGame.memory_optimization_enabled,
+                StoryGame.memory_optimization_mode,
+                StoryGame.story_repetition_penalty,
                 StoryGame.story_top_k,
                 StoryGame.story_top_r,
                 StoryGame.story_temperature,
@@ -1727,29 +1701,106 @@ def list_story_games(
 @router.get("/api/story/community/worlds", response_model=list[StoryCommunityWorldSummaryOut])
 def list_story_community_worlds(
     limit: int = Query(default=60, ge=1, le=60),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="launches_desc"),
+    query: str = Query(default="", max_length=120),
+    age_rating: str | None = Query(default=None),
+    genre: str | None = Query(default=None, max_length=80),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryCommunityWorldSummaryOut]:
     user = get_current_user(db, authorization)
-    worlds = db.scalars(
+    normalized_sort = _normalize_story_community_world_sort(sort)
+    normalized_query = _normalize_story_community_world_search_query(query)
+    normalized_age_rating = _normalize_story_community_world_age_filter(age_rating)
+    normalized_genre = _normalize_story_community_world_genre_filter(genre)
+    rating_average_expr = case(
+        (
+            StoryGame.community_rating_count > 0,
+            (StoryGame.community_rating_sum * 1.0) / StoryGame.community_rating_count,
+        ),
+        else_=0.0,
+    )
+
+    statement = (
         select(StoryGame)
-        .where(
-            StoryGame.visibility == "public",
+        .options(
+            load_only(
+                StoryGame.id,
+                StoryGame.user_id,
+                StoryGame.title,
+                StoryGame.description,
+                StoryGame.age_rating,
+                StoryGame.genres,
+                StoryGame.cover_image_url,
+                StoryGame.cover_scale,
+                StoryGame.cover_position_x,
+                StoryGame.cover_position_y,
+                StoryGame.community_views,
+                StoryGame.community_launches,
+                StoryGame.community_rating_sum,
+                StoryGame.community_rating_count,
+                StoryGame.created_at,
+                StoryGame.updated_at,
+            )
         )
-        .order_by(
-            StoryGame.community_launches.desc(),
-            StoryGame.community_views.desc(),
+        .join(User, User.id == StoryGame.user_id)
+        .where(StoryGame.visibility == "public")
+    )
+    if normalized_query:
+        like_pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryGame.title.ilike(like_pattern),
+                StoryGame.description.ilike(like_pattern),
+            )
+        )
+    if normalized_age_rating is not None:
+        statement = statement.where(StoryGame.age_rating == normalized_age_rating)
+    if normalized_genre is not None:
+        statement = statement.where(StoryGame.genres.ilike(f"%{normalized_genre}%"))
+
+    if normalized_sort == "updated_desc":
+        statement = statement.order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
+    elif normalized_sort == "rating_desc":
+        statement = statement.order_by(
+            rating_average_expr.desc(),
             StoryGame.community_rating_count.desc(),
+            StoryGame.updated_at.desc(),
             StoryGame.id.desc(),
         )
-        .limit(limit)
-    ).all()
+    elif normalized_sort == "views_desc":
+        statement = statement.order_by(
+            StoryGame.community_views.desc(),
+            StoryGame.updated_at.desc(),
+            StoryGame.id.desc(),
+        )
+    else:
+        statement = statement.order_by(
+            StoryGame.community_launches.desc(),
+            StoryGame.updated_at.desc(),
+            StoryGame.id.desc(),
+        )
+
+    worlds = db.scalars(statement.offset(offset).limit(limit)).all()
     if not worlds:
         return []
 
     world_ids = [world.id for world in worlds]
     author_ids = sorted({world.user_id for world in worlds})
-    authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
+    authors = db.scalars(
+        select(User)
+        .options(
+            load_only(
+                User.id,
+                User.email,
+                User.display_name,
+                User.avatar_url,
+                User.updated_at,
+            )
+        )
+        .where(User.id.in_(author_ids))
+    ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
 
@@ -1900,6 +1951,9 @@ def launch_story_community_world(
         image_style_prompt=normalize_story_image_style_prompt(getattr(world, "image_style_prompt", None)),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
             getattr(world, "memory_optimization_enabled", None)
+        ),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(
+            getattr(world, "memory_optimization_mode", None)
         ),
         story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
@@ -2064,12 +2118,12 @@ def report_story_community_world(
         ) from None
 
     reporter_name = story_author_name(user)
-    world_title = str(world.title or "").strip() or f"Мир #{int(world.id)}"
+    world_title = str(world.title or "").strip() or f"РњРёСЂ #{int(world.id)}"
     _notify_story_staff(
         db,
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
-        title="Новая жалоба на мир",
-        body=f"{reporter_name} отправил жалобу на мир \"{world_title}\".",
+        title="РќРѕРІР°СЏ Р¶Р°Р»РѕР±Р° РЅР° РРёСЂ",
+        body=f"{reporter_name} РѕС‚РїСЂР°РІРёР» Р¶Р°Р»РѕР±Сѓ РЅР° РРёСЂ \"{world_title}\".",
         action_url="/profile",
         actor_user_id=int(user.id),
     )
@@ -2118,14 +2172,14 @@ def create_story_community_world_comment(
     db.flush()
     owner_notification_drafts: list[NotificationDraft] = []
     if int(world.user_id) != int(user.id):
-        world_title = str(world.title or "").strip() or f"Мир #{int(world.id)}"
+        world_title = str(world.title or "").strip() or f"РњРёСЂ #{int(world.id)}"
         commenter_name = story_author_name(user)
         owner_notification_drafts.append(
             NotificationDraft(
                 user_id=int(world.user_id),
                 kind=NOTIFICATION_KIND_WORLD_COMMENT,
-                title="Новый комментарий к миру",
-                body=f"{commenter_name} оставил комментарий к миру \"{world_title}\".",
+                title="РќРѕРІС‹Р№ РєРѕРРРµРЅС‚Р°СЂРёР№ Рє РРёСЂСѓ",
+                body=f"{commenter_name} РѕСЃС‚Р°РІРёР» РєРѕРРРµРЅС‚Р°СЂРёР№ Рє РРёСЂСѓ \"{world_title}\".",
                 action_url=f"/games/all?worldId={int(world.id)}",
                 actor_user_id=int(user.id),
             )
@@ -2282,6 +2336,8 @@ def create_story_game(
     image_model = normalize_story_image_model(payload.image_model)
     image_style_prompt = normalize_story_image_style_prompt(payload.image_style_prompt)
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
+    memory_optimization_mode = normalize_story_memory_optimization_mode(payload.memory_optimization_mode)
+    story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
     story_top_k = normalize_story_top_k(payload.story_top_k)
     story_top_r = normalize_story_top_r(payload.story_top_r)
     story_temperature = normalize_story_temperature(payload.story_temperature)
@@ -2319,6 +2375,8 @@ def create_story_game(
         image_model=image_model,
         image_style_prompt=image_style_prompt,
         memory_optimization_enabled=memory_optimization_enabled,
+        memory_optimization_mode=memory_optimization_mode,
+        story_repetition_penalty=story_repetition_penalty,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         story_temperature=story_temperature,
@@ -2342,13 +2400,13 @@ def create_story_game(
     db.commit()
     db.refresh(game)
     if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC:
-        game_title = str(game.title or "").strip() or f"Мир #{int(game.id)}"
+        game_title = str(game.title or "").strip() or f"РњРёСЂ #{int(game.id)}"
         author_name = story_author_name(user)
         _notify_story_staff(
             db,
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
-            title="Новый мир на модерации",
-            body=f"{author_name} отправил на модерацию мир \"{game_title}\".",
+            title="РќРѕРІС‹Р№ РРёСЂ РЅР° РРѕРґРµСЂР°С†РёРё",
+            body=f"{author_name} РѕС‚РїСЂР°РІРёР» РЅР° РРѕРґРµСЂР°С†РёСЋ РРёСЂ \"{game_title}\".",
             action_url="/profile",
             actor_user_id=int(user.id),
         )
@@ -2386,7 +2444,13 @@ def create_story_quick_start_game(
 
     game_title = (raw_game_title or f"{genre}: {protagonist_name}")[:160].strip() or STORY_DEFAULT_TITLE
     game_description = normalize_story_game_description(raw_game_description or f"{genre}. {hero_class}. {protagonist_name}.")
-    hero_description = normalize_story_world_card_content(raw_hero_description or f"{protagonist_name} — {hero_class} жанра {genre}.")
+    hero_description = normalize_story_world_card_content(
+        raw_hero_description
+        or (
+            f"{protagonist_name} вЂ” {hero_class.lower()} РІ Р¶Р°РЅСЂРµ {genre}. "
+            "РЈ РіРµСЂРѕСЏ СѓР¶Рµ РµСЃС‚СЊ Р·Р°РРµС‚РЅР°СЏ РІРЅРµС€РЅРѕСЃС‚СЊ, СЃРІРѕСЏ РР°РЅРµСЂР° РґРµСЂР¶Р°С‚СЊСЃСЏ Рё РїСЂРёС‡РёРЅР° РѕРєР°Р·Р°С‚СЊСЃСЏ РІ С†РµРЅС‚СЂРµ СЌС‚РѕР№ РёСЃС‚РѕСЂРёРё."
+        )
+    )
     opening_scene = normalize_story_game_opening_scene(raw_opening_scene or game_description)
     if isinstance(raw_hero_triggers, list):
         hero_triggers_source = [
@@ -2422,6 +2486,8 @@ def create_story_quick_start_game(
         image_model=normalize_story_image_model(None),
         image_style_prompt=normalize_story_image_style_prompt(None),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(None),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(None),
+        story_repetition_penalty=normalize_story_repetition_penalty(None),
         story_top_k=normalize_story_top_k(None),
         story_top_r=normalize_story_top_r(None),
         story_temperature=normalize_story_temperature(None),
@@ -2459,6 +2525,32 @@ def create_story_quick_start_game(
         )
     )
 
+    opening_scene_message = StoryMessage(
+        game_id=game.id,
+        role="assistant",
+        content=opening_scene,
+    )
+    db.add(opening_scene_message)
+    db.flush()
+
+    try:
+        from app.services.story_generation_entry import _build_story_runtime_deps
+
+        runtime_deps = _build_story_runtime_deps()
+        runtime_deps.seed_opening_scene_memory_block(
+            db=db,
+            game=game,
+            assistant_message=opening_scene_message,
+            opening_scene_text=opening_scene,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to seed quick start opening scene memory: game_id=%s assistant_message_id=%s",
+            game.id,
+            opening_scene_message.id,
+        )
+
+    touch_story_game(game)
     db.commit()
     db.refresh(game)
     return _story_game_summary_response(db, game)
@@ -2502,12 +2594,21 @@ def clone_story_game(
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
             getattr(source_game, "memory_optimization_enabled", None)
         ),
+        memory_optimization_mode=normalize_story_memory_optimization_mode(
+            getattr(source_game, "memory_optimization_mode", None)
+        ),
+        story_repetition_penalty=normalize_story_repetition_penalty(
+            getattr(source_game, "story_repetition_penalty", None)
+        ),
         story_top_k=normalize_story_top_k(getattr(source_game, "story_top_k", None)),
         story_top_r=normalize_story_top_r(getattr(source_game, "story_top_r", None)),
         story_temperature=normalize_story_temperature(getattr(source_game, "story_temperature", None)),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
+        character_state_enabled=normalize_story_character_state_enabled(
+            getattr(source_game, "character_state_enabled", None)
+        ),
         environment_enabled=normalize_story_environment_enabled(getattr(source_game, "environment_enabled", None)),
         environment_time_mode=coerce_story_environment_time_mode(None),
         environment_turn_step_minutes=normalize_story_environment_turn_step_minutes(None),
@@ -2605,13 +2706,13 @@ def create_story_bug_report(
     )
     db.add(report)
     db.commit()
-    source_game_label = str(game.title or "").strip() or f"Мир #{int(game.id)}"
+    source_game_label = str(game.title or "").strip() or f"РњРёСЂ #{int(game.id)}"
     reporter_name = story_author_name(user)
     _notify_story_staff(
         db,
         kind=NOTIFICATION_KIND_MODERATION_REPORT,
-        title="Новый bug report",
-        body=f"{reporter_name} отправил bug report по миру \"{source_game_label}\": {title}.",
+        title="РќРѕРІС‹Р№ bug report",
+        body=f"{reporter_name} РѕС‚РїСЂР°РІРёР» bug report РїРѕ РРёСЂСѓ \"{source_game_label}\": {title}.",
         action_url="/profile",
         actor_user_id=int(user.id),
     )
@@ -2645,18 +2746,29 @@ def update_story_game_settings(
     game.memory_optimization_enabled = normalize_story_memory_optimization_enabled(
         payload.memory_optimization_enabled
     )
+    if payload.memory_optimization_mode is not None:
+        game.memory_optimization_mode = normalize_story_memory_optimization_mode(payload.memory_optimization_mode)
     if payload.story_top_k is not None:
         game.story_top_k = normalize_story_top_k(payload.story_top_k)
     if payload.story_top_r is not None:
         game.story_top_r = normalize_story_top_r(payload.story_top_r)
     if payload.story_temperature is not None:
         game.story_temperature = normalize_story_temperature(payload.story_temperature)
+    if payload.story_repetition_penalty is not None:
+        game.story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
     if payload.show_gg_thoughts is not None:
         game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     if payload.show_npc_thoughts is not None:
         game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     if payload.ambient_enabled is not None:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
+    if payload.character_state_enabled is not None:
+        game.character_state_enabled = normalize_story_character_state_enabled(payload.character_state_enabled)
+        sync_story_character_state_payload_from_world_cards(
+            db=db,
+            game=game,
+            sync_manual_snapshot=bool(game.character_state_enabled),
+        )
     if payload.environment_enabled is not None:
         game.environment_enabled = normalize_story_environment_enabled(payload.environment_enabled)
     if "environment_current_datetime" in payload.model_fields_set:
@@ -2733,7 +2845,7 @@ def _regenerate_story_game_environment_weather_safe(
         if current_location_label:
             current_location_content = (
                 story_memory_pipeline._normalize_story_location_memory_content(
-                    f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {current_location_label}."
+                    f"Р вЂќР ВµР в„–РЎРѓРЎвЂљР Р†Р СР Вµ Р С—РЎР‚Р С•Р СРЎРѓРЎвЂ¦Р С•Р ТР СРЎвЂљ {current_location_label}."
                 )
                 or current_location_label
             )
@@ -2760,7 +2872,7 @@ def _regenerate_story_game_environment_weather_safe(
     if not isinstance(seeded_payload, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРµСЂРµРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїСЂРѕРіРЅРѕР·",
+            detail="Р СњР Вµ РЎС“Р ТР В°Р В»Р С•РЎРѓРЎРЉ Р С—Р ВµРЎР‚Р ВµР С–Р ВµР Р…Р ВµРЎР‚Р СРЎР‚Р С•Р Р†Р В°РЎвЂљРЎРЉ Р С—РЎР‚Р С•Р С–Р Р…Р С•Р В·",
         )
 
     try:
@@ -2823,7 +2935,7 @@ def _regenerate_story_game_environment_weather_safe(
         if not isinstance(next_current_weather, dict) or not isinstance(next_tomorrow_weather, dict):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РїРѕР»РЅС‹Р№ РїСЂРѕРіРЅРѕР· РЅР° СЃРµРіРѕРґРЅСЏ Рё Р·Р°РІС‚СЂР°",
+                detail="Р СњР Вµ РЎС“Р ТР В°Р В»Р С•РЎРѓРЎРЉ Р С—Р С•Р В»РЎС“РЎвЂЎР СРЎвЂљРЎРЉ Р С—Р С•Р В»Р Р…РЎвЂ№Р в„– Р С—РЎР‚Р С•Р С–Р Р…Р С•Р В· Р Р…Р В° РЎРѓР ВµР С–Р С•Р ТР Р…РЎРЏ Р С Р В·Р В°Р Р†РЎвЂљРЎР‚Р В°",
             )
 
         game.environment_current_weather = serialize_story_environment_weather(next_current_weather)
@@ -2892,7 +3004,7 @@ def _regenerate_story_game_environment_weather_grok_safe(
             latest_user_prompt=latest_user_prompt,
             latest_assistant_text=latest_assistant_text,
             previous_assistant_text=previous_assistant_text,
-            include_location=True,
+            include_location=False,
             include_weather=True,
             force_weather_refresh=True,
         )
@@ -2933,7 +3045,7 @@ def regenerate_story_game_environment_weather(
     if not normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Блок окружения выключен",
+            detail="РР»РѕРє РѕРєСЂСѓР¶РµРЅРёСЏ РІС‹РєР»СЋС‡РµРЅ",
         )
     return _regenerate_story_game_environment_weather_grok_safe(user=user, game=game, db=db)
 
@@ -2987,7 +3099,7 @@ def regenerate_story_game_environment_weather(
     if not isinstance(seeded_payload, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Не удалось перегенерировать прогноз",
+            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРµСЂРµРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїСЂРѕРіРЅРѕР·",
         )
 
     current_datetime = story_memory_pipeline._deserialize_story_environment_datetime(
@@ -3049,7 +3161,7 @@ def regenerate_story_game_environment_weather(
     if not isinstance(next_current_weather, dict) or not isinstance(next_tomorrow_weather, dict):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Не удалось получить полный прогноз на сегодня и завтра",
+            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РїРѕР»РЅС‹Р№ РїСЂРѕРіРЅРѕР· РЅР° СЃРµРіРѕРґРЅСЏ Рё Р·Р°РІС‚СЂР°",
         )
 
     game.environment_current_weather = serialize_story_environment_weather(next_current_weather)
@@ -3326,14 +3438,16 @@ def _request_story_grok_environment_postprocess_payload(
         "\"tomorrow_weather\":{\"summary\":\"...\",\"temperature_c\":14,\"fog\":\"...\",\"humidity\":\"...\","
         "\"wind\":\"...\",\"day_date\":\"YYYY-MM-DD\"}}. "
         "Infer the most specific stable current location. Prefer indoor named venues over broad geography. "
+        "Infer the most specific stable current location from explicit evidence only. Prefer indoor named venues over broad geography when they are actually present in the text. "
         "If the scene is inside a tavern, inn, room, guild hall, temple, or another interior, "
         "current_location_label must include that place and must not collapse to a street. "
-        "Example of good specificity: \"Столица, таверна Ржавый якорь\". "
+        "Never invent or expand a city, capital, district, country, kingdom, tavern name, or broader geography that is not explicit in the provided text. "
+        "If the newest texts do not clearly establish a new place, keep the saved location instead of fabricating a fuller label. "
         "For weather, base the forecast on month and season, keep it realistic, and make today internally consistent. "
         "current_weather.timeline must contain exactly four periods in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00. "
         "The active current_weather summary/details must match the period containing the supplied current time. "
         "Do not use the same weather summary for all periods unless extreme weather is explicitly described by the scene. "
-        "Avoid lazy placeholder outputs like endless 'Переменная облачность'."
+        "Avoid lazy placeholder outputs like endless 'РџРµСЂРµРРµРЅРЅР°СЏ РѕР±Р»Р°С‡РЅРѕСЃС‚СЊ'."
     )
     if force_weather_refresh and include_weather:
         system_prompt += (
@@ -3418,24 +3532,11 @@ def _request_story_grok_environment_postprocess_payload(
             resolved_location_label = _normalize_story_environment_location_label(
                 str(parsed_payload.get("current_location_label") or parsed_payload.get("location_label") or "")
             )
-            scene_location_label = _extract_story_specific_scene_location_label(
-                latest_user_prompt=latest_user_prompt,
-                previous_assistant_text=previous_assistant_text,
-                latest_assistant_text=latest_assistant_text,
-                opening_scene_text=opening_scene_text,
-                current_location_label=current_location_label,
-            )
-            if scene_location_label and (
-                not resolved_location_label
-                or _story_location_label_is_too_broad(resolved_location_label, combined_text=combined_text)
+            if resolved_location_label and _story_location_label_is_too_broad(
+                resolved_location_label,
+                combined_text=combined_text,
             ):
-                resolved_location_label = scene_location_label
-            if resolved_location_label and "," not in resolved_location_label:
-                current_location_prefix = _normalize_story_environment_location_label(
-                    str(current_location_label or "").split(",", maxsplit=1)[0]
-                )
-                if current_location_prefix in {"\u0421\u0442\u043e\u043b\u0438\u0446\u0430", "\u0413\u043e\u0440\u043e\u0434", "\u0414\u0435\u0440\u0435\u0432\u043d\u044f", "\u041f\u043e\u0440\u0442"}:
-                    resolved_location_label = f"{current_location_prefix}, {resolved_location_label}"
+                resolved_location_label = ""
             if not resolved_location_label and current_location_label:
                 resolved_location_label = current_location_label
 
@@ -3623,13 +3724,13 @@ def update_story_game_meta(
     db.commit()
     db.refresh(game)
     if should_notify_publication_queue:
-        game_title = str(game.title or "").strip() or f"Мир #{int(game.id)}"
+        game_title = str(game.title or "").strip() or f"РњРёСЂ #{int(game.id)}"
         author_name = story_author_name(user)
         _notify_story_staff(
             db,
             kind=NOTIFICATION_KIND_MODERATION_QUEUE,
-            title="Мир отправлен на модерацию",
-            body=f"{author_name} отправил на модерацию мир \"{game_title}\".",
+            title="РњРёСЂ РѕС‚РїСЂР°РІР»РµРЅ РЅР° РРѕРґРµСЂР°С†РёСЋ",
+            body=f"{author_name} РѕС‚РїСЂР°РІРёР» РЅР° РРѕРґРµСЂР°С†РёСЋ РРёСЂ \"{game_title}\".",
             action_url="/profile",
             actor_user_id=int(user.id),
         )
@@ -3647,4 +3748,3 @@ def delete_story_game(
     _delete_story_game_with_relations(db, game_id=game.id)
     db.commit()
     return MessageResponse(message="Game deleted")
-

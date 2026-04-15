@@ -442,10 +442,9 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
         <Box
           sx={{
             mt: 0.5,
-            p: 1.05,
-            borderRadius: '14px',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            backgroundColor: 'var(--morius-elevated-bg)',
+            px: 0.05,
+            py: 0.08,
+            backgroundColor: 'transparent',
           }}
         >
           <Stack spacing={0.35}>

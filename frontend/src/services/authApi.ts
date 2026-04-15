@@ -159,8 +159,9 @@ export type UserNotification = {
   created_at: string
 }
 
-export type UserNotificationUnreadCount = {
+export type UserNotificationCounters = {
   unread_count: number
+  total_count: number
 }
 
 export type ProfileFollowState = {
@@ -225,6 +226,17 @@ export type AdminManagedUser = {
 
 type AdminUserListResponse = {
   users: AdminManagedUser[]
+  total_count: number
+  has_more: boolean
+}
+
+export type UserNotificationListResponse = {
+  items: UserNotification[]
+  unread_count: number
+  total_count: number
+  limit: number
+  offset: number
+  has_more: boolean
 }
 
 export type AdminReportTargetType = 'world' | 'character' | 'instruction_template'
@@ -492,14 +504,37 @@ function normalizeUserNotifications(
     .filter((item) => item.id > 0)
 }
 
-function normalizeUserNotificationUnreadCount(
-  value: UserNotificationUnreadCount | null | undefined,
-): UserNotificationUnreadCount {
+function normalizeUserNotificationCounters(
+  value: UserNotificationCounters | null | undefined,
+): UserNotificationCounters {
   return {
     unread_count:
       typeof value?.unread_count === 'number' && Number.isFinite(value.unread_count)
         ? Math.max(0, Math.trunc(value.unread_count))
         : 0,
+    total_count:
+      typeof value?.total_count === 'number' && Number.isFinite(value.total_count)
+        ? Math.max(0, Math.trunc(value.total_count))
+        : 0,
+  }
+}
+
+function normalizeUserNotificationListResponse(
+  value: UserNotificationListResponse | null | undefined,
+): UserNotificationListResponse {
+  return {
+    items: normalizeUserNotifications(value?.items),
+    unread_count: normalizeUserNotificationCounters(value).unread_count,
+    total_count: normalizeUserNotificationCounters(value).total_count,
+    limit:
+      typeof value?.limit === 'number' && Number.isFinite(value.limit)
+        ? Math.max(0, Math.trunc(value.limit))
+        : 0,
+    offset:
+      typeof value?.offset === 'number' && Number.isFinite(value.offset)
+        ? Math.max(0, Math.trunc(value.offset))
+        : 0,
+    has_more: Boolean(value?.has_more),
   }
 }
 
@@ -695,9 +730,23 @@ export async function updateCurrentUserProfile(payload: {
 
 export async function listCurrentUserNotifications(payload: {
   token: string
-}): Promise<UserNotification[]> {
-  const response = await requestJson<UserNotification[]>(
-    '/api/auth/me/notifications',
+  limit?: number
+  offset?: number
+  order?: 'asc' | 'desc'
+}): Promise<UserNotificationListResponse> {
+  const params = new URLSearchParams()
+  if (typeof payload.limit === 'number' && Number.isFinite(payload.limit) && payload.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(payload.limit))))
+  }
+  if (typeof payload.offset === 'number' && Number.isFinite(payload.offset) && payload.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(payload.offset))))
+  }
+  if (payload.order === 'asc' || payload.order === 'desc') {
+    params.set('order', payload.order)
+  }
+  const query = params.toString()
+  const response = await requestJson<UserNotificationListResponse>(
+    query ? `/api/auth/me/notifications?${query}` : '/api/auth/me/notifications',
     {
       method: 'GET',
       headers: {
@@ -706,13 +755,13 @@ export async function listCurrentUserNotifications(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
-  return normalizeUserNotifications(response)
+  return normalizeUserNotificationListResponse(response)
 }
 
 export async function getCurrentUserNotificationUnreadCount(payload: {
   token: string
-}): Promise<UserNotificationUnreadCount> {
-  const response = await requestJson<UserNotificationUnreadCount>(
+}): Promise<UserNotificationCounters> {
+  const response = await requestJson<UserNotificationCounters>(
     '/api/auth/me/notifications/unread-count',
     {
       method: 'GET',
@@ -722,13 +771,29 @@ export async function getCurrentUserNotificationUnreadCount(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
-  return normalizeUserNotificationUnreadCount(response)
+  return normalizeUserNotificationCounters(response)
+}
+
+export async function getCurrentUserNotificationSummary(payload: {
+  token: string
+}): Promise<UserNotificationCounters> {
+  const response = await requestJson<UserNotificationCounters>(
+    '/api/auth/me/notifications/summary',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeUserNotificationCounters(response)
 }
 
 export async function markAllCurrentUserNotificationsRead(payload: {
   token: string
-}): Promise<UserNotificationUnreadCount> {
-  const response = await requestJson<UserNotificationUnreadCount>(
+}): Promise<UserNotificationCounters> {
+  const response = await requestJson<UserNotificationCounters>(
     '/api/auth/me/notifications/read-all',
     {
       method: 'POST',
@@ -739,14 +804,14 @@ export async function markAllCurrentUserNotificationsRead(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
-  return normalizeUserNotificationUnreadCount(response)
+  return normalizeUserNotificationCounters(response)
 }
 
 export async function deleteCurrentUserNotification(payload: {
   token: string
   notificationId: number
-}): Promise<UserNotificationUnreadCount> {
-  const response = await requestJson<UserNotificationUnreadCount>(
+}): Promise<UserNotificationCounters> {
+  const response = await requestJson<UserNotificationCounters>(
     `/api/auth/me/notifications/${payload.notificationId}`,
     {
       method: 'DELETE',
@@ -756,7 +821,7 @@ export async function deleteCurrentUserNotification(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
-  return normalizeUserNotificationUnreadCount(response)
+  return normalizeUserNotificationCounters(response)
 }
 
 export async function getProfileView(payload: {
@@ -893,11 +958,13 @@ export async function searchUsersForAdminPanel(payload: {
   token: string
   query?: string
   limit?: number
-}): Promise<AdminManagedUser[]> {
+  offset?: number
+}): Promise<AdminUserListResponse> {
   const query = encodeURIComponent((payload.query ?? '').trim())
   const limit = Math.max(1, Math.min(payload.limit ?? 30, 100))
-  const response = await requestJson<AdminUserListResponse>(
-    `/api/auth/admin/users?query=${query}&limit=${limit}`,
+  const offset = Math.max(0, Math.trunc(payload.offset ?? 0))
+  return requestJson<AdminUserListResponse>(
+    `/api/auth/admin/users?query=${query}&limit=${limit}&offset=${offset}`,
     {
       method: 'GET',
       headers: {
@@ -906,7 +973,6 @@ export async function searchUsersForAdminPanel(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
-  return response.users
 }
 
 export async function updateUserTokensAsAdmin(payload: {
@@ -925,6 +991,26 @@ export async function updateUserTokensAsAdmin(payload: {
       body: JSON.stringify({
         operation: payload.operation,
         amount: payload.amount,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateModeratorRoleAsAdmin(payload: {
+  token: string
+  user_id: number
+  is_moderator: boolean
+}): Promise<AdminManagedUser> {
+  return requestJson<AdminManagedUser>(
+    `/api/auth/admin/users/${payload.user_id}/moderator`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        is_moderator: payload.is_moderator,
       }),
     },
     AUTH_NETWORK_ERROR,

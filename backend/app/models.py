@@ -155,7 +155,7 @@ class StoryGame(Base):
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(160), nullable=False, default="Новая игра")
-    context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=1500, server_default="1500")
+    context_limit_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=6000, server_default="6000")
     response_max_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=400, server_default="400")
     response_max_tokens_enabled: Mapped[bool] = mapped_column(
         Boolean,
@@ -186,6 +186,12 @@ class StoryGame(Base):
         nullable=False,
         default=True,
         server_default="1",
+    )
+    memory_optimization_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="standard",
+        server_default="standard",
     )
     story_top_k: Mapped[int] = mapped_column(
         Integer,
@@ -593,6 +599,10 @@ class StoryCharacter(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    race: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    clothing: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    inventory: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    health_status: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     note: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -617,6 +627,24 @@ class StoryCharacter(Base):
     publication_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     publication_reviewer_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     publication_rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class StoryCharacterRace(Base):
+    __tablename__ = "story_character_races"
+    __table_args__ = (
+        UniqueConstraint("user_id", "name_key", name="uq_story_character_races_user_name_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    name_key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -716,6 +744,10 @@ class StoryWorldCard(Base):
     game_id: Mapped[int] = mapped_column(ForeignKey("story_games.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    race: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    clothing: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    inventory: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    health_status: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="world", server_default="world")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)

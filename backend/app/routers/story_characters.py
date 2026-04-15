@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import json
 
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import case, delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.orm import Session, load_only
 
 from app.database import get_db
 from app.models import (
     StoryCharacter,
     StoryCharacterEmotionGenerationJob,
+    StoryCharacterRace,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
     StoryCommunityCharacterRating,
@@ -27,6 +28,8 @@ from app.schemas import (
     StoryCommunityWorldReportCreateRequest,
     StoryCommunityWorldRatingRequest,
     StoryCharacterCreateRequest,
+    StoryCharacterRaceCreateRequest,
+    StoryCharacterRaceOut,
     StoryCharacterOut,
     StoryCharacterUpdateRequest,
 )
@@ -44,9 +47,13 @@ from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
     normalize_story_character_avatar_url,
+    normalize_story_character_clothing,
     normalize_story_character_description,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
     normalize_story_character_name,
     normalize_story_character_note,
+    normalize_story_character_race,
     normalize_story_character_source,
     normalize_story_character_triggers,
     normalize_story_character_visibility,
@@ -54,6 +61,7 @@ from app.services.story_characters import (
     story_character_rating_average,
     story_character_to_out,
     unlink_story_character_from_world_cards,
+    upsert_story_character_race,
 )
 from app.services.story_games import story_author_avatar_url, story_author_name
 from app.services.story_emotions import (
@@ -136,6 +144,28 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         return None
 
 router = APIRouter()
+STORY_COMMUNITY_CHARACTER_SORT_OPTIONS = {"updated_desc", "rating_desc", "additions_desc"}
+STORY_COMMUNITY_ADDED_FILTER_OPTIONS = {"all", "added", "not_added"}
+
+
+def _normalize_story_community_character_sort(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_COMMUNITY_CHARACTER_SORT_OPTIONS:
+        return normalized
+    return "additions_desc"
+
+
+def _normalize_story_community_added_filter(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_COMMUNITY_ADDED_FILTER_OPTIONS:
+        return normalized
+    return "all"
+
+
+def _normalize_story_community_search_query(value: str | None) -> str:
+    return " ".join(str(value or "").split()).strip()
+
+
 STORY_CHARACTER_REPORT_STATUS_OPEN = "open"
 
 
@@ -289,6 +319,10 @@ def _build_story_community_character_summary(
         id=character_out.id,
         name=character_out.name,
         description=character_out.description,
+        race=character_out.race,
+        clothing=character_out.clothing,
+        inventory=character_out.inventory,
+        health_status=character_out.health_status,
         note=character_out.note,
         triggers=character_out.triggers,
         avatar_url=character_out.avatar_url,
@@ -321,6 +355,10 @@ def _create_story_character_publication_copy_from_source(
         user_id=source_character.user_id,
         name=source_character.name,
         description=source_character.description,
+        race=normalize_story_character_race(getattr(source_character, "race", "")),
+        clothing=normalize_story_character_clothing(getattr(source_character, "clothing", "")),
+        inventory=normalize_story_character_inventory(getattr(source_character, "inventory", "")),
+        health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
         note=normalize_story_character_note(source_character.note),
         triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
         avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
@@ -375,6 +413,15 @@ def _get_story_character_publication_copy(db: Session, *, source_character_id: i
     )
 
 
+def _story_character_race_to_out(race: StoryCharacterRace) -> StoryCharacterRaceOut:
+    return StoryCharacterRaceOut(
+        id=int(race.id),
+        name=normalize_story_character_race(getattr(race, "name", "")),
+        created_at=race.created_at,
+        updated_at=race.updated_at,
+    )
+
+
 @router.get("/api/story/characters", response_model=list[StoryCharacterOut])
 def list_story_characters_route(
     authorization: str | None = Header(default=None),
@@ -385,30 +432,148 @@ def list_story_characters_route(
     return [story_character_to_out(character) for character in characters]
 
 
+@router.get("/api/story/character-races", response_model=list[StoryCharacterRaceOut])
+def list_story_character_races(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryCharacterRaceOut]:
+    user = get_current_user(db, authorization)
+    races = db.scalars(
+        select(StoryCharacterRace)
+        .where(StoryCharacterRace.user_id == int(user.id))
+        .order_by(func.lower(StoryCharacterRace.name).asc(), StoryCharacterRace.id.asc())
+    ).all()
+    return [_story_character_race_to_out(race) for race in races]
+
+
+@router.post("/api/story/character-races", response_model=StoryCharacterRaceOut)
+def create_story_character_race(
+    payload: StoryCharacterRaceCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryCharacterRaceOut:
+    user = get_current_user(db, authorization)
+    race = upsert_story_character_race(
+        db,
+        user_id=int(user.id),
+        name=payload.name,
+    )
+    if race is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Character race cannot be empty")
+    db.commit()
+    db.refresh(race)
+    return _story_character_race_to_out(race)
+
+
 @router.get("/api/story/community/characters", response_model=list[StoryCommunityCharacterSummaryOut])
 def list_story_community_characters(
+    limit: int = Query(default=80, ge=1, le=80),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="additions_desc"),
+    query: str = Query(default="", max_length=120),
+    added_filter: str = Query(default="all"),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryCommunityCharacterSummaryOut]:
     user = get_current_user(db, authorization)
-    characters = db.scalars(
-        select(StoryCharacter)
+    normalized_sort = _normalize_story_community_character_sort(sort)
+    normalized_query = _normalize_story_community_search_query(query)
+    normalized_added_filter = _normalize_story_community_added_filter(added_filter)
+    rating_average_expr = case(
+        (
+            StoryCharacter.community_rating_count > 0,
+            (StoryCharacter.community_rating_sum * 1.0) / StoryCharacter.community_rating_count,
+        ),
+        else_=0.0,
+    )
+    added_by_user_exists = (
+        select(StoryCommunityCharacterAddition.id)
         .where(
-            StoryCharacter.visibility == "public",
+            StoryCommunityCharacterAddition.character_id == StoryCharacter.id,
+            StoryCommunityCharacterAddition.user_id == user.id,
         )
-        .order_by(
-            StoryCharacter.community_additions_count.desc(),
+        .exists()
+    )
+
+    statement = (
+        select(StoryCharacter)
+        .options(
+            load_only(
+                StoryCharacter.id,
+                StoryCharacter.user_id,
+                StoryCharacter.name,
+                StoryCharacter.race,
+                StoryCharacter.description,
+                StoryCharacter.clothing,
+                StoryCharacter.inventory,
+                StoryCharacter.health_status,
+                StoryCharacter.note,
+                StoryCharacter.triggers,
+                StoryCharacter.avatar_url,
+                StoryCharacter.avatar_original_url,
+                StoryCharacter.avatar_scale,
+                StoryCharacter.emotion_model,
+                StoryCharacter.emotion_prompt_lock,
+                StoryCharacter.visibility,
+                StoryCharacter.community_rating_sum,
+                StoryCharacter.community_rating_count,
+                StoryCharacter.community_additions_count,
+                StoryCharacter.created_at,
+                StoryCharacter.updated_at,
+            )
+        )
+        .join(User, User.id == StoryCharacter.user_id)
+        .where(StoryCharacter.visibility == "public")
+    )
+    if normalized_query:
+        like_pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryCharacter.name.ilike(like_pattern),
+                StoryCharacter.description.ilike(like_pattern),
+                StoryCharacter.note.ilike(like_pattern),
+            )
+        )
+    if normalized_added_filter == "added":
+        statement = statement.where(added_by_user_exists)
+    elif normalized_added_filter == "not_added":
+        statement = statement.where(~added_by_user_exists)
+
+    if normalized_sort == "updated_desc":
+        statement = statement.order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
+    elif normalized_sort == "rating_desc":
+        statement = statement.order_by(
+            rating_average_expr.desc(),
             StoryCharacter.community_rating_count.desc(),
+            StoryCharacter.updated_at.desc(),
             StoryCharacter.id.desc(),
         )
-        .limit(80)
-    ).all()
+    else:
+        statement = statement.order_by(
+            StoryCharacter.community_additions_count.desc(),
+            StoryCharacter.updated_at.desc(),
+            StoryCharacter.id.desc(),
+        )
+
+    characters = db.scalars(statement.offset(offset).limit(limit)).all()
     if not characters:
         return []
 
     character_ids = [character.id for character in characters]
     author_ids = sorted({character.user_id for character in characters})
-    authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
+    authors = db.scalars(
+        select(User)
+        .options(
+            load_only(
+                User.id,
+                User.email,
+                User.display_name,
+                User.avatar_url,
+                User.updated_at,
+            )
+        )
+        .where(User.id.in_(author_ids))
+    ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
 
@@ -442,12 +607,16 @@ def list_story_community_characters(
 
     summaries: list[StoryCommunityCharacterSummaryOut] = []
     for character in characters:
-        character_out = story_character_to_out(character)
+        character_out = story_character_to_out(character, include_emotion_assets=False)
         summaries.append(
             StoryCommunityCharacterSummaryOut(
                 id=character_out.id,
                 name=character_out.name,
                 description=character_out.description,
+                race=character_out.race,
+                clothing=character_out.clothing,
+                inventory=character_out.inventory,
+                health_status=character_out.health_status,
                 note=character_out.note,
                 triggers=character_out.triggers,
                 avatar_url=character_out.avatar_url,
@@ -659,6 +828,10 @@ def add_story_community_character_to_account(
                 user_id=user.id,
                 name=character.name,
                 description=character.description,
+                race=normalize_story_character_race(getattr(character, "race", "")),
+                clothing=normalize_story_character_clothing(getattr(character, "clothing", "")),
+                inventory=normalize_story_character_inventory(getattr(character, "inventory", "")),
+                health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
                 note=normalize_story_character_note(getattr(character, "note", "")),
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
                 avatar_url=normalize_story_character_avatar_url(character.avatar_url),
@@ -681,6 +854,7 @@ def add_story_community_character_to_account(
                 community_additions_count=0,
             )
         )
+        upsert_story_character_race(db, user_id=int(user.id), name=getattr(character, "race", ""))
 
     db.commit()
     db.refresh(character)
@@ -761,6 +935,10 @@ def create_story_character(
     user = get_current_user(db, authorization)
     normalized_name = normalize_story_character_name(payload.name)
     normalized_description = normalize_story_character_description(payload.description)
+    normalized_race = normalize_story_character_race(payload.race)
+    normalized_clothing = normalize_story_character_clothing(payload.clothing)
+    normalized_inventory = normalize_story_character_inventory(payload.inventory)
+    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
@@ -777,6 +955,10 @@ def create_story_character(
         user_id=user.id,
         name=normalized_name,
         description=normalized_description,
+        race=normalized_race,
+        clothing=normalized_clothing,
+        inventory=normalized_inventory,
+        health_status=normalized_health_status,
         note=normalized_note,
         triggers=serialize_triggers(normalized_triggers),
         avatar_url=avatar_url,
@@ -794,6 +976,7 @@ def create_story_character(
     )
     db.add(character)
     db.flush()
+    upsert_story_character_race(db, user_id=int(user.id), name=normalized_race)
     if requested_visibility == STORY_CHARACTER_VISIBILITY_PUBLIC:
         mark_story_publication_pending(character)
     db.commit()
@@ -824,6 +1007,10 @@ def update_story_character(
     previous_publication_status = str(getattr(character, "publication_status", "") or "").strip().lower()
     normalized_name = normalize_story_character_name(payload.name)
     normalized_description = normalize_story_character_description(payload.description)
+    normalized_race = normalize_story_character_race(payload.race)
+    normalized_clothing = normalize_story_character_clothing(payload.clothing)
+    normalized_inventory = normalize_story_character_inventory(payload.inventory)
+    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
@@ -838,6 +1025,10 @@ def update_story_character(
     )
     character.name = normalized_name
     character.description = normalized_description
+    character.race = normalized_race
+    character.clothing = normalized_clothing
+    character.inventory = normalized_inventory
+    character.health_status = normalized_health_status
     character.note = normalized_note
     character.triggers = serialize_triggers(normalized_triggers)
     character.avatar_url = avatar_url
@@ -863,6 +1054,7 @@ def update_story_character(
                 if publication_copy is not None:
                     _delete_story_character_with_relations(db, character_id=int(publication_copy.id))
             character.visibility = requested_visibility
+    upsert_story_character_race(db, user_id=int(user.id), name=normalized_race)
     db.commit()
     db.refresh(character)
     if should_notify_publication_queue:

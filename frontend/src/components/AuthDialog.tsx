@@ -331,8 +331,7 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
       maxWidth="xs"
       transitionComponent={AuthDialogTransition}
       backdropSx={{
-        backgroundColor: 'rgba(2, 4, 8, 0.76)',
-        backdropFilter: 'blur(5px)',
+        backgroundColor: 'rgba(1, 4, 8, 0.88)',
       }}
       rawChildren
       paperSx={{
@@ -601,4 +600,3 @@ function AuthDialog({ open, initialMode, onClose, onAuthSuccess }: AuthDialogPro
 }
 
 export default AuthDialog
-

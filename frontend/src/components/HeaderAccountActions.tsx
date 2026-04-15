@@ -1,4 +1,4 @@
-import { Box, Button, Stack } from '@mui/material'
+import { Box, Button, Stack, useMediaQuery } from '@mui/material'
 import { useCallback, useEffect, useState } from 'react'
 import { getCurrentUserNotificationUnreadCount } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
@@ -12,6 +12,7 @@ type HeaderAccountActionsProps = {
   avatarSize: number
   onOpenProfile: () => void
   showDailyRewards?: boolean
+  hideAvatarBelowQuery?: string
 }
 
 function HeaderAccountActions({
@@ -20,8 +21,10 @@ function HeaderAccountActions({
   avatarSize,
   onOpenProfile,
   showDailyRewards = true,
+  hideAvatarBelowQuery,
 }: HeaderAccountActionsProps) {
   const [unreadCount, setUnreadCount] = useState(0)
+  const shouldHideAvatar = useMediaQuery(hideAvatarBelowQuery ?? '(max-width:0px)')
 
   const refreshUnreadCount = useCallback(async () => {
     try {
@@ -66,63 +69,70 @@ function HeaderAccountActions({
   const unreadCountLabel = unreadCount > 99 ? '99+' : String(unreadCount)
 
   return (
-    <Stack direction="row" spacing={0.6} alignItems="center">
+    <Stack direction="row" spacing={2.35} alignItems="center">
       {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={avatarSize} /> : null}
-      <Box
-        sx={{
-          width: avatarSize,
-          height: avatarSize,
-          position: 'relative',
-          flexShrink: 0,
-        }}
-      >
-        <Button
-          variant="text"
-          onClick={onOpenProfile}
-          aria-label="Открыть профиль"
-          data-tour-id="header-profile-button"
+      {shouldHideAvatar ? null : (
+        <Box
           sx={{
-            minWidth: 0,
-            width: '100%',
-            height: '100%',
-            p: 0,
-            borderRadius: '50%',
-            overflow: 'hidden',
-            backgroundColor: 'transparent',
-            '&:hover': {
-              backgroundColor: 'transparent',
-            },
+            width: avatarSize,
+            height: avatarSize,
+            position: 'relative',
+            flexShrink: 0,
+            overflow: 'visible',
           }}
         >
-          <UserAvatar user={user} size={avatarSize} />
-        </Button>
-        {unreadCount > 0 ? (
-          <Box
+          <Button
+            variant="text"
+            onClick={onOpenProfile}
+            aria-label="Открыть профиль"
+            data-tour-id="header-profile-button"
             sx={{
+              minWidth: 0,
+              width: avatarSize,
+              height: avatarSize,
+              p: 0,
+              borderRadius: '50%',
+              overflow: 'hidden',
+              backgroundColor: 'transparent',
               position: 'absolute',
-              top: -4,
-              right: -4,
-              minWidth: 20,
-              height: 20,
-              px: 0.5,
-              borderRadius: '999px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '2px solid var(--morius-app-bg)',
-              backgroundColor: 'var(--morius-accent)',
-              color: '#fff7f2',
-              fontSize: '0.68rem',
-              fontWeight: 800,
-              lineHeight: 1,
-              pointerEvents: 'none',
-              boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',
+              top: 0,
+              left: 0,
+              '&:hover': {
+                backgroundColor: 'transparent',
+              },
             }}
           >
-            {unreadCountLabel}
-          </Box>
-        ) : null}
-      </Box>
+            <UserAvatar user={user} size={avatarSize} />
+          </Button>
+          {unreadCount > 0 ? (
+            <Box
+              sx={{
+                position: 'absolute',
+                top: -5,
+                right: -5,
+                minWidth: 20,
+                height: 20,
+                px: 0.5,
+                borderRadius: '999px',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '2px solid var(--morius-app-bg)',
+                backgroundColor: 'var(--morius-accent)',
+                color: '#fff7f2',
+                fontSize: '0.68rem',
+                fontWeight: 800,
+                lineHeight: 1,
+                pointerEvents: 'none',
+                boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',
+                zIndex: 2,
+              }}
+            >
+              {unreadCountLabel}
+            </Box>
+          ) : null}
+        </Box>
+      )}
     </Stack>
   )
 }

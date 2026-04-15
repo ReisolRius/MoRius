@@ -13,7 +13,13 @@ from app.services.story_cards import (
     normalize_story_plot_card_triggers,
     serialize_story_plot_card_memory_turns,
 )
-from app.services.story_characters import normalize_story_avatar_scale
+from app.services.story_characters import (
+    normalize_story_avatar_scale,
+    normalize_story_character_clothing,
+    normalize_story_character_health_status,
+    normalize_story_character_inventory,
+    normalize_story_character_race,
+)
 from app.services.story_world_cards import (
     STORY_WORLD_CARD_MAX_CONTENT_LENGTH,
     normalize_story_world_card_kind,
@@ -120,6 +126,10 @@ def deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, ob
         "id": card_id,
         "title": title_value,
         "content": content_value,
+        "race": normalize_story_character_race(parsed.get("race")),
+        "clothing": normalize_story_character_clothing(parsed.get("clothing")),
+        "inventory": normalize_story_character_inventory(parsed.get("inventory")),
+        "health_status": normalize_story_character_health_status(parsed.get("health_status")),
         "triggers": triggers_value,
         "kind": kind_value,
         "avatar_url": avatar_value,

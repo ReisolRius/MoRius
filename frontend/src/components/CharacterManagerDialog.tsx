@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from 'react'
+import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import {
   Alert,
   Box,
   Button,
+  Collapse,
   CircularProgress,
   DialogActions,
   DialogContent,
@@ -21,14 +32,22 @@ import CharacterShowcaseCard from './characters/CharacterShowcaseCard'
 import BaseDialog from './dialogs/BaseDialog'
 import ProgressiveImage from './media/ProgressiveImage'
 import {
+  createStoryCharacterRace,
   createStoryCharacter,
   deleteStoryCharacter,
   generateStoryCharacterAvatar,
   generateStoryCharacterEmotionPack,
+  listStoryCharacterRaces,
   listStoryCharacters,
   updateStoryCharacter,
 } from '../services/storyApi'
-import type { StoryCharacter, StoryCharacterEmotionAssets, StoryCharacterEmotionId, StoryImageModelId } from '../types/story'
+import type {
+  StoryCharacter,
+  StoryCharacterEmotionAssets,
+  StoryCharacterEmotionId,
+  StoryCharacterRace,
+  StoryImageModelId,
+} from '../types/story'
 import TextLimitIndicator from './TextLimitIndicator'
 import {
   compressImageDataUrl,
@@ -45,6 +64,7 @@ type CharacterManagerDialogProps = {
   initialCharacterId?: number | null
   includePublicationCopies?: boolean
   showEmotionTools?: boolean
+  extraEditorContent?: ReactNode
 }
 
 type CharacterDraftMode = 'create' | 'edit'
@@ -54,8 +74,18 @@ const CHARACTER_AVATAR_SOURCE_MAX_BYTES = 2 * 1024 * 1024
 const CHARACTER_EMOTION_REFERENCE_MAX_BYTES = 900 * 1024
 const CHARACTER_EMOTION_REFERENCE_MAX_DIMENSION = 1536
 const CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
+const CHARACTER_RACE_MAX_LENGTH = 120
+const CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH = 1000
 const CHARACTER_TRIGGERS_MAX_LENGTH = 600
 const CHARACTER_NOTE_MAX_LENGTH = 20
+const DEFAULT_CHARACTER_RACE_VALUES = [
+  '\u0427\u0435\u043b\u043e\u0432\u0435\u043a',
+  '\u042d\u043b\u044c\u0444',
+  '\u0414\u0432\u0430\u0440\u0444',
+  '\u041f\u043e\u043b\u0443\u0440\u043e\u0441\u043b\u0438\u043a',
+  '\u0413\u043d\u043e\u043c',
+  '\u0414\u0440\u0443\u0433\u043e\u0435',
+] as const
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
@@ -137,6 +167,14 @@ Object.assign(CHARACTER_EMOTION_LABELS, {
 
 CHARACTER_EMOTION_LABELS.stern = '\u0421\u0442\u0440\u043e\u0433\u043e\u0441\u0442\u044c'
 CHARACTER_EMOTION_LABELS.thoughtful = '\u0417\u0430\u0434\u0443\u043c\u0447\u0438\u0432\u043e\u0441\u0442\u044c'
+
+type CharacterRaceOption = {
+  label: string
+  value: string
+  isCreateAction?: boolean
+}
+
+const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
 
 function normalizeEmotionSelection(value: StoryCharacterEmotionId[] | null | undefined): StoryCharacterEmotionId[] {
   const seen = new Set<StoryCharacterEmotionId>()
@@ -223,6 +261,21 @@ function normalizeCharacterNoteDraft(value: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, CHARACTER_NOTE_MAX_LENGTH)
+}
+
+function normalizeCharacterRaceDraft(value: string): string {
+  return value
+    .replace(/\r\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, CHARACTER_RACE_MAX_LENGTH)
+}
+
+function normalizeCharacterAdditionalDraft(value: string): string {
+  return value
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .slice(0, CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH)
 }
 
 function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
@@ -443,6 +496,7 @@ function CharacterManagerDialog({
   initialCharacterId = null,
   includePublicationCopies = false,
   showEmotionTools = false,
+  extraEditorContent = null,
 }: CharacterManagerDialogProps) {
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [isLoadingCharacters, setIsLoadingCharacters] = useState(false)
@@ -454,6 +508,11 @@ function CharacterManagerDialog({
   const [editingCharacterId, setEditingCharacterId] = useState<number | null>(null)
   const [nameDraft, setNameDraft] = useState('')
   const [descriptionDraft, setDescriptionDraft] = useState('')
+  const [raceDraft, setRaceDraft] = useState('')
+  const [raceInputDraft, setRaceInputDraft] = useState('')
+  const [clothingDraft, setClothingDraft] = useState('')
+  const [inventoryDraft, setInventoryDraft] = useState('')
+  const [healthStatusDraft, setHealthStatusDraft] = useState('')
   const [noteDraft, setNoteDraft] = useState('')
   const [triggersDraft, setTriggersDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
@@ -477,6 +536,10 @@ function CharacterManagerDialog({
   const [isGeneratingEmotionPack, setIsGeneratingEmotionPack] = useState(false)
   const [emotionGenerationProgressLabel, setEmotionGenerationProgressLabel] = useState('')
   const [isEditorOpen, setIsEditorOpen] = useState(false)
+  const [isAdditionalFieldsExpanded, setIsAdditionalFieldsExpanded] = useState(false)
+  const [characterRaceOptions, setCharacterRaceOptions] = useState<StoryCharacterRace[]>([])
+  const [isLoadingCharacterRaces, setIsLoadingCharacterRaces] = useState(false)
+  const [isSavingCharacterRace, setIsSavingCharacterRace] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
@@ -523,6 +586,35 @@ function CharacterManagerDialog({
   const isCharacterDialogBusy =
     isSavingCharacter || deletingCharacterId !== null || isGeneratingAiAvatar || isGeneratingEmotionPack
   const normalizedDescriptionDraft = useMemo(() => descriptionDraft.replace(/\r\n/g, '\n').trim(), [descriptionDraft])
+  const normalizedRaceDraft = useMemo(() => normalizeCharacterRaceDraft(raceDraft), [raceDraft])
+  const normalizedRaceInputDraft = useMemo(() => normalizeCharacterRaceDraft(raceInputDraft), [raceInputDraft])
+  const raceOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const items: CharacterRaceOption[] = []
+    const pushOption = (rawValue: string) => {
+      const normalizedValue = normalizeCharacterRaceDraft(rawValue)
+      if (!normalizedValue) {
+        return
+      }
+      const key = normalizedValue.toLocaleLowerCase()
+      if (seen.has(key)) {
+        return
+      }
+      seen.add(key)
+      items.push({
+        label: normalizedValue,
+        value: normalizedValue,
+      })
+    }
+    DEFAULT_CHARACTER_RACE_VALUES.forEach((item) => pushOption(item))
+    characterRaceOptions.forEach((item) => pushOption(item.name))
+    pushOption(raceDraft)
+    return items
+  }, [characterRaceOptions, raceDraft])
+  const selectedRaceOption = useMemo(
+    () => raceOptions.find((option) => option.value === normalizedRaceDraft) ?? null,
+    [normalizedRaceDraft, raceOptions],
+  )
   const selectedAiAvatarModelOption = useMemo(
     () =>
       CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS.find((option) => option.id === aiAvatarModelDraft) ??
@@ -585,6 +677,11 @@ function CharacterManagerDialog({
     setEditingCharacterId(null)
     setNameDraft('')
     setDescriptionDraft('')
+    setRaceDraft('')
+    setRaceInputDraft('')
+    setClothingDraft('')
+    setInventoryDraft('')
+    setHealthStatusDraft('')
     setNoteDraft('')
     setTriggersDraft('')
     setAvatarDraft(null)
@@ -605,6 +702,7 @@ function CharacterManagerDialog({
     setSelectedEmotionIdsDraft([...CHARACTER_EMOTION_IDS])
     setIsGeneratingEmotionPack(false)
     setEmotionGenerationProgressLabel('')
+    setIsAdditionalFieldsExpanded(false)
     setAvatarError('')
   }, [clearEmotionPresetDraft])
 
@@ -619,6 +717,10 @@ function CharacterManagerDialog({
           ...item,
           name: typeof item.name === 'string' ? item.name : '',
           description: typeof item.description === 'string' ? item.description : '',
+          race: typeof item.race === 'string' ? item.race : '',
+          clothing: typeof item.clothing === 'string' ? item.clothing : '',
+          inventory: typeof item.inventory === 'string' ? item.inventory : '',
+          health_status: typeof item.health_status === 'string' ? item.health_status : '',
           note: typeof item.note === 'string' ? item.note : '',
           triggers: Array.isArray(item.triggers) ? item.triggers.filter((value): value is string => typeof value === 'string') : [],
           avatar_url: typeof item.avatar_url === 'string' ? item.avatar_url : null,
@@ -632,6 +734,20 @@ function CharacterManagerDialog({
     } finally {
       setIsLoadingCharacters(false)
       setHasLoadedCharacters(true)
+    }
+  }, [authToken])
+
+  const loadCharacterRaces = useCallback(async () => {
+    setIsLoadingCharacterRaces(true)
+    try {
+      const loadedRaces = await listStoryCharacterRaces({ token: authToken })
+      setCharacterRaceOptions(loadedRaces)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить расы персонажей'
+      setErrorMessage(detail)
+      setCharacterRaceOptions([])
+    } finally {
+      setIsLoadingCharacterRaces(false)
     }
   }, [authToken])
 
@@ -649,6 +765,8 @@ function CharacterManagerDialog({
       setEmotionGenerationProgressLabel('')
       setHasAppliedInitialAction(false)
       setHasLoadedCharacters(false)
+      setCharacterRaceOptions([])
+      setRaceInputDraft('')
       return
     }
     setHasLoadedCharacters(false)
@@ -660,7 +778,8 @@ function CharacterManagerDialog({
     setHasAppliedInitialAction(false)
     resetDraft()
     void loadCharacters()
-  }, [loadCharacters, open, resetDraft])
+    void loadCharacterRaces()
+  }, [loadCharacterRaces, loadCharacters, open, resetDraft])
 
   const handleCloseDialog = () => {
     if (isCharacterDialogBusy) {
@@ -717,6 +836,11 @@ function CharacterManagerDialog({
     setEditingCharacterId(character.id)
     setNameDraft(character.name)
     setDescriptionDraft(character.description)
+    setRaceDraft(character.race ?? '')
+    setRaceInputDraft(character.race ?? '')
+    setClothingDraft(character.clothing ?? '')
+    setInventoryDraft(character.inventory ?? '')
+    setHealthStatusDraft(character.health_status ?? '')
     setNoteDraft(character.note)
     setTriggersDraft(character.triggers.join(', '))
     setAvatarDraft(character.avatar_url)
@@ -735,6 +859,11 @@ function CharacterManagerDialog({
     setIsEmotionDialogOpen(false)
     setSelectedEmotionIdsDraft([...CHARACTER_EMOTION_IDS])
     setEmotionGenerationProgressLabel('')
+    setIsAdditionalFieldsExpanded(
+      Boolean(
+        (character.clothing ?? '').trim() || (character.inventory ?? '').trim() || (character.health_status ?? '').trim(),
+      ),
+    )
     setAvatarError('')
     setIsEditorOpen(true)
   }, [isCharacterDialogBusy])
@@ -866,6 +995,56 @@ function CharacterManagerDialog({
     setEmotionGenerationProgressLabel('')
     setIsEmotionDialogOpen(false)
   }, [isGeneratingEmotionPack])
+
+  const handleCreateRace = useCallback(
+    async (rawValue: string) => {
+      const normalizedValue = normalizeCharacterRaceDraft(rawValue)
+      if (!normalizedValue || isSavingCharacterRace) {
+        return
+      }
+      setIsSavingCharacterRace(true)
+      setErrorMessage('')
+      try {
+        const createdRace = await createStoryCharacterRace({
+          token: authToken,
+          name: normalizedValue,
+        })
+        setCharacterRaceOptions((previous) => {
+          const nextItems = [...previous.filter((item) => item.id !== createdRace.id), createdRace]
+          nextItems.sort((left, right) => left.name.localeCompare(right.name, 'ru', { sensitivity: 'base' }))
+          return nextItems
+        })
+        setRaceDraft(createdRace.name)
+        setRaceInputDraft(createdRace.name)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось сохранить новую расу'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingCharacterRace(false)
+      }
+    },
+    [authToken, isSavingCharacterRace],
+  )
+
+  const handleRaceSelectionChange = useCallback(
+    (_event: unknown, option: CharacterRaceOption | null) => {
+      if (isAvatarActionsLocked) {
+        return
+      }
+      if (!option) {
+        setRaceDraft('')
+        setRaceInputDraft('')
+        return
+      }
+      if (option.isCreateAction) {
+        void handleCreateRace(option.value)
+        return
+      }
+      setRaceDraft(option.value)
+      setRaceInputDraft(option.value)
+    },
+    [handleCreateRace, isAvatarActionsLocked],
+  )
 
   const handleGenerateAiAvatar = useCallback(async () => {
     if (isCharacterDialogBusy) {
@@ -1052,6 +1231,10 @@ function CharacterManagerDialog({
     }
     const normalizedName = nameDraft.replace(/\s+/g, ' ').trim()
     const normalizedDescription = descriptionDraft.replace(/\r\n/g, '\n').trim()
+    const normalizedRace = normalizeCharacterRaceDraft(raceDraft)
+    const normalizedClothing = normalizeCharacterAdditionalDraft(clothingDraft)
+    const normalizedInventory = normalizeCharacterAdditionalDraft(inventoryDraft)
+    const normalizedHealthStatus = normalizeCharacterAdditionalDraft(healthStatusDraft)
     const normalizedNote = normalizeCharacterNoteDraft(noteDraft)
 
     if (!normalizedName) {
@@ -1086,6 +1269,10 @@ function CharacterManagerDialog({
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            race: normalizedRace,
+            clothing: normalizedClothing,
+            inventory: normalizedInventory,
+            health_status: normalizedHealthStatus,
             note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
@@ -1106,6 +1293,10 @@ function CharacterManagerDialog({
           input: {
             name: normalizedName,
             description: normalizedDescription,
+            race: normalizedRace,
+            clothing: normalizedClothing,
+            inventory: normalizedInventory,
+            health_status: normalizedHealthStatus,
             note: normalizedNote,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
@@ -1142,11 +1333,15 @@ function CharacterManagerDialog({
     emotionModelDraft,
     emotionPromptLockDraft,
     editingCharacterId,
+    clothingDraft,
+    healthStatusDraft,
+    inventoryDraft,
     isAvatarActionsLocked,
     loadCharacters,
     nameDraft,
     noteDraft,
     preserveExistingEmotionsDraft,
+    raceDraft,
     resetDraft,
     showEmotionTools,
     triggersDraft,
@@ -1534,6 +1729,60 @@ function CharacterManagerDialog({
                   style={{ display: 'none' }}
                 />
 
+                <Autocomplete<CharacterRaceOption, false, false, false>
+                  options={raceOptions}
+                  value={selectedRaceOption}
+                  inputValue={raceInputDraft}
+                  onInputChange={(_event, nextValue, reason) => {
+                    if (reason === 'reset') {
+                      setRaceInputDraft(selectedRaceOption?.value ?? '')
+                      return
+                    }
+                    setRaceInputDraft(nextValue.slice(0, CHARACTER_RACE_MAX_LENGTH))
+                  }}
+                  onChange={handleRaceSelectionChange}
+                  filterOptions={(options, params) => {
+                    const filtered = filterCharacterRaceOptions(options, params)
+                    const normalizedInputValue = normalizeCharacterRaceDraft(params.inputValue)
+                    const hasExactMatch = options.some(
+                      (option) => option.value.toLocaleLowerCase() === normalizedInputValue.toLocaleLowerCase(),
+                    )
+                    if (normalizedInputValue && !hasExactMatch) {
+                      filtered.push({
+                        label: `Добавить: ${normalizedInputValue}`,
+                        value: normalizedInputValue,
+                        isCreateAction: true,
+                      })
+                    }
+                    return filtered
+                  }}
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value}
+                  loading={isLoadingCharacterRaces || isSavingCharacterRace}
+                  disabled={isAvatarActionsLocked || isSavingCharacterRace}
+                  clearOnBlur
+                  selectOnFocus
+                  handleHomeEndKeys
+                  renderOption={(props, option) => (
+                    <Box component="li" {...props}>
+                      {option.label}
+                    </Box>
+                  )}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Раса"
+                      placeholder="Выберите или добавьте расу"
+                      inputProps={{
+                        ...params.inputProps,
+                        maxLength: CHARACTER_RACE_MAX_LENGTH,
+                      }}
+                      helperText={<TextLimitIndicator currentLength={normalizedRaceInputDraft.length} maxLength={CHARACTER_RACE_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                    />
+                  )}
+                />
+
                 <TextField
                   label="Имя"
                   value={nameDraft}
@@ -1557,6 +1806,84 @@ function CharacterManagerDialog({
                   helperText={<TextLimitIndicator currentLength={descriptionDraft.length} maxLength={CHARACTER_DESCRIPTION_MAX_LENGTH} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
+                <Stack spacing={0.7}>
+                  <Button
+                    onClick={() => setIsAdditionalFieldsExpanded((previous) => !previous)}
+                    disabled={isAvatarActionsLocked}
+                    sx={{
+                      width: '100%',
+                      minHeight: 42,
+                      px: 0,
+                      pb: 0.55,
+                      borderRadius: 0,
+                      justifyContent: 'space-between',
+                      textTransform: 'none',
+                      color: 'var(--morius-title-text)',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                      boxShadow: 'none',
+                      '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                    }}
+                  >
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                      Дополнительно
+                    </Typography>
+                    <SvgIcon
+                      sx={{
+                        fontSize: 20,
+                        color: 'var(--morius-text-secondary)',
+                        transform: isAdditionalFieldsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                        transition: 'transform 180ms ease',
+                      }}
+                    >
+                      <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                    </SvgIcon>
+                  </Button>
+                  <Collapse in={isAdditionalFieldsExpanded} timeout={180} unmountOnExit>
+                    <Stack spacing={0.9}>
+                      <TextField
+                        label="Одежда"
+                        value={clothingDraft}
+                        onChange={(event) => setClothingDraft(event.target.value.slice(0, CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH))}
+                        fullWidth
+                        multiline
+                        minRows={3}
+                        maxRows={6}
+                        disabled={isAvatarActionsLocked}
+                        inputProps={{ maxLength: CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH }}
+                        helperText={<TextLimitIndicator currentLength={clothingDraft.length} maxLength={CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH} />}
+                        FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      />
+                      <TextField
+                        label="Инвентарь"
+                        value={inventoryDraft}
+                        onChange={(event) => setInventoryDraft(event.target.value.slice(0, CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH))}
+                        fullWidth
+                        multiline
+                        minRows={3}
+                        maxRows={6}
+                        disabled={isAvatarActionsLocked}
+                        inputProps={{ maxLength: CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH }}
+                        helperText={<TextLimitIndicator currentLength={inventoryDraft.length} maxLength={CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH} />}
+                        FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      />
+                      <TextField
+                        label="Состояние здоровья"
+                        value={healthStatusDraft}
+                        onChange={(event) => setHealthStatusDraft(event.target.value.slice(0, CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH))}
+                        fullWidth
+                        multiline
+                        minRows={2}
+                        maxRows={5}
+                        disabled={isAvatarActionsLocked}
+                        inputProps={{ maxLength: CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH }}
+                        helperText={<TextLimitIndicator currentLength={healthStatusDraft.length} maxLength={CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH} />}
+                        FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      />
+                    </Stack>
+                  </Collapse>
+                </Stack>
                 <TextField
                   label="Триггеры"
                   data-tour-id="character-manager-triggers-section"
@@ -1584,6 +1911,7 @@ function CharacterManagerDialog({
                   helperText={<TextLimitIndicator currentLength={noteDraft.length} maxLength={CHARACTER_NOTE_MAX_LENGTH} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
                 />
+                {extraEditorContent ? <Box>{extraEditorContent}</Box> : null}
                 <Stack spacing={0.6}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem', fontWeight: 700 }}>
                     Видимость карточки
@@ -1595,9 +1923,10 @@ function CharacterManagerDialog({
                       sx={{
                         minHeight: 34,
                         borderRadius: '10px',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: visibilityDraft === 'private' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                        color: 'var(--morius-text-primary)',
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        color: visibilityDraft === 'private' ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                        fontWeight: visibilityDraft === 'private' ? 800 : 650,
                         textTransform: 'none',
                         '&:hover': {
                           backgroundColor: 'transparent',
@@ -1612,9 +1941,10 @@ function CharacterManagerDialog({
                       sx={{
                         minHeight: 34,
                         borderRadius: '10px',
-                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                        backgroundColor: visibilityDraft === 'public' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                        color: 'var(--morius-text-primary)',
+                        border: 'none',
+                        backgroundColor: 'transparent',
+                        color: visibilityDraft === 'public' ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                        fontWeight: visibilityDraft === 'public' ? 800 : 650,
                         textTransform: 'none',
                         '&:hover': {
                           backgroundColor: 'transparent',
@@ -1824,7 +2154,7 @@ function CharacterManagerDialog({
                       eyebrow={character.note || (character.triggers.length > 0 ? `Триггеры: ${character.triggers.join(', ')}` : null)}
                       footerHint={character.visibility === 'public' ? 'Публичный персонаж' : 'Приватный персонаж'}
                       metaPrimary={showEmotionTools ? `Эмоции ${emotionReadyCount}/${CHARACTER_EMOTION_IDS.length}` : null}
-                      metaSecondary={character.visibility === 'public' ? 'Public' : 'Private'}
+                      metaSecondary={character.race ? `Раса: ${character.race}` : character.visibility === 'public' ? 'Public' : 'Private'}
                       minHeight={300}
                       actionSlot={
                         <IconButton

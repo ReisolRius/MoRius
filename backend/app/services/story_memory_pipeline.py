@@ -3,11 +3,17 @@ from __future__ import annotations
 
 
 from app import main as monolith_main
+from app.services.story_character_state_snapshots import (
+    create_story_character_state_assistant_snapshot as _create_story_character_state_assistant_snapshot,
+    ensure_story_character_state_snapshot_baseline as _ensure_story_character_state_snapshot_baseline,
+)
 from app.services.story_games import (
+    deserialize_story_character_state_cards_payload as _deserialize_story_character_state_cards_payload,
     deserialize_story_environment_datetime as _deserialize_story_environment_datetime,
     deserialize_story_environment_weather as _deserialize_story_environment_weather,
     normalize_story_environment_enabled as _normalize_story_environment_enabled,
     normalize_story_environment_turn_step_minutes as _normalize_story_environment_turn_step_minutes,
+    serialize_story_character_state_cards_payload as _serialize_story_character_state_cards_payload,
     serialize_story_environment_datetime as _serialize_story_environment_datetime,
     serialize_story_environment_weather as _serialize_story_environment_weather,
 )
@@ -33,11 +39,71 @@ def _bind_monolith_names() -> None:
 
 _bind_monolith_names()
 
+STORY_CHARACTER_STATE_KIND_MAIN_HERO = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_MAIN_HERO", "main_hero")
+STORY_CHARACTER_STATE_KIND_NPC = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_NPC", "npc")
+STORY_CHARACTER_STATE_REQUEST_MAX_TOKENS = getattr(monolith_main, "STORY_CHARACTER_STATE_REQUEST_MAX_TOKENS", 700)
+STORY_CHARACTER_STATE_CARD_CONTENT_MAX_CHARS = getattr(
+    monolith_main,
+    "STORY_CHARACTER_STATE_CARD_CONTENT_MAX_CHARS",
+    900,
+)
+STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE = getattr(
+    monolith_main,
+    "STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE",
+    "Состояние: Главный герой",
+)
+STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX = getattr(
+    monolith_main,
+    "STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX",
+    "Состояние NPC:",
+)
+STORY_CHARACTER_STATE_SERVICE_TAG_OPEN = getattr(
+    monolith_main,
+    "STORY_CHARACTER_STATE_SERVICE_TAG_OPEN",
+    "<character_state_service>",
+)
+STORY_CHARACTER_STATE_SERVICE_TAG_CLOSE = getattr(
+    monolith_main,
+    "STORY_CHARACTER_STATE_SERVICE_TAG_CLOSE",
+    "</character_state_service>",
+)
+STORY_CHARACTER_STATE_ATTITUDE_TO_HERO_LABELS = tuple(
+    getattr(
+        monolith_main,
+        "STORY_CHARACTER_STATE_ATTITUDE_TO_HERO_LABELS",
+        (
+            "нейтральное",
+            "доброжелательное",
+            "заинтересованное",
+            "доверительное",
+            "дружественное",
+            "зависимое",
+            "романтическое",
+            "враждебное",
+        ),
+    )
+)
+
 
 
 def _normalize_story_environment_datetime(value: str | None) -> str:
 
     return _serialize_story_environment_datetime(_deserialize_story_environment_datetime(value))
+
+
+def _normalize_story_character_state_cards_payload(value: Any) -> list[dict[str, Any]]:
+
+    if isinstance(value, str):
+
+        return _deserialize_story_character_state_cards_payload(value)
+
+    try:
+
+        return _deserialize_story_character_state_cards_payload(json.dumps(value or [], ensure_ascii=False))
+
+    except (TypeError, ValueError):
+
+        return []
 
 
 
@@ -727,18 +793,6 @@ def _repair_story_environment_weather_payload(
 
     if ensure_timeline:
 
-        raw_timeline = next_weather.get("timeline")
-
-        timeline_entries = raw_timeline if isinstance(raw_timeline, list) else []
-
-        if not timeline_entries:
-
-            fallback_timeline = _build_story_environment_fallback_timeline(next_weather)
-
-            if fallback_timeline:
-
-                next_weather["timeline"] = fallback_timeline
-
         canonical_timeline = _build_story_environment_canonical_timeline(
             next_weather,
             target_day_date=resolved_day_date,
@@ -779,37 +833,7 @@ def _repair_story_environment_weather_payload(
 
     )
 
-    final_weather = _normalize_story_environment_weather_payload(guarded_weather or repaired_weather)
-    if (
-        isinstance(final_weather, dict)
-        and _story_environment_weather_is_stale_generic(
-            final_weather,
-            expected_day_date=resolved_day_date,
-            require_timeline=ensure_timeline,
-        )
-    ):
-
-        fallback_weather = _build_story_environment_non_generic_fallback_weather_payload(
-            reference_datetime=reference_datetime,
-            target_day_date=resolved_day_date,
-            supporting_text=supporting_text,
-            ensure_timeline=ensure_timeline,
-        )
-        if isinstance(fallback_weather, dict):
-
-            if align_to_current_period:
-
-                aligned_fallback_weather = _align_story_environment_weather_to_datetime(
-                    weather_payload=fallback_weather,
-                    current_datetime=reference_datetime,
-                    target_day_date=resolved_day_date or None,
-                )
-                if isinstance(aligned_fallback_weather, dict):
-
-                    fallback_weather = aligned_fallback_weather
-            return _normalize_story_environment_weather_payload(fallback_weather)
-
-    return final_weather
+    return _normalize_story_environment_weather_payload(guarded_weather or repaired_weather)
 
 
 
@@ -1445,12 +1469,15 @@ def _legacy__extract_story_location_memory_payload_v1(
                 "The latest player turn may also establish or refine the current place when it explicitly states where the hero enters, goes, stands, remains, or moves, "
                 "and the newest narrator reply continues that same scene without contradicting that place. "
                 "Never invent, expand, rename, or embellish a place. "
+                "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it. "
 
                 "Prefer the most specific currently active location that also keeps the wider context when it is explicit, "
+                "and prefer the closest physical anchor of the current scene: doorway, entrance, threshold, counter, table, corridor, room, hall, yard, alley, stair, gate, platform, carriage, bank, shore, campfire, or similar immediate sublocation, when it is explicit. "
 
                 "for example use 'Действие происходит в лагере разбойников в лесу.' instead of only '...в лагере разбойников.' "
 
                 "Keep immediate enclosing context like forest, cave, district, temple wing, mountain pass, cellar, or shoreline when the narrator explicitly gives it. "
+                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label. "
 
                 "If the newest narrator reply does not clearly restate a current place, keep the saved place when it is still valid. "
                 "If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction. "
@@ -1473,7 +1500,7 @@ def _legacy__extract_story_location_memory_payload_v1(
 
                 "2-12 words, max 160 chars, with the explicit place and immediate context, for example "
 
-                "\"В таверне «Хитрый лис» в столице\" or \"В лесу по дороге к Франкфурту\". "
+                "\"В школьной библиотеке\" or \"В лагере разбойников в лесу\". "
 
                 "Do not use pronouns, placeholders, or vague labels like \"здесь\"."
             ),
@@ -1572,20 +1599,6 @@ def _legacy__extract_story_location_memory_payload_v1(
         parsed_payload = _extract_json_object_from_text(normalized_response)
 
         if not isinstance(parsed_payload, dict) or not parsed_payload:
-
-            fallback_content = _normalize_story_location_memory_content(normalized_response)
-
-            if fallback_content:
-
-                return {
-
-                    "action": "update",
-
-                    "content": fallback_content,
-
-                    "label": _resolve_story_location_memory_label(content=fallback_content),
-
-                }
             if attempt_index == 0:
 
                 time.sleep(0.15)
@@ -1609,8 +1622,6 @@ def _legacy__extract_story_location_memory_payload_v1(
             parsed_payload.get("content")
 
             or parsed_payload.get("location_sentence")
-
-            or parsed_payload.get("location")
 
             or ""
 
@@ -1665,16 +1676,16 @@ def _extract_story_location_memory_payload(
     normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_200)
     normalized_previous_assistant = _normalize_story_prompt_text(previous_assistant_text, max_chars=2_400)
     normalized_latest_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=3_200)
-    fallback_from_player_turn = _build_story_location_fallback_payload_from_player_turn(
-        latest_user_prompt=latest_user_prompt,
-        latest_assistant_text=latest_assistant_text,
-    )
-
-    if not normalized_current_location and not normalized_previous_assistant and not normalized_latest_assistant:
-        return fallback_from_player_turn
+    if (
+        not normalized_current_location
+        and not normalized_user_prompt
+        and not normalized_previous_assistant
+        and not normalized_latest_assistant
+    ):
+        return None
 
     if not settings.openrouter_api_key:
-        return fallback_from_player_turn
+        return None
 
 
     messages_payload = [
@@ -1686,12 +1697,17 @@ def _extract_story_location_memory_payload(
                 "The latest player turn may also establish or refine the current place when it explicitly states where the hero enters, goes, stands, remains, or moves, "
                 "and the newest narrator reply continues that same scene without contradicting that place. "
                 "Never invent, expand, rename, or embellish a place. "
+                "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it. "
                 "Prefer the most specific currently active location that also keeps the wider context when it is explicit, "
                 "for example use 'Действие происходит в лагере разбойников в лесу.' instead of only '...в лагере разбойников.' "
                 "Keep immediate enclosing context like forest, cave, district, temple wing, mountain pass, cellar, or shoreline when the narrator explicitly gives it. "
                 "If the newest narrator reply does not clearly restate a current place, keep the saved place when it is still valid. "
                 "If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction. "
                 "If the newest narrator reply suddenly conflicts with the saved location but there is no explicit transition, travel, arrival, exit, or sustained scene change across the last two narrator replies, return keep. "
+                "If the text only gives a local scene like hot springs near Tokyo, a school corridor, a bench by the library, or a room in an inn, do not replace it with a made-up city, capital, kingdom, tavern, or world label. "
+                "Prefer the closest physical anchor of the current scene when it is explicit: doorway, entrance, threshold, counter, table, corridor, room, hall, yard, alley, stair, gate, platform, carriage, bank, shore, campfire, or similar immediate sublocation. "
+                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label. "
+                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'РЅРѕС‡СЊСЋ', 'РІРµС‡РµСЂРѕРј', 'СѓС‚СЂРѕРј', 'РІ 16:00', or similar time markers. "
                 "Return strict JSON only without markdown. "
                 "Valid outputs are exactly: "
                 "{\"action\":\"keep\"} "
@@ -1701,7 +1717,7 @@ def _extract_story_location_memory_payload(
                 "\"Действие происходит\" or \"События происходят\". "
                 "For action=update, label must be a short Russian UI label without a final period, "
                 "2-12 words, max 160 chars, with the explicit place and immediate context, for example "
-                "\"В таверне «Хитрый лис» в столице\" or \"В лесу по дороге к Франкфурту\". "
+                "\"В школьной библиотеке\" or \"В лагере разбойников в лесу\". "
                 "Do not use pronouns, placeholders, or vague labels like \"здесь\"."
             ),
         },
@@ -1740,40 +1756,32 @@ def _extract_story_location_memory_payload(
             if attempt_index == 0:
                 time.sleep(0.25)
                 continue
-            return fallback_from_player_turn
+            return None
 
         normalized_response = raw_response.replace("\r\n", "\n").strip()
         if not normalized_response:
             if attempt_index == 0:
                 time.sleep(0.15)
                 continue
-            return fallback_from_player_turn
+            return None
 
         if normalized_response.upper() == "KEEP":
-            return fallback_from_player_turn or {"action": "keep"}
+            return {"action": "keep"}
 
         parsed_payload = _extract_json_object_from_text(normalized_response)
         if not isinstance(parsed_payload, dict) or not parsed_payload:
-            fallback_content = _normalize_story_location_memory_content(normalized_response)
-            if fallback_content:
-                return {
-                    "action": "update",
-                    "content": fallback_content,
-                    "label": _resolve_story_location_memory_label(content=fallback_content),
-                }
             if attempt_index == 0:
                 time.sleep(0.15)
                 continue
-            return fallback_from_player_turn
+            return None
 
         raw_action = str(parsed_payload.get("action") or "").strip().lower()
         if raw_action in {"keep", "leave", "preserve", "unchanged", "same"}:
-            return fallback_from_player_turn or {"action": "keep"}
+            return {"action": "keep"}
 
         raw_content = (
             parsed_payload.get("content")
             or parsed_payload.get("location_sentence")
-            or parsed_payload.get("location")
             or ""
         )
         normalized_content = _normalize_story_location_memory_content(str(raw_content))
@@ -1791,9 +1799,9 @@ def _extract_story_location_memory_payload(
             time.sleep(0.15)
             continue
 
-        return fallback_from_player_turn
+        return None
 
-    return fallback_from_player_turn
+    return None
 
 
 _LOCATION_SENTENCE_ACTION_LOWER = (
@@ -2013,33 +2021,6 @@ def _build_story_location_fallback_payload_from_player_turn(
     latest_user_prompt: str,
     latest_assistant_text: str,
 ) -> dict[str, str] | None:
-    normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=900)
-    if not normalized_user_prompt:
-        return None
-
-    normalized_latest_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=1_800)
-    if normalized_latest_assistant and STORY_LOCATION_FALLBACK_ASSISTANT_BLOCKER_PATTERN.search(
-        normalized_latest_assistant
-    ):
-        return None
-
-    matches = list(STORY_LOCATION_FALLBACK_PLAYER_TURN_PATTERN.finditer(normalized_user_prompt))
-    for match in reversed(matches):
-        phrase = " ".join(str(match.group("phrase") or "").split()).strip(" ,.;:-")
-        if not _story_location_phrase_looks_concrete(phrase):
-            continue
-
-        normalized_content = _normalize_story_location_memory_content(
-            f"{_LOCATION_SENTENCE_ACTION} {phrase}."
-        )
-        if not normalized_content:
-            continue
-
-        return {
-            "action": "update",
-            "content": normalized_content,
-            "label": _resolve_story_location_memory_label(content=normalized_content),
-        }
     return None
 
 
@@ -2051,6 +2032,9 @@ def _normalize_story_location_memory_content(value: str) -> str:
         normalized = normalized[: STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?\u2026") + "."
     if normalized[-1] not in ".!?\u2026":
         normalized = f"{normalized}."
+    normalized = _strip_story_location_time_context(normalized)
+    if not normalized:
+        return ""
 
     normalized_casefold = normalized.casefold()
     for source_prefix, normalized_prefix in (
@@ -2073,6 +2057,7 @@ def _normalize_story_location_memory_label(value: str) -> str:
         if normalized_casefold.startswith(prefix):
             normalized = normalized[len(prefix) :].strip(_LOCATION_LABEL_STRIP_CHARS)
             break
+    normalized = _strip_story_location_time_context(normalized).strip(_LOCATION_LABEL_STRIP_CHARS)
 
     if not normalized:
         return ""
@@ -2088,6 +2073,131 @@ def _resolve_story_location_memory_label(*, label: str | None = None, content: s
     if normalized_label:
         return normalized_label
     return _normalize_story_location_memory_label(content or "")
+
+
+_STORY_LOCATION_TRAILING_NAMED_TAIL_PATTERN = re.compile(
+    r"(?P<head>.+)\s+(?P<tail>(?:в|во|на|у|около|возле|рядом с|внутри|посреди|за|перед|напротив)\s+(?:[а-яё-]+\s+){0,4}[А-ЯЁA-Z][^,.!?:;\n]{1,96})$",
+    re.IGNORECASE,
+)
+
+_STORY_LOCATION_NAMED_TOKEN_STOPWORDS = {
+    "действие",
+    "события",
+    "в",
+    "во",
+    "на",
+    "у",
+    "около",
+    "возле",
+    "рядом",
+    "с",
+    "внутри",
+    "посреди",
+    "за",
+    "перед",
+    "напротив",
+    "городе",
+    "город",
+    "столице",
+    "столица",
+    "районе",
+    "район",
+    "квартале",
+    "квартал",
+    "стране",
+    "страна",
+    "королевстве",
+    "королевство",
+    "империи",
+    "империя",
+    "провинции",
+    "провинция",
+    "области",
+    "область",
+}
+
+
+def _story_location_phrase_has_local_keyword_fragment(value: str) -> bool:
+    lowered = " ".join(str(value or "").split()).casefold()
+    if not lowered:
+        return False
+    return any(fragment in lowered for fragment in STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS)
+
+
+def _extract_story_location_named_tokens_for_support(value: str) -> list[str]:
+    normalized = " ".join(str(value or "").split()).strip()
+    if not normalized:
+        return []
+    named_tokens: list[str] = []
+    seen_tokens: set[str] = set()
+    for token in re.findall(r"\b[А-ЯЁA-Z][A-Za-zА-Яа-яЁё'-]{2,}\b", normalized):
+        lowered = token.casefold()
+        if lowered in _STORY_LOCATION_NAMED_TOKEN_STOPWORDS:
+            continue
+        if lowered in seen_tokens:
+            continue
+        seen_tokens.add(lowered)
+        named_tokens.append(token)
+    return named_tokens
+
+
+def _sanitize_story_location_memory_content_against_recent_scene(
+    *,
+    content: str,
+    latest_user_prompt: str,
+    previous_assistant_text: str,
+    latest_assistant_text: str,
+) -> str:
+    normalized_content = _normalize_story_location_memory_content(content)
+    if not normalized_content:
+        return ""
+
+    phrase = _normalize_story_location_memory_label(normalized_content)
+    if not phrase:
+        return normalized_content
+
+    recent_source_text = " ".join(
+        part.casefold()
+        for part in (
+            _normalize_story_prompt_text(latest_user_prompt, max_chars=1_200),
+            _normalize_story_prompt_text(previous_assistant_text, max_chars=2_400),
+            _normalize_story_prompt_text(latest_assistant_text, max_chars=3_200),
+        )
+        if part
+    ).strip()
+    if not recent_source_text:
+        return normalized_content
+
+    current_phrase = phrase
+    for _ in range(3):
+        tail_match = _STORY_LOCATION_TRAILING_NAMED_TAIL_PATTERN.search(current_phrase)
+        if not tail_match:
+            break
+        candidate_head = " ".join(str(tail_match.group("head") or "").split()).strip(_LOCATION_LABEL_STRIP_CHARS)
+        candidate_tail = " ".join(str(tail_match.group("tail") or "").split()).strip(_LOCATION_LABEL_STRIP_CHARS)
+        tail_named_tokens = _extract_story_location_named_tokens_for_support(candidate_tail)
+        if not tail_named_tokens:
+            break
+        unsupported_tail_tokens = [
+            token for token in tail_named_tokens if token.casefold() not in recent_source_text
+        ]
+        if not unsupported_tail_tokens:
+            break
+        if not candidate_head or not _story_location_phrase_looks_concrete(candidate_head):
+            return ""
+        current_phrase = candidate_head
+
+    remaining_named_tokens = _extract_story_location_named_tokens_for_support(current_phrase)
+    unsupported_remaining_tokens = [
+        token for token in remaining_named_tokens if token.casefold() not in recent_source_text
+    ]
+    if unsupported_remaining_tokens and not _story_location_phrase_has_local_keyword_fragment(current_phrase):
+        return ""
+
+    if current_phrase and current_phrase[0].isupper():
+        current_phrase = current_phrase[:1].lower() + current_phrase[1:]
+
+    return _normalize_story_location_memory_content(f"{_LOCATION_SENTENCE_ACTION} {current_phrase}.")
 
 
 def _upsert_story_location_memory_block(
@@ -2217,7 +2327,6 @@ def _upsert_story_location_memory_block(
         content=previous_location_content,
 
     )
-
     resolved_previous_assistant_text = (
         previous_assistant_text.replace("\r\n", "\n").strip()
 
@@ -2236,23 +2345,14 @@ def _upsert_story_location_memory_block(
     )
 
     resolved_payload = (
-
-        resolved_payload_override
-
+        _normalize_story_location_analysis_payload(resolved_payload_override)
         if isinstance(resolved_payload_override, dict)
-
         else _extract_story_location_memory_payload(
-
             current_location_content=previous_location_content,
-
             latest_user_prompt=resolved_latest_user_prompt,
-
             previous_assistant_text=resolved_previous_assistant_text,
-
             latest_assistant_text=resolved_latest_assistant_text,
-
         )
-
     )
 
 
@@ -2276,27 +2376,45 @@ def _upsert_story_location_memory_block(
 
     if resolved_payload.get("action") == "keep":
 
-        label_changed = _sync_story_game_current_location_label(game, previous_location_label)
-        if current_blocks:
-            for block in current_blocks:
+        current_location_content = (
+            _normalize_story_location_memory_content(current_block.content)
+            if isinstance(current_block, StoryMemoryBlock)
+            else ""
+        )
+        current_location_label = _resolve_story_location_memory_label(
+            label="",
+            content=current_location_content,
+        )
+        label_changed = _sync_story_game_current_location_label(
+            game,
+            current_location_label or previous_location_label,
+        )
+        if current_block is not None:
+            changed = False
+            for block in duplicate_blocks:
 
                 db.delete(block)
+                changed = True
 
-            db.flush()
+            if changed or label_changed:
 
-            logger.info(
+                db.flush()
 
-                "Story location memory kept unchanged: game_id=%s assistant_message_id=%s current=%s",
+                logger.info(
 
-                game.id,
+                    "Story location memory preserved existing block: game_id=%s assistant_message_id=%s current=%s",
 
-                assistant_message.id,
+                    game.id,
 
-                previous_location_content or "none",
+                    assistant_message.id,
 
-            )
+                    current_location_content or previous_location_content or "none",
 
-            return True
+                )
+
+                return True
+
+            return False
 
         if label_changed:
 
@@ -2308,7 +2426,9 @@ def _upsert_story_location_memory_block(
 
 
 
-    normalized_content = _normalize_story_location_memory_content(str(resolved_payload.get("content") or ""))
+    normalized_content = _normalize_story_location_memory_content(
+        str(resolved_payload.get("content") or "")
+    )
     normalized_label = _resolve_story_location_memory_label(
 
         label=str(resolved_payload.get("label") or ""),
@@ -2318,11 +2438,21 @@ def _upsert_story_location_memory_block(
     )
     if not normalized_content:
 
+        label_changed = _sync_story_game_current_location_label(
+            game,
+            previous_location_label,
+        )
         if duplicate_blocks:
 
             for block in duplicate_blocks:
 
                 db.delete(block)
+
+            db.flush()
+
+            return True
+
+        if label_changed:
 
             db.flush()
 
@@ -2822,11 +2952,11 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
 
     inferred_minutes: int | None = None
     inference_patterns: tuple[tuple[str, int], ...] = (
-        (r"\b(?:убегал|убегала|убегали|бежал|бежала|бежали|мчал(?:ся|ась|ись)|погоня|гнал(?:ся|ась|ись)|догонял(?:а|и)?)\b", 12),
-        (r"\b(?:шел|шла|шли|брел|брела|брели|ехал|ехала|ехали|добирал(?:ся|ась|ись)|дорога|путь)\b", 10),
-        (r"\b(?:лечил|лечила|лечили|перевязывал(?:а|и)?|обрабатывал(?:а|и)?|осматривал(?:а|и)?|искал(?:а|и)?|обыскивал(?:а|и)?)\b", 12),
-        (r"\b(?:ждал(?:а|и)?|ожидал(?:а|и)?|отдыхал(?:а|и)?|сидел(?:а|и)?|стоял(?:а|и)?)\b", 6),
-        (r"\b(?:говорил(?:а|и)?|сказал(?:а|и)?|ответил(?:а|и)?|спросил(?:а|и)?|кивнул(?:а|и)?)\b", 3),
+        (r"\b(?:убегал|убегала|убегали|бежал|бежала|бежали|мчал(?:ся|ась|ись)|погоня|гнал(?:ся|ась|ись)|догонял(?:а|и)?)\b", 6),
+        (r"\b(?:шел|шла|шли|брел|брела|брели|ехал|ехала|ехали|добирал(?:ся|ась|ись)|дорога|путь)\b", 4),
+        (r"\b(?:лечил|лечила|лечили|перевязывал(?:а|и)?|обрабатывал(?:а|и)?|осматривал(?:а|и)?|искал(?:а|и)?|обыскивал(?:а|и)?)\b", 6),
+        (r"\b(?:ждал(?:а|и)?|ожидал(?:а|и)?|отдыхал(?:а|и)?|сидел(?:а|и)?|стоял(?:а|и)?)\b", 3),
+        (r"\b(?:говорил(?:а|и)?|сказал(?:а|и)?|ответил(?:а|и)?|спросил(?:а|и)?|кивнул(?:а|и)?)\b", 2),
     )
     for pattern, minutes_value in inference_patterns:
         if re.search(pattern, normalized_lower, re.IGNORECASE):
@@ -2855,20 +2985,213 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
     )
 
     if inferred_minutes is None and has_long_duration_signal:
-        inferred_minutes = 15
+        inferred_minutes = 12
     if inferred_minutes is None and has_brief_signal:
         inferred_minutes = 2
     if inferred_minutes is None:
         return None
 
     if has_long_duration_signal:
-        inferred_minutes = max(inferred_minutes * 2, 12)
+        inferred_minutes = max(int(round(inferred_minutes * 1.5)), 10)
     if has_heavy_effort_signal:
-        inferred_minutes = max(int(round(inferred_minutes * 1.5)), inferred_minutes + 5)
+        inferred_minutes = max(int(round(inferred_minutes * 1.35)), inferred_minutes + 3)
     if has_brief_signal and not has_long_duration_signal:
         inferred_minutes = min(inferred_minutes, 3)
 
     return _clamp_elapsed_minutes(inferred_minutes)
+
+
+def _story_environment_has_brief_scene_signal(text: str) -> bool:
+
+    normalized_text = " ".join(str(text or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized_text:
+        return False
+    return bool(
+        re.search(
+            r"\b(?:коридор(?:е|у|ом)?|к\s+выходу|у\s+выхода|у\s+двери|на\s+пороге|пара\s+фраз|несколько\s+слов|коротк(?:о|ий|ая)|тихо\s+сказал(?:а|и)?|быстро\s+ответил(?:а|и)?|кивнул(?:а|и)?|одной\s+реплик(?:ой|ой))\b",
+            normalized_text,
+            re.IGNORECASE,
+        )
+    )
+
+
+_STORY_ENVIRONMENT_CONTEXTUAL_TIME_ANCHORS: tuple[tuple[str, re.Pattern[str], int, int, int], ...] = (
+    (
+        "breakfast",
+        re.compile(
+            r"\b(?:завтрак(?:а|у|ом)?|время\s+завтрака|к\s+завтраку|утренн(?:ий|ее)\s+прием\s+пищи|breakfast)\b",
+            re.IGNORECASE,
+        ),
+        6 * 60,
+        10 * 60 + 30,
+        8 * 60,
+    ),
+    (
+        "dawn",
+        re.compile(
+            r"\b(?:рассвет(?:е|а|ом)?|на\s+рассвете|с\s+рассветом|предрассветн(?:ое|ый|им)|early\s+dawn)\b",
+            re.IGNORECASE,
+        ),
+        4 * 60,
+        7 * 60 + 30,
+        5 * 60 + 30,
+    ),
+    (
+        "morning",
+        re.compile(
+            r"\b(?:утр(?:о|ом|а)|с\s+утра|ранн(?:ее|им)\s+утро|утренн(?:ий|яя|ее)|morning)\b",
+            re.IGNORECASE,
+        ),
+        5 * 60,
+        11 * 60 + 30,
+        8 * 60 + 30,
+    ),
+    (
+        "lunch",
+        re.compile(
+            r"\b(?:обед(?:а|у|ом)?|обеденн(?:ое|ый)\s+время|время\s+обеда|обеденный\s+перерыв|на\s+обеде|полдень|к\s+полудню|lunch)\b",
+            re.IGNORECASE,
+        ),
+        11 * 60 + 30,
+        14 * 60 + 30,
+        13 * 60,
+    ),
+    (
+        "after_school",
+        re.compile(
+            r"\b(?:уроки\s+(?:уже\s+)?законч(?:ились|илисься)|после\s+уроков|после\s+школы|после\s+пар|после\s+последнего\s+урока|после\s+занятий|занятия\s+законч(?:ились|ены)|учебный\s+день\s+законч(?:ился|ен)|школа\s+законч(?:илась|ена)|пары\s+законч(?:ились|илисься)|classes?\s+(?:are\s+)?over|after\s+school)\b",
+            re.IGNORECASE,
+        ),
+        12 * 60 + 30,
+        17 * 60,
+        14 * 60 + 30,
+    ),
+    (
+        "afternoon",
+        re.compile(
+            r"\b(?:после\s+обеда|днем|дн[её]м|дневн(?:ое|ой|ая)|afternoon)\b",
+            re.IGNORECASE,
+        ),
+        12 * 60,
+        17 * 60 + 30,
+        15 * 60,
+    ),
+    (
+        "after_work",
+        re.compile(
+            r"\b(?:после\s+работы|рабочий\s+день\s+законч(?:ился|ен)|смена\s+законч(?:илась|ена)|workday\s+ended|after\s+work)\b",
+            re.IGNORECASE,
+        ),
+        17 * 60,
+        21 * 60,
+        18 * 60 + 30,
+    ),
+    (
+        "dinner",
+        re.compile(
+            r"\b(?:ужин(?:а|у|ом|ать)?|время\s+ужина|к\s+ужину|dinner|supper)\b",
+            re.IGNORECASE,
+        ),
+        17 * 60 + 30,
+        21 * 60 + 30,
+        19 * 60,
+    ),
+    (
+        "evening",
+        re.compile(
+            r"\b(?:вечер(?:ом|а)?|под\s+вечер|к\s+вечеру|закат(?:е|а|ом)?|на\s+закате|evening|sunset)\b",
+            re.IGNORECASE,
+        ),
+        18 * 60,
+        22 * 60 + 30,
+        19 * 60 + 30,
+    ),
+    (
+        "night",
+        re.compile(
+            r"\b(?:ноч(?:ь|ью|и)|поздн(?:яя|ей)\s+ноч(?:ь|ью)|глубок(?:ая|ой)\s+ноч(?:ь|ью)|за\s+полночь|полноч(?:ь|и)|night|midnight)\b",
+            re.IGNORECASE,
+        ),
+        22 * 60,
+        4 * 60 + 30,
+        23 * 60 + 30,
+    ),
+)
+
+
+def _story_environment_minutes_in_window(minutes_value: int, start_minutes: int, end_minutes: int) -> bool:
+    normalized_minutes = int(minutes_value) % (24 * 60)
+    normalized_start = int(start_minutes) % (24 * 60)
+    normalized_end = int(end_minutes) % (24 * 60)
+    if normalized_start <= normalized_end:
+        return normalized_start <= normalized_minutes <= normalized_end
+    return normalized_minutes >= normalized_start or normalized_minutes <= normalized_end
+
+
+def _extract_story_environment_contextual_time_anchor(
+    * ,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> tuple[int, int, int] | None:
+    combined_sources = (
+        str(latest_user_prompt or "").strip(),
+        str(latest_assistant_text or "").strip(),
+    )
+    for source_text in combined_sources:
+        if not source_text:
+            continue
+        for _, pattern, start_minutes, end_minutes, target_minutes in _STORY_ENVIRONMENT_CONTEXTUAL_TIME_ANCHORS:
+            if pattern.search(source_text):
+                return (start_minutes, end_minutes, target_minutes)
+    return None
+
+
+def _reconcile_story_environment_datetime_with_contextual_time_anchors(
+    *,
+    saved_datetime: datetime | None,
+    candidate_datetime: datetime | None,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> tuple[datetime | None, bool]:
+    base_datetime = (
+        candidate_datetime
+        if isinstance(candidate_datetime, datetime)
+        else saved_datetime
+        if isinstance(saved_datetime, datetime)
+        else None
+    )
+    if not isinstance(base_datetime, datetime):
+        return (candidate_datetime, False)
+
+    source_text = "\n".join(
+        part.strip()
+        for part in (latest_user_prompt, latest_assistant_text)
+        if isinstance(part, str) and part.strip()
+    )
+    if not source_text or _story_environment_has_precise_clock_reference(source_text):
+        return (candidate_datetime, False)
+
+    contextual_anchor = _extract_story_environment_contextual_time_anchor(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+    )
+    if contextual_anchor is None:
+        return (candidate_datetime, False)
+
+    start_minutes, end_minutes, target_minutes = contextual_anchor
+    current_minutes = base_datetime.hour * 60 + base_datetime.minute
+    if _story_environment_minutes_in_window(current_minutes, start_minutes, end_minutes):
+        return (base_datetime, False)
+
+    normalized_target_minutes = int(target_minutes) % (24 * 60)
+    resolved_datetime = base_datetime.replace(
+        hour=normalized_target_minutes // 60,
+        minute=normalized_target_minutes % 60,
+        second=0,
+        microsecond=0,
+        tzinfo=None,
+    )
+    return (resolved_datetime, True)
 
 
 def _reconcile_story_environment_datetime_with_coarse_time_mentions(
@@ -2914,6 +3237,30 @@ def _reconcile_story_environment_datetime_with_coarse_time_mentions(
 
         return candidate_datetime
 
+    estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text)
+    if _story_environment_has_brief_scene_signal(source_text) and estimated_elapsed_minutes is not None:
+        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 4)
+    fallback_step_minutes = estimated_elapsed_minutes
+    if fallback_step_minutes is None:
+        fallback_step_minutes = max(
+            1,
+            _normalize_story_environment_turn_step_minutes(
+                getattr(game, "environment_turn_step_minutes", None)
+            ),
+        )
+
+    delta_minutes = int((candidate_datetime - saved_datetime).total_seconds() // 60)
+    max_reasonable_delta = max(
+        5,
+        fallback_step_minutes + 2,
+        int(round(fallback_step_minutes * 1.4)),
+    )
+    if estimated_elapsed_minutes is not None and estimated_elapsed_minutes <= 4:
+        max_reasonable_delta = min(max_reasonable_delta, estimated_elapsed_minutes + 2)
+    if delta_minutes > max_reasonable_delta:
+        fallback_datetime = saved_datetime + timedelta(minutes=fallback_step_minutes)
+        return fallback_datetime.replace(second=0, microsecond=0, tzinfo=None)
+
     if not _story_environment_has_approximate_hour_reference(source_text):
 
         return candidate_datetime
@@ -2928,27 +3275,13 @@ def _reconcile_story_environment_datetime_with_coarse_time_mentions(
 
 
 
-    delta_minutes = int((candidate_datetime - saved_datetime).total_seconds() // 60)
-
     if delta_minutes > 180 or delta_minutes < -15:
 
         return candidate_datetime
 
 
 
-    step_minutes = max(
-
-        1,
-
-        _normalize_story_environment_turn_step_minutes(
-
-            getattr(game, "environment_turn_step_minutes", None)
-
-        ),
-
-    )
-
-    fallback_datetime = saved_datetime + timedelta(minutes=step_minutes)
+    fallback_datetime = saved_datetime + timedelta(minutes=fallback_step_minutes)
 
     if fallback_datetime <= saved_datetime:
 
@@ -3764,6 +4097,23 @@ def _resolve_story_environment_weather_state(
         if isinstance(extracted_tomorrow_weather, dict)
         else None
     )
+    usable_extracted_current_weather = (
+        normalized_extracted_current_weather
+        if _story_environment_weather_has_timeline_for_day(
+            normalized_extracted_current_weather,
+            current_day_date,
+        )
+        else None
+    )
+    usable_extracted_tomorrow_weather = (
+        normalized_extracted_tomorrow_weather
+        if isinstance(usable_extracted_current_weather, dict)
+        and _story_environment_weather_matches_day(
+            normalized_extracted_tomorrow_weather,
+            tomorrow_day_date,
+        )
+        else None
+    )
 
 
     can_reuse_current_timeline = _story_environment_weather_has_timeline_for_day(
@@ -3776,33 +4126,6 @@ def _resolve_story_environment_weather_state(
     )
     prefer_saved_current_timeline = can_reuse_current_timeline
     prefer_saved_tomorrow_forecast = can_reuse_tomorrow_forecast
-
-    if prefer_saved_current_timeline and (
-        _story_environment_weather_is_stale_generic(
-            saved_current_weather,
-            expected_day_date=current_day_date,
-            require_timeline=True,
-        )
-        or _story_environment_should_refresh_saved_weather(
-            saved_current_weather,
-            normalized_extracted_current_weather,
-            expected_day_date=current_day_date,
-            require_timeline=True,
-        )
-    ):
-        prefer_saved_current_timeline = False
-    if prefer_saved_tomorrow_forecast and (
-        _story_environment_weather_is_stale_generic(
-            saved_tomorrow_weather,
-            expected_day_date=tomorrow_day_date,
-        )
-        or _story_environment_should_refresh_saved_weather(
-            saved_tomorrow_weather,
-            normalized_extracted_tomorrow_weather,
-            expected_day_date=tomorrow_day_date,
-        )
-    ):
-        prefer_saved_tomorrow_forecast = False
 
     if prefer_saved_current_timeline and prefer_saved_tomorrow_forecast:
         return (
@@ -3850,6 +4173,8 @@ def _resolve_story_environment_weather_state(
         )
 
         if allow_weather_seed
+        and not isinstance(usable_extracted_current_weather, dict)
+        and not isinstance(usable_extracted_tomorrow_weather, dict)
 
         else None
 
@@ -3899,17 +4224,19 @@ def _resolve_story_environment_weather_state(
 
         current_source = (
 
-            seeded_current_weather
+            usable_extracted_current_weather
 
-            if isinstance(seeded_current_weather, dict)
+            if isinstance(usable_extracted_current_weather, dict)
 
             else promoted_tomorrow_as_current
 
             if isinstance(promoted_tomorrow_as_current, dict)
 
-            else normalized_extracted_current_weather
-            if isinstance(normalized_extracted_current_weather, dict)
             else saved_current_weather
+            if _story_environment_weather_matches_day(saved_current_weather, current_day_date)
+            else seeded_current_weather
+            if isinstance(seeded_current_weather, dict)
+            else None
 
         )
 
@@ -3931,11 +4258,13 @@ def _resolve_story_environment_weather_state(
         resolved_tomorrow_weather = saved_tomorrow_weather
     else:
         tomorrow_source = (
-            seeded_tomorrow_weather
-            if isinstance(seeded_tomorrow_weather, dict)
-            else normalized_extracted_tomorrow_weather
-            if isinstance(normalized_extracted_tomorrow_weather, dict)
+            usable_extracted_tomorrow_weather
+            if isinstance(usable_extracted_tomorrow_weather, dict)
             else saved_tomorrow_weather
+            if _story_environment_weather_matches_day(saved_tomorrow_weather, tomorrow_day_date)
+            else seeded_tomorrow_weather
+            if isinstance(seeded_tomorrow_weather, dict)
+            else None
 
         )
 
@@ -4519,6 +4848,8 @@ def _merge_story_character_state_text_field(
 ) -> str:
     existing_value = str(existing_card.get(field_name) or "").strip()
     updated_value = str(updated_card.get(field_name) or "").strip()
+    if _get_story_character_state_manual_override_turns(existing_card, field_name) > 0:
+        return existing_value
 
     if field_name == "location":
         if updated_value and not _is_story_character_state_location_placeholder(updated_value):
@@ -4538,6 +4869,32 @@ def _merge_story_character_state_text_field(
     return updated_value or existing_value
 
 
+def _get_story_character_state_manual_override_turns(
+    card: dict[str, Any],
+    field_name: str,
+) -> int:
+    lock_key = {
+        "status": "status_manual_override_turns",
+        "clothing": "clothing_manual_override_turns",
+        "equipment": "equipment_manual_override_turns",
+        "mood": "mood_manual_override_turns",
+        "attitude_to_hero": "attitude_to_hero_manual_override_turns",
+    }.get(str(field_name or "").strip())
+    if not lock_key:
+        return 0
+
+    raw_value = card.get(lock_key)
+    if isinstance(raw_value, bool):
+        return 0
+    if isinstance(raw_value, int):
+        return max(raw_value, 0)
+    if isinstance(raw_value, float):
+        return max(int(raw_value), 0)
+
+    normalized = str(raw_value or "").strip()
+    if normalized.isdigit():
+        return max(int(normalized), 0)
+    return 0
 
 
 def _build_story_character_state_card_prompt_content(card: dict[str, Any]) -> str:
@@ -4547,7 +4904,7 @@ def _build_story_character_state_card_prompt_content(card: dict[str, Any]) -> st
     normalized_card = normalized_cards[0]
     lines = [
 
-        f"Имя: {str(normalized_card.get('name') or '').strip()}",
+        f"мя: {str(normalized_card.get('name') or '').strip()}",
 
         f"Состояние здоровья: {str(normalized_card.get('status') or '').strip() or 'не указано'}",
 
@@ -5072,13 +5429,15 @@ def _normalize_story_character_state_update_payload(
         updated_card = updated_by_key.get(key)
         if updated_card is None:
             merged_card = dict(existing_card)
-            for protected_field_name in ("status", "mood", "attitude_to_hero"):
+            for protected_field_name in ("status", "clothing", "equipment", "mood", "attitude_to_hero"):
                 protected_turns = _get_story_character_state_manual_override_turns(
                     existing_card,
                     protected_field_name,
                 )
                 lock_key = {
                     "status": "status_manual_override_turns",
+                    "clothing": "clothing_manual_override_turns",
+                    "equipment": "equipment_manual_override_turns",
                     "mood": "mood_manual_override_turns",
                     "attitude_to_hero": "attitude_to_hero_manual_override_turns",
                 }.get(protected_field_name)
@@ -5118,13 +5477,15 @@ def _normalize_story_character_state_update_payload(
                 scene_location_fallback=scene_location_fallback,
                 consume_manual_override_turns=consume_manual_override_turns,
             )
-        for protected_field_name in ("status", "mood", "attitude_to_hero"):
+        for protected_field_name in ("status", "clothing", "equipment", "mood", "attitude_to_hero"):
             protected_turns = _get_story_character_state_manual_override_turns(
                 existing_card,
                 protected_field_name,
             )
             lock_key = {
                 "status": "status_manual_override_turns",
+                "clothing": "clothing_manual_override_turns",
+                "equipment": "equipment_manual_override_turns",
                 "mood": "mood_manual_override_turns",
                 "attitude_to_hero": "attitude_to_hero_manual_override_turns",
             }.get(protected_field_name)
@@ -5156,24 +5517,6 @@ def _get_story_main_hero_state_card(cards: list[dict[str, Any]]) -> dict[str, An
 def _collect_story_main_hero_explicit_state_evidence_sentences(
     latest_user_prompt: str,
 ) -> list[str]:
-    current_datetime_facts = _format_story_environment_datetime_prompt_facts(
-
-        _deserialize_story_environment_datetime(current_datetime)
-
-    )
-
-    current_datetime_facts = _format_story_environment_datetime_prompt_facts(
-
-        _deserialize_story_environment_datetime(current_datetime)
-
-    )
-
-    current_datetime_facts = _format_story_environment_datetime_prompt_facts(
-
-        _deserialize_story_environment_datetime(current_datetime)
-
-    )
-
     normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
     if not normalized_user_prompt:
         return []
@@ -5682,7 +6025,7 @@ def _build_story_character_state_recent_context(
 
             role_value = str(getattr(message, "role", "") or "").strip()
 
-            role_label = "Игрок" if role_value == STORY_USER_ROLE else "Мастер" if role_value == STORY_ASSISTANT_ROLE else "Система"
+            role_label = "грок" if role_value == STORY_USER_ROLE else "Мастер" if role_value == STORY_ASSISTANT_ROLE else "Система"
 
             rendered_messages.append(f"{role_label}:\n{normalized_content}")
 
@@ -5820,6 +6163,12 @@ def _request_story_character_state_seed_cards(
                 "Do not invent impossible teleports or sudden character flips. "
 
                 "If an NPC is not currently in the active scene, you may mark is_active=false. "
+
+                "status and clothing must never be empty for the main hero or for any NPC card with is_active=true. "
+
+                "If either of those fields is missing, infer and fill it conservatively from recent story context and that target character's own source description. "
+
+                "Do not borrow clothing or health details from other characters. "
 
                 "status must describe only bodily or health condition: wounds, illness, poison, exhaustion, intoxication, or normal physical state. "
 
@@ -6253,7 +6602,262 @@ def _request_story_character_state_missing_location_cards(
     return []
 
 
+def _request_story_character_state_missing_body_field_cards(
+    *,
+    db: Session,
+    game: StoryGame,
+    cards: list[dict[str, Any]],
+    latest_user_prompt: str,
+    previous_assistant_text: str,
+    latest_assistant_text: str,
+) -> list[dict[str, Any]]:
+    normalized_cards = _normalize_story_character_state_cards_payload(cards)
+    if not normalized_cards or not settings.openrouter_api_key:
+        return []
 
+    normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
+    normalized_previous_assistant = _normalize_story_prompt_text(previous_assistant_text, max_chars=2_200)
+    normalized_latest_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=2_800)
+    if not normalized_user_prompt and not normalized_previous_assistant and not normalized_latest_assistant:
+        return []
+
+    world_cards_by_id = {
+        int(getattr(world_card, "id")): {
+            "world_card_id": int(getattr(world_card, "id")),
+            "name": " ".join(str(getattr(world_card, "title", "") or "").split()).strip(),
+            "kind": str(getattr(world_card, "kind", "") or "").strip().lower(),
+            "content": str(getattr(world_card, "content", "") or "").replace("\r\n", "\n").strip(),
+            "triggers": getattr(world_card, "triggers", None),
+            "character_id": getattr(world_card, "character_id", None),
+        }
+        for world_card in _list_story_world_cards(db, game.id)
+        if isinstance(getattr(world_card, "id", None), int)
+    }
+
+    target_cards: list[dict[str, Any]] = []
+    target_world_card_ids: set[int] = set()
+    for card in normalized_cards:
+        kind = str(card.get("kind") or "").strip().lower()
+        is_active = bool(card.get("is_active", True))
+        if kind not in {STORY_CHARACTER_STATE_KIND_MAIN_HERO, STORY_CHARACTER_STATE_KIND_NPC}:
+            continue
+        if kind == STORY_CHARACTER_STATE_KIND_NPC and not is_active:
+            continue
+
+        current_status = str(card.get("status") or "").strip()
+        current_clothing = str(card.get("clothing") or "").strip()
+        missing_fields = [
+            field_name
+            for field_name, field_value in (
+                ("status", current_status),
+                ("clothing", current_clothing),
+            )
+            if not field_value
+        ]
+        if not missing_fields:
+            continue
+
+        world_card_id = int(card.get("world_card_id") or 0)
+        if world_card_id > 0:
+            target_world_card_ids.add(world_card_id)
+        world_card_payload = world_cards_by_id.get(world_card_id, {})
+        target_cards.append(
+            {
+                "world_card_id": card.get("world_card_id"),
+                "name": str(card.get("name") or "").strip(),
+                "kind": kind,
+                "is_active": is_active,
+                "missing_fields": missing_fields,
+                "current_status": current_status,
+                "current_clothing": current_clothing,
+                "current_location": str(card.get("location") or "").strip(),
+                "current_equipment": str(card.get("equipment") or "").strip(),
+                "source_description": str(world_card_payload.get("content") or "").strip(),
+                "source_triggers": world_card_payload.get("triggers") or [],
+                "character_id": world_card_payload.get("character_id"),
+            }
+        )
+
+    if not target_cards:
+        return []
+
+    current_location_content = _get_story_latest_location_memory_content(db=db, game_id=game.id)
+    recent_story_context = _build_story_character_state_recent_context(
+        db=db,
+        game=game,
+        max_messages=6,
+        max_chars=2_800,
+    )
+
+    target_by_key = {
+        _story_character_state_card_key(card): card
+        for card in normalized_cards
+        if int(card.get("world_card_id") or 0) in target_world_card_ids
+    }
+    existing_key_by_world_card_id = {
+        int(card.get("world_card_id")): key
+        for key, card in target_by_key.items()
+        if isinstance(card.get("world_card_id"), int)
+    }
+    existing_keys_by_name: dict[str, list[str]] = {}
+    for key, card in target_by_key.items():
+        name_key = " ".join(str(card.get("name") or "").split()).strip().casefold()
+        if not name_key:
+            continue
+        existing_keys_by_name.setdefault(name_key, []).append(key)
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "Fill only missing status and clothing fields for the provided RPG character-state target cards. "
+                "Return strict JSON only without markdown in this shape: "
+                "{\"cards\":[{\"world_card_id\":123,\"name\":\"...\",\"kind\":\"main_hero\"|\"npc\",\"is_active\":true,"
+                "\"status\":\"...\",\"clothing\":\"...\"}]}. "
+                "Use only the provided target cards. Do not invent or return any other cards. "
+                "These target cards already represent only the main hero and active NPCs that currently have missing fields. "
+                "Ignore inactive NPCs and everyone else. "
+                "Use evidence in this priority order: latest player turn, newest narrator reply, and the target character's own source description. "
+                "Use the previous narrator reply only when needed to disambiguate continuity. "
+                "For the main hero, explicit player-stated bodily or clothing facts override softer inference unless the newest narrator reply clearly contradicts them. "
+                "If a target already has one of these two fields filled, preserve that filled field and only infer the missing one. "
+                "status must never be empty. It must describe bodily or health condition only. "
+                "If there is no evidence of illness, poison, injury, exhaustion, intoxication, or another abnormal condition, use 'нормальное'. "
+                "Never put mood, action, pose, role, or location into status. "
+                "clothing must never be empty. It must be a short concrete Russian description of what is worn. "
+                "If the exact outfit is not stated directly, infer one conservative concrete outfit from the target character's own description, role, and current scene continuity. "
+                "Do not use vague clothing like 'обычная одежда', 'подходящая одежда', 'неизвестно', or 'не указано'. "
+                "Do not borrow clothing or health details from other characters' descriptions. "
+                "All output text must be in practical Russian."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Current scene location:\n{current_location_content or 'none'}\n\n"
+                f"Recent story context:\n{recent_story_context or 'none'}\n\n"
+                f"Latest player turn:\n{normalized_user_prompt or 'none'}\n\n"
+                f"Previous narrator reply:\n{normalized_previous_assistant or 'none'}\n\n"
+                f"Newest narrator reply:\n{normalized_latest_assistant or 'none'}\n\n"
+                f"Target cards that require filling:\n{json.dumps(target_cards, ensure_ascii=False)}"
+            ),
+        },
+    ]
+
+    for attempt_index in range(2):
+        try:
+            raw_response = _request_openrouter_story_text(
+                messages_payload,
+                model_name="x-ai/grok-4.1-fast",
+                allow_free_fallback=False,
+                translate_input=False,
+                fallback_model_names=[],
+                temperature=0.0,
+                max_tokens=min(STORY_CHARACTER_STATE_REQUEST_MAX_TOKENS, 700),
+                request_timeout=(
+                    STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+                ),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story character-state missing body-field fill failed on attempt %s/2: %s",
+                attempt_index + 1,
+                exc,
+            )
+            if attempt_index == 0:
+                time.sleep(0.25)
+                continue
+            return []
+
+        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        if not isinstance(parsed_payload, dict) or not parsed_payload:
+            if attempt_index == 0:
+                time.sleep(0.15)
+                continue
+            return []
+
+        normalized_response_cards = _normalize_story_character_state_cards_payload(parsed_payload.get("cards"))
+        if not normalized_response_cards:
+            if attempt_index == 0:
+                time.sleep(0.15)
+                continue
+            return []
+
+        resolved_cards: list[dict[str, Any]] = []
+        for response_card in normalized_response_cards:
+            resolved_key = _resolve_story_character_state_existing_key(
+                updated_card=response_card,
+                existing_by_key=target_by_key,
+                existing_key_by_world_card_id=existing_key_by_world_card_id,
+                existing_keys_by_name=existing_keys_by_name,
+            )
+            if not resolved_key:
+                continue
+
+            base_target_card = target_by_key.get(resolved_key)
+            if base_target_card is None:
+                continue
+
+            next_status = str(response_card.get("status") or base_target_card.get("status") or "").strip()
+            next_clothing = str(response_card.get("clothing") or base_target_card.get("clothing") or "").strip()
+            if not next_status and not next_clothing:
+                continue
+
+            resolved_cards.append(
+                {
+                    "world_card_id": base_target_card.get("world_card_id"),
+                    "name": str(base_target_card.get("name") or "").strip(),
+                    "kind": str(base_target_card.get("kind") or "").strip().lower(),
+                    "is_active": bool(base_target_card.get("is_active", True)),
+                    "status": next_status,
+                    "clothing": next_clothing,
+                }
+            )
+
+        if resolved_cards:
+            return _normalize_story_character_state_cards_payload(resolved_cards)
+        if attempt_index == 0:
+            time.sleep(0.15)
+
+    return []
+
+
+def _fill_story_character_state_missing_body_fields_payload(
+    *,
+    db: Session,
+    game: StoryGame,
+    existing_cards: list[dict[str, Any]],
+    base_payload: dict[str, Any] | None,
+    current_location_content: str,
+    latest_user_prompt: str,
+    previous_assistant_text: str,
+    latest_assistant_text: str,
+) -> dict[str, Any] | None:
+    base_cards_raw = base_payload.get("cards") if isinstance(base_payload, dict) else existing_cards
+    normalized_base_cards = _normalize_story_character_state_cards_payload(base_cards_raw)
+    if not normalized_base_cards:
+        return base_payload
+
+    fill_cards = _request_story_character_state_missing_body_field_cards(
+        db=db,
+        game=game,
+        cards=normalized_base_cards,
+        latest_user_prompt=latest_user_prompt,
+        previous_assistant_text=previous_assistant_text,
+        latest_assistant_text=latest_assistant_text,
+    )
+    if not fill_cards:
+        return base_payload
+
+    merged_payload = _normalize_story_character_state_update_payload(
+        {"cards": fill_cards},
+        existing_cards=normalized_base_cards,
+        current_location_content=current_location_content,
+    )
+    if not isinstance(merged_payload, dict):
+        return base_payload
+    return merged_payload
 
 
 def _sync_story_character_state_cards(
@@ -6751,9 +7355,7 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
             return {"action": "keep"}
 
-        fallback_content = _normalize_story_location_memory_content(normalized_response)
-
-        return {"action": "update", "content": fallback_content} if fallback_content else None
+        return None
 
     if not isinstance(raw_payload, dict) or not raw_payload:
 
@@ -6775,8 +7377,6 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
         or raw_payload.get("location_sentence")
 
-        or raw_payload.get("location")
-
         or ""
 
     )
@@ -6785,63 +7385,16 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
     if not normalized_content:
 
-        compact_raw_content = " ".join(str(raw_content or "").replace("\r\n", " ").split()).strip(" .,!?:;")
-
-        if compact_raw_content:
-
-            compact_raw_content_casefold = compact_raw_content.casefold()
-
-            if compact_raw_content_casefold.startswith(
-
-                (
-
-                    "в ",
-
-                    "во ",
-
-                    "на ",
-
-                    "у ",
-
-                    "под ",
-
-                    "над ",
-
-                    "около ",
-
-                    "возле ",
-
-                    "рядом с ",
-
-                    "среди ",
-
-                    "между ",
-
-                    "внутри ",
-
-                    "посреди ",
-
-                    "за ",
-
-                    "перед ",
-
-                    "напротив ",
-
-                )
-
-            ):
-
-                normalized_content = _normalize_story_location_memory_content(
-
-                    f"Действие происходит {compact_raw_content}."
-
-                )
-
-    if not normalized_content:
-
         return None
 
-    return {"action": "update", "content": normalized_content}
+    return {
+        "action": "update",
+        "content": normalized_content,
+        "label": _resolve_story_location_memory_label(
+            label=str(raw_payload.get("label") or raw_payload.get("short_label") or ""),
+            content=normalized_content,
+        ),
+    }
 
 
 
@@ -6929,7 +7482,12 @@ def _normalize_story_environment_analysis_payload(
 
 
 
-def _normalize_story_important_event_analysis_payload(raw_payload: Any) -> tuple[str, str] | None:
+def _normalize_story_important_event_analysis_payload(
+    raw_payload: Any,
+    *,
+    latest_user_prompt: str = "",
+    latest_assistant_text: str = "",
+) -> tuple[str, str] | None:
 
     if not isinstance(raw_payload, dict) or not raw_payload:
 
@@ -6985,7 +7543,7 @@ def _normalize_story_important_event_analysis_payload(raw_payload: Any) -> tuple
 
 
 
-    if not is_important and importance_score <= 55:
+    if not is_important or importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
 
         return None
 
@@ -7004,6 +7562,14 @@ def _normalize_story_important_event_analysis_payload(raw_payload: Any) -> tuple
 
 
     normalized_title = _normalize_story_memory_block_title(raw_title, fallback="Важный момент")
+    if not _should_accept_story_important_event_candidate(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+        title=normalized_title,
+        content=sanitized_content,
+        importance_score=importance_score,
+    ):
+        return None
 
     return (normalized_title, sanitized_content)
 
@@ -7149,9 +7715,121 @@ def _resolve_story_postprocess_section_payload(
 
 
 
+def _build_story_character_state_source_cards_payload(
+
+    *,
+
+    db: Session,
+
+    game: StoryGame,
+
+    existing_cards: list[dict[str, Any]],
+
+) -> list[dict[str, Any]]:
+
+    normalized_existing_cards = _normalize_story_character_state_cards_payload(existing_cards)
+
+    if not normalized_existing_cards:
+
+        return []
+
+
+
+    existing_by_world_card_id = {
+
+        int(card.get("world_card_id")): card
+
+        for card in normalized_existing_cards
+
+        if isinstance(card.get("world_card_id"), int)
+
+    }
+
+    if not existing_by_world_card_id:
+
+        return []
+
+
+
+    source_cards: list[dict[str, Any]] = []
+
+    for world_card in _list_story_world_cards(db, game.id):
+
+        world_card_id = getattr(world_card, "id", None)
+
+        if not isinstance(world_card_id, int) or world_card_id not in existing_by_world_card_id:
+
+            continue
+
+
+
+        existing_card = existing_by_world_card_id.get(world_card_id, {})
+
+        kind = str(getattr(world_card, "kind", "") or existing_card.get("kind") or "").strip().lower()
+
+        if kind not in {STORY_CHARACTER_STATE_KIND_MAIN_HERO, STORY_CHARACTER_STATE_KIND_NPC}:
+
+            continue
+
+        is_active_hint = bool(existing_card.get("is_active", kind == STORY_CHARACTER_STATE_KIND_MAIN_HERO))
+
+        if kind == STORY_CHARACTER_STATE_KIND_NPC and not is_active_hint:
+
+            continue
+
+
+
+        source_cards.append(
+
+            {
+
+                "world_card_id": world_card_id,
+
+                "name": " ".join(str(getattr(world_card, "title", "") or "").split()).strip(),
+
+                "kind": kind,
+
+                "is_active_hint": is_active_hint,
+
+                "source_description": str(getattr(world_card, "content", "") or "").replace("\r\n", "\n").strip(),
+
+                "source_race": str(getattr(world_card, "race", "") or "").strip(),
+
+                "source_clothing": str(getattr(world_card, "clothing", "") or "").strip(),
+
+                "source_health_status": str(getattr(world_card, "health_status", "") or "").strip(),
+
+                "source_inventory": str(getattr(world_card, "inventory", "") or "").strip(),
+
+            }
+
+        )
+
+
+
+    source_cards.sort(
+
+        key=lambda card: (
+
+            0 if str(card.get("kind") or "") == STORY_CHARACTER_STATE_KIND_MAIN_HERO else 1,
+
+            0 if bool(card.get("is_active_hint")) else 1,
+
+            str(card.get("name") or "").casefold(),
+
+        )
+
+    )
+
+    return source_cards
+
+
+
 def _extract_story_postprocess_memory_payload(
 
     *,
+
+    db: Session,
 
     game: StoryGame,
 
@@ -7243,6 +7921,15 @@ def _extract_story_postprocess_memory_payload(
         if character_state_enabled
         else []
     )
+    character_state_source_cards = (
+        _build_story_character_state_source_cards_payload(
+            db=db,
+            game=game,
+            existing_cards=existing_character_state_cards,
+        )
+        if character_state_enabled and existing_character_state_cards
+        else []
+    )
     main_hero_explicit_state_evidence = (
         _build_story_main_hero_explicit_state_evidence_text(latest_user_prompt)
         if character_state_enabled and existing_character_state_cards
@@ -7269,6 +7956,16 @@ def _extract_story_postprocess_memory_payload(
         for value in (scene_emotion_allowed_emotions or [])
         if " ".join(str(value or "").split()).strip()
     ]
+    main_hero_name_for_memory = _get_story_main_hero_name_for_memory(db, game_id=game.id)
+    known_character_names_for_memory = _list_story_known_character_names_for_memory(
+        db,
+        game_id=game.id,
+        player_turn_label=main_hero_name_for_memory,
+    )
+    memory_identity_names = _collect_story_memory_identity_names(
+        player_name=main_hero_name_for_memory,
+        known_character_names=known_character_names_for_memory,
+    )
 
 
     requested_sections: list[str] = []
@@ -7352,6 +8049,19 @@ def _extract_story_postprocess_memory_payload(
         f"Enabled sections: {', '.join(requested_sections)}.",
 
         "Omit any disabled sections from the JSON.",
+        "CRITICAL NAME CONTINUITY RULE: if the player turn or narrator reply explicitly names a character, hero, NPC, speaker, creature, or other named entity, keep that exact name in every enabled memory section where it appears.",
+        "Never replace an explicit name with a pronoun or a generic role like player, hero, he, she, they, man, woman, girl, guy, stranger, companion, NPC, or someone.",
+        "If the main hero has an explicit name, use that exact name instead of player, hero, or you whenever the reference is unambiguous.",
+        "If multiple named characters are involved in one event, do not compress them into a faceless group and do not omit who exactly acted, spoke, suffered, promised, decided, or received something.",
+        *(
+            [
+                "Known continuity names that must stay exact when present in the source: "
+                + ", ".join(repr(name) for name in memory_identity_names)
+                + "."
+            ]
+            if memory_identity_names
+            else []
+        ),
         *ambient_system_parts,
         *scene_emotion_system_parts,
     ]
@@ -7367,6 +8077,9 @@ def _extract_story_postprocess_memory_payload(
                 "raw_memory.player_turn must describe only the player's latest move in 1 to 2 short Russian sentences.",
 
                 "raw_memory.assistant_reply must describe only the newest narrator reply in 1 to 3 short Russian sentences.",
+                "raw_memory.player_turn and raw_memory.assistant_reply must keep exact names for all explicitly named participants, speakers, addressees, and targets of actions.",
+                "If the main hero has an explicit name, raw_memory.player_turn must use that exact name instead of player, hero, or you whenever the source clearly refers to the main hero.",
+                "Do not replace multiple named characters with they or companions when the source makes it clear who exactly did or said something.",
 
                 "Preserve exact named entities and concrete nouns from the source whenever they are explicit: names, diseases, demons, people, monsters, food, items, locations, titles, curses, medicines, and symptoms.",
 
@@ -7389,13 +8102,17 @@ def _extract_story_postprocess_memory_payload(
                 "For location: determine the current active location of the scene.",
 
                 "Prefer the most specific currently active location that also keeps the wider explicit context.",
+                "Prefer the closest physical anchor of the current scene when it is explicit: doorway, entrance, threshold, counter, table, corridor, room, hall, yard, alley, stair, gate, platform, carriage, bank, shore, campfire, or similar immediate sublocation.",
                 "When the active action is clearly inside a named establishment or room, keep that exact interior place instead of downgrading it to the street, district, or city outside.",
                 "If the narrator shows the hero behind a tavern counter, at an inn table, inside a shop, room, hall, chamber, cabin, or shrine, the location is that interior scene, not the road outside.",
+                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label.",
                 "Preserve named establishments and rooms such as 'таверна Ржавый якорь' whenever the current scene is still happening there.",
+                "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it.",
                 "Use the latest player turn as supporting evidence, and allow it to establish or refine the place when it explicitly states where the hero enters, goes, stands, remains, or moves and the newest narrator reply continues that same scene without contradiction.",
 
                 "If the newest narrator reply does not clearly confirm a new place, keep the saved place when it is still valid. If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction.",
                 "Never return location.action=keep when there is no valid saved place and the newest player turn or narrator reply explicitly names the active current place.",
+                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'РЅРѕС‡СЊСЋ', 'РІРµС‡РµСЂРѕРј', 'СѓС‚СЂРѕРј', 'РІ 16:00', or similar time markers.",
                 "If you do update, location.content must be exactly one short Russian sentence starting with "
 
                 "\"Действие происходит\" or \"События происходят\".",
@@ -7414,7 +8131,11 @@ def _extract_story_postprocess_memory_payload(
 
                 "Grok alone manages in-world time progression for environment continuity.",
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous.",
+                "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes.",
+                "Do not jump forward by half an hour or more unless the text clearly contains travel, waiting, treatment, work, search, sleep, or another extended process.",
                 "Respect explicit time skips such as 'спустя 2 месяца', 'через полтора часа', travel, sleep, waiting, or scene skips.",
+                "Treat the latest player turn as authoritative for clear current-time context such as lunch time, dinner time, after lessons, after work, dawn, late evening, or similar cues even when no HH:MM is written.",
+                "If the newest turn clearly implies lunch, after-school daytime, dinner, or another broad time-of-day, move current_datetime into a believable range for that cue instead of lazily preserving an old morning or night clock.",
 
                 "Treat precise HH:MM in the saved state as authoritative.",
 
@@ -7516,7 +8237,21 @@ def _extract_story_postprocess_memory_payload(
 
                 "Never put action, pose, mood, scene role, or location into status. If an existing status contains that, rewrite it into proper health/body state.",
 
+                "For the main hero and any NPC whose is_active=true in this turn, status must never be empty.",
+
                 "clothing must describe what is worn on specific body areas: head, upper body, outer layer, lower body, feet, hands, and visible accessories when relevant.",
+
+                "For the main hero and any NPC whose is_active=true in this turn, clothing must never be empty.",
+
+                "If either status or clothing is currently missing, infer and fill it from these sources in order: latest player turn, newest narrator reply, and that character's own source description.",
+
+                "If a source_cards block is provided in the user content, match it strictly by world_card_id and use only that exact character's own source card as the character-description evidence.",
+
+                "You may use the saved current scene location, date/time, and weather only as supporting continuity context for a plausible concrete result; they do not override the target character's own description or the newest turn text.",
+
+                "If the direct scene text is sparse, still return one conservative concrete status and one conservative concrete clothing description for the main hero and any NPC you mark active=true, derived from the combined evidence instead of leaving the field empty.",
+
+                "Use other characters' descriptions only as scene background, never as the source of the target character's clothing or health facts.",
 
                 "Do not use generic phrases like 'обычная одежда', 'одежда авантюристки', or 'легкая одежда' without concrete breakdown.",
 
@@ -7530,7 +8265,7 @@ def _extract_story_postprocess_memory_payload(
 
                 "Do not erase a specific saved status, clothing state, equipment detail, or personality trait into a vaguer generic value unless the newest texts clearly justify that loss of detail or change.",
                 "For mood and attitude_to_hero, start from the saved values in the current cards as the active state at the beginning of this turn when character_state is enabled.",
-                "If a current card contains status_manual_override_turns, mood_manual_override_turns, or attitude_to_hero_manual_override_turns above 0, treat the corresponding saved field as player-fixed start-of-turn continuity for this turn.",
+                "If a current card contains status_manual_override_turns, clothing_manual_override_turns, equipment_manual_override_turns, mood_manual_override_turns, or attitude_to_hero_manual_override_turns above 0, treat the corresponding saved field as player-fixed start-of-turn continuity for this turn.",
                 "Do not overwrite a player-fixed field on weak, ambiguous, or purely tonal evidence.",
                 "A player-fixed field may still change, but only if the newest player and storyteller texts make that transition explicit and clearly legible inside the scene itself.",
                 "Change saved mood or saved attitude_to_hero only when the newest player and storyteller texts clearly establish a meaningful shift, trigger, escalation, or de-escalation in this scene.",
@@ -7565,6 +8300,9 @@ def _extract_story_postprocess_memory_payload(
                 "Mark only major irreversible outcomes, decisive commitments, new long-term obligations/goals, key revelations, critical alliance/trust shifts, high-impact gains/losses, or new constraints that will matter in future turns.",
 
                 "Routine actions, atmosphere, ordinary dialogue, small emotions, or cosmetic details are not important events.",
+                "A vivid sentence, silence, hesitation, or a short emotional beat without a new long-term consequence is not an important event.",
+                "Self-description, mood, loneliness, a tired look, skipping lunch, or one ordinary social remark are not important events unless they create a new lasting consequence.",
+                "If nothing clearly changed long-term, return is_important=false with empty title/content.",
 
                 "important_event.content must be 1-2 short factual Russian sentences in past tense.",
 
@@ -7639,8 +8377,18 @@ def _extract_story_postprocess_memory_payload(
                     else ""
                 )
                 + (
+                    f"РљР°СЂС‚РѕС‡РєРё-РёСЃС‚РѕС‡РЅРёРєРё РїРµСЂСЃРѕРЅР°Р¶РµР№ (РѕРїРёСЃР°РЅРёРµ Рё СЏРІРЅС‹Рµ РїРѕР»СЏ):\n{json.dumps(character_state_source_cards, ensure_ascii=False) if character_state_source_cards else 'РЅРµС‚'}\n\n"
+                    if character_state_enabled and character_state_source_cards
+                    else ""
+                )
+                + (
                     f"Явные самоописания ГГ из хода игрока:\n{main_hero_explicit_state_evidence}\n\n"
                     if character_state_enabled and main_hero_explicit_state_evidence
+                    else ""
+                )
+                + (
+                    f"Known names that must stay exact in memory if mentioned:\n{json.dumps(memory_identity_names, ensure_ascii=False)}\n\n"
+                    if memory_identity_names
                     else ""
                 )
                 + f"Последний ход игрока:\n{normalized_user_prompt or 'нет'}\n\n"
@@ -7819,7 +8567,9 @@ def _extract_story_postprocess_memory_payload(
 
             important_payload = _normalize_story_important_event_analysis_payload(
 
-                raw_important_event_payload
+                raw_important_event_payload,
+                latest_user_prompt=normalized_user_prompt,
+                latest_assistant_text=normalized_latest_assistant,
 
             )
 
@@ -7919,7 +8669,8 @@ def _extract_story_environment_state_payload(
 
                 "Use the newest narrator reply and the previous narrator reply as the primary evidence. "
 
-                "Use the latest player turn only to interpret transitions or explicit time skips. "
+                "Use the latest player turn to interpret transitions, explicit time skips, and clear current-time context such as lunch time, dinner time, after lessons, after work, dawn, late evening, or similar cues even when no HH:MM is given. "
+                "If the newest turn clearly implies lunch, after-school daytime, dinner, or another broad time-of-day, move current_datetime into a believable range for that cue instead of lazily preserving an old morning or night clock. "
 
                 "Never invent scene facts that are unsupported by the provided text. "
 
@@ -7941,6 +8692,8 @@ def _extract_story_environment_state_payload(
 
                 "Grok alone manages in-world time progression for environment continuity. "
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous. "
+                "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes. "
+                "Do not jump forward by half an hour or more unless the text clearly contains travel, waiting, treatment, work, search, sleep, or another extended process. "
                 "Return keep only when the scene truly stays in the same moment with no meaningful time passage, or when a rewind/flashback makes an update unsafe. "
                 "Return strict JSON only without markdown. "
                 "Valid outputs are exactly "
@@ -8279,15 +9032,24 @@ def _sync_story_environment_state_for_assistant_message(
             latest_user_prompt=resolved_latest_user_prompt,
             latest_assistant_text=resolved_latest_assistant_text,
         )
+    resolved_current_datetime, contextual_time_anchor_applied = _reconcile_story_environment_datetime_with_contextual_time_anchors(
+        saved_datetime=saved_current_datetime,
+        candidate_datetime=resolved_current_datetime,
+        latest_user_prompt=resolved_latest_user_prompt,
+        latest_assistant_text=resolved_latest_assistant_text,
+    )
     source_text_for_time_progress = "\n".join(
         part.strip()
         for part in (resolved_latest_user_prompt, resolved_latest_assistant_text)
         if isinstance(part, str) and part.strip()
     )
     estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text_for_time_progress)
+    if _story_environment_has_brief_scene_signal(source_text_for_time_progress) and estimated_elapsed_minutes is not None:
+        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 4)
     should_force_time_progress = (
         isinstance(saved_current_datetime, datetime)
         and bool(source_text_for_time_progress)
+        and not contextual_time_anchor_applied
         and (
             resolved_current_datetime is None
             or resolved_current_datetime <= saved_current_datetime
@@ -8449,7 +9211,7 @@ def _build_story_raw_memory_block_content(
 
     normalized_player_turn_label = _normalize_story_memory_turn_actor_label(
         player_turn_label,
-        fallback="Игрок",
+        fallback="грок",
     )
     prompt_label, prompt_body = _build_detailed_turn_summary(
         normalized_prompt,
@@ -8512,6 +9274,30 @@ def _list_story_known_character_names_for_memory(
             continue
         _append_name(getattr(card, "title", ""))
 
+    return names
+
+
+def _collect_story_memory_identity_names(
+    *,
+    player_name: str | None = None,
+    known_character_names: list[str] | None = None,
+) -> list[str]:
+    names: list[str] = []
+    seen_names: set[str] = set()
+
+    def _append_name(raw_value: Any) -> None:
+        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?В«В»")
+        if not normalized_value:
+            return
+        normalized_key = normalized_value.casefold()
+        if normalized_key in seen_names:
+            return
+        seen_names.add(normalized_key)
+        names.append(normalized_value)
+
+    _append_name(player_name)
+    for raw_name in list(known_character_names or []):
+        _append_name(raw_name)
     return names
 
 
@@ -9509,7 +10295,6 @@ def _resync_story_continuity_from_assistant_message(
                     latest_user_prompt=latest_user_prompt,
                     latest_assistant_text=latest_assistant_text,
                     previous_assistant_text=previous_assistant_text,
-                    resolved_payload_override={"action": "keep"},
                 )
                 current_location_content = _get_story_latest_location_memory_content(
                     db=db,
@@ -9834,8 +10619,8 @@ def _extract_story_memory_capitalized_name_candidates(sentence: str) -> list[str
 
     stopwords = {
         "Ход",
-        "Игрок",
-        "Игрока",
+        "грок",
+        "грока",
         "Ответ",
         "Рассказчик",
         "Рассказчика",
@@ -9905,6 +10690,119 @@ def _extract_story_memory_explicit_name_mentions(
         explicit_mentions.append(candidate)
 
     return explicit_mentions
+
+
+def _build_story_memory_name_keys(value: str) -> set[str]:
+    normalized_value = " ".join(str(value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?«»")
+    if not normalized_value:
+        return set()
+
+    identity_builder = globals().get("_build_story_identity_keys")
+    if callable(identity_builder):
+        try:
+            candidate_keys = {
+                str(item).strip()
+                for item in identity_builder(normalized_value, [normalized_value])
+                if str(item).strip()
+            }
+            if candidate_keys:
+                return candidate_keys
+        except Exception:
+            pass
+
+    identity_key_builder = globals().get("_normalize_story_identity_key")
+    if callable(identity_key_builder):
+        try:
+            identity_key = str(identity_key_builder(normalized_value) or "").strip()
+            if identity_key:
+                return {identity_key}
+        except Exception:
+            pass
+
+    return {normalized_value.casefold()}
+
+
+def _story_memory_names_match(left: str, right: str) -> bool:
+    left_keys = _build_story_memory_name_keys(left)
+    right_keys = _build_story_memory_name_keys(right)
+    if not left_keys or not right_keys:
+        return False
+
+    related_identity_keys = globals().get("_are_story_identity_keys_related")
+    if callable(related_identity_keys):
+        for left_key in left_keys:
+            for right_key in right_keys:
+                try:
+                    if related_identity_keys(left_key, right_key):
+                        return True
+                except Exception:
+                    continue
+
+    return bool(left_keys.intersection(right_keys))
+
+
+def _story_memory_text_mentions_name(text_value: str, name: str) -> bool:
+    normalized_text = str(text_value or "").replace("\r\n", "\n").strip()
+    normalized_name = " ".join(str(name or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?«»")
+    if not normalized_text or not normalized_name:
+        return False
+    if _sentence_contains_story_name(normalized_text, normalized_name):
+        return True
+
+    explicit_name_extractor = globals().get("_extract_story_explicit_person_names_from_text")
+    if callable(explicit_name_extractor):
+        try:
+            extracted_names = explicit_name_extractor(normalized_text)
+        except Exception:
+            extracted_names = []
+        for extracted_name in extracted_names:
+            if _story_memory_names_match(extracted_name, normalized_name):
+                return True
+
+    return False
+
+
+def _story_memory_text_covers_names(text_value: str, required_names: list[str]) -> bool:
+    return all(_story_memory_text_mentions_name(text_value, name) for name in required_names)
+
+
+def _extract_story_memory_required_explicit_names(
+    text_value: str,
+    *,
+    player_name: str | None = None,
+    known_character_names: list[str] | None = None,
+) -> list[str]:
+    normalized_text = str(text_value or "").replace("\r\n", "\n").strip()
+    if not normalized_text:
+        return []
+
+    required_names: list[str] = []
+
+    def _append_name(raw_value: Any) -> None:
+        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?«»")
+        if not normalized_value:
+            return
+        if any(_story_memory_names_match(normalized_value, existing_name) for existing_name in required_names):
+            return
+        required_names.append(normalized_value)
+
+    for known_name in _collect_story_memory_identity_names(
+        player_name=player_name,
+        known_character_names=known_character_names,
+    ):
+        if _story_memory_text_mentions_name(normalized_text, known_name):
+            _append_name(known_name)
+
+    explicit_name_extractor = globals().get("_extract_story_explicit_person_names_from_text")
+    if callable(explicit_name_extractor):
+        try:
+            extracted_names = explicit_name_extractor(normalized_text)
+        except Exception:
+            extracted_names = []
+        for extracted_name in extracted_names:
+            _append_name(extracted_name)
+
+    return required_names
 
 
 def _replace_story_memory_player_possessives(sentence: str, *, player_name: str) -> str:
@@ -10117,9 +11015,18 @@ def _build_story_memory_summary_without_truncation(
 
         return ""
 
-
+    effective_known_names = _collect_story_memory_identity_names(
+        player_name=player_name,
+        known_character_names=known_character_names,
+    )
+    required_explicit_names = _extract_story_memory_required_explicit_names(
+        raw_content,
+        player_name=player_name,
+        known_character_names=known_character_names,
+    )
 
     unique_entries: list[tuple[int, str, int]] = []
+    sentence_name_mentions: dict[int, list[str]] = {}
 
     seen_sentences: set[str] = set()
 
@@ -10134,6 +11041,13 @@ def _build_story_memory_summary_without_truncation(
         seen_sentences.add(sentence_key)
 
         score = _score_story_plot_memory_line(sentence)
+        explicit_name_mentions = _extract_story_memory_explicit_name_mentions(
+            sentence,
+            known_character_names=effective_known_names,
+        )
+        sentence_name_mentions[index] = explicit_name_mentions
+        if explicit_name_mentions:
+            score += 5 + min(len(explicit_name_mentions), 2)
 
         if super_mode:
 
@@ -10169,7 +11083,8 @@ def _build_story_memory_summary_without_truncation(
 
             for entry in unique_entries
 
-            if not re.search(r"[!?]", entry[1])
+            if sentence_name_mentions.get(entry[0])
+            or not re.search(r"[!?]", entry[1])
 
             and not any(token in entry[1] for token in ('"', "«", "»", "—"))
 
@@ -10232,6 +11147,29 @@ def _build_story_memory_summary_without_truncation(
 
 
 
+    if required_explicit_names:
+        selected_ids = {int(entry[0]) for entry in selected_entries}
+        selected_text = "\n".join(sentence for _, sentence, _ in selected_entries)
+        missing_names = [
+            name
+            for name in required_explicit_names
+            if not _story_memory_text_mentions_name(selected_text, name)
+        ]
+        for missing_name in missing_names:
+            candidate_entries_for_name = [
+                entry
+                for entry in unique_entries
+                if _story_memory_text_mentions_name(entry[1], missing_name)
+            ]
+            if not candidate_entries_for_name:
+                continue
+            best_entry = sorted(candidate_entries_for_name, key=lambda item: (-item[2], item[0]))[0]
+            best_entry_id = int(best_entry[0])
+            if best_entry_id in selected_ids:
+                continue
+            selected_entries.append(best_entry)
+            selected_ids.add(best_entry_id)
+
     ordered_sentences = [sentence for _, sentence, _ in sorted(selected_entries, key=lambda item: item[0])]
     ordered_sentences = _clarify_story_memory_summary_sentences(
         ordered_sentences,
@@ -10242,7 +11180,11 @@ def _build_story_memory_summary_without_truncation(
 
     max_chars = STORY_MEMORY_SUPER_MAX_CHARS if super_mode else STORY_PLOT_CARD_MEMORY_TARGET_MAX_CHARS
 
-    return _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=max_chars)
+    summary_text = _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=max_chars)
+    if required_explicit_names and not _story_memory_text_covers_names(summary_text, required_explicit_names):
+        relaxed_max_chars = max(max_chars, len(" ".join(ordered_sentences)) + 8)
+        summary_text = _join_story_memory_sentences_as_prose(ordered_sentences, max_chars=relaxed_max_chars)
+    return summary_text
 
 
 
@@ -10577,6 +11519,261 @@ def _is_story_key_memory_content_valid(content: str) -> bool:
     return len(STORY_CYRILLIC_LETTER_PATTERN.findall(normalized)) >= 10
 
 
+def _build_story_key_memory_candidate_signal(
+    *,
+    title: str,
+    content: str,
+) -> dict[str, int]:
+    normalized_text = "\n".join(
+        part.strip()
+        for part in (str(title or "").strip(), str(content or "").strip())
+        if str(part or "").strip()
+    ).strip()
+    lines = _extract_story_memory_sentences(normalized_text)
+    normalized_lower = normalized_text.casefold()
+    top_score = max((_score_story_plot_memory_line(line) for line in lines), default=0)
+    return {
+        "line_count": len(lines),
+        "top_score": max(top_score, 0),
+        "important_hits": sum(1 for token in STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS if token in normalized_lower),
+        "strong_hits": sum(1 for token in STORY_MEMORY_KEY_EVENT_STRONG_TOKENS if token in normalized_lower),
+        "low_signal_hits": sum(1 for token in STORY_MEMORY_LOW_SIGNAL_TOKENS if token in normalized_lower),
+    }
+
+
+_STORY_IMPORTANT_EVENT_FIRST_PERSON_PRONOUN_PATTERN = re.compile(
+    r"\b(?:я|мне|меня|мной|мой|моя|моё|мое|мои|мы|нас|нам|нами|наш|наша|наше|наши)\b",
+    re.IGNORECASE,
+)
+
+_STORY_IMPORTANT_EVENT_FIRST_PERSON_VERB_PATTERN = re.compile(
+    r"(?im)(?:^|[.!?…]\s+|\n)(?:[А-ЯЁA-Z][^:\n]{1,40}:\s*)?(?:не\s+)?[а-яё-]{3,}(?:юсь|усь|ю|у|ем|ём|им|емся|ёмся|имся)\b",
+    re.IGNORECASE,
+)
+
+_STORY_IMPORTANT_EVENT_LOW_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r"\b(?:одинок\w*|одиночеств\w*|игнор\w*|уставш\w*|взгляд\w*|тишин\w*|молчани\w*|пауз\w*|вздох\w*|улыб\w*|кивн\w*|настроени\w*|эмоци\w*|смущени\w*|неловк\w*|тоск\w*|печал\w*|груст\w*|апат\w*|задумчив\w*)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:никому\s+не\s+нужн\w*|не\s+привлекая\s+внимани\w*|снова\s+не\s+пош[её]л\s+в\s+столов\w*)",
+        re.IGNORECASE,
+    ),
+)
+
+_STORY_IMPORTANT_EVENT_CHANGE_MARKERS: tuple[str, ...] = (
+    "решил",
+    "решила",
+    "решили",
+    "решение",
+    "пообещал",
+    "пообещала",
+    "согласился",
+    "согласилась",
+    "отказался",
+    "отказалась",
+    "признал",
+    "признала",
+    "призналась",
+    "раскрыл",
+    "раскрыла",
+    "узнал",
+    "узнала",
+    "выяснил",
+    "выяснила",
+    "договорились",
+    "заключил",
+    "заключила",
+    "предал",
+    "предала",
+    "нашел",
+    "нашла",
+    "получил",
+    "получила",
+    "потерял",
+    "потеряла",
+    "спас",
+    "спасла",
+    "погиб",
+    "умер",
+    "атаковал",
+    "атаковала",
+    "напал",
+    "напала",
+    "захватил",
+    "захватила",
+    "арестовал",
+    "арестовала",
+    "сбежал",
+    "сбежала",
+    "отправился",
+    "отправилась",
+    "вступил",
+    "вступила",
+    "поклялся",
+    "поклялась",
+)
+
+
+def _count_story_important_event_pattern_matches(text: str, patterns: tuple[re.Pattern[str], ...]) -> int:
+    normalized_text = str(text or "").strip()
+    if not normalized_text:
+        return 0
+    return sum(1 for pattern in patterns if pattern.search(normalized_text))
+
+
+def _count_story_important_event_change_markers(text: str) -> int:
+    normalized_lower = str(text or "").casefold()
+    if not normalized_lower:
+        return 0
+    return sum(1 for token in _STORY_IMPORTANT_EVENT_CHANGE_MARKERS if token in normalized_lower)
+
+
+def _story_important_event_contains_first_person_perspective(text: str) -> bool:
+    normalized_text = str(text or "").strip()
+    if not normalized_text:
+        return False
+    return bool(
+        _STORY_IMPORTANT_EVENT_FIRST_PERSON_PRONOUN_PATTERN.search(normalized_text)
+        or _STORY_IMPORTANT_EVENT_FIRST_PERSON_VERB_PATTERN.search(normalized_text)
+    )
+
+
+def _is_story_important_event_obviously_low_value(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    title: str,
+    content: str,
+    turn_important_hits: int,
+    turn_strong_hits: int,
+    candidate_important_hits: int,
+    candidate_strong_hits: int,
+    candidate_top_score: int,
+) -> bool:
+    candidate_text = "\n".join(
+        part.strip()
+        for part in (str(title or "").strip(), str(content or "").strip())
+        if part and str(part).strip()
+    ).strip()
+    turn_text = "\n".join(
+        part.strip()
+        for part in (str(latest_user_prompt or "").strip(), str(latest_assistant_text or "").strip())
+        if part and str(part).strip()
+    ).strip()
+    if not candidate_text:
+        return True
+
+    candidate_low_value_hits = _count_story_important_event_pattern_matches(
+        candidate_text,
+        _STORY_IMPORTANT_EVENT_LOW_VALUE_PATTERNS,
+    )
+    turn_low_value_hits = _count_story_important_event_pattern_matches(
+        turn_text,
+        _STORY_IMPORTANT_EVENT_LOW_VALUE_PATTERNS,
+    )
+    candidate_change_hits = _count_story_important_event_change_markers(candidate_text)
+    turn_change_hits = _count_story_important_event_change_markers(turn_text)
+    candidate_first_person = _story_important_event_contains_first_person_perspective(content)
+
+    if candidate_first_person and candidate_change_hits <= 0 and candidate_strong_hits <= 0:
+        return True
+
+    if (
+        candidate_low_value_hits > 0
+        and candidate_change_hits <= 0
+        and candidate_strong_hits <= 0
+        and candidate_important_hits <= 1
+        and candidate_top_score < max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE + 3, 10)
+    ):
+        return True
+
+    if (
+        candidate_low_value_hits > 0
+        and turn_low_value_hits > 0
+        and candidate_change_hits <= 0
+        and turn_change_hits <= 0
+        and turn_strong_hits <= 0
+        and candidate_strong_hits <= 0
+        and turn_important_hits <= 1
+        and candidate_important_hits <= 1
+    ):
+        return True
+
+    return False
+
+
+def _should_accept_story_important_event_candidate(
+    *,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+    title: str,
+    content: str,
+    importance_score: int,
+) -> bool:
+    if importance_score < STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE:
+        return False
+
+    turn_signal = _evaluate_story_turn_memory_signal(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+    )
+    if int(turn_signal.get("sentence_count", 0)) <= 0:
+        return False
+
+    candidate_signal = _build_story_key_memory_candidate_signal(title=title, content=content)
+    turn_top_score = int(turn_signal.get("top_score", 0))
+    turn_important_hits = int(turn_signal.get("important_hits", 0))
+    turn_strong_hits = int(turn_signal.get("strong_hits", 0))
+    turn_low_signal_hits = int(turn_signal.get("low_signal_hits", 0))
+    candidate_top_score = int(candidate_signal.get("top_score", 0))
+    candidate_important_hits = int(candidate_signal.get("important_hits", 0))
+    candidate_strong_hits = int(candidate_signal.get("strong_hits", 0))
+    candidate_low_signal_hits = int(candidate_signal.get("low_signal_hits", 0))
+
+    if _is_story_important_event_obviously_low_value(
+        latest_user_prompt=latest_user_prompt,
+        latest_assistant_text=latest_assistant_text,
+        title=title,
+        content=content,
+        turn_important_hits=turn_important_hits,
+        turn_strong_hits=turn_strong_hits,
+        candidate_important_hits=candidate_important_hits,
+        candidate_strong_hits=candidate_strong_hits,
+        candidate_top_score=candidate_top_score,
+    ):
+        return False
+
+    if (
+        turn_low_signal_hits > 0
+        and turn_important_hits <= 0
+        and turn_strong_hits <= 0
+        and turn_top_score < STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE
+        and importance_score < 92
+    ):
+        return False
+
+    if (
+        candidate_low_signal_hits > 0
+        and candidate_important_hits <= 0
+        and candidate_strong_hits <= 0
+        and candidate_top_score < max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE + 1, 8)
+    ):
+        return False
+
+    if turn_strong_hits > 0 or candidate_strong_hits > 0:
+        return True
+
+    if turn_important_hits > 0 and candidate_important_hits > 0:
+        return turn_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE, STORY_MEMORY_RAW_MIN_SIGNAL_SCORE)
+
+    if importance_score >= 92:
+        return candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE + 1, 8)
+
+    return False
+
+
 def _extract_story_important_plot_card_payload_locally(
     *,
     latest_user_prompt: str,
@@ -10620,10 +11817,27 @@ def _extract_story_important_plot_card_payload_locally(
     if len(content) < 30:
         return None
 
-    title = _normalize_story_memory_block_title(
-        _derive_story_plot_card_title_from_content(content),
-        fallback="Важный момент",
+    derived_importance_score = (
+        94
+        if strong_hits > 0
+        else max(
+            STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE,
+            min(91, 72 + top_score * 3 + important_hits * 4),
+        )
     )
+
+    title = _normalize_story_memory_block_title(
+        f"Важно: {_derive_story_plot_card_title_from_content(content)}",
+        fallback="Важно: Важное событие",
+    )
+    if not _should_accept_story_important_event_candidate(
+        latest_user_prompt=normalized_prompt,
+        latest_assistant_text=normalized_assistant,
+        title=title,
+        content=content,
+        importance_score=derived_importance_score,
+    ):
+        return None
     return (title, content)
 
 
@@ -10637,6 +11851,8 @@ def _compress_story_memory_block_locally(
     *,
 
     super_mode: bool,
+    player_name: str | None = None,
+    known_character_names: list[str] | None = None,
 
 ) -> tuple[str, str]:
 
@@ -10645,6 +11861,8 @@ def _compress_story_memory_block_locally(
         raw_content,
 
         super_mode=super_mode,
+        player_name=player_name,
+        known_character_names=known_character_names,
 
     )
 
@@ -10691,6 +11909,8 @@ def _compress_story_memory_block_with_model(
     fallback_model_names: list[str],
 
     super_mode: bool,
+    player_name: str | None = None,
+    known_character_names: list[str] | None = None,
 
     allow_local_fallback: bool = True,
 
@@ -10699,16 +11919,35 @@ def _compress_story_memory_block_with_model(
 ) -> tuple[str, str]:
 
     normalized_raw_content = raw_content.replace("\r\n", "\n").strip()
+    memory_identity_names = _collect_story_memory_identity_names(
+        player_name=player_name,
+        known_character_names=known_character_names,
+    )
+    source_required_names = _extract_story_memory_required_explicit_names(
+        normalized_raw_content,
+        player_name=player_name,
+        known_character_names=known_character_names,
+    )
 
     if not normalized_raw_content:
 
-        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+        return _compress_story_memory_block_locally(
+            raw_content,
+            super_mode=super_mode,
+            player_name=player_name,
+            known_character_names=known_character_names,
+        )
 
     if not settings.openrouter_api_key:
 
         if allow_local_fallback:
 
-            return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+            return _compress_story_memory_block_locally(
+                raw_content,
+                super_mode=super_mode,
+                player_name=player_name,
+                known_character_names=known_character_names,
+            )
 
         raise RuntimeError("Story memory compression model is unavailable")
 
@@ -10722,6 +11961,8 @@ def _compress_story_memory_block_with_model(
 
         normalized_output = " ".join(output_sentences).casefold()
         if "существенных фактов не выделено" in normalized_output:
+            return False
+        if source_required_names and not _story_memory_text_covers_names(compressed_text, source_required_names):
             return False
 
         source_tokens = {
@@ -10752,9 +11993,9 @@ def _compress_story_memory_block_with_model(
 
 
     target_description = (
-        "Перескажи максимально коротко: сохрани суть, важнейшие факты и прямые последствия, убери второстепенные детали."
+        "Перескажи максимально коротко: сохрани суть, важнейшие факты, прямые последствия и все явно названные имена, убери только второстепенные детали."
         if super_mode
-        else "Перескажи короче и суше своими словами: сохрани ключевые факты, последствия и опорный контекст, но убери лишние подробности."
+        else "Перескажи короче и суше своими словами: сохрани ключевые факты, последствия, опорный контекст и все явно названные имена, но убери лишние подробности."
     )
     messages_payload = [
 
@@ -10774,7 +12015,28 @@ def _compress_story_memory_block_with_model(
 
                 "Сохраняй смысл и общий стиль исходного текста, но убирай лишние подробности. "
 
-                "КРИТИЧЕСКОЕ ПРАВИЛО: в сжатой памяти всегда должно быть ясно, кто именно что сделал или сказал. "
+                "CRITICAL NAME RULE: if the source explicitly names a character, hero, NPC, speaker, creature, or other named entity, keep that exact name in the compressed memory. "
+                "Never replace an explicit name with a pronoun or a generic role like player, hero, he, she, they, man, woman, girl, guy, stranger, companion, or NPC. "
+                "If the main hero has an explicit name, use that exact name instead of 'игрок', 'герой', or 'ты' whenever the reference is unambiguous. "
+                "If multiple named characters appear in one event, do not merge them into 'they' and do not drop who exactly acted, spoke, suffered, promised, decided, or was targeted. "
+                "HARD VALIDATION RULE: if even one explicit name from the source disappears in the compressed result, that result is invalid. "
+                "Before you finish, verify that every explicit name from the source block is still present in the final compressed text. "
+                + (
+                    "Known continuity names that must stay exact when present in the source: "
+                    + ", ".join(repr(name) for name in memory_identity_names)
+                    + ". "
+                    if memory_identity_names
+                    else ""
+                )
+                + (
+                    "Exact explicit names found in this source block and mandatory to preserve: "
+                    + ", ".join(repr(name) for name in source_required_names)
+                    + ". "
+                    if source_required_names
+                    else ""
+                )
+
+                + "КРИТИЧЕСКОЕ ПРАВИЛО: в сжатой памяти всегда должно быть ясно, кто именно что сделал или сказал. "
 
                 "Если из исходника субъект назван явно, сохраняй именно это имя, роль или сущность. "
                 "Если местоимение он, она, его, ее, ему, ей или они однозначно указывает на уже названного персонажа или героя игрока, замени местоимение на точное имя из исходника. "
@@ -10800,7 +12062,17 @@ def _compress_story_memory_block_with_model(
                 f"{target_description}\n"
 
                 "Keep concrete continuity facts even if they seem mundane: employer, task, contract, order, duty, named location, and scene-state facts such as empty, quiet, noisy, crowded, closed, or abandoned.\n"
-                "Сохрани явные субъекты, объекты действия и говорящих.\n"
+                + (
+                    f"Known names that must stay exact if mentioned:\n{json.dumps(memory_identity_names, ensure_ascii=False)}\n"
+                    if memory_identity_names
+                    else ""
+                )
+                + (
+                    f"Exact explicit names from this source block that must not disappear:\n{json.dumps(source_required_names, ensure_ascii=False)}\n"
+                    if source_required_names
+                    else ""
+                )
+                + "Сохрани явные субъекты, объекты действия и говорящих.\n"
 
                 "Верни только готовый сжатый текст без пояснений.\n\n"
 
@@ -10868,7 +12140,12 @@ def _compress_story_memory_block_with_model(
 
             if allow_local_fallback:
 
-                return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+                return _compress_story_memory_block_locally(
+                    raw_content,
+                    super_mode=super_mode,
+                    player_name=player_name,
+                    known_character_names=known_character_names,
+                )
 
             raise RuntimeError("Story memory compression request failed") from exc
 
@@ -10898,7 +12175,12 @@ def _compress_story_memory_block_with_model(
                     time.sleep(0.15)
                     continue
                 if allow_local_fallback:
-                    return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+                    return _compress_story_memory_block_locally(
+                        raw_content,
+                        super_mode=super_mode,
+                        player_name=player_name,
+                        known_character_names=known_character_names,
+                    )
                 raise RuntimeError("Story memory compression returned unusable model payload")
 
             title = _build_story_memory_block_title(
@@ -10921,7 +12203,12 @@ def _compress_story_memory_block_with_model(
 
     if allow_local_fallback:
 
-        return _compress_story_memory_block_locally(raw_content, super_mode=super_mode)
+        return _compress_story_memory_block_locally(
+            raw_content,
+            super_mode=super_mode,
+            player_name=player_name,
+            known_character_names=known_character_names,
+        )
 
     raise RuntimeError("Story memory compression returned empty model payload")
 
@@ -10980,7 +12267,10 @@ def _rebalance_story_memory_layers(
     compressed_keep_recent_limit = max(raw_keep_limit * 2, 4)
     context_limit_tokens = _normalize_story_context_limit_chars(game.context_limit_chars)
     effective_memory_budget_tokens = max(context_limit_tokens, 1)
-    budgets = _build_story_memory_layer_budgets(effective_memory_budget_tokens)
+    budgets = _build_story_memory_layer_budgets(
+        effective_memory_budget_tokens,
+        optimization_mode=getattr(game, "memory_optimization_mode", None),
+    )
     latest_raw_assistant_ids = {
         normalized_message_id
         for normalized_message_id in (
@@ -11013,6 +12303,12 @@ def _rebalance_story_memory_layers(
         raw_keep_limit,
         compressed_keep_recent_limit,
         ",".join(str(item) for item in sorted(latest_raw_assistant_ids)) or "none",
+    )
+    main_hero_name_for_memory = _get_story_main_hero_name_for_memory(db, game_id=game.id)
+    known_character_names_for_memory = _list_story_known_character_names_for_memory(
+        db,
+        game_id=game.id,
+        player_turn_label=main_hero_name_for_memory,
     )
 
     def _layer_order_key(block: StoryMemoryBlock) -> tuple[int, int]:
@@ -11114,6 +12410,8 @@ def _rebalance_story_memory_layers(
                 compact_title, compact_content = _compress_story_memory_block_locally(
                     prepared_content,
                     super_mode=super_mode,
+                    player_name=main_hero_name_for_memory,
+                    known_character_names=known_character_names_for_memory,
                 )
                 normalized_content = _normalize_story_memory_block_content(compact_content)
                 next_token_count = max(_estimate_story_tokens(normalized_content), 1)
@@ -11126,6 +12424,35 @@ def _rebalance_story_memory_layers(
                 if int(getattr(block, "token_count", 0) or 0) != next_token_count:
                     block.token_count = next_token_count
                     changed = True
+        if changed:
+            db.flush()
+
+    def _cleanup_low_value_key_memory_blocks() -> None:
+        changed = False
+        for block in _layer_blocks(STORY_MEMORY_LAYER_KEY):
+            normalized_title = str(getattr(block, "title", "") or "").strip()
+            normalized_content = str(getattr(block, "content", "") or "").strip()
+            if not normalized_content:
+                db.delete(block)
+                changed = True
+                continue
+            candidate_signal = _build_story_key_memory_candidate_signal(
+                title=normalized_title,
+                content=normalized_content,
+            )
+            if _is_story_important_event_obviously_low_value(
+                latest_user_prompt="",
+                latest_assistant_text="",
+                title=normalized_title,
+                content=normalized_content,
+                turn_important_hits=0,
+                turn_strong_hits=0,
+                candidate_important_hits=int(candidate_signal.get("important_hits", 0)),
+                candidate_strong_hits=int(candidate_signal.get("strong_hits", 0)),
+                candidate_top_score=int(candidate_signal.get("top_score", 0)),
+            ):
+                db.delete(block)
+                changed = True
         if changed:
             db.flush()
 
@@ -11166,6 +12493,8 @@ def _rebalance_story_memory_layers(
                         model_name=model_name,
                         fallback_model_names=fallback_model_names,
                         super_mode=False,
+                        player_name=main_hero_name_for_memory,
+                        known_character_names=known_character_names_for_memory,
                         allow_local_fallback=not require_model_compaction,
                         max_attempts=1 if require_model_compaction else 2,
                     )
@@ -11175,6 +12504,8 @@ def _rebalance_story_memory_layers(
                     compressed_title, compressed_content = _compress_story_memory_block_locally(
                         prepared_content,
                         super_mode=False,
+                        player_name=main_hero_name_for_memory,
+                        known_character_names=known_character_names_for_memory,
                     )
             else:
                 if require_model_compaction:
@@ -11182,6 +12513,8 @@ def _rebalance_story_memory_layers(
                 compressed_title, compressed_content = _compress_story_memory_block_locally(
                     prepared_content,
                     super_mode=False,
+                    player_name=main_hero_name_for_memory,
+                    known_character_names=known_character_names_for_memory,
                 )
             with db.begin_nested():
                 current_block = db.get(StoryMemoryBlock, source_block_id)
@@ -11246,6 +12579,8 @@ def _rebalance_story_memory_layers(
                         model_name=model_name,
                         fallback_model_names=fallback_model_names,
                         super_mode=True,
+                        player_name=main_hero_name_for_memory,
+                        known_character_names=known_character_names_for_memory,
                         allow_local_fallback=not require_model_compaction,
                         max_attempts=1 if require_model_compaction else 2,
                     )
@@ -11255,6 +12590,8 @@ def _rebalance_story_memory_layers(
                     super_title, super_content = _compress_story_memory_block_locally(
                         prepared_content,
                         super_mode=True,
+                        player_name=main_hero_name_for_memory,
+                        known_character_names=known_character_names_for_memory,
                     )
             else:
                 if require_model_compaction:
@@ -11262,6 +12599,8 @@ def _rebalance_story_memory_layers(
                 super_title, super_content = _compress_story_memory_block_locally(
                     prepared_content,
                     super_mode=True,
+                    player_name=main_hero_name_for_memory,
+                    known_character_names=known_character_names_for_memory,
                 )
             with db.begin_nested():
                 current_block = db.get(StoryMemoryBlock, source_block_id)
@@ -11356,6 +12695,8 @@ def _rebalance_story_memory_layers(
 
     if backfill_existing_compact_layers:
         _sanitize_compact_layers()
+
+    _cleanup_low_value_key_memory_blocks()
 
     _dedupe_layer_by_assistant_message_id(STORY_MEMORY_LAYER_COMPRESSED)
     _dedupe_layer_by_assistant_message_id(STORY_MEMORY_LAYER_SUPER)
@@ -11519,9 +12860,20 @@ def _extract_story_important_plot_card_payload(
 
                 "Do not mark routine actions, atmosphere, small emotions, ordinary dialogue, or cosmetic details. "
 
+                "Do not mark silence, a short reaction, or a vivid phrase unless they create a clear long-term consequence. "
+                "Do not mark self-description, mood, loneliness, a tired look, skipping lunch, or one ordinary social remark unless they create a new lasting consequence. "
+
+                "title must be a short Russian event label without generic phrases like \"Важный момент\". "
+
+                "Assume the final memory title will start with \"Важно:\" and keep only the core event essence. "
+
                 "content must be 1-2 short factual Russian sentences in past tense, "
 
-                "with concrete actor+event wording and no bullet list."
+                "with concrete actor+event wording and no bullet list. "
+
+                "Never write in first person. "
+
+                "Always write in third person and explicitly name key actors whenever their names are present in the turn."
 
             ),
 
@@ -11542,6 +12894,8 @@ def _extract_story_important_plot_card_payload(
                 "new long-term goal/obligation, key secret revealed, critical alliance/trust shift, "
 
                 "high-impact gain/loss of resource/artifact/ability, or a new constraint that changes next turns. "
+
+                "If the turn only adds tone, tension, or a short exchange without new lasting consequences, return is_important=false. "
 
                 "If there is no such event, return is_important=false, importance_score<=55, title=\"\", content=\"\"."
 
@@ -11725,7 +13079,15 @@ def _extract_story_important_plot_card_payload(
 
         title = raw_title if raw_title else _derive_story_plot_card_title_from_content(content)
 
-        title = _normalize_story_memory_block_title(title, fallback="Важный момент")
+        title = _normalize_story_memory_block_title(f"Важно: {title}", fallback="Важно: Важное событие")
+        if not _should_accept_story_important_event_candidate(
+            latest_user_prompt=normalized_prompt,
+            latest_assistant_text=normalized_assistant,
+            title=title,
+            content=content,
+            importance_score=importance_score,
+        ):
+            return None
 
         return (title, content)
 
@@ -11773,12 +13135,34 @@ def _create_story_key_memory_block(
 
 ) -> bool:
 
-    normalized_title = _normalize_story_memory_block_title(title, fallback="Важный момент")
+    normalized_title = _normalize_story_memory_block_title(title, fallback="Важно: Важное событие")
+    if not normalized_title.casefold().startswith("важно:"):
+        normalized_title = _normalize_story_memory_block_title(
+            f"Важно: {normalized_title}",
+            fallback="Важно: Важное событие",
+        )
 
     sanitized_content = _sanitize_story_key_memory_content(content)
 
     if not sanitized_content or not _is_story_key_memory_content_valid(sanitized_content):
 
+        return False
+
+    candidate_signal = _build_story_key_memory_candidate_signal(
+        title=normalized_title,
+        content=sanitized_content,
+    )
+    if _is_story_important_event_obviously_low_value(
+        latest_user_prompt="",
+        latest_assistant_text="",
+        title=normalized_title,
+        content=sanitized_content,
+        turn_important_hits=0,
+        turn_strong_hits=0,
+        candidate_important_hits=int(candidate_signal.get("important_hits", 0)),
+        candidate_strong_hits=int(candidate_signal.get("strong_hits", 0)),
+        candidate_top_score=int(candidate_signal.get("top_score", 0)),
+    ):
         return False
 
     normalized_content = _normalize_story_memory_block_content(sanitized_content)

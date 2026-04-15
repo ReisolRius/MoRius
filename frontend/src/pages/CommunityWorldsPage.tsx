@@ -3,16 +3,20 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  Fade,
   FormControl,
+  IconButton,
   MenuItem,
   Select,
   Stack,
   SvgIcon,
   Typography,
+  useMediaQuery,
   type SelectChangeEvent,
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
@@ -21,15 +25,23 @@ import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCar
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
-import { useIncrementalList } from '../hooks/useIncrementalList'
+import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
+import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import cardsWorldRaw from '../assets/icons/cards-world.svg?raw'
+import cardsPlotRaw from '../assets/icons/cards-plot.svg?raw'
+import cardsRulesRaw from '../assets/icons/cards-rules.svg?raw'
+import searchIconRaw from '../assets/icons/search.svg?raw'
+import searchCloseIconRaw from '../assets/icons/search-close.svg?raw'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
+import Footer from '../components/Footer'
 import TextLimitIndicator from '../components/TextLimitIndicator'
+
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -73,6 +85,7 @@ import type {
 } from '../types/story'
 import { moriusThemeTokens } from '../theme'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 
 type CommunityWorldsPageProps = {
   user: AuthUser
@@ -92,27 +105,12 @@ const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 12 }, (_, index) => `community-world-skeleton-${index}`)
-const TOP_FILTER_CONTROL_HEIGHT = 46
-const TOP_FILTER_CONTROL_RADIUS = '12px'
-const TOP_FILTER_TEXT_PADDING_X = '14px'
-const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
-const TOP_FILTER_ICON_OFFSET_X = '12px'
+
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const COMMUNITY_CARD_BATCH_SIZE = 12
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
-const COMMUNITY_FEED_CACHE_TTL_MS = 30 * 60 * 1000
-const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v2'
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
-
-type CommunityFeedCachePayload = {
-  saved_at: number
-  worlds: StoryCommunityWorldSummary[]
-  characters: StoryCommunityCharacterSummary[]
-  instruction_templates: StoryCommunityInstructionTemplateSummary[]
-  has_characters: boolean
-  has_instruction_templates: boolean
-}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -142,56 +140,24 @@ function parseSharedWorldIdFromLocation(search: string): number | null {
   return parsedValue
 }
 
-function buildCommunityFeedCacheKey(userId: number): string {
-  return `${COMMUNITY_FEED_CACHE_KEY_PREFIX}:${userId}`
+function mergeCommunityItemsById<T extends { id: number }>(previous: T[], nextItems: T[]): T[] {
+  const mergedById = new Map<number, T>()
+  previous.forEach((item) => {
+    mergedById.set(item.id, item)
+  })
+  nextItems.forEach((item) => {
+    mergedById.set(item.id, item)
+  })
+  return Array.from(mergedById.values())
 }
 
-function readCommunityFeedCache(userId: number): CommunityFeedCachePayload | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-  try {
-    const rawValue = window.localStorage.getItem(buildCommunityFeedCacheKey(userId))
-    if (!rawValue) {
-      return null
-    }
-    const parsed = JSON.parse(rawValue) as Partial<CommunityFeedCachePayload>
-    if (typeof parsed.saved_at !== 'number' || !Number.isFinite(parsed.saved_at)) {
-      return null
-    }
-    if (!Array.isArray(parsed.worlds) || !Array.isArray(parsed.characters) || !Array.isArray(parsed.instruction_templates)) {
-      return null
-    }
-    return {
-      saved_at: parsed.saved_at,
-      worlds: parsed.worlds as StoryCommunityWorldSummary[],
-      characters: parsed.characters as StoryCommunityCharacterSummary[],
-      instruction_templates: parsed.instruction_templates as StoryCommunityInstructionTemplateSummary[],
-      has_characters: parsed.has_characters === true,
-      has_instruction_templates: parsed.has_instruction_templates === true,
-    }
-  } catch {
-    return null
-  }
-}
-
-function writeCommunityFeedCache(userId: number, payload: CommunityFeedCachePayload): void {
-  if (typeof window === 'undefined') {
-    return
-  }
-  try {
-    window.localStorage.setItem(buildCommunityFeedCacheKey(userId), JSON.stringify(payload))
-  } catch {
-    // Ignore storage quota or privacy mode restrictions.
-  }
-}
-
-type CommunitySection = 'worlds' | 'characters' | 'instructions'
+type CommunitySection = 'worlds' | 'characters' | 'rules'
 type CommunityWorldSortMode = 'updated_desc' | 'rating_desc' | 'launches_desc' | 'views_desc'
 type CommunityCardSortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
 type CommunityAddedFilter = 'all' | 'added' | 'not_added'
 type CommunityWorldAgeFilter = 'all' | '6+' | '16+' | '18+'
 type CommunityEntityReportTarget = 'character' | 'instruction_template'
+type CommunityWorldGenreFilter = string[] | 'all'
 
 const WORLD_SORT_OPTIONS: Array<{ value: CommunityWorldSortMode; label: string }> = [
   { value: 'updated_desc', label: 'Недавние' },
@@ -207,7 +173,7 @@ const COMMUNITY_REPORT_REASON_OPTIONS: Array<{ value: StoryCommunityWorldReportR
   { value: 'nationalism', label: 'Nationalism' },
   { value: 'other', label: 'Other' },
 ]
-const COMMUNITY_SEARCH_QUERY_MAX_LENGTH = 120
+// const COMMUNITY_SEARCH_QUERY_MAX_LENGTH = 120 — search UI removed per Figma design
 const COMMUNITY_REPORT_DESCRIPTION_MAX_LENGTH = 2000
 
 const CARD_SORT_OPTIONS: Array<{ value: CommunityCardSortMode; label: string }> = [
@@ -229,16 +195,6 @@ const AGE_FILTER_OPTIONS: Array<{ value: CommunityWorldAgeFilter; label: string 
   { value: '18+', label: '18+' },
 ]
 
-function SearchGlyph() {
-  return (
-    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
-      <path
-        d="M10.5 4a6.5 6.5 0 1 0 4.18 11.48l3.92 3.92a1 1 0 0 0 1.4-1.42l-3.87-3.86A6.5 6.5 0 0 0 10.5 4m0 2a4.5 4.5 0 1 1 0 9.01 4.5 4.5 0 0 1 0-9.01"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
-}
 
 function FilterGlyph() {
   return (
@@ -357,8 +313,6 @@ function CommunityInstructionCard({ item, currentUserId, disabled = false, onCli
         alignItems: 'stretch',
         width: '100%',
         overflow: 'hidden',
-        contentVisibility: 'auto',
-        containIntrinsicSize: '238px',
         '&:hover': {
           backgroundColor: APP_BUTTON_HOVER,
         },
@@ -498,12 +452,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
+  const [isCommunityWorldsLoadingMore, setIsCommunityWorldsLoadingMore] = useState(false)
+  const [hasMoreCommunityWorldsServer, setHasMoreCommunityWorldsServer] = useState(false)
   const [communityCharacters, setCommunityCharacters] = useState<StoryCommunityCharacterSummary[]>([])
   const [isCommunityCharactersLoading, setIsCommunityCharactersLoading] = useState(false)
-  const [hasLoadedCommunityCharacters, setHasLoadedCommunityCharacters] = useState(false)
+  const [isCommunityCharactersLoadingMore, setIsCommunityCharactersLoadingMore] = useState(false)
+  const [hasMoreCommunityCharactersServer, setHasMoreCommunityCharactersServer] = useState(false)
   const [communityInstructionTemplates, setCommunityInstructionTemplates] = useState<StoryCommunityInstructionTemplateSummary[]>([])
   const [isCommunityInstructionTemplatesLoading, setIsCommunityInstructionTemplatesLoading] = useState(false)
-  const [hasLoadedCommunityInstructionTemplates, setHasLoadedCommunityInstructionTemplates] = useState(false)
+  const [isCommunityInstructionTemplatesLoadingMore, setIsCommunityInstructionTemplatesLoadingMore] = useState(false)
+  const [hasMoreCommunityInstructionTemplatesServer, setHasMoreCommunityInstructionTemplatesServer] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
   const [actionError, setActionError] = useState('')
   const [selectedCommunityWorld, setSelectedCommunityWorld] = useState<StoryCommunityWorldPayload | null>(null)
@@ -534,44 +492,29 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     typeof window === 'undefined' ? null : parseSharedWorldIdFromLocation(window.location.search),
   )
   const [hasAttemptedSharedWorldOpen, setHasAttemptedSharedWorldOpen] = useState(false)
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [worldSortMode, setWorldSortMode] = useState<CommunityWorldSortMode>('updated_desc')
   const [characterSortMode, setCharacterSortMode] = useState<CommunityCardSortMode>('updated_desc')
   const [instructionSortMode, setInstructionSortMode] = useState<CommunityCardSortMode>('updated_desc')
   const [worldAgeFilter, setWorldAgeFilter] = useState<CommunityWorldAgeFilter>('all')
-  const [worldGenreFilter, setWorldGenreFilter] = useState<string>('all')
+  const [worldGenreFilter, setWorldGenreFilter] = useState<CommunityWorldGenreFilter>('all')
+  const [lastStableWorldGenreOptions, setLastStableWorldGenreOptions] = useState<string[]>([])
   const [characterAddedFilter, setCharacterAddedFilter] = useState<CommunityAddedFilter>('all')
   const [instructionAddedFilter, setInstructionAddedFilter] = useState<CommunityAddedFilter>('all')
+  const [hasPageScrollInteraction, setHasPageScrollInteraction] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
+  const communityWorldsLoadMoreTriggeredRef = useRef(false)
+  const communityCharactersLoadMoreTriggeredRef = useRef(false)
+  const communityInstructionTemplatesLoadMoreTriggeredRef = useRef(false)
+  const communityWorldsRequestVersionRef = useRef(0)
+  const communityCharactersRequestVersionRef = useRef(0)
+  const communityInstructionTemplatesRequestVersionRef = useRef(0)
+  const communityWorldsRequestInFlightRef = useRef(false)
+  const communityCharactersRequestInFlightRef = useRef(false)
+  const communityInstructionTemplatesRequestInFlightRef = useRef(false)
   const deferredSearchQuery = useDeferredValue(searchQuery)
-
-  const writeCommunityFeedCacheSnapshot = useCallback(
-    (payload: Partial<CommunityFeedCachePayload>) => {
-      const cachedPayload = readCommunityFeedCache(user.id)
-      writeCommunityFeedCache(user.id, {
-        saved_at: Date.now(),
-        worlds: payload.worlds ?? cachedPayload?.worlds ?? communityWorlds,
-        characters: payload.characters ?? cachedPayload?.characters ?? communityCharacters,
-        instruction_templates:
-          payload.instruction_templates ?? cachedPayload?.instruction_templates ?? communityInstructionTemplates,
-        has_characters:
-          payload.characters !== undefined ? true : cachedPayload?.has_characters ?? hasLoadedCommunityCharacters,
-        has_instruction_templates:
-          payload.instruction_templates !== undefined
-            ? true
-            : cachedPayload?.has_instruction_templates ?? hasLoadedCommunityInstructionTemplates,
-      })
-    },
-    [
-      communityCharacters,
-      communityInstructionTemplates,
-      communityWorlds,
-      hasLoadedCommunityCharacters,
-      hasLoadedCommunityInstructionTemplates,
-      user.id,
-    ],
-  )
 
   const worldGenreOptions = useMemo(() => {
     const uniqueGenres = new Set<string>()
@@ -586,17 +529,89 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     return Array.from(uniqueGenres).sort((left, right) => left.localeCompare(right, 'ru'))
   }, [communityWorlds])
 
+  const serverWorldGenreFilter = useMemo(
+    () => (typeof worldGenreFilter === 'string' && worldGenreFilter !== 'all' ? worldGenreFilter : null),
+    [worldGenreFilter],
+  )
+
+  useEffect(() => {
+    if (activeSection !== 'worlds') {
+      return
+    }
+    if (worldGenreOptions.length > 0) {
+      setLastStableWorldGenreOptions(worldGenreOptions)
+      return
+    }
+    if (!isCommunityWorldsLoading && !isCommunityWorldsLoadingMore) {
+      setLastStableWorldGenreOptions([])
+    }
+  }, [activeSection, isCommunityWorldsLoading, isCommunityWorldsLoadingMore, worldGenreOptions])
+
+  const displayedWorldGenreOptions = useMemo(() => {
+    if (worldGenreOptions.length > 0) {
+      return worldGenreOptions
+    }
+    if (activeSection === 'worlds' && (isCommunityWorldsLoading || isCommunityWorldsLoadingMore)) {
+      return lastStableWorldGenreOptions
+    }
+    return worldGenreOptions
+  }, [
+    activeSection,
+    isCommunityWorldsLoading,
+    isCommunityWorldsLoadingMore,
+    lastStableWorldGenreOptions,
+    worldGenreOptions,
+  ])
+
   useEffect(() => {
     if (worldGenreFilter === 'all') {
       return
     }
-    if (worldGenreOptions.includes(worldGenreFilter)) {
+    if (worldGenreOptions.length === 0) {
       return
     }
-    setWorldGenreFilter('all')
+    const selectedGenres = Array.isArray(worldGenreFilter) ? worldGenreFilter : [worldGenreFilter]
+    const validGenres = selectedGenres.filter((genre) => worldGenreOptions.includes(genre))
+    if (validGenres.length === selectedGenres.length) {
+      return
+    }
+    if (validGenres.length === 0) {
+      setWorldGenreFilter('all')
+    } else {
+      setWorldGenreFilter(validGenres)
+    }
   }, [worldGenreFilter, worldGenreOptions])
 
   const normalizedSearchQuery = useMemo(() => normalizeSearchValue(deferredSearchQuery), [deferredSearchQuery])
+
+  useEffect(() => {
+    setHasPageScrollInteraction(false)
+  }, [
+    activeSection,
+    characterAddedFilter,
+    characterSortMode,
+    instructionAddedFilter,
+    instructionSortMode,
+    normalizedSearchQuery,
+    worldAgeFilter,
+    worldGenreFilter,
+    worldSortMode,
+  ])
+
+  useEffect(() => {
+    if (hasPageScrollInteraction || typeof window === 'undefined') {
+      return
+    }
+
+    const handleScroll = () => {
+      setHasPageScrollInteraction(true)
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true, once: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+    }
+  }, [hasPageScrollInteraction])
 
   const filteredCommunityWorlds = useMemo(() => {
     let filtered = communityWorlds
@@ -606,8 +621,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         const haystack = [
           world.title,
           world.description,
-          world.author_name,
-          world.genres.join(' '),
         ]
           .join(' ')
           .toLowerCase()
@@ -620,7 +633,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
 
     if (worldGenreFilter !== 'all') {
-      filtered = filtered.filter((world) => world.genres.some((genre) => genre.replace(/\s+/g, ' ').trim() === worldGenreFilter))
+      const selectedGenres = Array.isArray(worldGenreFilter) ? worldGenreFilter : [worldGenreFilter]
+      filtered = filtered.filter((world) =>
+        selectedGenres.some((selectedGenre) =>
+          world.genres.some((genre) => genre.replace(/\s+/g, ' ').trim() === selectedGenre),
+        ),
+      )
     }
 
     const sorted = [...filtered]
@@ -644,7 +662,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
 
     if (normalizedSearchQuery) {
       filtered = filtered.filter((item) => {
-        const haystack = [item.name, item.description, item.author_name, item.triggers.join(' ')].join(' ').toLowerCase()
+        const haystack = [
+          item.name,
+          item.description,
+          item.note,
+        ].join(' ').toLowerCase()
         return haystack.includes(normalizedSearchQuery)
       })
     }
@@ -673,7 +695,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
 
     if (normalizedSearchQuery) {
       filtered = filtered.filter((item) => {
-        const haystack = [item.title, item.content, item.author_name].join(' ').toLowerCase()
+        const haystack = [item.title, item.content].join(' ').toLowerCase()
         return haystack.includes(normalizedSearchQuery)
       })
     }
@@ -697,215 +719,319 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     return sorted
   }, [communityInstructionTemplates, instructionAddedFilter, instructionSortMode, normalizedSearchQuery])
 
+  const visibleCommunityWorlds = filteredCommunityWorlds
+  const visibleCommunityCharacters = filteredCommunityCharacters
+  const visibleCommunityInstructionTemplates = filteredCommunityInstructionTemplates
+  const hasMoreCommunityWorlds = hasMoreCommunityWorldsServer
+  const hasMoreCommunityCharacters = hasMoreCommunityCharactersServer
+  const hasMoreCommunityInstructionTemplates = hasMoreCommunityInstructionTemplatesServer
   const {
-    visibleItems: visibleCommunityWorlds,
-    hasMore: hasMoreCommunityWorlds,
-    loadMoreRef: loadMoreCommunityWorldsRef,
-  } = useIncrementalList(filteredCommunityWorlds, {
-    initialCount: COMMUNITY_CARD_BATCH_SIZE,
-    step: COMMUNITY_CARD_BATCH_SIZE,
-    resetKey: `${normalizedSearchQuery}|${worldSortMode}|${worldAgeFilter}|${worldGenreFilter}|${filteredCommunityWorlds.length}`,
+    ref: loadMoreCommunityWorldsRef,
+    isVisible: isLoadMoreCommunityWorldsVisible,
+  } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '160px 0px',
+    once: false,
+    disabled:
+      activeSection !== 'worlds' ||
+      !hasMoreCommunityWorldsServer ||
+      isCommunityWorldsLoading ||
+      isCommunityWorldsLoadingMore,
   })
   const {
-    visibleItems: visibleCommunityCharacters,
-    hasMore: hasMoreCommunityCharacters,
-    loadMoreRef: loadMoreCommunityCharactersRef,
-  } = useIncrementalList(filteredCommunityCharacters, {
-    initialCount: COMMUNITY_CARD_BATCH_SIZE,
-    step: COMMUNITY_CARD_BATCH_SIZE,
-    resetKey: `${normalizedSearchQuery}|${characterSortMode}|${characterAddedFilter}|${filteredCommunityCharacters.length}`,
+    ref: loadMoreCommunityCharactersRef,
+    isVisible: isLoadMoreCommunityCharactersVisible,
+  } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '160px 0px',
+    once: false,
+    disabled:
+      activeSection !== 'characters' ||
+      !hasMoreCommunityCharactersServer ||
+      isCommunityCharactersLoading ||
+      isCommunityCharactersLoadingMore,
   })
   const {
-    visibleItems: visibleCommunityInstructionTemplates,
-    hasMore: hasMoreCommunityInstructionTemplates,
-    loadMoreRef: loadMoreCommunityInstructionTemplatesRef,
-  } = useIncrementalList(filteredCommunityInstructionTemplates, {
-    initialCount: COMMUNITY_CARD_BATCH_SIZE,
-    step: COMMUNITY_CARD_BATCH_SIZE,
-    resetKey: `${normalizedSearchQuery}|${instructionSortMode}|${instructionAddedFilter}|${filteredCommunityInstructionTemplates.length}`,
+    ref: loadMoreCommunityInstructionTemplatesRef,
+    isVisible: isLoadMoreCommunityInstructionTemplatesVisible,
+  } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '160px 0px',
+    once: false,
+    disabled:
+      activeSection !== 'rules' ||
+      !hasMoreCommunityInstructionTemplatesServer ||
+      isCommunityInstructionTemplatesLoading ||
+      isCommunityInstructionTemplatesLoadingMore,
   })
 
-  const loadCommunityWorlds = useCallback(async (options?: { force?: boolean }) => {
-    const forceReload = options?.force ?? false
-    setIsCommunityWorldsLoading(true)
-    setIsCommunityCharactersLoading(forceReload && hasLoadedCommunityCharacters)
-    setIsCommunityInstructionTemplatesLoading(forceReload && hasLoadedCommunityInstructionTemplates)
-    setCommunityWorldsError('')
-    if (!forceReload) {
-      const cachedPayload = readCommunityFeedCache(user.id)
-      if (cachedPayload && Date.now() - cachedPayload.saved_at < COMMUNITY_FEED_CACHE_TTL_MS) {
-        setCommunityWorlds(cachedPayload.worlds)
-        setCommunityCharacters(cachedPayload.characters)
-        setCommunityInstructionTemplates(cachedPayload.instruction_templates)
-        setHasLoadedCommunityCharacters(cachedPayload.has_characters)
-        setHasLoadedCommunityInstructionTemplates(cachedPayload.has_instruction_templates)
-        setIsCommunityWorldsLoading(false)
-        setIsCommunityCharactersLoading(false)
-        setIsCommunityInstructionTemplatesLoading(false)
+  const loadCommunityWorlds = useCallback(
+    async (options?: { append?: boolean; offset?: number }) => {
+      const append = options?.append === true
+      const offset = Math.max(0, Math.trunc(options?.offset ?? 0))
+      if (communityWorldsRequestInFlightRef.current) {
         return
       }
-    }
-    try {
-      const worlds = await listCommunityWorlds(authToken)
-      setCommunityWorlds(worlds)
-      setIsCommunityWorldsLoading(false)
-      const [charactersResult, templatesResult] = await Promise.allSettled([
-        hasLoadedCommunityCharacters ? listCommunityCharacters(authToken) : Promise.resolve(null),
-        hasLoadedCommunityInstructionTemplates ? listCommunityInstructionTemplates(authToken) : Promise.resolve(null),
-      ])
-      const characters = charactersResult.status === 'fulfilled' ? charactersResult.value : null
-      const templates = templatesResult.status === 'fulfilled' ? templatesResult.value : null
-      if (characters !== null) {
-        setCommunityCharacters(characters)
-        setHasLoadedCommunityCharacters(true)
+
+      const requestId = communityWorldsRequestVersionRef.current + 1
+      communityWorldsRequestVersionRef.current = requestId
+      communityWorldsRequestInFlightRef.current = true
+      if (append) {
+        setIsCommunityWorldsLoadingMore(true)
+      } else {
+        setIsCommunityWorldsLoading(true)
       }
-      if (templates !== null) {
-        setCommunityInstructionTemplates(templates)
-        setHasLoadedCommunityInstructionTemplates(true)
+      setCommunityWorldsError('')
+      try {
+        const worlds = await listCommunityWorlds(authToken, {
+          limit: COMMUNITY_CARD_BATCH_SIZE,
+          offset,
+          sort: worldSortMode,
+          query: normalizedSearchQuery || undefined,
+          ageRating: worldAgeFilter === 'all' ? null : worldAgeFilter,
+          genre: serverWorldGenreFilter,
+        })
+        if (requestId !== communityWorldsRequestVersionRef.current) {
+          return
+        }
+        setCommunityWorlds((previous) => (append ? mergeCommunityItemsById(previous, worlds) : worlds))
+        setHasMoreCommunityWorldsServer(worlds.length === COMMUNITY_CARD_BATCH_SIZE)
+      } catch (error) {
+        if (requestId !== communityWorldsRequestVersionRef.current) {
+          return
+        }
+        const detail = error instanceof Error ? error.message : 'Не удалось загрузить сообщество'
+        setCommunityWorldsError(detail)
+        setHasMoreCommunityWorldsServer(false)
+        if (!append) {
+          setCommunityWorlds([])
+        }
+      } finally {
+        if (requestId === communityWorldsRequestVersionRef.current) {
+          communityWorldsRequestInFlightRef.current = false
+          if (append) {
+            setIsCommunityWorldsLoadingMore(false)
+          } else {
+            setIsCommunityWorldsLoading(false)
+          }
+        }
       }
-      if (charactersResult.status === 'rejected' || templatesResult.status === 'rejected') {
-        const rejectedReason =
-          charactersResult.status === 'rejected'
-            ? charactersResult.reason
-            : templatesResult.status === 'rejected'
-              ? templatesResult.reason
-              : null
-        const detail =
-          rejectedReason instanceof Error
-            ? rejectedReason.message
-            : charactersResult.status === 'rejected'
-              ? 'Не удалось обновить персонажей сообщества'
-              : 'Не удалось обновить инструкции сообщества'
-        setCommunityWorldsError((currentError) => currentError || detail)
+    },
+    [authToken, normalizedSearchQuery, serverWorldGenreFilter, worldAgeFilter, worldSortMode],
+  )
+
+  const loadCommunityCharacters = useCallback(
+    async (options?: { append?: boolean; offset?: number }) => {
+      const append = options?.append === true
+      const offset = Math.max(0, Math.trunc(options?.offset ?? 0))
+      if (communityCharactersRequestInFlightRef.current) {
+        return
       }
-      writeCommunityFeedCacheSnapshot({
-        worlds,
-        characters: characters ?? undefined,
-        instruction_templates: templates ?? undefined,
-      })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить сообщество'
-      setCommunityWorldsError(detail)
-      setCommunityWorlds([])
-      if (!hasLoadedCommunityCharacters) {
-        setCommunityCharacters([])
+
+      const requestId = communityCharactersRequestVersionRef.current + 1
+      communityCharactersRequestVersionRef.current = requestId
+      communityCharactersRequestInFlightRef.current = true
+      if (append) {
+        setIsCommunityCharactersLoadingMore(true)
+      } else {
+        setIsCommunityCharactersLoading(true)
       }
-      if (!hasLoadedCommunityInstructionTemplates) {
-        setCommunityInstructionTemplates([])
+      setCommunityWorldsError('')
+      try {
+        const characters = await listCommunityCharacters(authToken, {
+          limit: COMMUNITY_CARD_BATCH_SIZE,
+          offset,
+          sort: characterSortMode,
+          query: normalizedSearchQuery || undefined,
+          addedFilter: characterAddedFilter,
+        })
+        if (requestId !== communityCharactersRequestVersionRef.current) {
+          return
+        }
+        setCommunityCharacters((previous) => (append ? mergeCommunityItemsById(previous, characters) : characters))
+        setHasMoreCommunityCharactersServer(characters.length === COMMUNITY_CARD_BATCH_SIZE)
+      } catch (error) {
+        if (requestId !== communityCharactersRequestVersionRef.current) {
+          return
+        }
+        const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей сообщества'
+        setCommunityWorldsError(detail)
+        setHasMoreCommunityCharactersServer(false)
+        if (!append) {
+          setCommunityCharacters([])
+        }
+      } finally {
+        if (requestId === communityCharactersRequestVersionRef.current) {
+          communityCharactersRequestInFlightRef.current = false
+          if (append) {
+            setIsCommunityCharactersLoadingMore(false)
+          } else {
+            setIsCommunityCharactersLoading(false)
+          }
+        }
       }
-    } finally {
-      setIsCommunityWorldsLoading(false)
-      setIsCommunityCharactersLoading(false)
-      setIsCommunityInstructionTemplatesLoading(false)
-    }
-  }, [
-    authToken,
-    hasLoadedCommunityCharacters,
-    hasLoadedCommunityInstructionTemplates,
-    user.id,
-    writeCommunityFeedCacheSnapshot,
-  ])
+    },
+    [authToken, characterAddedFilter, characterSortMode, normalizedSearchQuery],
+  )
+
+  const loadCommunityInstructionTemplates = useCallback(
+    async (options?: { append?: boolean; offset?: number }) => {
+      const append = options?.append === true
+      const offset = Math.max(0, Math.trunc(options?.offset ?? 0))
+      if (communityInstructionTemplatesRequestInFlightRef.current) {
+        return
+      }
+
+      const requestId = communityInstructionTemplatesRequestVersionRef.current + 1
+      communityInstructionTemplatesRequestVersionRef.current = requestId
+      communityInstructionTemplatesRequestInFlightRef.current = true
+      if (append) {
+        setIsCommunityInstructionTemplatesLoadingMore(true)
+      } else {
+        setIsCommunityInstructionTemplatesLoading(true)
+      }
+      setCommunityWorldsError('')
+      try {
+        const templates = await listCommunityInstructionTemplates(authToken, {
+          limit: COMMUNITY_CARD_BATCH_SIZE,
+          offset,
+          sort: instructionSortMode,
+          query: normalizedSearchQuery || undefined,
+          addedFilter: instructionAddedFilter,
+        })
+        if (requestId !== communityInstructionTemplatesRequestVersionRef.current) {
+          return
+        }
+        setCommunityInstructionTemplates((previous) =>
+          append ? mergeCommunityItemsById(previous, templates) : templates,
+        )
+        setHasMoreCommunityInstructionTemplatesServer(templates.length === COMMUNITY_CARD_BATCH_SIZE)
+      } catch (error) {
+        if (requestId !== communityInstructionTemplatesRequestVersionRef.current) {
+          return
+        }
+        const detail = error instanceof Error ? error.message : 'Не удалось загрузить инструкции сообщества'
+        setCommunityWorldsError(detail)
+        setHasMoreCommunityInstructionTemplatesServer(false)
+        if (!append) {
+          setCommunityInstructionTemplates([])
+        }
+      } finally {
+        if (requestId === communityInstructionTemplatesRequestVersionRef.current) {
+          communityInstructionTemplatesRequestInFlightRef.current = false
+          if (append) {
+            setIsCommunityInstructionTemplatesLoadingMore(false)
+          } else {
+            setIsCommunityInstructionTemplatesLoading(false)
+          }
+        }
+      }
+    },
+    [authToken, instructionAddedFilter, instructionSortMode, normalizedSearchQuery],
+  )
 
   useEffect(() => {
-    void loadCommunityWorlds()
-  }, [loadCommunityWorlds])
-
-  useEffect(() => {
-    const refreshTimerId = window.setInterval(() => {
-      void loadCommunityWorlds({ force: true })
-    }, COMMUNITY_FEED_CACHE_TTL_MS)
-    return () => window.clearInterval(refreshTimerId)
-  }, [loadCommunityWorlds])
-
-  const loadCommunityCharacters = useCallback(async (options?: { force?: boolean }) => {
-    const forceReload = options?.force ?? false
-    if (isCommunityCharactersLoading) {
+    if (activeSection !== 'worlds') {
       return
     }
-    setIsCommunityCharactersLoading(true)
-    if (!forceReload) {
-      const cachedPayload = readCommunityFeedCache(user.id)
-      if (
-        cachedPayload &&
-        cachedPayload.has_characters &&
-        Date.now() - cachedPayload.saved_at < COMMUNITY_FEED_CACHE_TTL_MS
-      ) {
-        setCommunityCharacters(cachedPayload.characters)
-        setHasLoadedCommunityCharacters(true)
-        setIsCommunityCharactersLoading(false)
-        return
-      }
-    }
-    try {
-      const characters = await listCommunityCharacters(authToken)
-      setCommunityCharacters(characters)
-      setHasLoadedCommunityCharacters(true)
-      writeCommunityFeedCacheSnapshot({
-        characters,
-      })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей сообщества'
-      setCommunityWorldsError(detail)
-      setCommunityCharacters([])
-    } finally {
-      setIsCommunityCharactersLoading(false)
-    }
-  }, [authToken, isCommunityCharactersLoading, user.id, writeCommunityFeedCacheSnapshot])
-
-  const loadCommunityInstructionTemplates = useCallback(async (options?: { force?: boolean }) => {
-    const forceReload = options?.force ?? false
-    if (isCommunityInstructionTemplatesLoading) {
-      return
-    }
-    setIsCommunityInstructionTemplatesLoading(true)
-    if (!forceReload) {
-      const cachedPayload = readCommunityFeedCache(user.id)
-      if (
-        cachedPayload &&
-        cachedPayload.has_instruction_templates &&
-        Date.now() - cachedPayload.saved_at < COMMUNITY_FEED_CACHE_TTL_MS
-      ) {
-        setCommunityInstructionTemplates(cachedPayload.instruction_templates)
-        setHasLoadedCommunityInstructionTemplates(true)
-        setIsCommunityInstructionTemplatesLoading(false)
-        return
-      }
-    }
-    try {
-      const templates = await listCommunityInstructionTemplates(authToken)
-      setCommunityInstructionTemplates(templates)
-      setHasLoadedCommunityInstructionTemplates(true)
-      writeCommunityFeedCacheSnapshot({
-        instruction_templates: templates,
-      })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить инструкции сообщества'
-      setCommunityWorldsError(detail)
-      setCommunityInstructionTemplates([])
-    } finally {
-      setIsCommunityInstructionTemplatesLoading(false)
-    }
-  }, [authToken, isCommunityInstructionTemplatesLoading, user.id, writeCommunityFeedCacheSnapshot])
+    communityWorldsRequestVersionRef.current += 1
+    communityWorldsRequestInFlightRef.current = false
+    communityWorldsLoadMoreTriggeredRef.current = false
+    setCommunityWorlds([])
+    setHasMoreCommunityWorldsServer(false)
+    void loadCommunityWorlds({ offset: 0 })
+  }, [activeSection, loadCommunityWorlds])
 
   useEffect(() => {
-    if (activeSection === 'characters' && !hasLoadedCommunityCharacters && !isCommunityCharactersLoading) {
-      void loadCommunityCharacters()
+    if (activeSection !== 'characters') {
+      return
+    }
+    communityCharactersRequestVersionRef.current += 1
+    communityCharactersRequestInFlightRef.current = false
+    communityCharactersLoadMoreTriggeredRef.current = false
+    setCommunityCharacters([])
+    setHasMoreCommunityCharactersServer(false)
+    void loadCommunityCharacters({ offset: 0 })
+  }, [activeSection, loadCommunityCharacters])
+
+  useEffect(() => {
+    if (activeSection !== 'rules') {
+      return
+    }
+    communityInstructionTemplatesRequestVersionRef.current += 1
+    communityInstructionTemplatesRequestInFlightRef.current = false
+    communityInstructionTemplatesLoadMoreTriggeredRef.current = false
+    setCommunityInstructionTemplates([])
+    setHasMoreCommunityInstructionTemplatesServer(false)
+    void loadCommunityInstructionTemplates({ offset: 0 })
+  }, [activeSection, loadCommunityInstructionTemplates])
+
+  useEffect(() => {
+    if (!isLoadMoreCommunityWorldsVisible) {
+      communityWorldsLoadMoreTriggeredRef.current = false
       return
     }
     if (
-      activeSection === 'instructions' &&
-      !hasLoadedCommunityInstructionTemplates &&
-      !isCommunityInstructionTemplatesLoading
+      activeSection !== 'worlds' ||
+      !hasPageScrollInteraction ||
+      !hasMoreCommunityWorldsServer ||
+      communityWorldsLoadMoreTriggeredRef.current
     ) {
-      void loadCommunityInstructionTemplates()
+      return
     }
+    communityWorldsLoadMoreTriggeredRef.current = true
+    void loadCommunityWorlds({ append: true, offset: communityWorlds.length })
   }, [
     activeSection,
-    hasLoadedCommunityCharacters,
-    hasLoadedCommunityInstructionTemplates,
-    isCommunityCharactersLoading,
-    isCommunityInstructionTemplatesLoading,
+    communityWorlds.length,
+    hasMoreCommunityWorldsServer,
+    hasPageScrollInteraction,
+    isLoadMoreCommunityWorldsVisible,
+    loadCommunityWorlds,
+  ])
+
+  useEffect(() => {
+    if (!isLoadMoreCommunityCharactersVisible) {
+      communityCharactersLoadMoreTriggeredRef.current = false
+      return
+    }
+    if (
+      activeSection !== 'characters' ||
+      !hasPageScrollInteraction ||
+      !hasMoreCommunityCharactersServer ||
+      communityCharactersLoadMoreTriggeredRef.current
+    ) {
+      return
+    }
+    communityCharactersLoadMoreTriggeredRef.current = true
+    void loadCommunityCharacters({ append: true, offset: communityCharacters.length })
+  }, [
+    activeSection,
+    communityCharacters.length,
+    hasMoreCommunityCharactersServer,
+    hasPageScrollInteraction,
+    isLoadMoreCommunityCharactersVisible,
     loadCommunityCharacters,
+  ])
+
+  useEffect(() => {
+    if (!isLoadMoreCommunityInstructionTemplatesVisible) {
+      communityInstructionTemplatesLoadMoreTriggeredRef.current = false
+      return
+    }
+    if (
+      activeSection !== 'rules' ||
+      !hasPageScrollInteraction ||
+      !hasMoreCommunityInstructionTemplatesServer ||
+      communityInstructionTemplatesLoadMoreTriggeredRef.current
+    ) {
+      return
+    }
+    communityInstructionTemplatesLoadMoreTriggeredRef.current = true
+    void loadCommunityInstructionTemplates({ append: true, offset: communityInstructionTemplates.length })
+  }, [
+    activeSection,
+    communityInstructionTemplates.length,
+    hasMoreCommunityInstructionTemplatesServer,
+    hasPageScrollInteraction,
+    isLoadMoreCommunityInstructionTemplatesVisible,
     loadCommunityInstructionTemplates,
   ])
 
@@ -1499,6 +1625,15 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
   }, [authToken, isLaunchingCommunityWorld, onNavigate, selectedCommunityWorld])
 
+  const isPhoneLayout = useMediaQuery('(max-width:899.95px)')
+
+  // Close mobile search when switching to desktop
+  useEffect(() => {
+    if (!isPhoneLayout && isMobileSearchOpen) {
+      setIsMobileSearchOpen(false)
+    }
+  }, [isPhoneLayout, isMobileSearchOpen])
+
   const profileName = user.display_name || 'Игрок'
 
   const handleToggleCommunityWorldInMyGames = useCallback(async () => {
@@ -1734,18 +1869,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const isSelectedCommunityCharacterOwnedByUser = selectedCommunityCharacter?.author_id === user.id
   const selectedCommunityCharacterNote = selectedCommunityCharacter?.note.trim() ?? ''
   const isSelectedCommunityInstructionOwnedByUser = selectedCommunityInstructionTemplate?.author_id === user.id
-  const communitySectionDescription =
-    activeSection === 'worlds'
-      ? 'Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.'
-      : activeSection === 'characters'
-        ? 'Персонажи сообщества. Оценивайте и добавляйте понравившихся в мои персонажи.'
-        : 'Инструкции сообщества. Оценивайте и добавляйте их в мои инструкции.'
-  const searchPlaceholder =
-    activeSection === 'worlds'
-      ? 'Поиск по мирам'
-      : activeSection === 'characters'
-        ? 'Поиск по персонажам'
-        : 'Поиск по инструкциям'
+
 
   return (
     <Box
@@ -1761,6 +1885,13 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
+        onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={buildUnifiedMobileQuickActions({
+          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => onNavigate('/worlds/new'),
+          onOpenShop: handleOpenTopUpDialog,
+        })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', onClick: () => onNavigate('/games') },
@@ -1780,13 +1911,75 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
-        rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
+        centerSlot={
+          <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <Box
+              component="input"
+              type="text"
+              value={searchQuery}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value.slice(0, 120))}
+              placeholder="Поиск"
+              aria-label="Поиск по сообществу"
+              sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: '9999px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+                color: 'var(--morius-text-primary)',
+                pl: '16px',
+                pr: '44px',
+                outline: 'none',
+                fontSize: '0.9rem',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                transition: 'border-color 180ms ease',
+                '&::placeholder': { color: 'var(--morius-text-secondary)' },
+                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                right: '14px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--morius-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <ThemedSvgIcon markup={searchIconRaw} size={18} />
+            </Box>
+          </Box>
+        }
+        rightActions={
+          <Stack direction="row" spacing={1} alignItems="center">
+            {isPhoneLayout ? (
+              <IconButton
+                aria-label="Открыть поиск"
+                onClick={() => setIsMobileSearchOpen(true)}
+                sx={{
+                  color: 'var(--morius-text-secondary)',
+                  p: 0.5,
+                  transition: 'color 180ms ease',
+                  '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
+                  '&:active': { backgroundColor: 'transparent' },
+                }}
+              >
+                <ThemedSvgIcon markup={searchIconRaw} size={20} />
+              </IconButton>
+            ) : null}
+            <HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />
+          </Stack>
+        }
       />
 
       <Box
         sx={{
           pt: 'var(--morius-header-menu-top)',
-          pb: { xs: 5, md: 6 },
+          pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
       >
@@ -1797,602 +1990,287 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             </Alert>
           ) : null}
 
-          <Stack alignItems="center" spacing={0.75} sx={{ mb: 1.55 }}>
-            <Stack spacing={0.45} alignItems="center">
-              <Typography
-                sx={{
-                  fontSize: { xs: '2rem', md: '2.35rem' },
-                  fontWeight: 900,
-                  color: APP_TEXT_PRIMARY,
-                  textAlign: 'center',
-                }}
-              >
-                Сообщество
-              </Typography>
-              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1rem', textAlign: 'center', maxWidth: 720 }}>
-                {communitySectionDescription}
-              </Typography>
-              <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', justifyContent: 'center', pt: 0.35 }}>
-                <Button
-                  onClick={() => setActiveSection('worlds')}
-                  sx={{
-                    minHeight: 34,
-                    px: 1.15,
-                    borderRadius: '999px',
-                    textTransform: 'none',
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor:
-                      activeSection === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
-                    color: activeSection === 'worlds' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                    '&:hover': {
-                      backgroundColor:
-                        activeSection === 'worlds' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_BUTTON_HOVER,
-                    },
-                  }}
-                >
-                  Миры
-                </Button>
-                <Button
-                  onClick={() => setActiveSection('characters')}
-                  sx={{
-                    minHeight: 34,
-                    px: 1.15,
-                    borderRadius: '999px',
-                    textTransform: 'none',
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor:
-                      activeSection === 'characters' ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
-                    color: activeSection === 'characters' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                    '&:hover': {
-                      backgroundColor:
-                        activeSection === 'characters'
-                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
-                          : APP_BUTTON_HOVER,
-                    },
-                  }}
-                >
-                  Персонажи
-                </Button>
-                <Button
-                  onClick={() => setActiveSection('instructions')}
-                  sx={{
-                    minHeight: 34,
-                    px: 1.15,
-                    borderRadius: '999px',
-                    textTransform: 'none',
-                    fontSize: '0.75rem',
-                    fontWeight: 800,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor:
-                      activeSection === 'instructions'
-                        ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
-                        : APP_CARD_BACKGROUND,
-                    color: activeSection === 'instructions' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                    '&:hover': {
-                      backgroundColor:
-                        activeSection === 'instructions'
-                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-card-bg))'
-                          : APP_BUTTON_HOVER,
-                    },
-                  }}
-                >
-                  Инструкции
-                </Button>
-              </Stack>
-            </Stack>
-          </Stack>
+          {/* Title */}
+          <Box sx={{ textAlign: 'center', mb: '10px' }}>
+            <Typography
+              sx={{
+                fontSize: { xs: '1.85rem', md: '2.2rem' },
+                fontWeight: 700,
+                color: APP_TEXT_PRIMARY,
+                letterSpacing: '-0.01em',
+                lineHeight: 1.2,
+              }}
+            >
+              Сообщество
+            </Typography>
+          </Box>
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                lg: activeSection === 'worlds' ? 'minmax(0, 1fr) 220px 180px 220px' : 'minmax(0, 1fr) 220px 220px',
-              },
-              gap: 1.1,
-              alignItems: 'center',
-              mb: 1.4,
-            }}
-          >
-            <Stack spacing={0.45}>
-              <Box
-                sx={{
-                  position: 'relative',
-                  borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                }}
-              >
+          {/* Tabs — use Box component="button" to avoid global MUI Button CSS overrides */}
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: '8px', mb: '27px', flexWrap: 'wrap' }}>
+            {([
+              { key: 'worlds', label: 'Миры', icon: cardsWorldRaw },
+              { key: 'characters', label: 'Персонажи', icon: cardsPlotRaw },
+              { key: 'rules', label: 'Правила', icon: cardsRulesRaw },
+            ] as const).map(({ key, label, icon }) => {
+              const isActive = activeSection === key
+              return (
                 <Box
-                  component="input"
-                  value={searchQuery}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value.slice(0, COMMUNITY_SEARCH_QUERY_MAX_LENGTH))}
-                  placeholder={searchPlaceholder}
-                  maxLength={COMMUNITY_SEARCH_QUERY_MAX_LENGTH}
+                  key={key}
+                  component="button"
+                  type="button"
+                  onClick={() => setActiveSection(key)}
+                  aria-pressed={isActive}
                   sx={{
-                    width: '100%',
-                    height: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    height: '26px',
+                    px: '10px',
+                    borderRadius: '48px',
+                    fontSize: '12px',
+                    fontWeight: 700,
+                    fontFamily: 'inherit',
+                    lineHeight: 1,
                     border: 'none',
-                    backgroundColor: 'transparent',
-                    color: APP_TEXT_PRIMARY,
-                    pl: TOP_FILTER_TEXT_PADDING_X,
-                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
                     outline: 'none',
-                    fontSize: '1rem',
-                    '&::placeholder': {
-                      color: APP_TEXT_SECONDARY,
-                    },
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    right: TOP_FILTER_ICON_OFFSET_X,
-                    transform: 'translateY(-50%)',
-                    color: APP_TEXT_SECONDARY,
-                    display: 'grid',
-                    placeItems: 'center',
+                    cursor: 'pointer',
+                    userSelect: 'none',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: isActive ? 'var(--morius-title-text)' : APP_TEXT_SECONDARY,
+                    boxShadow: isActive ? '0 0 24px color-mix(in srgb, var(--morius-accent) 50%, transparent)' : 'none',
+                    transition: 'box-shadow 250ms ease, color 200ms ease',
+                    '&:hover': { color: 'var(--morius-title-text)' },
+                    '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
                   }}
                 >
-                  <SearchGlyph />
+                  <ThemedSvgIcon markup={icon} size={13} sx={{ flexShrink: 0, color: 'inherit' }} />
+                  {label}
                 </Box>
-              </Box>
-            </Stack>
+              )
+            })}
+          </Box>
 
+
+
+          {/* Genre Filters — pill buttons with darker bg per engineer feedback */}
+          {activeSection === 'worlds' && displayedWorldGenreOptions.length > 0 ? (
+            <Box
+              sx={{
+                display: 'flex',
+                flexWrap: { xs: 'nowrap', md: 'wrap' },
+                alignItems: 'center',
+                gap: '8px',
+                mb: '16px',
+                width: '100%',
+                maxWidth: '100%',
+                overflowX: { xs: 'auto', md: 'visible' },
+                overflowY: 'hidden',
+                overscrollBehaviorX: 'contain',
+                WebkitOverflowScrolling: 'touch',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                px: { xs: '1px', md: 0 },
+                pb: { xs: '4px', md: 0 },
+                '&::-webkit-scrollbar': {
+                  display: 'none',
+                },
+              }}
+            >
+              {displayedWorldGenreOptions.map((genre) => {
+                const isSelected = Array.isArray(worldGenreFilter) && worldGenreFilter.includes(genre)
+                return (
+                  <Box
+                    key={genre}
+                    component="button"
+                    type="button"
+                    onClick={() => {
+                      if (Array.isArray(worldGenreFilter)) {
+                        if (isSelected) {
+                          const newFilter = worldGenreFilter.filter((g) => g !== genre)
+                          setWorldGenreFilter(newFilter.length === 0 ? 'all' : newFilter)
+                        } else {
+                          setWorldGenreFilter([...worldGenreFilter, genre])
+                        }
+                      } else {
+                        setWorldGenreFilter([genre])
+                      }
+                    }}
+                    sx={{
+                      flex: '0 0 auto',
+                      whiteSpace: 'nowrap',
+                      px: '12px',
+                      py: '5px',
+                      border: '1px solid',
+                      borderColor: isSelected
+                        ? 'color-mix(in srgb, var(--morius-accent) 28%, transparent)'
+                        : 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      borderRadius: '9999px',
+                      fontSize: '12px',
+                      fontWeight: isSelected ? 700 : 500,
+                      fontFamily: 'inherit',
+                      lineHeight: 1.4,
+                      userSelect: 'none',
+                      backgroundColor: isSelected
+                        ? 'color-mix(in srgb, var(--morius-app-bg) 76%, var(--morius-accent))'
+                        : 'color-mix(in srgb, var(--morius-app-bg) 78%, black)',
+                      color: isSelected ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                      transition: 'background-color 150ms ease, border-color 150ms ease, color 150ms ease',
+                      '&:hover': {
+                        backgroundColor: isSelected
+                          ? 'color-mix(in srgb, var(--morius-app-bg) 70%, var(--morius-accent))'
+                          : 'color-mix(in srgb, var(--morius-app-bg) 72%, black)',
+                        color: isSelected ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                      },
+                      '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
+                    }}
+                  >
+                    {genre}
+                  </Box>
+                )
+              })}
+            </Box>
+          ) : null}
+
+          {/* Sort/Filter Controls — compact pill selects per Figma (30px h, radius 12px) */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mb: '20px' }}>
             {activeSection === 'worlds' ? (
               <>
-                <FormControl
-                  sx={{
-                    position: 'relative',
-                    minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_CARD_BACKGROUND,
-                  }}
-                >
+                {/* Sort select */}
+                <FormControl sx={{ position: 'relative', borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND }}>
                   <Select
                     value={worldSortMode}
                     onChange={(event: SelectChangeEvent) => setWorldSortMode(event.target.value as CommunityWorldSortMode)}
                     IconComponent={() => null}
                     sx={{
-                      height: TOP_FILTER_CONTROL_HEIGHT,
-                      borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                      height: '30px',
                       color: APP_TEXT_PRIMARY,
-                      px: 0,
-                      fontSize: '0.95rem',
+                      fontSize: '12px',
+                      fontWeight: 700,
                       '& .MuiSelect-select': {
+                        py: '0 !important',
+                        pl: '10px',
+                        pr: '26px !important',
                         height: '100%',
-                        boxSizing: 'border-box',
                         display: 'flex',
                         alignItems: 'center',
-                        py: 0,
-                        pl: TOP_FILTER_TEXT_PADDING_X,
-                        pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                        boxSizing: 'border-box',
                       },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        border: 'none',
-                      },
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none !important', borderRadius: '12px !important' },
                     }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          mt: 0.5,
-                          borderRadius: '12px',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                        },
-                      },
-                    }}
+                    MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
-                    {WORLD_SORT_OPTIONS.map((option) => (
-                      <MenuItem
-                        key={option.value}
-                        value={option.value}
-                        sx={{
-                          fontSize: '0.95rem',
-                          color: APP_TEXT_PRIMARY,
-                          '&.Mui-selected': {
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                          },
-                          '&.Mui-selected:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {option.label}
-                      </MenuItem>
+                    {WORLD_SORT_OPTIONS.map((o) => (
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      right: TOP_FILTER_ICON_OFFSET_X,
-                      transform: 'translateY(-50%)',
-                      color: APP_TEXT_SECONDARY,
-                      pointerEvents: 'none',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
+                  <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
                     <FilterGlyph />
                   </Box>
                 </FormControl>
-
-                <FormControl
-                  sx={{
-                    position: 'relative',
-                    minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_CARD_BACKGROUND,
-                  }}
-                >
+                {/* Age/rating filter */}
+                <FormControl sx={{ position: 'relative', borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND }}>
                   <Select
                     value={worldAgeFilter}
                     onChange={(event: SelectChangeEvent) => setWorldAgeFilter(event.target.value as CommunityWorldAgeFilter)}
                     IconComponent={() => null}
                     sx={{
-                      height: TOP_FILTER_CONTROL_HEIGHT,
-                      borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                      height: '30px',
                       color: APP_TEXT_PRIMARY,
-                      px: 0,
-                      fontSize: '0.95rem',
+                      fontSize: '12px',
+                      fontWeight: 700,
                       '& .MuiSelect-select': {
+                        py: '0 !important',
+                        pl: '10px',
+                        pr: '26px !important',
                         height: '100%',
-                        boxSizing: 'border-box',
                         display: 'flex',
                         alignItems: 'center',
-                        py: 0,
-                        pl: TOP_FILTER_TEXT_PADDING_X,
-                        pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
-                      },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        border: 'none',
-                      },
-                    }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          mt: 0.5,
-                          borderRadius: '12px',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                        },
-                      },
-                    }}
-                  >
-                    {AGE_FILTER_OPTIONS.map((option) => (
-                      <MenuItem
-                        key={option.value}
-                        value={option.value}
-                        sx={{
-                          fontSize: '0.95rem',
-                          color: APP_TEXT_PRIMARY,
-                          '&.Mui-selected': {
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                          },
-                          '&.Mui-selected:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {option.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      right: TOP_FILTER_ICON_OFFSET_X,
-                      transform: 'translateY(-50%)',
-                      color: APP_TEXT_SECONDARY,
-                      pointerEvents: 'none',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
-                    <FilterGlyph />
-                  </Box>
-                </FormControl>
-
-                <FormControl
-                  sx={{
-                    position: 'relative',
-                    minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_CARD_BACKGROUND,
-                  }}
-                >
-                  <Select
-                    value={worldGenreFilter}
-                    onChange={(event: SelectChangeEvent) => setWorldGenreFilter(event.target.value)}
-                    IconComponent={() => null}
-                    sx={{
-                      height: TOP_FILTER_CONTROL_HEIGHT,
-                      borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                      color: APP_TEXT_PRIMARY,
-                      px: 0,
-                      fontSize: '0.95rem',
-                      '& .MuiSelect-select': {
-                        height: '100%',
                         boxSizing: 'border-box',
-                        display: 'flex',
-                        alignItems: 'center',
-                        py: 0,
-                        pl: TOP_FILTER_TEXT_PADDING_X,
-                        pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
                       },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        border: 'none',
-                      },
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none !important', borderRadius: '12px !important' },
                     }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          mt: 0.5,
-                          borderRadius: '12px',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                        },
-                      },
-                    }}
+                    MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
-                    <MenuItem
-                      value="all"
-                      sx={{
-                        fontSize: '0.95rem',
-                        color: APP_TEXT_PRIMARY,
-                        '&.Mui-selected': {
-                          backgroundColor: APP_BUTTON_ACTIVE,
-                        },
-                        '&.Mui-selected:hover': {
-                          backgroundColor: APP_BUTTON_HOVER,
-                        },
-                        '&:hover': {
-                          backgroundColor: APP_BUTTON_HOVER,
-                        },
-                      }}
-                    >
-                      Все жанры
-                    </MenuItem>
-                    {worldGenreOptions.map((genre) => (
-                      <MenuItem
-                        key={genre}
-                        value={genre}
-                        sx={{
-                          fontSize: '0.95rem',
-                          color: APP_TEXT_PRIMARY,
-                          '&.Mui-selected': {
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                          },
-                          '&.Mui-selected:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {genre}
-                      </MenuItem>
+                    {AGE_FILTER_OPTIONS.map((o) => (
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      right: TOP_FILTER_ICON_OFFSET_X,
-                      transform: 'translateY(-50%)',
-                      color: APP_TEXT_SECONDARY,
-                      pointerEvents: 'none',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
+                  <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
                     <FilterGlyph />
                   </Box>
                 </FormControl>
               </>
             ) : (
               <>
-                <FormControl
-                  sx={{
-                    position: 'relative',
-                    minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_CARD_BACKGROUND,
-                  }}
-                >
+                {/* Card sort */}
+                <FormControl sx={{ position: 'relative', borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND }}>
                   <Select
                     value={activeSection === 'characters' ? characterSortMode : instructionSortMode}
                     onChange={(event: SelectChangeEvent) => {
                       const nextValue = event.target.value as CommunityCardSortMode
-                      if (activeSection === 'characters') {
-                        setCharacterSortMode(nextValue)
-                        return
-                      }
-                      setInstructionSortMode(nextValue)
+                      if (activeSection === 'characters') { setCharacterSortMode(nextValue) } else { setInstructionSortMode(nextValue) }
                     }}
                     IconComponent={() => null}
                     sx={{
-                      height: TOP_FILTER_CONTROL_HEIGHT,
-                      borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                      height: '30px',
                       color: APP_TEXT_PRIMARY,
-                      px: 0,
-                      fontSize: '0.95rem',
+                      fontSize: '12px',
+                      fontWeight: 700,
                       '& .MuiSelect-select': {
+                       py: '0 !important',
+                        pl: '10px',
+                        pr: '26px !important',
                         height: '100%',
-                        boxSizing: 'border-box',
                         display: 'flex',
                         alignItems: 'center',
-                        py: 0,
-                        pl: TOP_FILTER_TEXT_PADDING_X,
-                        pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                        boxSizing: 'border-box',
                       },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        border: 'none',
-                      },
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none !important', borderWidth: '0 !important' },
                     }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          mt: 0.5,
-                          borderRadius: '12px',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                        },
-                      },
-                    }}
+                    MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
-                    {CARD_SORT_OPTIONS.map((option) => (
-                      <MenuItem
-                        key={option.value}
-                        value={option.value}
-                        sx={{
-                          fontSize: '0.95rem',
-                          color: APP_TEXT_PRIMARY,
-                          '&.Mui-selected': {
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                          },
-                          '&.Mui-selected:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {option.label}
-                      </MenuItem>
+                    {CARD_SORT_OPTIONS.map((o) => (
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      right: TOP_FILTER_ICON_OFFSET_X,
-                      transform: 'translateY(-50%)',
-                      color: APP_TEXT_SECONDARY,
-                      pointerEvents: 'none',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
+                  <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
                     <FilterGlyph />
                   </Box>
                 </FormControl>
-
-                <FormControl
-                  sx={{
-                    position: 'relative',
-                    minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: APP_CARD_BACKGROUND,
-                  }}
-                >
+                {/* Added filter */}
+                <FormControl sx={{ position: 'relative', borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND }}>
                   <Select
                     value={activeSection === 'characters' ? characterAddedFilter : instructionAddedFilter}
                     onChange={(event: SelectChangeEvent) => {
                       const nextValue = event.target.value as CommunityAddedFilter
-                      if (activeSection === 'characters') {
-                        setCharacterAddedFilter(nextValue)
-                        return
-                      }
-                      setInstructionAddedFilter(nextValue)
+                      if (activeSection === 'characters') { setCharacterAddedFilter(nextValue) } else { setInstructionAddedFilter(nextValue) }
                     }}
                     IconComponent={() => null}
                     sx={{
-                      height: TOP_FILTER_CONTROL_HEIGHT,
-                      borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                      height: '30px',
                       color: APP_TEXT_PRIMARY,
-                      px: 0,
-                      fontSize: '0.95rem',
+                      fontSize: '12px',
+                      fontWeight: 700,
                       '& .MuiSelect-select': {
+                        py: '0 !important',
+                        pl: '10px',
+                        pr: '26px !important',
                         height: '100%',
-                        boxSizing: 'border-box',
                         display: 'flex',
                         alignItems: 'center',
-                        py: 0,
-                        pl: TOP_FILTER_TEXT_PADDING_X,
-                        pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                        boxSizing: 'border-box',
                       },
-                      '& .MuiOutlinedInput-notchedOutline': {
-                        border: 'none',
-                      },
+                      '& .MuiOutlinedInput-notchedOutline': { border: 'none !important', borderWidth: '0 !important' },
                     }}
-                    MenuProps={{
-                      PaperProps: {
-                        sx: {
-                          mt: 0.5,
-                          borderRadius: '12px',
-                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                          backgroundColor: APP_CARD_BACKGROUND,
-                          color: APP_TEXT_PRIMARY,
-                          boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                        },
-                      },
-                    }}
+                    MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
-                    {ADDED_FILTER_OPTIONS.map((option) => (
-                      <MenuItem
-                        key={option.value}
-                        value={option.value}
-                        sx={{
-                          fontSize: '0.95rem',
-                          color: APP_TEXT_PRIMARY,
-                          '&.Mui-selected': {
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                          },
-                          '&.Mui-selected:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                          '&:hover': {
-                            backgroundColor: APP_BUTTON_HOVER,
-                          },
-                        }}
-                      >
-                        {option.label}
-                      </MenuItem>
+                    {ADDED_FILTER_OPTIONS.map((o) => (
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      right: TOP_FILTER_ICON_OFFSET_X,
-                      transform: 'translateY(-50%)',
-                      color: APP_TEXT_SECONDARY,
-                      pointerEvents: 'none',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                  >
+                  <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
                     <FilterGlyph />
                   </Box>
                 </FormControl>
@@ -2400,49 +2278,17 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             )}
           </Box>
 
+          {/* Cards Grid Section */}
+
           {communityWorldsError ? (
             <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>
               {communityWorldsError}
             </Alert>
           ) : null}
 
-          {activeSection === 'worlds' ? (
-            isCommunityWorldsLoading && communityWorlds.length === 0 ? (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
-                {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
-                  <CommunityWorldCardSkeleton key={cardKey} showFavoriteButton />
-                ))}
-              </Box>
-            ) : communityWorlds.length === 0 ? (
-              <Box
-                sx={{
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  background: APP_CARD_BACKGROUND,
-                  p: 1.4,
-                }}
-              >
-                <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
-              </Box>
-            ) : filteredCommunityWorlds.length === 0 ? (
-              <Box
-                sx={{
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  background: APP_CARD_BACKGROUND,
-                  p: 1.4,
-                }}
-              >
-                <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам миры не найдены.</Typography>
-              </Box>
-            ) : (
-              <>
+          <Fade in={activeSection === 'worlds'} timeout={300} unmountOnExit>
+            <Box>
+              {isCommunityWorldsLoading && communityWorlds.length === 0 ? (
                 <Box
                   sx={{
                     display: 'grid',
@@ -2450,24 +2296,67 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
                   }}
                 >
-                  {visibleCommunityWorlds.map((world) => (
-                    <CommunityWorldCard
-                      key={world.id}
-                      world={world}
-                      onClick={() => void handleOpenCommunityWorld(world.id)}
-                      onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                      disabled={isCommunityWorldDialogLoading}
-                      showFavoriteButton
-                      isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                      onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                    />
+                  {COMMUNITY_WORLD_SKELETON_CARD_KEYS.map((cardKey) => (
+                    <CommunityWorldCardSkeleton key={cardKey} showFavoriteButton />
                   ))}
                 </Box>
-                {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
-              </>
-            )
-          ) : activeSection === 'characters' ? (
-            isCommunityCharactersLoading && communityCharacters.length === 0 ? (
+              ) : communityWorlds.length === 0 ? (
+                <Box
+                  sx={{
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    background: APP_CARD_BACKGROUND,
+                    p: 1.4,
+                  }}
+                >
+                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
+                </Box>
+              ) : filteredCommunityWorlds.length === 0 ? (
+                <Box
+                  sx={{
+                    borderRadius: 'var(--morius-radius)',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    background: APP_CARD_BACKGROUND,
+                    p: 1.4,
+                  }}
+                >
+                  <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам миры не найдены.</Typography>
+                </Box>
+              ) : (
+                <>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 1.4,
+                      gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
+                    }}
+                  >
+                    {visibleCommunityWorlds.map((world) => (
+                      <CommunityWorldCard
+                        key={world.id}
+                        world={world}
+                        onClick={() => void handleOpenCommunityWorld(world.id)}
+                        onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                        disabled={isCommunityWorldDialogLoading}
+                        showFavoriteButton
+                        isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                        onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                      />
+                    ))}
+                  </Box>
+                  {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
+                  {isCommunityWorldsLoadingMore ? (
+                    <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
+                      <CircularProgress size={22} />
+                    </Stack>
+                  ) : null}
+                </>
+              )}
+            </Box>
+          </Fade>
+          <Fade in={activeSection === 'characters'} timeout={300} unmountOnExit>
+            <Box>
+              {isCommunityCharactersLoading && communityCharacters.length === 0 ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -2523,9 +2412,18 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 {hasMoreCommunityCharacters ? (
                   <Box ref={loadMoreCommunityCharactersRef} sx={{ height: 1, width: '100%' }} />
                 ) : null}
+                {isCommunityCharactersLoadingMore ? (
+                  <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
+                    <CircularProgress size={22} />
+                  </Stack>
+                ) : null}
               </>
-            )
-          ) : isCommunityInstructionTemplatesLoading && communityInstructionTemplates.length === 0 ? (
+              )}
+            </Box>
+          </Fade>
+          <Fade in={activeSection === 'rules'} timeout={300} unmountOnExit>
+            <Box>
+              {isCommunityInstructionTemplatesLoading && communityInstructionTemplates.length === 0 ? (
             <Box
               sx={{
                 display: 'grid',
@@ -2581,8 +2479,15 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               {hasMoreCommunityInstructionTemplates ? (
                 <Box ref={loadMoreCommunityInstructionTemplatesRef} sx={{ height: 1, width: '100%' }} />
               ) : null}
-            </>
-          )}
+              {isCommunityInstructionTemplatesLoadingMore ? (
+                <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
+                  <CircularProgress size={22} />
+                </Stack>
+              ) : null}
+              </>
+              )}
+            </Box>
+          </Fade>
         </Box>
       </Box>
 
@@ -3196,6 +3101,99 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
         onClose={() => setPaymentSuccessCoins(null)}
+      />
+
+      {/* Mobile search overlay — slides in from top when search icon is tapped */}
+      <Fade in={isMobileSearchOpen && isPhoneLayout} mountOnEnter unmountOnExit timeout={{ enter: 200, exit: 150 }}>
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 80,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 2,
+            backgroundColor: 'var(--morius-app-base)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
+        >
+          <Box sx={{ position: 'relative', flex: 1 }}>
+            <Box
+              component="input"
+              type="text"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              value={searchQuery}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value.slice(0, 120))}
+              placeholder="Поиск"
+              aria-label="Поиск по сообществу"
+              sx={{
+                width: '100%',
+                height: 44,
+                borderRadius: '12px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+                color: 'var(--morius-text-primary)',
+                pl: '16px',
+                pr: '44px',
+                outline: 'none',
+                fontSize: '0.9rem',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                transition: 'border-color 180ms ease',
+                '&::placeholder': { color: 'var(--morius-text-secondary)' },
+                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                right: '14px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--morius-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <ThemedSvgIcon markup={searchIconRaw} size={18} />
+            </Box>
+          </Box>
+          <IconButton
+            aria-label="Закрыть поиск"
+            onClick={() => {
+              setIsMobileSearchOpen(false)
+              setSearchQuery('')
+            }}
+            sx={{
+              flexShrink: 0,
+              color: 'var(--morius-title-text)',
+              p: 0.5,
+              '&:hover': { backgroundColor: 'transparent' },
+              '&:active': { backgroundColor: 'transparent' },
+            }}
+          >
+            <ThemedSvgIcon markup={searchCloseIconRaw} size={20} />
+          </IconButton>
+        </Box>
+      </Fade>
+
+      <Footer
+        socialLinks={[
+          { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+          { label: 'Телега', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
+        ]}
+        infoLinks={[
+          { label: 'Политика конфиденциальности', path: '/privacy-policy' },
+          { label: 'Пользовательское соглашение', path: '/terms-of-service' },
+        ]}
+        onNavigate={onNavigate}
       />
     </Box>
   )

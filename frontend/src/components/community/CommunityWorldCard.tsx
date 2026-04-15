@@ -25,8 +25,10 @@ const CARD_BACKGROUND = 'var(--morius-card-bg)'
 const CARD_BORDER = 'var(--morius-card-border)'
 const TEXT_PRIMARY = 'var(--morius-text-primary)'
 const TEXT_SECONDARY = 'var(--morius-text-secondary)'
-const DESCRIPTION_LINE_HEIGHT = 1.5
-const DESCRIPTION_LINE_COUNT = 3
+const TITLE_LINE_HEIGHT = 1.2
+const TITLE_LINE_COUNT = 2
+const DESCRIPTION_LINE_HEIGHT = 1.45
+const DESCRIPTION_LINE_COUNT = 2
 const COVER_IMAGE_LOAD_TIMEOUT_MS = 8000
 
 function formatWorldCreatedAtLabel(isoDate: string): string {
@@ -77,7 +79,7 @@ function CommunityWorldCard({
   const coverImageUrl = resolveApiResourceUrl(world.cover_image_url)
   const authorInitials = resolveAuthorInitials(authorName)
   const { ref: coverRef, isVisible: isCoverVisible } = useVisibilityTrigger<HTMLDivElement>({
-    rootMargin: '420px 0px',
+    rootMargin: '120px 0px',
     disabled: !coverImageUrl,
   })
   const [isCoverLoaded, setIsCoverLoaded] = useState(false)
@@ -169,8 +171,6 @@ function CommunityWorldCard({
           width: '100%',
           cursor: disabled ? 'default' : 'pointer',
           opacity: disabled ? 0.82 : 1,
-          contentVisibility: 'auto',
-          containIntrinsicSize: '360px',
           transition: 'transform 180ms ease, border-color 180ms ease',
           '& .community-world-card-favorite': {
             opacity: { xs: 1, md: 0 },
@@ -317,7 +317,6 @@ function CommunityWorldCard({
             alt={authorName}
             fallbackLabel={authorInitials}
             size={40}
-            priority
             sx={{
               border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.32)',
               background: 'linear-gradient(180deg, rgba(47, 62, 86, 0.78), rgba(22, 31, 44, 0.9))',
@@ -401,10 +400,12 @@ function CommunityWorldCard({
           sx={{
             color: TEXT_PRIMARY,
             fontSize: { xs: '18px', md: '20px' },
-            lineHeight: 1.2,
+            lineHeight: TITLE_LINE_HEIGHT,
             fontWeight: 700,
+            minHeight: `${TITLE_LINE_HEIGHT * TITLE_LINE_COUNT}em`,
+            maxHeight: `${TITLE_LINE_HEIGHT * TITLE_LINE_COUNT}em`,
             display: '-webkit-box',
-            WebkitLineClamp: 2,
+            WebkitLineClamp: TITLE_LINE_COUNT,
             WebkitBoxOrient: 'vertical',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -416,7 +417,7 @@ function CommunityWorldCard({
 
         <Typography
           sx={{
-            mt: '10px',
+            mt: '8px',
             color: TEXT_SECONDARY,
             fontSize: { xs: '15px', md: '16px' },
             lineHeight: DESCRIPTION_LINE_HEIGHT,
@@ -438,7 +439,7 @@ function CommunityWorldCard({
           alignItems="center"
           justifyContent="space-between"
           sx={{
-            mt: '20px',
+            mt: '14px',
             minWidth: 0,
           }}
         >

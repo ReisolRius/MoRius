@@ -36,7 +36,6 @@ function ProfileDialog({
   onAvatarChange,
   onOpenTopUp,
   onRequestLogout,
-  onUpdateProfileName,
   onUserUpdate,
 }: ProfileDialogProps) {
   return (
@@ -54,9 +53,6 @@ function ProfileDialog({
       onAvatarChange={onAvatarChange}
       onUserUpdate={(nextUser) => {
         onUserUpdate?.(nextUser)
-        if (nextUser.display_name && nextUser.display_name !== user.display_name) {
-          void onUpdateProfileName(nextUser.display_name)
-        }
       }}
     />
   )

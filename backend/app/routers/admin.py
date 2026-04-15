@@ -43,11 +43,15 @@ from app.schemas import (
     AdminReportOut,
     AdminUserBanRequest,
     AdminUserListResponse,
+    AdminUserModeratorUpdateRequest,
     AdminUserOut,
     AdminUserTokensUpdateRequest,
     MessageResponse,
 )
 from app.services.auth_identity import (
+    ROLE_ADMINISTRATOR,
+    ROLE_MODERATOR,
+    ROLE_USER,
     get_current_user,
     is_privileged_email,
     sync_user_access_state,
@@ -55,7 +59,7 @@ from app.services.auth_identity import (
 )
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.story_characters import unlink_story_character_from_world_cards
-from app.services.story_games import story_author_name
+from app.services.story_games import delete_story_game_with_relations, story_author_name
 
 router = APIRouter()
 
@@ -85,6 +89,16 @@ def _get_target_user_or_404(db: Session, *, user_id: int) -> User:
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return user
+
+
+def _require_administrator(*, db: Session, authorization: str | None) -> User:
+    user = _get_admin_user(db=db, authorization=authorization)
+    if str(getattr(user, "role", "") or "").strip().lower() != ROLE_ADMINISTRATOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can manage moderator roles",
+        )
     return user
 
 
@@ -400,21 +414,7 @@ def _close_instruction_template_reports(
 
 
 def _delete_world_with_relations(db: Session, *, world: StoryGame) -> None:
-    db.execute(sa_delete(StoryWorldCardChangeEvent).where(StoryWorldCardChangeEvent.game_id == world.id))
-    db.execute(sa_delete(StoryPlotCardChangeEvent).where(StoryPlotCardChangeEvent.game_id == world.id))
-    db.execute(sa_delete(StoryTurnImage).where(StoryTurnImage.game_id == world.id))
-    db.execute(sa_delete(StoryMemoryBlock).where(StoryMemoryBlock.game_id == world.id))
-    db.execute(sa_delete(StoryMessage).where(StoryMessage.game_id == world.id))
-    db.execute(sa_delete(StoryInstructionCard).where(StoryInstructionCard.game_id == world.id))
-    db.execute(sa_delete(StoryPlotCard).where(StoryPlotCard.game_id == world.id))
-    db.execute(sa_delete(StoryWorldCard).where(StoryWorldCard.game_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldComment).where(StoryCommunityWorldComment.world_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldRating).where(StoryCommunityWorldRating.world_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldView).where(StoryCommunityWorldView.world_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldLaunch).where(StoryCommunityWorldLaunch.world_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldFavorite).where(StoryCommunityWorldFavorite.world_id == world.id))
-    db.execute(sa_delete(StoryCommunityWorldReport).where(StoryCommunityWorldReport.world_id == world.id))
-    db.delete(world)
+    delete_story_game_with_relations(db, game_id=int(world.id))
 
 
 def _delete_character_with_relations(db: Session, *, character: StoryCharacter) -> None:
@@ -448,17 +448,14 @@ def _delete_instruction_template_with_relations(db: Session, *, template: StoryI
 def search_users(
     query: str = Query(default="", max_length=SEARCH_QUERY_MAX_LENGTH),
     limit: int = Query(default=DEFAULT_SEARCH_LIMIT, ge=1, le=MAX_SEARCH_LIMIT),
+    offset: int = Query(default=0, ge=0),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AdminUserListResponse:
     _get_admin_user(db=db, authorization=authorization)
 
     normalized_query = query.strip().lower()
-    statement = (
-        select(User)
-        .order_by(User.created_at.desc(), User.id.desc())
-        .limit(limit)
-    )
+    statement = select(User)
     if normalized_query:
         pattern = f"%{normalized_query}%"
         statement = statement.where(
@@ -468,9 +465,30 @@ def search_users(
             )
         )
 
+    total_count = max(
+        int(
+            db.scalar(
+                select(func.count()).select_from(statement.subquery())
+            )
+            or 0
+        ),
+        0,
+    )
+
+    statement = (
+        statement
+        .order_by(User.created_at.desc(), User.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
     users = list(db.scalars(statement).all())
     _sync_users_access_state(db, users)
-    return AdminUserListResponse(users=[AdminUserOut.model_validate(user) for user in users])
+    return AdminUserListResponse(
+        users=[AdminUserOut.model_validate(user) for user in users],
+        total_count=total_count,
+        has_more=offset + len(users) < total_count,
+    )
 
 
 @router.post("/api/auth/admin/users/{user_id}/tokens", response_model=AdminUserOut)
@@ -499,6 +517,34 @@ def update_user_tokens(
             detail="Insufficient sols for subtraction",
         )
 
+    sync_user_access_state(target_user)
+    db.commit()
+    db.refresh(target_user)
+    return AdminUserOut.model_validate(target_user)
+
+
+@router.post("/api/auth/admin/users/{user_id}/moderator", response_model=AdminUserOut)
+def update_user_moderator_role(
+    user_id: int,
+    payload: AdminUserModeratorUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> AdminUserOut:
+    admin_user = _require_administrator(db=db, authorization=authorization)
+    target_user = _get_target_user_or_404(db, user_id=user_id)
+
+    if int(target_user.id) == int(admin_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot change your own moderator role here",
+        )
+    if is_privileged_email(target_user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Privileged accounts roles cannot be changed manually",
+        )
+
+    target_user.role = ROLE_MODERATOR if payload.is_moderator else ROLE_USER
     sync_user_access_state(target_user)
     db.commit()
     db.refresh(target_user)

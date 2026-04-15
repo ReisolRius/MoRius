@@ -13,6 +13,7 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
+import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
@@ -24,6 +25,7 @@ import ImageCropper from '../components/ImageCropper'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
+import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -59,7 +61,11 @@ import type {
   StoryGameVisibility,
   StoryWorldCard,
 } from '../types/story'
-import { compressImageDataUrl, compressImageFileToDataUrl } from '../utils/avatar'
+import {
+  compressImageDataUrl,
+  compressImageFileToDataUrl,
+  prepareAvatarUrlForRequest,
+} from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
 
 type WorldCreatePageProps = {
@@ -86,6 +92,10 @@ type EditableCharacterCard = {
   source_character_id: number | null
   name: string
   description: string
+  race: string
+  clothing: string
+  inventory: string
+  health_status: string
   note: string
   triggers: string
   avatar_url: string | null
@@ -181,6 +191,21 @@ function normalizeCharacterNote(value: string): string {
     .slice(0, CHARACTER_NOTE_MAX_LENGTH)
 }
 
+function normalizeCharacterRace(value: string | null | undefined): string {
+  return (value ?? '')
+    .replace(/\r\n/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+}
+
+function normalizeCharacterAdditionalField(value: string | null | undefined): string {
+  return (value ?? '')
+    .replace(/\r\n/g, '\n')
+    .trim()
+    .slice(0, 1000)
+}
+
 function normalizeMainHeroInlineFallbackName(rawValue: string | null | undefined): string {
   const normalizedValue = (rawValue ?? '').replace(/\s+/g, ' ').trim()
   if (!normalizedValue) {
@@ -229,6 +254,10 @@ function toEditableCharacterFromTemplate(character: StoryCharacter): EditableCha
     source_character_id: character.source_character_id ?? null,
     name: character.name,
     description: character.description,
+    race: normalizeCharacterRace(character.race),
+    clothing: normalizeCharacterAdditionalField(character.clothing),
+    inventory: normalizeCharacterAdditionalField(character.inventory),
+    health_status: normalizeCharacterAdditionalField(character.health_status),
     note: normalizeCharacterNote(character.note),
     triggers: character.triggers.join(', '),
     avatar_url: character.avatar_url,
@@ -249,6 +278,10 @@ function toEditableCharacterFromCommunity(
     source_character_id: character.id,
     name: character.name,
     description: character.description,
+    race: normalizeCharacterRace(character.race),
+    clothing: normalizeCharacterAdditionalField(character.clothing),
+    inventory: normalizeCharacterAdditionalField(character.inventory),
+    health_status: normalizeCharacterAdditionalField(character.health_status),
     note: normalizeCharacterNote(character.note),
     triggers: character.triggers.join(', '),
     avatar_url: character.avatar_url,
@@ -267,6 +300,10 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
     source_character_id: null,
     name: card.title,
     description: card.content,
+    race: normalizeCharacterRace(card.race),
+    clothing: normalizeCharacterAdditionalField(card.clothing),
+    inventory: normalizeCharacterAdditionalField(card.inventory),
+    health_status: normalizeCharacterAdditionalField(card.health_status),
     note: '',
     triggers: card.triggers.join(', '),
     avatar_url: card.avatar_url,
@@ -308,33 +345,13 @@ function CompactCard({
   return (
     <Box sx={{ width: { xs: '100%', sm: CARD_WIDTH }, minHeight: 186, borderRadius: 'var(--morius-radius)', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, background: 'var(--morius-elevated-bg)', boxShadow: '0 12px 28px rgba(0, 0, 0, 0.24)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
       <Box sx={{ px: 1.1, py: 0.85, borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)', background: 'var(--morius-card-bg)' }}>
-        <Stack direction="row" spacing={0.7} alignItems="center">
-          {avatar}
-          <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', lineHeight: 1.2, minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
-          {noteBadge ? (
-            <Typography
-              sx={{
-                color: 'rgba(184, 218, 247, 0.96)',
-                fontSize: '0.61rem',
-                lineHeight: 1,
-                letterSpacing: 0.16,
-                fontWeight: 700,
-                border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
-                borderRadius: '999px',
-                px: 0.54,
-                py: 0.2,
-                maxWidth: 104,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                flexShrink: 0,
-              }}
-              title={noteBadge}
-            >
-              {noteBadge}
-            </Typography>
-          ) : null}
-          {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18, flexShrink: 0 }}>{badge}</Typography> : null}
+        <Stack spacing={0.52}>
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            {avatar}
+            <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', lineHeight: 1.2, minWidth: 0, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</Typography>
+            {badge ? <Typography sx={{ color: 'rgba(170, 238, 191, 0.96)', fontSize: '0.63rem', lineHeight: 1, letterSpacing: 0.22, textTransform: 'uppercase', fontWeight: 700, border: 'var(--morius-border-width) solid rgba(128, 213, 162, 0.46)', borderRadius: '999px', px: 0.58, py: 0.18, flexShrink: 0 }}>{badge}</Typography> : null}
+          </Stack>
+          {noteBadge ? <CharacterNoteBadge note={noteBadge} maxWidth={132} /> : null}
         </Stack>
       </Box>
       <Box sx={{ px: 1.1, py: 0.9, display: 'flex', flexDirection: 'column', flex: 1 }}>
@@ -641,7 +658,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       return sortedCharacters
     }
     return sortedCharacters.filter((character) => {
-      const searchValues = [character.name, character.description, ...character.triggers]
+      const searchValues = [
+        character.name,
+        character.description,
+        character.race,
+        character.clothing,
+        character.inventory,
+        character.health_status,
+        character.note,
+        ...character.triggers,
+      ]
       return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
     })
   }, [characterPickerSearchQuery, sortedCharacters])
@@ -655,7 +681,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     }
     if (normalizedQuery) {
       nextItems = nextItems.filter((item) => {
-        const searchValues = [item.name, item.description, item.author_name, ...item.triggers]
+        const searchValues = [
+          item.name,
+          item.description,
+          item.race,
+          item.clothing,
+          item.inventory,
+          item.health_status,
+          item.note,
+          item.author_name,
+          ...item.triggers,
+        ]
         return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
       })
     }
@@ -806,11 +842,26 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       }
       const nextNote = normalizeCharacterNote(linkedCharacter.note ?? '')
       const nextSourceCharacterId = linkedCharacter.source_character_id ?? null
-      if (previous.note === nextNote && previous.source_character_id === nextSourceCharacterId) {
+      const nextRace = normalizeCharacterRace(linkedCharacter.race)
+      const nextClothing = normalizeCharacterAdditionalField(linkedCharacter.clothing)
+      const nextInventory = normalizeCharacterAdditionalField(linkedCharacter.inventory)
+      const nextHealthStatus = normalizeCharacterAdditionalField(linkedCharacter.health_status)
+      if (
+        previous.note === nextNote &&
+        previous.source_character_id === nextSourceCharacterId &&
+        previous.race === nextRace &&
+        previous.clothing === nextClothing &&
+        previous.inventory === nextInventory &&
+        previous.health_status === nextHealthStatus
+      ) {
         return previous
       }
       return {
         ...previous,
+        race: nextRace,
+        clothing: nextClothing,
+        inventory: nextInventory,
+        health_status: nextHealthStatus,
         note: nextNote,
         source_character_id: nextSourceCharacterId,
       }
@@ -828,12 +879,27 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
         const nextNote = normalizeCharacterNote(linkedCharacter.note ?? '')
         const nextSourceCharacterId = linkedCharacter.source_character_id ?? null
-        if (npc.note === nextNote && npc.source_character_id === nextSourceCharacterId) {
+        const nextRace = normalizeCharacterRace(linkedCharacter.race)
+        const nextClothing = normalizeCharacterAdditionalField(linkedCharacter.clothing)
+        const nextInventory = normalizeCharacterAdditionalField(linkedCharacter.inventory)
+        const nextHealthStatus = normalizeCharacterAdditionalField(linkedCharacter.health_status)
+        if (
+          npc.note === nextNote &&
+          npc.source_character_id === nextSourceCharacterId &&
+          npc.race === nextRace &&
+          npc.clothing === nextClothing &&
+          npc.inventory === nextInventory &&
+          npc.health_status === nextHealthStatus
+        ) {
           return npc
         }
         hasChanges = true
         return {
           ...npc,
+          race: nextRace,
+          clothing: nextClothing,
+          inventory: nextInventory,
+          health_status: nextHealthStatus,
           note: nextNote,
           source_character_id: nextSourceCharacterId,
         }
@@ -1035,14 +1101,22 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         if (!targetCharacterId) {
           const normalizedName = card.name.replace(/\s+/g, ' ').trim() || (target === 'main_hero' ? 'Main hero' : 'NPC')
           const normalizedDescription = card.description.replace(/\r\n/g, '\n').trim() || 'World card character'
+          const preparedMirroredAvatarUrl = await prepareAvatarUrlForRequest(card.avatar_url, {
+            maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+            maxDimension: 1200,
+          })
           const mirroredCharacter = await createStoryCharacter({
             token: authToken,
             input: {
               name: normalizedName,
               description: normalizedDescription,
+              race: normalizeCharacterRace(card.race),
+              clothing: normalizeCharacterAdditionalField(card.clothing),
+              inventory: normalizeCharacterAdditionalField(card.inventory),
+              health_status: normalizeCharacterAdditionalField(card.health_status),
               note: normalizeCharacterNote(card.note),
               triggers: parseTriggers(card.triggers, normalizedName),
-              avatar_url: card.avatar_url,
+              avatar_url: preparedMirroredAvatarUrl,
               avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
               emotion_assets: card.emotion_assets ?? {},
               emotion_model: card.emotion_model ?? null,
@@ -1059,6 +1133,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     ...previous,
                     character_id: mirroredCharacter.id,
                     source_character_id: mirroredCharacter.source_character_id ?? null,
+                    race: normalizeCharacterRace(mirroredCharacter.race),
+                    clothing: normalizeCharacterAdditionalField(mirroredCharacter.clothing),
+                    inventory: normalizeCharacterAdditionalField(mirroredCharacter.inventory),
+                    health_status: normalizeCharacterAdditionalField(mirroredCharacter.health_status),
                     note: normalizeCharacterNote(mirroredCharacter.note),
                     emotion_assets: mirroredCharacter.emotion_assets ?? {},
                     emotion_model: mirroredCharacter.emotion_model ?? '',
@@ -1074,6 +1152,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       ...item,
                       character_id: mirroredCharacter.id,
                       source_character_id: mirroredCharacter.source_character_id ?? null,
+                      race: normalizeCharacterRace(mirroredCharacter.race),
+                      clothing: normalizeCharacterAdditionalField(mirroredCharacter.clothing),
+                      inventory: normalizeCharacterAdditionalField(mirroredCharacter.inventory),
+                      health_status: normalizeCharacterAdditionalField(mirroredCharacter.health_status),
                       note: normalizeCharacterNote(mirroredCharacter.note),
                       emotion_assets: mirroredCharacter.emotion_assets ?? {},
                       emotion_model: mirroredCharacter.emotion_model ?? '',
@@ -1126,6 +1208,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                 source_character_id: linkedCharacter.source_character_id ?? null,
                 name: linkedCharacter.name,
                 description: linkedCharacter.description,
+                race: normalizeCharacterRace(linkedCharacter.race),
+                clothing: normalizeCharacterAdditionalField(linkedCharacter.clothing),
+                inventory: normalizeCharacterAdditionalField(linkedCharacter.inventory),
+                health_status: normalizeCharacterAdditionalField(linkedCharacter.health_status),
                 note: normalizeCharacterNote(linkedCharacter.note),
                 triggers: nextTriggers,
                 avatar_url: linkedCharacter.avatar_url,
@@ -1145,6 +1231,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       source_character_id: linkedCharacter.source_character_id ?? null,
                       name: linkedCharacter.name,
                       description: linkedCharacter.description,
+                      race: normalizeCharacterRace(linkedCharacter.race),
+                      clothing: normalizeCharacterAdditionalField(linkedCharacter.clothing),
+                      inventory: normalizeCharacterAdditionalField(linkedCharacter.inventory),
+                      health_status: normalizeCharacterAdditionalField(linkedCharacter.health_status),
                       note: normalizeCharacterNote(linkedCharacter.note),
                       triggers: nextTriggers,
                       avatar_url: linkedCharacter.avatar_url,
@@ -1355,20 +1445,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           })
         : coverImageUrl
       const prepareAvatarForRequest = async (avatarUrl: string | null): Promise<string | null> => {
-        const normalizedAvatarUrl = (avatarUrl ?? '').trim()
-        if (!normalizedAvatarUrl) {
-          return null
-        }
-        if (normalizedAvatarUrl.startsWith('/api/media/')) {
-          return normalizedAvatarUrl
-        }
-        if (/^https?:\/\//i.test(normalizedAvatarUrl)) {
-          return normalizedAvatarUrl
-        }
-        if (!normalizedAvatarUrl.startsWith('data:image/')) {
-          return null
-        }
-        return compressImageDataUrl(normalizedAvatarUrl, {
+        return prepareAvatarUrlForRequest(avatarUrl, {
           maxBytes: CHARACTER_AVATAR_MAX_BYTES,
           maxDimension: 1200,
         })
@@ -1392,6 +1469,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           input: {
             name: normalizedCharacterName,
             description: normalizedCharacterDescription,
+            race: normalizeCharacterRace(card.race),
+            clothing: normalizeCharacterAdditionalField(card.clothing),
+            inventory: normalizeCharacterAdditionalField(card.inventory),
+            health_status: normalizeCharacterAdditionalField(card.health_status),
             note: normalizeCharacterNote(card.note),
             triggers: parseTriggers(card.triggers, normalizedCharacterName),
             avatar_url: preparedCharacterAvatarUrl,
@@ -1407,6 +1488,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           ...card,
           character_id: createdCharacter.id,
           source_character_id: createdCharacter.source_character_id ?? card.source_character_id,
+          race: normalizeCharacterRace(createdCharacter.race || card.race),
+          clothing: normalizeCharacterAdditionalField(createdCharacter.clothing || card.clothing),
+          inventory: normalizeCharacterAdditionalField(createdCharacter.inventory || card.inventory),
+          health_status: normalizeCharacterAdditionalField(createdCharacter.health_status || card.health_status),
           avatar_url: createdCharacter.avatar_url ?? card.avatar_url,
           avatar_scale: clamp(createdCharacter.avatar_scale ?? card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
           emotion_assets: createdCharacter.emotion_assets ?? card.emotion_assets,
@@ -1488,6 +1573,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               cardId: existingMainHero.id,
               title: resolvedMainHero.name,
               content: resolvedMainHero.description,
+              race: normalizeCharacterRace(resolvedMainHero.race),
+              clothing: normalizeCharacterAdditionalField(resolvedMainHero.clothing),
+              inventory: normalizeCharacterAdditionalField(resolvedMainHero.inventory),
+              health_status: normalizeCharacterAdditionalField(resolvedMainHero.health_status),
               triggers: parseTriggers(resolvedMainHero.triggers, resolvedMainHero.name),
               character_id: resolvedMainHero.character_id ?? null,
             })
@@ -1499,6 +1588,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               kind: 'main_hero',
               title: resolvedMainHero.name,
               content: resolvedMainHero.description,
+              race: normalizeCharacterRace(resolvedMainHero.race),
+              clothing: normalizeCharacterAdditionalField(resolvedMainHero.clothing),
+              inventory: normalizeCharacterAdditionalField(resolvedMainHero.inventory),
+              health_status: normalizeCharacterAdditionalField(resolvedMainHero.health_status),
               triggers: parseTriggers(resolvedMainHero.triggers, resolvedMainHero.name),
               avatar_url: preparedMainHeroAvatarUrl,
               avatar_scale: resolvedMainHero.avatar_scale,
@@ -1524,6 +1617,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             cardId: npc.id,
             title: npc.name,
             content: npc.description,
+            race: normalizeCharacterRace(npc.race),
+            clothing: normalizeCharacterAdditionalField(npc.clothing),
+            inventory: normalizeCharacterAdditionalField(npc.inventory),
+            health_status: normalizeCharacterAdditionalField(npc.health_status),
             triggers: parseTriggers(npc.triggers, npc.name),
             character_id: npc.character_id ?? null,
           })
@@ -1535,6 +1632,10 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             kind: 'npc',
             title: npc.name,
             content: npc.description,
+            race: normalizeCharacterRace(npc.race),
+            clothing: normalizeCharacterAdditionalField(npc.clothing),
+            inventory: normalizeCharacterAdditionalField(npc.inventory),
+            health_status: normalizeCharacterAdditionalField(npc.health_status),
             triggers: parseTriggers(npc.triggers, npc.name),
             avatar_url: preparedNpcAvatarUrl,
             avatar_scale: npc.avatar_scale,
@@ -1646,6 +1747,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((p) => !p)}
+        onClosePageMenu={() => setIsPageMenuOpen(false)}
+        mobileActionItems={buildUnifiedMobileQuickActions({
+          onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
+          onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
+          onCreateWorld: () => onNavigate('/worlds/new'),
+          onOpenShop: handleOpenTopUpDialog,
+        })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
           { key: 'games-my', label: 'Мои игры', isActive: false, onClick: () => onNavigate('/games') },
@@ -1671,7 +1779,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           />
         }
       />
-      <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: 4 }}>
+      <Box sx={{ pt: '86px', px: { xs: 2, md: 3 }, pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 4 } }}>
         <Box sx={{ maxWidth: 1160, mx: 'auto', border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, borderRadius: 'var(--morius-radius)', background: APP_CARD_BACKGROUND, p: { xs: 1.4, md: 1.8 } }}>
           {errorMessage ? <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 1.4, borderRadius: '12px' }}>{errorMessage}</Alert> : null}
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={2.2}>
@@ -2142,8 +2250,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   sx={{
                     minHeight: 44,
                     flex: 1,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: visibility === 'private' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: visibility === 'private' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                    fontWeight: visibility === 'private' ? 800 : 650,
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: 'transparent' },
                   }}
                 >
                   Частный
@@ -2153,8 +2265,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   sx={{
                     minHeight: 44,
                     flex: 1,
-                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                    backgroundColor: visibility === 'public' ? APP_BUTTON_ACTIVE : APP_CARD_BACKGROUND,
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: visibility === 'public' ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                    fontWeight: visibility === 'public' ? 800 : 650,
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: 'transparent' },
                   }}
                 >
                   Публичный
@@ -2358,7 +2474,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             <Box
               component="input"
               value={characterPickerSearchQuery}
-              placeholder="Поиск по имени, описанию и автору"
+              placeholder="Поиск по имени, расе, описанию, заметкам и автору"
               onChange={(event: ChangeEvent<HTMLInputElement>) => setCharacterPickerSearchQuery(event.target.value.slice(0, 240))}
               sx={{
                 width: '100%',
@@ -2438,32 +2554,11 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                             >
                               <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', textAlign: 'left' }}>
                                 <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={42} />
-                                <Stack sx={{ minWidth: 0, flex: 1 }}>
-                                  <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Stack spacing={0.34} sx={{ minWidth: 0, flex: 1, alignItems: 'flex-start' }}>
+                                  <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
                                     <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800, fontSize: '0.98rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>{character.name}</Typography>
-                                    {character.note ? (
-                                      <Typography
-                                        sx={{
-                                          color: 'rgba(184, 218, 247, 0.96)',
-                                          fontSize: '0.62rem',
-                                          lineHeight: 1.2,
-                                          fontWeight: 700,
-                                          border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
-                                          borderRadius: '999px',
-                                          px: 0.5,
-                                          py: 0.08,
-                                          maxWidth: 100,
-                                          whiteSpace: 'nowrap',
-                                          overflow: 'hidden',
-                                          textOverflow: 'ellipsis',
-                                          flexShrink: 0,
-                                        }}
-                                        title={character.note}
-                                      >
-                                        {character.note}
-                                      </Typography>
-                                    ) : null}
                                   </Stack>
+                                  {character.note ? <CharacterNoteBadge note={character.note} maxWidth={100} /> : null}
                                   <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.35, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{character.description}</Typography>
                                 </Stack>
                               </Stack>
@@ -2512,8 +2607,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                         <Stack spacing={0.35}>
                           <Stack direction="row" spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
                             <MiniAvatar avatarUrl={character.avatar_url} avatarScale={character.avatar_scale} label={character.name} size={34} />
-                            <Stack spacing={0.18} sx={{ minWidth: 0, flex: 1 }}>
-                              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
+                            <Stack spacing={0.34} sx={{ minWidth: 0, flex: 1, alignItems: 'flex-start' }}>
+                              <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
                                 <Typography
                                   sx={{
                                     color: APP_TEXT_PRIMARY,
@@ -2529,29 +2624,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                                 >
                                   {character.name}
                                 </Typography>
-                                {character.note ? (
-                                  <Typography
-                                    sx={{
-                                      color: 'rgba(184, 218, 247, 0.96)',
-                                      fontSize: '0.62rem',
-                                      lineHeight: 1.2,
-                                      fontWeight: 700,
-                                      border: 'var(--morius-border-width) solid rgba(140, 188, 230, 0.44)',
-                                      borderRadius: '999px',
-                                      px: 0.5,
-                                      py: 0.08,
-                                      maxWidth: 98,
-                                      whiteSpace: 'nowrap',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      flexShrink: 0,
-                                    }}
-                                    title={character.note}
-                                  >
-                                    {character.note}
-                                  </Typography>
-                                ) : null}
                               </Stack>
+                              {character.note ? <CharacterNoteBadge note={character.note} maxWidth={98} /> : null}
                               <Typography sx={{ color: 'rgba(181, 199, 220, 0.82)', fontSize: '0.74rem' }}>
                                 Автор: {character.author_name || 'Неизвестно'}
                               </Typography>

@@ -112,6 +112,7 @@ function AvatarCropDialog({
 }: AvatarCropDialogProps) {
   const stageRef = useRef<HTMLDivElement | null>(null)
   const imageRef = useRef<HTMLImageElement | null>(null)
+  const titleTouchStartYRef = useRef<number | null>(null)
 
   const [containerSize, setContainerSize] = useState<Size>({ width: 0, height: 0 })
   const [naturalImageSize, setNaturalImageSize] = useState<Size | null>(null)
@@ -402,7 +403,22 @@ function AvatarCropDialog({
       }}
     >
       <div className="avatar-crop-modal" role="dialog" aria-modal="true" aria-label="Настройка аватара">
-        <div className="avatar-crop-title">Настройка аватара</div>
+        <div
+          className="avatar-crop-title"
+          onTouchStart={(event) => {
+            titleTouchStartYRef.current = event.touches[0]?.clientY ?? null
+          }}
+          onTouchEnd={(event) => {
+            const startY = titleTouchStartYRef.current
+            const endY = event.changedTouches[0]?.clientY ?? null
+            titleTouchStartYRef.current = null
+            if (!isSaving && typeof startY === 'number' && typeof endY === 'number' && endY - startY > 72) {
+              onCancel()
+            }
+          }}
+        >
+          Настройка аватара
+        </div>
         <div ref={stageRef} className="avatar-crop-stage">
           <img
             ref={imageRef}

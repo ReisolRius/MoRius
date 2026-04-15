@@ -27,6 +27,7 @@ import advantageCommunityPreview from '../assets/images/advantages/community-pre
 import advantageMemoryPreview from '../assets/images/advantages/memory-preview.png'
 import AuthDialog, { type AuthMode } from '../components/AuthDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
+import Footer from '../components/Footer'
 import type { AuthResponse } from '../types/auth'
 
 const STORY_TEXT =
@@ -56,31 +57,40 @@ const featureCards = [
   },
 ]
 
-const tariffPlans = [
+const tariffPlans: Array<{
+  id: string
+  title: string
+  price: string
+  coins: string
+  isHighlighted?: boolean
+  badge?: string
+}> = [
   {
     id: 'starter',
     title: 'Старт',
     price: '0 ₽',
     coins: '20 солов',
-    isHighlighted: true,
+    isHighlighted: false,
   },
   {
     id: 'standard',
     title: 'Путник',
-    price: '399 ₽',
-    coins: '250 солов',
+    price: '490 ₽',
+    coins: '350 солов',
   },
   {
     id: 'pro',
     title: 'Искатель',
-    price: '999 ₽',
-    coins: '800 солов',
+    price: '1190 ₽',
+    coins: '1000 солов',
+    isHighlighted: true,
+    badge: 'Популярный',
   },
   {
     id: 'mega',
-    title: 'Хронист',
-    price: '2890 ₽',
-    coins: '2500 солов',
+    title: 'Архонт',
+    price: '3990 ₽',
+    coins: '3400 солов',
   },
 ]
 
@@ -1009,7 +1019,7 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
                               border: '1px solid rgba(197, 214, 230, 0.34)',
                             }}
                           >
-                            Бесплатно
+                            {plan.badge ?? 'Популярный'}
                           </Typography>
                         ) : null}
                         <Typography sx={{ color: '#d8dde5', fontSize: '1.35rem', fontWeight: 700 }}>
@@ -1051,108 +1061,7 @@ function PublicLandingPage({ isAuthenticated, onNavigate, onGoHome, onAuthSucces
         </RevealOnView>
       </Box>
 
-      <Box
-        component="footer"
-        sx={{
-          borderTop: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.14)',
-          py: { xs: 3.6, md: 4.3 },
-          background:
-            'linear-gradient(180deg, rgba(7, 10, 16, 0.96) 0%, rgba(6, 9, 14, 0.98) 100%), repeating-linear-gradient(124deg, rgba(255,255,255,0.006) 0, rgba(255,255,255,0.006) 1px, transparent 1px, transparent 30px)',
-        }}
-      >
-        <Container maxWidth="lg">
-          <RevealOnView>
-            <Box
-              sx={{
-                borderRadius: '12px',
-                border: 'var(--morius-border-width) solid rgba(185, 198, 214, 0.12)',
-                background: 'linear-gradient(130deg, rgba(14, 18, 25, 0.9) 0%, rgba(10, 14, 20, 0.92) 100%)',
-                px: { xs: 1.3, sm: 2.1, md: 2.8 },
-                py: { xs: 1.6, md: 2.1 },
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: { xs: 2, md: 2.8 },
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: '1.25fr 0.8fr 1.25fr' },
-                  mb: 1.7,
-                }}
-              >
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>О проекте</Typography>
-                  <Typography sx={{ color: 'rgba(214, 221, 231, 0.66)', fontSize: '0.9rem', maxWidth: 320, lineHeight: 1.48 }}>
-                    Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
-                  </Typography>
-                </Stack>
-
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>Соц сети</Typography>
-                  {footerSocialLinks.map((link) => (
-                    <Typography
-                      key={link.label}
-                      component="a"
-                      href={link.href}
-                      target={link.external ? '_blank' : undefined}
-                      rel={link.external ? 'noopener noreferrer' : undefined}
-                      sx={{
-                        color: 'rgba(214, 221, 231, 0.74)',
-                        textDecoration: 'none',
-                        fontSize: '0.92rem',
-                        width: 'fit-content',
-                        transition: 'color 170ms ease',
-                        '&:hover': {
-                          color: '#f0f4fb',
-                        },
-                      }}
-                    >
-                      {link.label}
-                    </Typography>
-                  ))}
-                </Stack>
-
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: '#f0f3f8', fontSize: '1rem', fontWeight: 700 }}>Информация</Typography>
-                  {footerInfoLinks.map((link) => (
-                    <Box
-                      key={link.label}
-                      component="button"
-                      type="button"
-                      onClick={() => onNavigate(link.path)}
-                      sx={{
-                        p: 0,
-                        m: 0,
-                        border: 'none',
-                        background: 'none',
-                        color: 'rgba(214, 221, 231, 0.74)',
-                        textAlign: 'left',
-                        font: 'inherit',
-                        fontSize: '0.92rem',
-                        width: 'fit-content',
-                        cursor: 'pointer',
-                        transition: 'color 170ms ease',
-                        '&:hover': {
-                          color: '#f0f4fb',
-                        },
-                      }}
-                    >
-                      {link.label}
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-
-              <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.62)', fontSize: '0.84rem' }}>
-                MoRius ©
-              </Typography>
-            </Box>
-          </RevealOnView>
-
-          <Typography sx={{ textAlign: 'center', color: 'rgba(214, 221, 231, 0.52)', fontSize: '0.78rem', mt: 1.2 }}>
-            Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com
-          </Typography>
-        </Container>
-      </Box>
+      <Footer socialLinks={footerSocialLinks} infoLinks={footerInfoLinks} onNavigate={onNavigate} />
 
       <AuthDialog
         open={authDialogOpen}

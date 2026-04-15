@@ -1,34 +1,33 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  Stack,
-  Typography,
-} from '@mui/material'
+import { useCallback, useEffect, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { Alert, Box, CircularProgress, IconButton, Popover, Stack, Typography } from '@mui/material'
 import { icons } from '../assets'
+import dailyDiamondIconMarkup from '../assets/icons/daily-diamond.svg?raw'
+import dailyRewardCheckIconMarkup from '../assets/icons/daily-reward-check.svg?raw'
+import dailyRewardFlagIconMarkup from '../assets/icons/daily-reward-flag.svg?raw'
+import dailyRewardLockIconMarkup from '../assets/icons/daily-reward-lock.svg?raw'
 import {
   claimCurrentUserDailyReward,
   getCurrentUserDailyRewards,
+  type DailyRewardDay,
   type DailyRewardStatus,
 } from '../services/authApi'
+import ThemedSvgIcon from './icons/ThemedSvgIcon'
 
 type DailyRewardsButtonProps = {
   authToken: string
   size?: number
 }
 
+const BOOSTED_REWARD_DAYS = new Set([7, 14, 21, 28])
+
 function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
-  const [open, setOpen] = useState(false)
+  const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null)
   const [status, setStatus] = useState<DailyRewardStatus | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isClaiming, setIsClaiming] = useState(false)
   const [error, setError] = useState('')
+
+  const open = Boolean(anchorEl)
 
   const loadStatus = useCallback(async () => {
     setIsLoading(true)
@@ -47,15 +46,37 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
     void loadStatus()
   }, [loadStatus])
 
-  const handleOpen = () => {
-    setOpen(true)
-    if (!status && !isLoading) {
+  useEffect(() => {
+    const nextClaimAt = typeof status?.next_claim_at === 'string' ? Date.parse(status.next_claim_at) : Number.NaN
+    if (!Number.isFinite(nextClaimAt)) {
+      return
+    }
+    const timeoutMs = Math.max(nextClaimAt - Date.now() + 1000, 1000)
+    const timeoutId = window.setTimeout(() => {
+      void loadStatus()
+    }, Math.min(timeoutMs, 2_147_483_647))
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [loadStatus, status?.next_claim_at])
+
+  const handleTogglePopover = (event: ReactMouseEvent<HTMLElement>) => {
+    if (open) {
+      setAnchorEl(null)
+      return
+    }
+    setAnchorEl(event.currentTarget)
+    if (!isLoading) {
       void loadStatus()
     }
   }
 
+  const handleClose = () => {
+    setAnchorEl(null)
+  }
+
   const handleClaim = async () => {
-    if (isClaiming) {
+    if (isClaiming || !status?.can_claim) {
       return
     }
     setIsClaiming(true)
@@ -70,153 +91,234 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
     }
   }
 
-  const currentRewardLabel = useMemo(() => {
-    if (!status?.reward_amount) {
-      return 'Все награды собраны'
-    }
-    return `Сегодня можно получить ${status.reward_amount} солов`
-  }, [status])
+  const canClaim = Boolean(status?.can_claim)
+
+  const renderRewardCard = (reward: DailyRewardDay) => {
+    const isBoosted = BOOSTED_REWARD_DAYS.has(reward.day)
+    const isClaimable = canClaim && reward.is_current
+    const isClaimed = reward.is_claimed
+    const isDisabled = !isClaimable || isClaiming
+    const statusIconMarkup = isClaimed ? dailyRewardCheckIconMarkup : isClaimable ? dailyRewardFlagIconMarkup : dailyRewardLockIconMarkup
+    const rewardIcon = isBoosted ? icons.coin : icons.dailyRewardsCoin
+    const rewardIconSize = isBoosted ? { width: 15, height: 15 } : { width: 13, height: 9 }
+    const cardBackground = isClaimed
+      ? 'color-mix(in srgb, var(--morius-elevated-bg) 94%, var(--morius-title-text) 6%)'
+      : 'color-mix(in srgb, var(--morius-app-base) 88%, var(--morius-card-bg) 12%)'
+    const insetOutline = isClaimable
+      ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 84%, white 16%) inset'
+      : isBoosted
+        ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 68%, transparent) inset'
+        : '0 0 0 1px color-mix(in srgb, rgba(255, 255, 255, 0.08) 55%, transparent) inset'
+    const glowShadow = isClaimable
+      ? '0 0 28px color-mix(in srgb, var(--morius-accent) 34%, transparent), 0 16px 28px rgba(0, 0, 0, 0.34)'
+      : isBoosted
+        ? '0 0 20px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 14px 26px rgba(0, 0, 0, 0.26)'
+        : '0 12px 22px rgba(0, 0, 0, 0.22)'
+    const topColor = isClaimed
+      ? 'color-mix(in srgb, var(--morius-text-secondary) 82%, var(--morius-title-text) 18%)'
+      : 'var(--morius-title-text)'
+    const statusColor = isClaimed
+      ? 'color-mix(in srgb, var(--morius-text-secondary) 80%, var(--morius-title-text) 20%)'
+      : isClaimable
+        ? 'var(--morius-title-text)'
+        : 'color-mix(in srgb, var(--morius-text-secondary) 88%, transparent)'
+    const rewardColor = isClaimed ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)'
+    const rewardIconOpacity = isClaimed ? 0.58 : 0.94
+
+    return (
+      <Box
+        key={reward.day}
+        component="button"
+        type="button"
+        disabled={isDisabled}
+        onClick={() => {
+          if (isClaimable) {
+            void handleClaim()
+          }
+        }}
+        sx={{
+          minWidth: 0,
+          minHeight: 78,
+          px: 0.95,
+          py: 0.82,
+          border: 'none',
+          borderRadius: '16px',
+          textAlign: 'left',
+          font: 'inherit',
+          background: cardBackground,
+          boxShadow: `${insetOutline}, ${glowShadow}`,
+          color: rewardColor,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between',
+          cursor: isClaimable ? 'pointer' : 'default',
+          transition: 'transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease',
+          '&:hover': isClaimable
+            ? {
+                transform: 'translateY(-1px)',
+                boxShadow: `${insetOutline}, 0 0 32px color-mix(in srgb, var(--morius-accent) 38%, transparent), 0 18px 32px rgba(0, 0, 0, 0.36)`,
+              }
+            : undefined,
+          '&:disabled': {
+            opacity: 1,
+          },
+        }}
+      >
+        {isClaimable && isClaiming ? (
+          <Stack alignItems="center" justifyContent="center" sx={{ flex: 1 }}>
+            <CircularProgress size={20} sx={{ color: 'var(--morius-title-text)' }} />
+          </Stack>
+        ) : (
+          <>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Box sx={{ color: statusColor, display: 'inline-flex', alignItems: 'center' }}>
+                <ThemedSvgIcon markup={statusIconMarkup} size={12} />
+              </Box>
+              <Typography
+                sx={{
+                  fontSize: '14px',
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  color: topColor,
+                }}
+              >
+                {reward.day}
+              </Typography>
+            </Stack>
+
+            <Box
+              sx={{
+                width: '100%',
+                height: '1px',
+                my: 0.38,
+                backgroundColor: isClaimed
+                  ? 'color-mix(in srgb, var(--morius-text-secondary) 24%, transparent)'
+                  : 'color-mix(in srgb, var(--morius-title-text) 14%, transparent)',
+              }}
+            />
+
+            <Stack direction="row" spacing={0.6} alignItems="center" sx={{ minHeight: 18 }}>
+              <Box component="img" src={rewardIcon} alt="" sx={{ ...rewardIconSize, opacity: rewardIconOpacity }} />
+              <Typography
+                sx={{
+                  fontSize: '16px',
+                  fontWeight: 900,
+                  lineHeight: 1,
+                  color: rewardColor,
+                }}
+              >
+                {reward.amount}
+              </Typography>
+            </Stack>
+          </>
+        )}
+      </Box>
+    )
+  }
 
   return (
     <>
       <IconButton
-        onClick={handleOpen}
+        onClick={handleTogglePopover}
         aria-label="Ежедневные награды"
+        aria-expanded={open ? 'true' : undefined}
         sx={{
           minWidth: 0,
           width: size,
           height: size,
           borderRadius: '50%',
           p: 0,
-          color: status?.can_claim ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-          backgroundColor: 'transparent',
+          color: canClaim ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+          backgroundColor: 'var(--morius-elevated-bg)',
+          boxShadow: canClaim
+            ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 56%, transparent) inset, 0 0 18px color-mix(in srgb, var(--morius-accent) 20%, transparent), 0 10px 20px rgba(0, 0, 0, 0.2)'
+            : '0 0 0 1px color-mix(in srgb, var(--morius-card-border) 72%, transparent) inset, 0 10px 20px rgba(0, 0, 0, 0.18)',
+          transition: 'transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease',
           '&:hover': {
-            backgroundColor: 'transparent',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-card-bg) 12%)',
+            boxShadow: canClaim
+              ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 64%, transparent) inset, 0 0 22px color-mix(in srgb, var(--morius-accent) 24%, transparent), 0 12px 22px rgba(0, 0, 0, 0.22)'
+              : '0 0 0 1px color-mix(in srgb, var(--morius-card-border) 82%, transparent) inset, 0 12px 22px rgba(0, 0, 0, 0.2)',
+            transform: 'translateY(-1px)',
           },
         }}
       >
-        <Box component="img" src={icons.dailyRewards} alt="" sx={{ width: 18, height: 18, opacity: 0.96 }} />
+        <ThemedSvgIcon
+          markup={dailyDiamondIconMarkup}
+          size={Math.max(20, Math.round(size * 0.52))}
+          sx={{
+            color: 'inherit',
+            opacity: canClaim ? 1 : 0.96,
+          }}
+        />
       </IconButton>
 
-      <Dialog
+      <Popover
         open={open}
-        onClose={() => setOpen(false)}
-        maxWidth="xs"
-        fullWidth
+        anchorEl={anchorEl}
+        onClose={handleClose}
+        disableScrollLock
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'center' }}
         PaperProps={{
           sx: {
-            borderRadius: '22px',
-            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-            background: 'var(--morius-card-bg)',
-            boxShadow: '0 28px 80px rgba(0, 0, 0, 0.48)',
+            mt: 0.95,
+            width: 298,
+            maxWidth: 'calc(100vw - 24px)',
+            p: 1.7,
+            borderRadius: '24px',
+            border: 'none',
+            background: 'color-mix(in srgb, var(--morius-card-bg) 96%, black 4%)',
+            boxShadow: 'none',
+            overflow: 'hidden',
           },
         }}
       >
-        <DialogTitle sx={{ pb: 0.4 }}>
-          <Typography sx={{ fontWeight: 800, fontSize: '2rem', textAlign: 'center' }}>Ежедневки</Typography>
-        </DialogTitle>
-        <DialogContent sx={{ px: 2.2, pb: 2.4 }}>
-          <Stack spacing={1.6}>
-            {error ? <Alert severity="error">{error}</Alert> : null}
-            {isLoading && !status ? (
-              <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
-                <CircularProgress size={30} />
-              </Stack>
-            ) : (
-              <>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                    gap: 1,
-                  }}
-                >
-                  {(status?.days ?? []).map((reward) => {
-                    const isHighlighted = reward.is_current || reward.is_claimed
-                    return (
-                      <Box
-                        key={reward.day}
-                        sx={{
-                          minHeight: 64,
-                          borderRadius: '14px',
-                          border: `1px solid ${
-                            reward.is_current ? 'color-mix(in srgb, var(--morius-accent) 82%, transparent)' : 'transparent'
-                          }`,
-                          background: reward.is_claimed
-                            ? 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-accent) 12%)'
-                            : 'var(--morius-elevated-bg)',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          px: 1,
-                          py: 0.8,
-                          boxShadow: reward.is_current
-                            ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 40%, transparent) inset'
-                            : 'none',
-                        }}
-                      >
-                        <Typography
-                          sx={{
-                            fontSize: '0.85rem',
-                            fontWeight: 800,
-                            color: isHighlighted ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-                          }}
-                        >
-                          {reward.day}
-                        </Typography>
-                        <Stack direction="row" spacing={0.4} alignItems="center">
-                          <Box
-                            component="img"
-                            src={icons.dailyRewards}
-                            alt=""
-                            sx={{ width: 13, height: 13, opacity: reward.is_locked ? 0.45 : 0.95 }}
-                          />
-                          <Typography
-                            sx={{
-                              fontSize: '1rem',
-                              fontWeight: 800,
-                              color: reward.is_locked ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)',
-                            }}
-                          >
-                            {reward.amount}
-                          </Typography>
-                        </Stack>
-                      </Box>
-                    )
-                  })}
-                </Box>
+        <Stack spacing={1.25}>
+          <Typography
+            sx={{
+              fontSize: '20px',
+              fontWeight: 900,
+              lineHeight: 1,
+              textAlign: 'center',
+              color: 'var(--morius-title-text)',
+            }}
+          >
+            Ежедневки
+          </Typography>
 
-                <Stack spacing={0.3} alignItems="center" sx={{ pt: 0.4 }}>
-                  <Typography sx={{ fontWeight: 700, color: 'var(--morius-title-text)' }}>{currentRewardLabel}</Typography>
-                  {status?.next_claim_at ? (
-                    <Typography sx={{ fontSize: '0.92rem', color: 'var(--morius-text-secondary)' }}>
-                      Следующая награда станет доступна позже
-                    </Typography>
-                  ) : null}
-                </Stack>
+          {error ? (
+            <Alert
+              severity="error"
+              sx={{
+                borderRadius: '14px',
+                py: 0.2,
+                '& .MuiAlert-message': {
+                  fontSize: '0.82rem',
+                },
+              }}
+            >
+              {error}
+            </Alert>
+          ) : null}
 
-                <Button
-                  variant="contained"
-                  disabled={!status?.can_claim || isClaiming}
-                  onClick={() => void handleClaim()}
-                  sx={{
-                    minHeight: 44,
-                    borderRadius: '14px',
-                    backgroundColor: 'var(--morius-button-active)',
-                    color: 'var(--morius-title-text)',
-                    fontWeight: 800,
-                    '&:hover': {
-                      backgroundColor: 'transparent',
-                    },
-                  }}
-                >
-                  {isClaiming ? <CircularProgress size={18} /> : (status?.can_claim ? 'Забрать награду' : 'Недоступно')}
-                </Button>
-              </>
-            )}
-          </Stack>
-        </DialogContent>
-      </Dialog>
+          {isLoading && !status ? (
+            <Stack alignItems="center" justifyContent="center" sx={{ minHeight: 360 }}>
+              <CircularProgress size={28} />
+            </Stack>
+          ) : (
+            <Box
+              sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+              gap: 0.9,
+            }}
+          >
+              {(status?.days ?? []).map(renderRewardCard)}
+            </Box>
+          )}
+        </Stack>
+      </Popover>
     </>
   )
 }

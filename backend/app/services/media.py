@@ -6,7 +6,9 @@ import hashlib
 import hmac
 import json
 import math
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 from typing import Any
 
@@ -22,6 +24,24 @@ REMOTE_MEDIA_PROXY_HOST_SUFFIXES = (
     "googleusercontent.com",
     "ggpht.com",
 )
+
+
+def _ensure_media_vendor_dir_on_path() -> None:
+    vendor_dir = Path(__file__).resolve().parents[1] / ".vendor"
+    if not vendor_dir.exists():
+        return
+    vendor_dir_str = str(vendor_dir)
+    if vendor_dir_str not in sys.path:
+        sys.path.insert(0, vendor_dir_str)
+
+
+def _load_pillow_modules() -> tuple[Any, Any, Any] | None:
+    try:
+        _ensure_media_vendor_dir_on_path()
+        from PIL import Image, ImageFilter, ImageOps
+    except Exception:
+        return None
+    return Image, ImageFilter, ImageOps
 
 
 def normalize_avatar_value(raw_value: str | None) -> str | None:
@@ -210,8 +230,6 @@ def resolve_media_display_url(
     if normalized_value is None:
         return None
     if normalized_value.startswith("data:"):
-        if str(kind or "").strip() == "user-avatar":
-            return normalized_value
         return build_media_display_url(
             kind=kind,
             entity_id=entity_id,

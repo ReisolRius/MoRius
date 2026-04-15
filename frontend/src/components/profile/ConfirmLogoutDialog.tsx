@@ -1,4 +1,5 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography, type DialogProps } from '@mui/material'
+import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 
 type ConfirmLogoutDialogProps = {
   open: boolean
@@ -9,6 +10,7 @@ type ConfirmLogoutDialogProps = {
 }
 
 function ConfirmLogoutDialog({ open, transitionComponent, variant = 'default', onClose, onConfirm }: ConfirmLogoutDialogProps) {
+  const mobileSheet = useMobileDialogSheet({ onClose })
   const confirmButtonStyles =
     variant === 'muted'
       ? {
@@ -31,12 +33,18 @@ function ConfirmLogoutDialog({ open, transitionComponent, variant = 'default', o
       maxWidth="xs"
       fullWidth
       TransitionComponent={transitionComponent}
+      sx={mobileSheet.dialogSx}
+      BackdropProps={{
+        sx: mobileSheet.backdropSx,
+      }}
       PaperProps={{
+        ...mobileSheet.paperTouchHandlers,
         sx: {
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
           background: 'var(--morius-card-bg)',
           animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
+          ...mobileSheet.paperSx,
         },
       }}
     >

@@ -14,7 +14,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import (
+    StoryCharacterStateSnapshot,
     StoryGame,
     StoryInstructionCard,
     StoryMemoryBlock,
@@ -26,6 +28,7 @@ from app.models import (
 from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
 from app.services.story_games import (
     coerce_story_llm_model,
+    normalize_story_repetition_penalty,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
     normalize_story_temperature,
@@ -36,6 +39,10 @@ from app.services.story_memory import resolve_story_current_location_label
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
+
+
+def _is_sqlite_database_url(database_url: str | None) -> bool:
+    return str(database_url or "").strip().startswith("sqlite")
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 
 
@@ -55,7 +62,7 @@ class StoryRuntimeDeps:
     select_story_world_cards_for_prompt: Callable[[list[StoryMessage], list[Any]], list[dict[str, Any]]]
     select_story_world_cards_triggered_by_text: Callable[[str, list[Any]], list[dict[str, Any]]]
     normalize_context_limit_chars: Callable[[int | None], int]
-    get_story_turn_cost_tokens: Callable[[int | None], int]
+    get_story_turn_cost_tokens: Callable[[int | None, str | None], int]
     spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
     add_user_tokens: Callable[[Session, int, int], None]
     stream_story_provider_chunks: Callable[..., Any]
@@ -129,9 +136,11 @@ def _safe_dump_stream_item(item: Any) -> dict[str, Any] | None:
 
 
 def _public_story_error_detail(exc: Exception) -> str:
-    detail = str(exc).strip()
+    detail = re.sub(r"\s+", " ", str(exc).replace("\r\n", "\n").strip())
     if not detail:
         return "Text generation failed"
+    if detail.casefold().startswith("openrouter chat error") and "{" in detail:
+        detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
 
 
@@ -482,7 +491,6 @@ def _best_effort_sync_story_turn_memory_and_environment(
     else:
         environment_enabled = bool(getattr(game, "environment_enabled", False))
     if environment_enabled:
-        previous_datetime = str(getattr(game, "environment_current_datetime", "") or "")
         if story_memory_pipeline is not None:
             try:
                 current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
@@ -505,33 +513,6 @@ def _best_effort_sync_story_turn_memory_and_environment(
             except Exception:
                 logger.exception(
                     "Story fallback environment sync failed: game_id=%s assistant_message_id=%s",
-                    game.id,
-                    assistant_message.id,
-                )
-
-        current_datetime = str(getattr(game, "environment_current_datetime", "") or "")
-        if story_memory_pipeline is not None and previous_datetime and current_datetime == previous_datetime:
-            try:
-                current_location_content = story_memory_pipeline._get_story_latest_location_memory_content(
-                    db=db,
-                    game_id=game.id,
-                )
-                changed = bool(
-                    story_memory_pipeline._sync_story_environment_state_for_assistant_message(
-                        db=db,
-                        game=game,
-                        assistant_message=assistant_message,
-                        latest_user_prompt=latest_user_prompt,
-                        latest_assistant_text=latest_assistant_text,
-                        current_location_content_override=current_location_content,
-                        resolved_payload_override=None,
-                        allow_weather_seed=False,
-                        allow_model_request=False,
-                    )
-                ) or changed
-            except Exception:
-                logger.exception(
-                    "Story fallback second-pass environment sync failed: game_id=%s assistant_message_id=%s",
                     game.id,
                     assistant_message.id,
                 )
@@ -577,6 +558,7 @@ def _stream_story_response(
     story_model_name: str | None,
     story_response_max_tokens: int | None,
     story_temperature: float,
+    story_repetition_penalty: float,
     story_top_k: int,
     story_top_r: float,
     memory_optimization_enabled: bool,
@@ -586,6 +568,11 @@ def _stream_story_response(
     show_npc_thoughts: bool,
 ):
     assistant_message: StoryMessage | None = None
+    persist_min_chars = max(int(deps.stream_persist_min_chars), 1)
+    persist_max_interval_seconds = max(float(deps.stream_persist_max_interval_seconds), 0.25)
+    if _is_sqlite_database_url(getattr(settings, "database_url", "")):
+        persist_min_chars = max(persist_min_chars, 2_800)
+        persist_max_interval_seconds = max(persist_max_interval_seconds, 4.0)
     try:
         assistant_message = StoryMessage(
             game_id=game.id,
@@ -628,6 +615,7 @@ def _stream_story_response(
             story_model_name=story_model_name,
             story_response_max_tokens=story_response_max_tokens,
             story_temperature=story_temperature,
+            story_repetition_penalty=story_repetition_penalty,
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=memory_optimization_enabled,
@@ -638,14 +626,23 @@ def _stream_story_response(
             produced += chunk
             current_time = time.monotonic()
             if (
-                len(produced) - persisted_length >= deps.stream_persist_min_chars
-                or current_time - last_persisted_at >= deps.stream_persist_max_interval_seconds
+                len(produced) - persisted_length >= persist_min_chars
+                or current_time - last_persisted_at >= persist_max_interval_seconds
             ):
                 assistant_message.content = produced
-                deps.touch_story_game(game)
-                db.commit()
-                persisted_length = len(produced)
-                last_persisted_at = current_time
+                try:
+                    db.commit()
+                except Exception:
+                    logger.warning(
+                        "Failed to checkpoint streamed story response; final save will retry. game_id=%s assistant_message_id=%s",
+                        game.id,
+                        assistant_message.id,
+                        exc_info=True,
+                    )
+                    db.rollback()
+                else:
+                    persisted_length = len(produced)
+                    last_persisted_at = current_time
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
     except GeneratorExit:
         # Client disconnected or canceled stream: finalize what is already produced
@@ -755,7 +752,7 @@ def _stream_story_response(
                 raw_memory_enabled=False,
                 location_enabled=True,
                 environment_enabled=bool(getattr(game, "environment_enabled", None)),
-                character_state_enabled=False,
+                character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
                 important_event_enabled=memory_optimization_enabled,
                 ambient_enabled=ambient_enabled,
                 emotion_visualization_enabled=emotion_visualization_enabled,
@@ -1107,6 +1104,31 @@ def generate_story_response(
         environment_enabled = bool(payload_environment_enabled)
     if bool(getattr(game, "environment_enabled", None)) != environment_enabled:
         game.environment_enabled = environment_enabled
+    if environment_enabled:
+        try:
+            from app.services import story_memory_pipeline as _story_memory_pipeline
+
+            has_environment_snapshot = any(
+                str(value or "").strip()
+                for value in (
+                    getattr(game, "environment_current_datetime", ""),
+                    getattr(game, "environment_current_weather", ""),
+                    getattr(game, "environment_tomorrow_weather", ""),
+                )
+            )
+            has_weather_memory_snapshot = any(
+                _story_memory_pipeline._normalize_story_memory_layer(getattr(block, "layer", ""))
+                == _story_memory_pipeline.STORY_MEMORY_LAYER_WEATHER
+                for block in _story_memory_pipeline._list_story_memory_blocks(db, game.id)
+            )
+            if has_environment_snapshot and not has_weather_memory_snapshot:
+                _story_memory_pipeline._sync_story_manual_environment_memory_blocks(db=db, game=game)
+                db.flush()
+        except Exception:
+            logger.exception(
+                "Failed to ensure baseline story environment snapshot: game_id=%s",
+                game.id,
+            )
     raw_ambient_enabled = getattr(game, "ambient_enabled", None)
     ambient_enabled = bool(raw_ambient_enabled)
     if payload.ambient_enabled is not None:
@@ -1142,6 +1164,11 @@ def generate_story_response(
     story_temperature = normalize_story_temperature(getattr(game, "story_temperature", None))
     if payload.story_temperature is not None:
         story_temperature = normalize_story_temperature(payload.story_temperature)
+    story_repetition_penalty = normalize_story_repetition_penalty(
+        getattr(game, "story_repetition_penalty", None)
+    )
+    if payload.story_repetition_penalty is not None:
+        story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
     raw_show_gg_thoughts = getattr(game, "show_gg_thoughts", None)
     show_gg_thoughts = False
     raw_show_npc_thoughts = getattr(game, "show_npc_thoughts", None)
@@ -1277,7 +1304,7 @@ def generate_story_response(
             world_cards=active_world_cards_for_cost,
             memory_optimization_enabled=memory_optimization_enabled,
         )
-        base_turn_cost_tokens = max(int(deps.get_story_turn_cost_tokens(context_usage_tokens)), 0)
+        base_turn_cost_tokens = max(int(deps.get_story_turn_cost_tokens(context_usage_tokens, story_model_name)), 0)
         extra_turn_cost_tokens = 0
         if ambient_enabled:
             extra_turn_cost_tokens += 1
@@ -1316,6 +1343,7 @@ def generate_story_response(
                     game=game,
                     assistant_message_id=last_message.id,
                     commit=False,
+                    touch_game=False,
                 )
                 # Extra safety for legacy rows: ensure no event still references removed assistant message.
                 db.execute(
@@ -1336,6 +1364,11 @@ def generate_story_response(
                 db.execute(
                     sa_delete(StoryMemoryBlock).where(
                         StoryMemoryBlock.assistant_message_id == last_message.id,
+                    )
+                )
+                db.execute(
+                    sa_delete(StoryCharacterStateSnapshot).where(
+                        StoryCharacterStateSnapshot.assistant_message_id == last_message.id,
                     )
                 )
                 db.delete(last_message)
@@ -1392,6 +1425,11 @@ def generate_story_response(
                         StoryMemoryBlock.assistant_message_id.in_(undone_message_ids),
                     )
                 )
+                db.execute(
+                    sa_delete(StoryCharacterStateSnapshot).where(
+                        StoryCharacterStateSnapshot.assistant_message_id.in_(undone_message_ids),
+                    )
+                )
             db.execute(
                 sa_delete(StoryTurnImage).where(
                     StoryTurnImage.game_id == game.id,
@@ -1414,6 +1452,12 @@ def generate_story_response(
                 sa_delete(StoryMemoryBlock).where(
                     StoryMemoryBlock.game_id == game.id,
                     StoryMemoryBlock.undone_at.is_not(None),
+                )
+            )
+            db.execute(
+                sa_delete(StoryCharacterStateSnapshot).where(
+                    StoryCharacterStateSnapshot.game_id == game.id,
+                    StoryCharacterStateSnapshot.undone_at.is_not(None),
                 )
             )
             db.execute(
@@ -1545,6 +1589,7 @@ def generate_story_response(
         story_model_name=story_model_name,
         story_response_max_tokens=story_response_max_tokens,
         story_temperature=story_temperature,
+        story_repetition_penalty=story_repetition_penalty,
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,

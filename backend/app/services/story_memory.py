@@ -34,6 +34,54 @@ STORY_MEMORY_OUTPUT_NAMED_MARKUP_PATTERN = re.compile(
     r"\[\[\s*([A-Za-z_]+)(?:\s*(?::|-)\s*|\s+)?([^\]]*?)\s*\]\]"
 )
 
+STORY_LOCATION_TIME_TRAILING_PATTERNS = (
+    re.compile(
+        r"(?:,\s*|\s+)(?:(?:сейчас|сегодня|теперь|этим|этой)\s+)?(?:ночью|утром|днем|днём|вечером)$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:,\s*|\s+)(?:под\s+утро|под\s+вечер|к\s+утру|к\s+вечеру|на\s+рассвете|на\s+закате|на\s+восходе|в\s+сумерках|в\s+предрассветных\s+сумерках|после\s+заката|до\s+рассвета)$",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:,\s*|\s+)(?:(?:около|примерно|где-?то\s+около|почти|уже|лишь|под)\s+)?(?:в\s*)?(?:полноч[ьи]|полдень|[01]?\d|2[0-3])(?::[0-5]\d)?(?:\s*(?:час(?:а|ов)?|ночи|утра|дня|вечера))?$",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _strip_story_location_time_suffix(value: str) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" .,:;!?…")
+    previous = ""
+    while normalized and normalized != previous:
+        previous = normalized
+        for pattern in STORY_LOCATION_TIME_TRAILING_PATTERNS:
+            normalized = pattern.sub("", normalized).strip(" .,:;!?…")
+    return normalized
+
+
+def strip_story_location_time_context(value: str) -> str:
+    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    if not normalized:
+        return ""
+
+    matched_prefix = ""
+    body = normalized
+    for prefix in STORY_LOCATION_MEMORY_UI_PREFIXES:
+        if body.casefold().startswith(prefix.casefold()):
+            matched_prefix = prefix
+            body = body[len(prefix) :].strip(" .,:;!?…")
+            break
+
+    cleaned_body = _strip_story_location_time_suffix(body)
+    if not cleaned_body:
+        cleaned_body = body.strip(" .,:;!?…")
+    if not cleaned_body:
+        return ""
+    if matched_prefix:
+        return f"{matched_prefix}{cleaned_body}."
+    return cleaned_body
+
 
 def normalize_story_memory_layer(value: str | None) -> str:
     normalized = value.strip().lower() if isinstance(value, str) else ""
@@ -95,6 +143,8 @@ def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
         normalized_content = STORY_MEMORY_OUTPUT_DANGLING_MARKUP_PATTERN.sub(" ", normalized_content)
         normalized_content = re.sub(r"[ \t]+\n", "\n", normalized_content)
         normalized_content = re.sub(r"\n{3,}", "\n\n", normalized_content).strip()
+    elif layer_value == STORY_MEMORY_LAYER_LOCATION:
+        normalized_content = strip_story_location_time_context(normalized_content)
 
     return StoryMemoryBlockOut(
         id=block.id,
@@ -118,6 +168,9 @@ def extract_story_location_label_from_content(value: str | None) -> str:
         if normalized_casefold.startswith(prefix.casefold()):
             normalized = normalized[len(prefix) :].strip(" .,:;!?…")
             break
+    normalized = _strip_story_location_time_suffix(normalized)
+    if not normalized:
+        return ""
     if len(normalized) > STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH:
         normalized = normalized[: STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH - 1].rstrip(" ,;:-.!?…") + "…"
     if normalized and normalized[0].islower():
@@ -129,10 +182,6 @@ def resolve_story_current_location_label(
     current_location_label: str | None,
     memory_blocks: list[Any] | None = None,
 ) -> str | None:
-    normalized_current_location_label = extract_story_location_label_from_content(current_location_label)
-    if normalized_current_location_label:
-        return normalized_current_location_label
-
     for block in reversed(list(memory_blocks or [])):
         if isinstance(block, dict):
             layer_value = normalize_story_memory_layer(str(block.get("layer") or ""))
@@ -145,5 +194,9 @@ def resolve_story_current_location_label(
         normalized_location_label = extract_story_location_label_from_content(str(content_value or ""))
         if normalized_location_label:
             return normalized_location_label
+
+    normalized_current_location_label = extract_story_location_label_from_content(current_location_label)
+    if normalized_current_location_label:
+        return normalized_current_location_label
 
     return None

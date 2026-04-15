@@ -1225,9 +1225,10 @@ function InstructionTemplateDialog({
                   sx={{
                     minHeight: 34,
                     borderRadius: '10px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: templateVisibilityDraft === 'private' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: templateVisibilityDraft === 'private' ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                    fontWeight: templateVisibilityDraft === 'private' ? 800 : 650,
                     textTransform: 'none',
                     '&:hover': {
                       backgroundColor: 'transparent',
@@ -1242,9 +1243,10 @@ function InstructionTemplateDialog({
                   sx={{
                     minHeight: 34,
                     borderRadius: '10px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: templateVisibilityDraft === 'public' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
+                    border: 'none',
+                    backgroundColor: 'transparent',
+                    color: templateVisibilityDraft === 'public' ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                    fontWeight: templateVisibilityDraft === 'public' ? 800 : 650,
                     textTransform: 'none',
                     '&:hover': {
                       backgroundColor: 'transparent',
@@ -1288,5 +1290,4 @@ function InstructionTemplateDialog({
 }
 
 export default InstructionTemplateDialog
-
 

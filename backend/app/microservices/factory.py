@@ -42,7 +42,7 @@ _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
 }
 
 _BOOTSTRAP_DEFAULTS = {
-    "context_limit_tokens": 1_500,
+    "context_limit_tokens": 6_000,
     "response_max_tokens": 400,
     "private_visibility": "private",
     "world_kind": "world",

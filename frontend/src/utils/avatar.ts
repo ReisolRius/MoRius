@@ -141,6 +141,42 @@ export async function resolveImageSourceToDataUrl(source: string): Promise<strin
   })
 }
 
+function isLocalMediaDisplayUrl(source: string): boolean {
+  if (source.startsWith('/api/media/')) {
+    return true
+  }
+  if (typeof window === 'undefined') {
+    return false
+  }
+  try {
+    const parsedUrl = new URL(source, window.location.origin)
+    return parsedUrl.origin === window.location.origin && parsedUrl.pathname.startsWith('/api/media/')
+  } catch {
+    return false
+  }
+}
+
+export async function prepareAvatarUrlForRequest(
+  avatarUrl: string | null | undefined,
+  options: CompressOptions,
+): Promise<string | null> {
+  const normalizedAvatarUrl = (avatarUrl ?? '').trim()
+  if (!normalizedAvatarUrl) {
+    return null
+  }
+
+  if (normalizedAvatarUrl.startsWith('data:image/')) {
+    return compressImageDataUrl(normalizedAvatarUrl, options)
+  }
+
+  if (isLocalMediaDisplayUrl(normalizedAvatarUrl) || normalizedAvatarUrl.startsWith('blob:')) {
+    const resolvedAvatarDataUrl = await resolveImageSourceToDataUrl(normalizedAvatarUrl)
+    return compressImageDataUrl(resolvedAvatarDataUrl, options)
+  }
+
+  return normalizedAvatarUrl
+}
+
 export async function removeNearWhiteBackgroundFromDataUrl(
   dataUrl: string,
   options: {
@@ -535,20 +571,17 @@ export async function removeNearWhiteBackgroundFromDataUrl(
 export async function prepareAvatarPayloadForRequest(
   options: PrepareAvatarPayloadOptions,
 ): Promise<{ avatarUrl: string | null; avatarOriginalUrl: string | null }> {
-  const normalizedAvatarUrl = (options.avatarUrl ?? '').trim()
-  if (!normalizedAvatarUrl) {
+  const avatarOptions: CompressOptions = {
+    maxBytes: options.maxBytes,
+    maxDimension: options.maxDimension,
+  }
+  const avatarUrl = await prepareAvatarUrlForRequest(options.avatarUrl, avatarOptions)
+  if (!avatarUrl) {
     return {
       avatarUrl: null,
       avatarOriginalUrl: null,
     }
   }
-
-  const avatarUrl = normalizedAvatarUrl.startsWith('data:image/')
-    ? await compressImageDataUrl(normalizedAvatarUrl, {
-        maxBytes: options.maxBytes,
-        maxDimension: options.maxDimension,
-      })
-    : normalizedAvatarUrl
 
   const normalizedAvatarOriginalUrl = (options.avatarOriginalUrl ?? '').trim()
   if (!normalizedAvatarOriginalUrl) {
@@ -558,7 +591,8 @@ export async function prepareAvatarPayloadForRequest(
     }
   }
 
-  if (normalizedAvatarOriginalUrl.startsWith('data:image/')) {
+  const avatarOriginalUrl = await prepareAvatarUrlForRequest(normalizedAvatarOriginalUrl, avatarOptions)
+  if (!avatarOriginalUrl || avatarOriginalUrl === avatarUrl || avatarOriginalUrl.startsWith('data:image/')) {
     return {
       avatarUrl,
       avatarOriginalUrl: null,
@@ -567,6 +601,6 @@ export async function prepareAvatarPayloadForRequest(
 
   return {
     avatarUrl,
-    avatarOriginalUrl: normalizedAvatarOriginalUrl,
+    avatarOriginalUrl,
   }
 }

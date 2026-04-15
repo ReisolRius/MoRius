@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import StoryCharacter, StoryWorldCard
+from app.models import StoryCharacter, StoryCharacterRace, StoryWorldCard
 from app.schemas import StoryCharacterOut, StoryPublicationStateOut
 from app.services.media import normalize_avatar_value, normalize_media_scale, resolve_media_display_url, validate_avatar_url
 from app.services.story_emotions import deserialize_story_character_emotion_assets
@@ -24,6 +24,10 @@ STORY_CHARACTER_SOURCE_USER = "user"
 STORY_CHARACTER_SOURCE_AI = "ai"
 STORY_CHARACTER_MAX_NAME_LENGTH = 120
 STORY_CHARACTER_MAX_DESCRIPTION_LENGTH = 6_000
+STORY_CHARACTER_MAX_RACE_LENGTH = 120
+STORY_CHARACTER_MAX_CLOTHING_LENGTH = 1_000
+STORY_CHARACTER_MAX_INVENTORY_LENGTH = 1_000
+STORY_CHARACTER_MAX_HEALTH_STATUS_LENGTH = 1_000
 STORY_CHARACTER_MAX_NOTE_LENGTH = 20
 STORY_CHARACTER_MAX_TRIGGERS = 40
 STORY_CHARACTER_TRIGGER_MAX_LENGTH = 80
@@ -126,6 +130,40 @@ def normalize_story_character_description(value: str) -> str:
     return normalized
 
 
+def normalize_story_character_race(value: str | None) -> str:
+    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) > STORY_CHARACTER_MAX_RACE_LENGTH:
+        normalized = normalized[:STORY_CHARACTER_MAX_RACE_LENGTH].rstrip()
+    return normalized
+
+
+def normalize_story_character_race_key(value: str | None) -> str:
+    return normalize_story_character_race(value).casefold()
+
+
+def normalize_story_character_clothing(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:STORY_CHARACTER_MAX_CLOTHING_LENGTH].rstrip()
+
+
+def normalize_story_character_inventory(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:STORY_CHARACTER_MAX_INVENTORY_LENGTH].rstrip()
+
+
+def normalize_story_character_health_status(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    return normalized[:STORY_CHARACTER_MAX_HEALTH_STATUS_LENGTH].rstrip()
+
+
 def normalize_story_character_note(value: str | None) -> str:
     normalized = " ".join((value or "").replace("\r\n", " ").split()).strip()
     if len(normalized) > STORY_CHARACTER_MAX_NOTE_LENGTH:
@@ -217,28 +255,32 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         if getattr(character, "avatar_url", None)
         else None
     )
-    emotion_assets = {
-        emotion_id: resolved_asset_url
-        for emotion_id, raw_asset_url in deserialize_story_character_emotion_assets(
-            getattr(character, "emotion_assets", None)
-        ).items()
-        if (
-            resolved_asset_url := resolve_media_display_url(
-                raw_asset_url,
-                kind="story-character-emotion-asset",
-                entity_id=int(character.id),
-                version=getattr(character, "updated_at", None),
-                asset_id=emotion_id,
+    emotion_assets: dict[str, str] = {}
+    if include_emotion_assets:
+        emotion_assets = {
+            emotion_id: resolved_asset_url
+            for emotion_id, raw_asset_url in deserialize_story_character_emotion_assets(
+                getattr(character, "emotion_assets", None)
+            ).items()
+            if (
+                resolved_asset_url := resolve_media_display_url(
+                    raw_asset_url,
+                    kind="story-character-emotion-asset",
+                    entity_id=int(character.id),
+                    version=getattr(character, "updated_at", None),
+                    asset_id=emotion_id,
+                )
             )
-        )
-    }
-    if not include_emotion_assets:
-        emotion_assets = {}
+        }
     return StoryCharacterOut(
         id=character.id,
         user_id=character.user_id,
         name=character.name,
         description=character.description,
+        race=normalize_story_character_race(getattr(character, "race", "")),
+        clothing=normalize_story_character_clothing(getattr(character, "clothing", "")),
+        inventory=normalize_story_character_inventory(getattr(character, "inventory", "")),
+        health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
         note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
         avatar_url=avatar_url,
@@ -257,6 +299,37 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         created_at=character.created_at,
         updated_at=character.updated_at,
     )
+
+
+def upsert_story_character_race(
+    db: Session,
+    *,
+    user_id: int,
+    name: str | None,
+) -> StoryCharacterRace | None:
+    normalized_name = normalize_story_character_race(name)
+    if not normalized_name:
+        return None
+    normalized_name_key = normalize_story_character_race_key(normalized_name)
+    existing_race = db.scalar(
+        select(StoryCharacterRace).where(
+            StoryCharacterRace.user_id == int(user_id),
+            StoryCharacterRace.name_key == normalized_name_key,
+        )
+    )
+    if existing_race is not None:
+        if str(getattr(existing_race, "name", "") or "").strip() != normalized_name:
+            existing_race.name = normalized_name
+        return existing_race
+
+    race = StoryCharacterRace(
+        user_id=int(user_id),
+        name=normalized_name,
+        name_key=normalized_name_key,
+    )
+    db.add(race)
+    db.flush()
+    return race
 
 
 def unlink_story_character_from_world_cards(db: Session, *, character_id: int) -> None:

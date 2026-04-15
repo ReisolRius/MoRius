@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -16,7 +16,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
 import CommunityWorldDialog from '../community/CommunityWorldDialog'
+import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ProgressiveAvatar from '../media/ProgressiveAvatar'
 import ProgressiveImage from '../media/ProgressiveImage'
 import {
@@ -45,6 +47,7 @@ import {
   rejectModerationWorldForAdmin,
   searchUsersForAdminPanel,
   unbanUserAsAdmin,
+  updateModeratorRoleAsAdmin,
   updateModerationCharacterForAdmin,
   updateModerationInstructionTemplateForAdmin,
   updateModerationWorldForAdmin,
@@ -78,6 +81,7 @@ const ADMIN_PANEL_EMAIL_ALLOWLIST = new Set(['alexunderstood8@gmail.com', 'boris
 const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
+const ADMIN_USER_PAGE_SIZE = 40
 
 type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports'
 
@@ -100,6 +104,7 @@ type AdminPanelDialogProps = {
   open: boolean
   authToken: string
   currentUserEmail: string
+  currentUserRole: string
   onNavigate: (path: string) => void
   onClose: () => void
 }
@@ -192,7 +197,80 @@ function buildModerationKey(item: Pick<AdminModerationQueueItem, 'target_type' |
   return `${item.target_type}:${item.target_id}`
 }
 
-function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClose }: AdminPanelDialogProps) {
+function normalizeModerationStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((item): item is string => typeof item === 'string')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function buildModerationWorldDraft(detail: AdminModerationWorldDetail): ModerationWorldDraft {
+  return {
+    ...detail,
+    game: {
+      ...detail.game,
+      genres: normalizeModerationStringArray(detail.game?.genres),
+    },
+    instruction_cards: Array.isArray(detail.instruction_cards) ? detail.instruction_cards.map((card) => ({ ...card })) : [],
+    plot_cards: Array.isArray(detail.plot_cards)
+      ? detail.plot_cards.map((card) => ({ ...card, triggers: normalizeModerationStringArray(card.triggers) }))
+      : [],
+    world_cards: Array.isArray(detail.world_cards)
+      ? detail.world_cards.map((card) => ({ ...card, triggers: normalizeModerationStringArray(card.triggers) }))
+      : [],
+  }
+}
+
+function buildModerationCharacterDraft(detail: AdminModerationCharacterDetail): ModerationCharacterDraft {
+  return {
+    ...detail,
+    character: {
+      ...detail.character,
+      triggers: normalizeModerationStringArray(detail.character?.triggers),
+    },
+  }
+}
+
+function normalizeModerationQueueItem(item: AdminModerationQueueItem): AdminModerationQueueItem {
+  const authorEmail = typeof item.author?.email === 'string' ? item.author.email.trim() : ''
+  const authorDisplayName = typeof item.author?.display_name === 'string' ? item.author.display_name.trim() : ''
+  const status = item.publication?.status
+  return {
+    ...item,
+    target_id: Number.isFinite(item.target_id) ? Math.trunc(item.target_id) : 0,
+    target_title: typeof item.target_title === 'string' && item.target_title.trim() ? item.target_title.trim() : 'Материал на модерации',
+    target_description: typeof item.target_description === 'string' ? item.target_description : '',
+    target_preview_image_url:
+      typeof item.target_preview_image_url === 'string' && item.target_preview_image_url.trim() ? item.target_preview_image_url : null,
+    author: {
+      id: Number.isFinite(item.author?.id) ? Math.trunc(item.author.id) : 0,
+      email: authorEmail,
+      display_name: authorDisplayName || authorEmail || 'Неизвестный автор',
+      avatar_url: typeof item.author?.avatar_url === 'string' && item.author.avatar_url.trim() ? item.author.avatar_url : null,
+      role: typeof item.author?.role === 'string' && item.author.role.trim() ? item.author.role : 'user',
+    },
+    publication: {
+      status: status === 'pending' || status === 'approved' || status === 'rejected' ? status : 'none',
+      requested_at: typeof item.publication?.requested_at === 'string' ? item.publication.requested_at : null,
+      reviewed_at: typeof item.publication?.reviewed_at === 'string' ? item.publication.reviewed_at : null,
+      reviewer_user_id:
+        typeof item.publication?.reviewer_user_id === 'number' && Number.isFinite(item.publication.reviewer_user_id)
+          ? Math.trunc(item.publication.reviewer_user_id)
+          : null,
+      rejection_reason:
+        typeof item.publication?.rejection_reason === 'string' && item.publication.rejection_reason.trim()
+          ? item.publication.rejection_reason
+          : null,
+    },
+    created_at: typeof item.created_at === 'string' ? item.created_at : new Date(0).toISOString(),
+    updated_at: typeof item.updated_at === 'string' ? item.updated_at : new Date(0).toISOString(),
+  }
+}
+
+function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, onNavigate, onClose }: AdminPanelDialogProps) {
   const [activeTab, setActiveTab] = useState<AdminPanelTab>('users')
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminManagedUser[]>([])
@@ -201,6 +279,8 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
   const [banDurationDraft, setBanDurationDraft] = useState('24')
   const [banDurationUnit, setBanDurationUnit] = useState<'hours' | 'days'>('hours')
   const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+  const [hasMoreUsers, setHasMoreUsers] = useState(false)
+  const [usersTotalCount, setUsersTotalCount] = useState(0)
   const [isApplyingUserAction, setIsApplyingUserAction] = useState(false)
 
   const [reports, setReports] = useState<AdminReport[]>([])
@@ -235,11 +315,18 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     () => ADMIN_PANEL_EMAIL_ALLOWLIST.has(currentUserEmail.trim().toLowerCase()),
     [currentUserEmail],
   )
+  const canManageModeratorRole = useMemo(
+    () => currentUserRole.trim().toLowerCase() === 'administrator',
+    [currentUserRole],
+  )
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) ?? null,
     [selectedUserId, users],
   )
+  const usersListContainerRef = useRef<HTMLDivElement | null>(null)
+  const usersRequestInFlightRef = useRef(false)
+  const moderationDetailRequestIdRef = useRef(0)
 
   const selectedReport = useMemo(
     () => reports.find((report) => buildReportKey(report) === selectedReportKey) ?? null,
@@ -280,35 +367,73 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
   }, [])
 
   const loadUsers = useCallback(
-    async (searchValue: string) => {
+    async (searchValue: string, options?: { append?: boolean; offset?: number }) => {
       if (!open || !canUseAdminPanel) {
         return
       }
+      const append = options?.append ?? false
+      const offset = append ? Math.max(0, Math.trunc(options?.offset ?? 0)) : 0
+      if (usersRequestInFlightRef.current) {
+        return
+      }
+      usersRequestInFlightRef.current = true
       setIsLoadingUsers(true)
       setErrorMessage('')
       try {
         const response = await searchUsersForAdminPanel({
           token: authToken,
           query: searchValue,
-          limit: 50,
+          limit: ADMIN_USER_PAGE_SIZE,
+          offset,
         })
-        setUsers(response)
-        if (response.length === 0) {
+        const nextUsers = response.users
+        setUsers((previous) => {
+          if (!append) {
+            return nextUsers
+          }
+          const nextById = new Map<number, AdminManagedUser>()
+          previous.forEach((user) => nextById.set(user.id, user))
+          nextUsers.forEach((user) => nextById.set(user.id, user))
+          return Array.from(nextById.values())
+        })
+        setUsersTotalCount(response.total_count)
+        setHasMoreUsers(response.has_more)
+        if (!append && nextUsers.length === 0) {
           setSelectedUserId(null)
           return
         }
-        setSelectedUserId((previous) => (previous && response.some((user) => user.id === previous) ? previous : response[0].id))
+        if (!append) {
+          setSelectedUserId((previous) =>
+            previous && nextUsers.some((user) => user.id === previous) ? previous : (nextUsers[0]?.id ?? null),
+          )
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось загрузить пользователей'
         setErrorMessage(detail)
-        setUsers([])
-        setSelectedUserId(null)
+        if (!append) {
+          setUsers([])
+          setUsersTotalCount(0)
+          setHasMoreUsers(false)
+          setSelectedUserId(null)
+        }
       } finally {
+        usersRequestInFlightRef.current = false
         setIsLoadingUsers(false)
       }
     },
     [authToken, canUseAdminPanel, open],
   )
+
+  const handleUsersListScroll = useCallback(() => {
+    const container = usersListContainerRef.current
+    if (!container || activeTab !== 'users' || !hasMoreUsers || isLoadingUsers) {
+      return
+    }
+    const distanceToBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    if (distanceToBottom <= 120) {
+      void loadUsers(query, { append: true, offset: users.length })
+    }
+  }, [activeTab, hasMoreUsers, isLoadingUsers, loadUsers, query, users.length])
 
   const loadReports = useCallback(async () => {
     if (!open || !canUseAdminPanel) {
@@ -384,7 +509,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
       const response = await listPendingModerationItemsForAdmin({
         token: authToken,
       })
-      const items = response.items ?? []
+      const items = (response.items ?? []).map((item) => normalizeModerationQueueItem(item)).filter((item) => item.target_id > 0)
       setModerationItems(items)
       setSelectedModerationKey((previous) => {
         if (previous && items.some((item) => buildModerationKey(item) === previous)) {
@@ -409,11 +534,11 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
 
   const openModerationItem = useCallback(
     async (item: AdminModerationQueueItem) => {
-      if (isLoadingModerationDetail || isApplyingModerationAction) {
+      if (isApplyingModerationAction) {
         return
       }
-      const nextKey = buildModerationKey(item)
-      setSelectedModerationKey(nextKey)
+      const requestId = moderationDetailRequestIdRef.current + 1
+      moderationDetailRequestIdRef.current = requestId
       resetModerationDrafts()
       setModerationCommentDraft(item.publication.rejection_reason?.trim() ?? '')
       setIsLoadingModerationDetail(true)
@@ -424,16 +549,10 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             token: authToken,
             world_id: item.target_id,
           })
-          setModerationWorldDraft({
-            ...detail,
-            game: {
-              ...detail.game,
-              genres: [...detail.game.genres],
-            },
-            instruction_cards: detail.instruction_cards.map((card) => ({ ...card })),
-            plot_cards: detail.plot_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
-            world_cards: detail.world_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
-          })
+          if (requestId !== moderationDetailRequestIdRef.current) {
+            return
+          }
+          setModerationWorldDraft(buildModerationWorldDraft(detail))
           return
         }
         if (item.target_type === 'character') {
@@ -441,32 +560,36 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             token: authToken,
             character_id: item.target_id,
           })
-          setModerationCharacterDraft({
-            ...detail,
-            character: {
-              ...detail.character,
-              triggers: [...detail.character.triggers],
-            },
-          })
+          if (requestId !== moderationDetailRequestIdRef.current) {
+            return
+          }
+          setModerationCharacterDraft(buildModerationCharacterDraft(detail))
           return
         }
         const detail = await getModerationInstructionTemplateForAdmin({
           token: authToken,
           template_id: item.target_id,
         })
+        if (requestId !== moderationDetailRequestIdRef.current) {
+          return
+        }
         setModerationInstructionDraft({
           ...detail,
           template: { ...detail.template },
         })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось открыть отправленный материал'
-        setErrorMessage(detail)
-        resetModerationDrafts()
+        if (requestId === moderationDetailRequestIdRef.current) {
+          setErrorMessage(detail)
+          resetModerationDrafts()
+        }
       } finally {
-        setIsLoadingModerationDetail(false)
+        if (requestId === moderationDetailRequestIdRef.current) {
+          setIsLoadingModerationDetail(false)
+        }
       }
     },
-    [authToken, isApplyingModerationAction, isLoadingModerationDetail, resetModerationDrafts],
+    [authToken, isApplyingModerationAction, resetModerationDrafts],
   )
 
   useEffect(() => {
@@ -491,7 +614,11 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
   }, [activeTab, loadBugReports, loadModerationQueue, loadReports, loadUsers, open, query])
 
   useEffect(() => {
-    if (!open || activeTab !== 'moderation' || !selectedModerationItem) {
+    handleUsersListScroll()
+  }, [handleUsersListScroll, users.length])
+
+  useEffect(() => {
+    if (!open || activeTab !== 'moderation' || !selectedModerationItem || isLoadingModerationDetail) {
       return
     }
     if (buildModerationKey(selectedModerationItem) !== selectedModerationKey) {
@@ -508,6 +635,8 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     setActiveTab('users')
     setQuery('')
     setUsers([])
+    setUsersTotalCount(0)
+    setHasMoreUsers(false)
     setSelectedUserId(null)
     setTokenAmountDraft('100')
     setBanDurationDraft('24')
@@ -524,7 +653,17 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
     resetModerationDrafts()
     setErrorMessage('')
     setSuccessMessage('')
+    usersRequestInFlightRef.current = false
+    moderationDetailRequestIdRef.current = 0
   }, [open, resetModerationDrafts, resetSelectedReportTargetPayloads])
+
+  const handleSelectModerationItem = useCallback(
+    (item: AdminModerationQueueItem) => {
+      setSelectedModerationKey(buildModerationKey(item))
+      void openModerationItem(item)
+    },
+    [openModerationItem],
+  )
 
   const handleUpdateTokens = useCallback(
     async (operation: 'add' | 'subtract') => {
@@ -610,6 +749,31 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
       setSuccessMessage('Пользователь разблокирован')
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось снять бан'
+      setErrorMessage(detail)
+    } finally {
+      setIsApplyingUserAction(false)
+    }
+  }, [authToken, mergeUpdatedUser, selectedUser])
+
+  const handleUpdateModeratorRole = useCallback(async (isModerator: boolean) => {
+    if (!selectedUser) {
+      setErrorMessage('Выберите пользователя')
+      return
+    }
+
+    setIsApplyingUserAction(true)
+    setErrorMessage('')
+    setSuccessMessage('')
+    try {
+      const updatedUser = await updateModeratorRoleAsAdmin({
+        token: authToken,
+        user_id: selectedUser.id,
+        is_moderator: isModerator,
+      })
+      mergeUpdatedUser(updatedUser)
+      setSuccessMessage(isModerator ? 'Модератор выдан' : 'Модератор снят')
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось изменить роль модератора'
       setErrorMessage(detail)
     } finally {
       setIsApplyingUserAction(false)
@@ -848,13 +1012,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             memory_turns: card.memory_turns,
           })),
         })
-        setModerationWorldDraft({
-          ...updated,
-          game: { ...updated.game, genres: [...updated.game.genres] },
-          instruction_cards: updated.instruction_cards.map((card) => ({ ...card })),
-          plot_cards: updated.plot_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
-          world_cards: updated.world_cards.map((card) => ({ ...card, triggers: [...card.triggers] })),
-        })
+        setModerationWorldDraft(buildModerationWorldDraft(updated))
         setSuccessMessage('Изменения мира сохранены')
       } else if (selectedModerationItem.target_type === 'character' && moderationCharacterDraft) {
         const updated = await updateModerationCharacterForAdmin({
@@ -868,10 +1026,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
           avatar_original_url: moderationCharacterDraft.character.avatar_original_url ?? null,
           avatar_scale: moderationCharacterDraft.character.avatar_scale,
         })
-        setModerationCharacterDraft({
-          ...updated,
-          character: { ...updated.character, triggers: [...updated.character.triggers] },
-        })
+        setModerationCharacterDraft(buildModerationCharacterDraft(updated))
         setSuccessMessage('Изменения персонажа сохранены')
       } else if (selectedModerationItem.target_type === 'instruction_template' && moderationInstructionDraft) {
         const updated = await updateModerationInstructionTemplateForAdmin({
@@ -1010,31 +1165,39 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
 
   const moderationActionDisabled =
     !selectedModerationItem || isLoadingModerationDetail || isApplyingModerationAction
+  const adminPanelSheet = useMobileDialogSheet({ onClose })
+  const bugReportSheet = useMobileDialogSheet({ onClose: handleCloseBugReportDialog })
+  const characterReportSheet = useMobileDialogSheet({ onClose: handleCloseTargetDialog, disabled: reportActionDisabled })
+  const instructionReportSheet = useMobileDialogSheet({ onClose: handleCloseTargetDialog, disabled: reportActionDisabled })
 
   return (
     <>
       <Dialog
         open={open}
         onClose={onClose}
-        maxWidth={activeTab === 'moderation' ? 'lg' : 'sm'}
-        fullWidth
+        maxWidth={false}
+        fullWidth={false}
+        sx={adminPanelSheet.dialogSx}
         PaperProps={{
+          ...adminPanelSheet.paperTouchHandlers,
           sx: {
+            width: 'min(98vw, 1560px)',
+            maxWidth: 'none',
+            height: 'min(96vh, 1080px)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
             borderRadius: 'var(--morius-radius)',
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
-            ...(activeTab === 'moderation'
-              ? {
-                  height: 'min(88vh, 860px)',
-                }
-              : {}),
+            ...adminPanelSheet.paperSx,
           },
         }}
         BackdropProps={{
           sx: {
+            ...adminPanelSheet.backdropSx,
             backgroundColor: 'rgba(2, 4, 8, 0.8)',
-            backdropFilter: 'blur(5px)',
           },
         }}
       >
@@ -1058,26 +1221,29 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             sx={{
               width: 34,
               height: 34,
-              border: 'var(--morius-border-width) solid rgba(193, 205, 221, 0.34)',
               color: 'var(--morius-text-secondary)',
+              backgroundColor: 'transparent',
+              '&:hover': {
+                backgroundColor: 'transparent',
+                color: 'var(--morius-title-text)',
+              },
             }}
           >
-            X
+            <Box component="img" src={mobileCloseIcon} alt="" sx={{ width: 18, height: 18, display: 'block', opacity: 0.84 }} />
           </IconButton>
         </DialogTitle>
         <DialogContent
           sx={{
             pt: 0.5,
-            ...(activeTab === 'moderation'
-              ? {
-                  display: 'flex',
-                  flexDirection: 'column',
-                  overflow: 'hidden',
-                }
-              : {}),
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'hidden',
           }}
         >
-          <Stack spacing={1.5} sx={activeTab === 'moderation' ? { flex: 1, minHeight: 0 } : undefined}>
+          <Stack spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
             {!canUseAdminPanel ? <Alert severity="error">Доступ к админ-панели запрещен для этого аккаунта</Alert> : null}
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
             {successMessage ? <Alert severity="success">{successMessage}</Alert> : null}
@@ -1134,7 +1300,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             </Stack>
 
             {activeTab === 'users' ? (
-              <Stack spacing={1.2}>
+              <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
                 <TextField
                   value={query}
                   onChange={(event) => setQuery(event.target.value.slice(0, ADMIN_SEARCH_QUERY_MAX_LENGTH))}
@@ -1147,17 +1313,20 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                 />
 
                 <Box
+                  ref={usersListContainerRef}
                   className="morius-scrollbar"
+                  onScroll={handleUsersListScroll}
                   sx={{
                     borderRadius: '12px',
                     border: 'var(--morius-border-width) solid var(--morius-card-border)',
                     backgroundColor: 'var(--morius-card-bg)',
-                    maxHeight: 230,
+                    flex: 1,
+                    minHeight: { xs: 360, lg: 520 },
                     overflowY: 'auto',
                     p: 0.8,
                   }}
                 >
-                  {isLoadingUsers ? (
+                  {isLoadingUsers && users.length === 0 ? (
                     <Stack alignItems="center" justifyContent="center" sx={{ py: 2.2 }}>
                       <CircularProgress size={24} />
                     </Stack>
@@ -1200,9 +1369,17 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                           </Button>
                         )
                       })}
+                      {isLoadingUsers ? (
+                        <Stack alignItems="center" justifyContent="center" sx={{ py: 0.8 }}>
+                          <CircularProgress size={18} />
+                        </Stack>
+                      ) : null}
                     </Stack>
                   )}
                 </Box>
+                <Typography sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
+                  Показано пользователей: {users.length} из {usersTotalCount}
+                </Typography>
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField
@@ -1242,6 +1419,37 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                     }}
                   >
                     Выдать
+                  </Button>
+                </Stack>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Button
+                    variant="outlined"
+                    onClick={() => void handleUpdateModeratorRole(false)}
+                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                    sx={{
+                      minHeight: 40,
+                      borderColor: 'rgba(188, 202, 221, 0.36)',
+                      color: 'var(--morius-text-primary)',
+                    }}
+                  >
+                    Снять модератора
+                  </Button>
+                  <Button
+                    variant="contained"
+                    onClick={() => void handleUpdateModeratorRole(true)}
+                    disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel || !canManageModeratorRole}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: 'var(--morius-radius)',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'rgba(89, 118, 191, 0.34)',
+                      '&:hover': {
+                        backgroundColor: 'rgba(104, 135, 212, 0.44)',
+                      },
+                    }}
+                  >
+                    Выдать модератора
                   </Button>
                 </Stack>
 
@@ -1382,7 +1590,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                 </Box>
               </Stack>
             ) : activeTab === 'moderation' ? (
-              <Stack spacing={1.2}>
+              <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center">
                   <Typography sx={{ color: 'text.secondary', fontSize: '0.86rem' }}>Очередь модерации</Typography>
                   <Button
@@ -1430,7 +1638,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                           return (
                             <Button
                               key={buildModerationKey(item)}
-                              onClick={() => void openModerationItem(item)}
+                              onClick={() => handleSelectModerationItem(item)}
                               disabled={isApplyingModerationAction}
                               sx={{
                                 justifyContent: 'flex-start',
@@ -1479,6 +1687,36 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-card-bg)',
                       p: 1.2,
+                      '& .MuiFormLabel-root': {
+                        color: 'rgba(189, 201, 216, 0.82)',
+                      },
+                      '& .MuiFormLabel-root.Mui-focused': {
+                        color: 'var(--morius-text-primary)',
+                      },
+                      '& .MuiOutlinedInput-root': {
+                        borderRadius: '10px',
+                        color: 'var(--morius-text-primary)',
+                        backgroundColor: 'rgba(18, 25, 35, 0.64)',
+                      },
+                      '& .MuiOutlinedInput-root fieldset': {
+                        borderColor: 'rgba(184, 199, 214, 0.28)',
+                      },
+                      '& .MuiOutlinedInput-root:hover fieldset': {
+                        borderColor: 'rgba(205, 218, 233, 0.42)',
+                      },
+                      '& .MuiOutlinedInput-root.Mui-focused fieldset': {
+                        borderColor: 'rgba(211, 223, 239, 0.54)',
+                      },
+                      '& .MuiInputBase-input': {
+                        color: 'var(--morius-text-primary)',
+                      },
+                      '& .MuiInputBase-input.Mui-disabled': {
+                        WebkitTextFillColor: 'rgba(224, 232, 242, 0.72)',
+                      },
+                      '& .MuiInputBase-input::placeholder': {
+                        color: 'rgba(177, 191, 208, 0.72)',
+                        opacity: 1,
+                      },
                     }}
                   >
                     {!selectedModerationItem ? (
@@ -1895,7 +2133,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
             )}
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.5 }}>
+        <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.5, flexShrink: 0 }}>
           <Button onClick={onClose} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
@@ -1907,19 +2145,22 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
         onClose={handleCloseBugReportDialog}
         maxWidth="sm"
         fullWidth
+        sx={bugReportSheet.dialogSx}
         PaperProps={{
+          ...bugReportSheet.paperTouchHandlers,
           sx: {
             borderRadius: 'var(--morius-radius)',
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             color: 'var(--morius-text-primary)',
             boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
+            ...bugReportSheet.paperSx,
           },
         }}
         BackdropProps={{
           sx: {
+            ...bugReportSheet.backdropSx,
             backgroundColor: 'rgba(2, 4, 8, 0.8)',
-            backdropFilter: 'blur(5px)',
           },
         }}
       >
@@ -2010,19 +2251,22 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
         onClose={handleCloseTargetDialog}
         maxWidth="sm"
         fullWidth
+        sx={characterReportSheet.dialogSx}
         PaperProps={{
+          ...characterReportSheet.paperTouchHandlers,
           sx: {
             borderRadius: 'var(--morius-radius)',
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             color: 'var(--morius-text-primary)',
             boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
+            ...characterReportSheet.paperSx,
           },
         }}
         BackdropProps={{
           sx: {
+            ...characterReportSheet.backdropSx,
             backgroundColor: 'rgba(2, 4, 8, 0.8)',
-            backdropFilter: 'blur(5px)',
           },
         }}
       >
@@ -2137,19 +2381,22 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, onNavigate, onClo
         onClose={handleCloseTargetDialog}
         maxWidth="sm"
         fullWidth
+        sx={instructionReportSheet.dialogSx}
         PaperProps={{
+          ...instructionReportSheet.paperTouchHandlers,
           sx: {
             borderRadius: 'var(--morius-radius)',
             border: 'var(--morius-border-width) solid var(--morius-card-border)',
             background: 'var(--morius-card-bg)',
             color: 'var(--morius-text-primary)',
             boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
+            ...instructionReportSheet.paperSx,
           },
         }}
         BackdropProps={{
           sx: {
+            ...instructionReportSheet.backdropSx,
             backgroundColor: 'rgba(2, 4, 8, 0.8)',
-            backdropFilter: 'blur(5px)',
           },
         }}
       >

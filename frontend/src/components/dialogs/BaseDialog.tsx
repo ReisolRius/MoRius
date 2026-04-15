@@ -1,5 +1,6 @@
 import { Dialog, DialogActions, DialogContent, DialogTitle, IconButton, SvgIcon, type DialogProps, type SxProps, type Theme } from '@mui/material'
 import type { ReactNode } from 'react'
+import useMobileDialogSheet from './useMobileDialogSheet'
 
 type BaseDialogProps = {
   open: boolean
@@ -22,7 +23,8 @@ type BaseDialogProps = {
 const defaultPaperSx = {
   borderRadius: 'var(--morius-radius)',
   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  background: 'var(--morius-card-bg)',
+  background:
+    'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 90%, #020304 10%) 100%)',
   boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
 } as const
 
@@ -68,6 +70,7 @@ function BaseDialog({
   actionsSx,
   showCloseButton = true,
 }: BaseDialogProps) {
+  const mobileSheet = useMobileDialogSheet({ onClose })
   const mergedPaperSx = paperSx ? ([defaultPaperSx, paperSx] as SxProps<Theme>) : defaultPaperSx
   const mergedTitleSx = titleSx ? ([defaultTitleSx, titleSx] as SxProps<Theme>) : defaultTitleSx
   const contentBaseSx = header ? defaultContentSxWithHeader : defaultContentSxWithoutHeader
@@ -82,6 +85,7 @@ function BaseDialog({
       fullWidth={fullWidth}
       TransitionComponent={transitionComponent}
       sx={{
+        ...mobileSheet.dialogSx,
         '& .MuiButton-root': {
           border: 'none !important',
           backgroundColor: 'transparent !important',
@@ -101,10 +105,15 @@ function BaseDialog({
           boxShadow: 'none !important',
         },
       }}
-      BackdropProps={backdropSx ? { sx: backdropSx } : undefined}
-      PaperProps={{ sx: mergedPaperSx }}
+      BackdropProps={{
+        sx: backdropSx ? ([mobileSheet.backdropSx, backdropSx] as SxProps<Theme>) : mobileSheet.backdropSx,
+      }}
+      PaperProps={{
+        ...mobileSheet.paperTouchHandlers,
+        sx: [mergedPaperSx, mobileSheet.paperSx] as SxProps<Theme>,
+      }}
     >
-      {showCloseButton ? (
+      {showCloseButton && !mobileSheet.isMobileSheet ? (
         <IconButton
           aria-label="Закрыть"
           onClick={onClose}

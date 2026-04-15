@@ -1,7 +1,7 @@
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import case, delete as sa_delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy.orm import Session, load_only
 
 from app.database import get_db
 from app.models import (
@@ -113,6 +113,26 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
 
 router = APIRouter()
 STORY_INSTRUCTION_TEMPLATE_REPORT_STATUS_OPEN = "open"
+STORY_COMMUNITY_INSTRUCTION_SORT_OPTIONS = {"updated_desc", "rating_desc", "additions_desc"}
+STORY_COMMUNITY_ADDED_FILTER_OPTIONS = {"all", "added", "not_added"}
+
+
+def _normalize_story_community_instruction_sort(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_COMMUNITY_INSTRUCTION_SORT_OPTIONS:
+        return normalized
+    return "additions_desc"
+
+
+def _normalize_story_community_added_filter(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in STORY_COMMUNITY_ADDED_FILTER_OPTIONS:
+        return normalized
+    return "all"
+
+
+def _normalize_story_community_search_query(value: str | None) -> str:
+    return " ".join(str(value or "").split()).strip()
 
 
 def _persist_notifications(db: Session, drafts: list[NotificationDraft]) -> None:
@@ -272,28 +292,101 @@ def list_story_instruction_templates_route(
 
 @router.get("/api/story/community/instruction-templates", response_model=list[StoryCommunityInstructionTemplateSummaryOut])
 def list_story_community_instruction_templates(
+    limit: int = Query(default=80, ge=1, le=80),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="additions_desc"),
+    query: str = Query(default="", max_length=120),
+    added_filter: str = Query(default="all"),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryCommunityInstructionTemplateSummaryOut]:
     user = get_current_user(db, authorization)
-    templates = db.scalars(
-        select(StoryInstructionTemplate)
+    normalized_sort = _normalize_story_community_instruction_sort(sort)
+    normalized_query = _normalize_story_community_search_query(query)
+    normalized_added_filter = _normalize_story_community_added_filter(added_filter)
+    rating_average_expr = case(
+        (
+            StoryInstructionTemplate.community_rating_count > 0,
+            (StoryInstructionTemplate.community_rating_sum * 1.0) / StoryInstructionTemplate.community_rating_count,
+        ),
+        else_=0.0,
+    )
+    added_by_user_exists = (
+        select(StoryCommunityInstructionTemplateAddition.id)
         .where(
-            StoryInstructionTemplate.visibility == "public",
+            StoryCommunityInstructionTemplateAddition.template_id == StoryInstructionTemplate.id,
+            StoryCommunityInstructionTemplateAddition.user_id == user.id,
         )
-        .order_by(
-            StoryInstructionTemplate.community_additions_count.desc(),
+        .exists()
+    )
+
+    statement = (
+        select(StoryInstructionTemplate)
+        .options(
+            load_only(
+                StoryInstructionTemplate.id,
+                StoryInstructionTemplate.user_id,
+                StoryInstructionTemplate.title,
+                StoryInstructionTemplate.content,
+                StoryInstructionTemplate.visibility,
+                StoryInstructionTemplate.community_rating_sum,
+                StoryInstructionTemplate.community_rating_count,
+                StoryInstructionTemplate.community_additions_count,
+                StoryInstructionTemplate.created_at,
+                StoryInstructionTemplate.updated_at,
+            )
+        )
+        .join(User, User.id == StoryInstructionTemplate.user_id)
+        .where(StoryInstructionTemplate.visibility == "public")
+    )
+    if normalized_query:
+        like_pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryInstructionTemplate.title.ilike(like_pattern),
+                StoryInstructionTemplate.content.ilike(like_pattern),
+            )
+        )
+    if normalized_added_filter == "added":
+        statement = statement.where(added_by_user_exists)
+    elif normalized_added_filter == "not_added":
+        statement = statement.where(~added_by_user_exists)
+
+    if normalized_sort == "updated_desc":
+        statement = statement.order_by(StoryInstructionTemplate.updated_at.desc(), StoryInstructionTemplate.id.desc())
+    elif normalized_sort == "rating_desc":
+        statement = statement.order_by(
+            rating_average_expr.desc(),
             StoryInstructionTemplate.community_rating_count.desc(),
+            StoryInstructionTemplate.updated_at.desc(),
             StoryInstructionTemplate.id.desc(),
         )
-        .limit(80)
-    ).all()
+    else:
+        statement = statement.order_by(
+            StoryInstructionTemplate.community_additions_count.desc(),
+            StoryInstructionTemplate.updated_at.desc(),
+            StoryInstructionTemplate.id.desc(),
+        )
+
+    templates = db.scalars(statement.offset(offset).limit(limit)).all()
     if not templates:
         return []
 
     template_ids = [template.id for template in templates]
     author_ids = sorted({template.user_id for template in templates})
-    authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
+    authors = db.scalars(
+        select(User)
+        .options(
+            load_only(
+                User.id,
+                User.email,
+                User.display_name,
+                User.avatar_url,
+                User.updated_at,
+            )
+        )
+        .where(User.id.in_(author_ids))
+    ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
 

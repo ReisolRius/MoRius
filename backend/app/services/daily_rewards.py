@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import update as sa_update
 from sqlalchemy.orm import Session
 
 from app.models import User
+
+MONTHLY_REWARD_RESET_TIMEZONE = ZoneInfo("Europe/Moscow")
 DAILY_REWARD_AMOUNTS: tuple[int, ...] = (
     5,
     6,
@@ -36,12 +39,9 @@ DAILY_REWARD_AMOUNTS: tuple[int, ...] = (
     6,
     6,
     50,
-    7,
-    7,
 )
 DAILY_REWARD_TOTAL_DAYS = len(DAILY_REWARD_AMOUNTS)
 DAILY_REWARD_TOTAL_AMOUNT = sum(DAILY_REWARD_AMOUNTS)
-DAILY_REWARD_CLAIM_INTERVAL = timedelta(hours=24)
 
 
 def _utcnow() -> datetime:
@@ -70,6 +70,37 @@ def _normalize_claim_timestamp(value: object) -> datetime | None:
     return _to_utc(value)
 
 
+def _normalize_claim_month(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if len(normalized) != 7 or normalized[4] != "-":
+        return ""
+    if not normalized[:4].isdigit() or not normalized[5:].isdigit():
+        return ""
+    return normalized
+
+
+def _resolve_claim_month_key(value: datetime) -> str:
+    return value.astimezone(MONTHLY_REWARD_RESET_TIMEZONE).strftime("%Y-%m")
+
+
+def _resolve_stored_claim_month(user: User) -> str:
+    stored_claim_month = _normalize_claim_month(getattr(user, "daily_reward_claim_month", ""))
+    if stored_claim_month:
+        return stored_claim_month
+
+    last_claimed_at = _normalize_claim_timestamp(getattr(user, "daily_reward_last_claimed_at", None))
+    if last_claimed_at is not None:
+        return _resolve_claim_month_key(last_claimed_at)
+
+    cycle_started_at = _normalize_claim_timestamp(getattr(user, "daily_reward_cycle_started_at", None))
+    if cycle_started_at is not None:
+        return _resolve_claim_month_key(cycle_started_at)
+
+    return ""
+
+
 def _resolve_next_claim_at(
     *,
     current_time: datetime,
@@ -77,7 +108,16 @@ def _resolve_next_claim_at(
 ) -> datetime | None:
     if last_claimed_at is None:
         return None
-    next_claim_at = last_claimed_at + DAILY_REWARD_CLAIM_INTERVAL
+    current_local_time = current_time.astimezone(MONTHLY_REWARD_RESET_TIMEZONE)
+    last_claimed_local_time = last_claimed_at.astimezone(MONTHLY_REWARD_RESET_TIMEZONE)
+    if current_local_time.date() > last_claimed_local_time.date():
+        return None
+    next_local_midnight = datetime.combine(
+        last_claimed_local_time.date() + timedelta(days=1),
+        datetime.min.time(),
+        tzinfo=MONTHLY_REWARD_RESET_TIMEZONE,
+    )
+    next_claim_at = next_local_midnight.astimezone(timezone.utc)
     if next_claim_at <= current_time:
         return None
     return next_claim_at
@@ -90,6 +130,7 @@ def can_access_daily_rewards(user: User) -> bool:
 @dataclass(frozen=True)
 class DailyRewardStatus:
     server_time: datetime
+    current_claim_month: str
     current_day: int | None
     claimed_days: int
     stored_claimed_days: int
@@ -98,7 +139,6 @@ class DailyRewardStatus:
     next_claim_at: datetime | None
     last_claimed_at: datetime | None
     cycle_started_at: datetime | None
-    cycle_resets_on_claim: bool
 
 
 @dataclass(frozen=True)
@@ -110,26 +150,22 @@ class DailyRewardClaimGrant:
 
 def build_daily_reward_status(user: User, *, now: datetime | None = None) -> DailyRewardStatus:
     current_time = _to_utc(now or _utcnow())
+    current_claim_month = _resolve_claim_month_key(current_time)
     stored_claimed_days = _normalize_claimed_days(getattr(user, "daily_reward_claimed_days", 0))
     last_claimed_at = _normalize_claim_timestamp(getattr(user, "daily_reward_last_claimed_at", None))
     next_claim_at = _resolve_next_claim_at(current_time=current_time, last_claimed_at=last_claimed_at)
     cooldown_active = next_claim_at is not None
     cycle_started_at = _normalize_claim_timestamp(getattr(user, "daily_reward_cycle_started_at", None))
+    stored_claim_month = _resolve_stored_claim_month(user)
+    month_progress_resets = stored_claim_month != current_claim_month
+    claimed_days = 0 if month_progress_resets else stored_claimed_days
 
-    cycle_resets_on_claim = stored_claimed_days >= DAILY_REWARD_TOTAL_DAYS and not cooldown_active
-    if cycle_resets_on_claim:
-        claimed_days = 0
-        current_day = 1
-        can_claim = True
-        is_completed = False
-        cycle_started_at = None
-    elif stored_claimed_days >= DAILY_REWARD_TOTAL_DAYS:
+    if claimed_days >= DAILY_REWARD_TOTAL_DAYS:
         claimed_days = DAILY_REWARD_TOTAL_DAYS
         current_day = None
         can_claim = False
         is_completed = True
     else:
-        claimed_days = stored_claimed_days
         current_day = claimed_days + 1
         can_claim = not cooldown_active
         is_completed = False
@@ -139,6 +175,7 @@ def build_daily_reward_status(user: User, *, now: datetime | None = None) -> Dai
 
     return DailyRewardStatus(
         server_time=current_time,
+        current_claim_month=current_claim_month,
         current_day=current_day,
         claimed_days=claimed_days,
         stored_claimed_days=stored_claimed_days,
@@ -147,7 +184,6 @@ def build_daily_reward_status(user: User, *, now: datetime | None = None) -> Dai
         next_claim_at=next_claim_at,
         last_claimed_at=last_claimed_at,
         cycle_started_at=cycle_started_at,
-        cycle_resets_on_claim=cycle_resets_on_claim,
     )
 
 
@@ -164,8 +200,9 @@ def claim_daily_reward(
         return None
 
     reward_amount = DAILY_REWARD_AMOUNTS[claim_day - 1]
-    next_claimed_days = 1 if current_status.cycle_resets_on_claim else current_status.stored_claimed_days + 1
+    next_claimed_days = current_status.claimed_days + 1
     next_cycle_started_at = current_time if next_claimed_days == 1 else current_status.cycle_started_at or current_time
+    next_claim_mask = (1 << next_claimed_days) - 1
 
     update_result = db.execute(
         sa_update(User)
@@ -176,8 +213,8 @@ def claim_daily_reward(
         .values(
             coins=User.coins + reward_amount,
             daily_reward_claimed_days=next_claimed_days,
-            daily_reward_claim_month="",
-            daily_reward_claim_mask=0,
+            daily_reward_claim_month=current_status.current_claim_month,
+            daily_reward_claim_mask=next_claim_mask,
             daily_reward_last_claimed_at=current_time,
             daily_reward_cycle_started_at=next_cycle_started_at,
         )
