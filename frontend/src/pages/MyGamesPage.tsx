@@ -7,6 +7,7 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  Fade,
   FormControl,
   Grow,
   IconButton,
@@ -16,6 +17,7 @@ import {
   Stack,
   SvgIcon,
   Typography,
+  useMediaQuery,
   type GrowProps,
   type SelectChangeEvent,
 } from '@mui/material'
@@ -25,6 +27,9 @@ import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import HeaderAccountActions from '../components/HeaderAccountActions'
+import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
+import searchIconRaw from '../assets/icons/search.svg?raw'
+import searchCloseIconRaw from '../assets/icons/search-close.svg?raw'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
@@ -73,11 +78,6 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
-const TOP_FILTER_CONTROL_HEIGHT = 48
-const TOP_FILTER_CONTROL_RADIUS = '12px'
-const TOP_FILTER_TEXT_PADDING_X = '14px'
-const TOP_FILTER_TEXT_PADDING_WITH_ICON_X = '46px'
-const TOP_FILTER_ICON_OFFSET_X = '12px'
 const CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const MY_GAMES_SEARCH_QUERY_MAX_LENGTH = 120
 const EMPTY_PREVIEW_TEXT = 'История еще не началась.'
@@ -179,17 +179,6 @@ function formatTurnCountLabel(value: number): string {
   return `${normalizedValue} \u0445\u043e\u0434\u043e\u0432`
 }
 
-function SearchGlyph() {
-  return (
-    <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
-      <path
-        d="M10.5 4a6.5 6.5 0 1 0 4.18 11.48l3.92 3.92a1 1 0 0 0 1.4-1.42l-3.87-3.86A6.5 6.5 0 0 0 10.5 4m0 2a4.5 4.5 0 1 1 0 9.01 4.5 4.5 0 0 1 0-9.01"
-        fill="currentColor"
-      />
-    </SvgIcon>
-  )
-}
-
 function SortGlyph() {
   return (
     <SvgIcon viewBox="0 0 24 24" sx={{ width: 21, height: 21 }}>
@@ -279,6 +268,8 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
+  const isPhoneLayout = useMediaQuery('(max-width:767px)')
   const [sortMode, setSortMode] = useState<GamesSortMode>('updated_desc')
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
   const [gameMenuAnchorEl, setGameMenuAnchorEl] = useState<HTMLElement | null>(null)
@@ -872,7 +863,69 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
         hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
-        rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}
+        centerSlot={
+          <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <Box
+              component="input"
+              type="text"
+              value={searchQuery}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value.slice(0, MY_GAMES_SEARCH_QUERY_MAX_LENGTH))}
+              placeholder="Поиск"
+              aria-label="Поиск по библиотеке"
+              sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: '9999px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+                color: 'var(--morius-text-primary)',
+                pl: '16px',
+                pr: '44px',
+                outline: 'none',
+                fontSize: '0.9rem',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                transition: 'border-color 180ms ease',
+                '&::placeholder': { color: 'var(--morius-text-secondary)' },
+                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                right: '14px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--morius-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <ThemedSvgIcon markup={searchIconRaw} size={18} />
+            </Box>
+          </Box>
+        }
+        rightActions={
+          <Stack direction="row" spacing={1} alignItems="center">
+            {isPhoneLayout ? (
+              <IconButton
+                aria-label="Открыть поиск"
+                onClick={() => setIsMobileSearchOpen(true)}
+                sx={{
+                  color: 'var(--morius-text-secondary)',
+                  p: 0.5,
+                  transition: 'color 180ms ease',
+                  '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
+                  '&:active': { backgroundColor: 'transparent' },
+                }}
+              >
+                <ThemedSvgIcon markup={searchIconRaw} size={20} />
+              </IconButton>
+            ) : null}
+            <HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />
+          </Stack>
+        }
       />
 
       <Box
@@ -901,179 +954,71 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
             {pageTitle}
           </Typography>
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: {
-                xs: '1fr',
-                md: mode === 'my' ? 'minmax(0, 1fr) 220px 220px' : 'minmax(0, 1fr) 220px',
-              },
-              gap: 1.2,
-              alignItems: 'center',
-              mb: 2,
-            }}
-          >
-            <Typography sx={{ display: 'none' }}>
-              {pageTitle}
-            </Typography>
-
-            <Stack spacing={0.45}>
-              <Box
-                sx={{
-                  position: 'relative',
-                  borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  backgroundColor: APP_CARD_BACKGROUND,
-                  minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                }}
-              >
-                <Box
-                  component="input"
-                  value={searchQuery}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => setSearchQuery(event.target.value.slice(0, MY_GAMES_SEARCH_QUERY_MAX_LENGTH))}
-                  placeholder="Поиск"
-                  maxLength={MY_GAMES_SEARCH_QUERY_MAX_LENGTH}
-                  sx={{
-                    width: '100%',
-                    height: TOP_FILTER_CONTROL_HEIGHT,
-                    borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                    border: 'none',
-                    backgroundColor: 'transparent',
-                    color: APP_TEXT_PRIMARY,
-                    pl: TOP_FILTER_TEXT_PADDING_X,
-                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
-                    outline: 'none',
-                    fontSize: '1.02rem',
-                    '&::placeholder': {
-                      color: APP_TEXT_SECONDARY,
-                    },
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: '50%',
-                    right: TOP_FILTER_ICON_OFFSET_X,
-                    transform: 'translateY(-50%)',
-                    color: APP_TEXT_SECONDARY,
-                    display: 'grid',
-                    placeItems: 'center',
-                  }}
-                >
-                  <SearchGlyph />
-                </Box>
-              </Box>
-            </Stack>
-
-            <FormControl
-              sx={{
-                position: 'relative',
-                minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-              }}
-            >
+          {/* Compact pill filter row — matches Community page style */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px', mb: '20px' }}>
+            {/* Sort select */}
+            <FormControl sx={{ position: 'relative', borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND }}>
               <Select
                 value={sortMode}
                 onChange={(event: SelectChangeEvent) => setSortMode(event.target.value as GamesSortMode)}
                 IconComponent={() => null}
                 sx={{
-                  height: TOP_FILTER_CONTROL_HEIGHT,
-                  borderRadius: TOP_FILTER_CONTROL_RADIUS,
+                  height: '30px',
                   color: APP_TEXT_PRIMARY,
-                  px: 0,
-                  fontSize: '0.98rem',
+                  fontSize: '12px',
+                  fontWeight: 700,
                   '& .MuiSelect-select': {
+                    py: '0 !important',
+                    pl: '10px',
+                    pr: '26px !important',
                     height: '100%',
-                    boxSizing: 'border-box',
                     display: 'flex',
                     alignItems: 'center',
-                    py: 0,
-                    pl: TOP_FILTER_TEXT_PADDING_X,
-                    pr: TOP_FILTER_TEXT_PADDING_WITH_ICON_X,
+                    boxSizing: 'border-box',
                   },
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    border: 'none',
-                  },
+                  '& .MuiOutlinedInput-notchedOutline': { border: 'none !important', borderRadius: '12px !important' },
                 }}
-                MenuProps={{
-                  PaperProps: {
-                    sx: {
-                      mt: 0.5,
-                      borderRadius: '12px',
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_CARD_BACKGROUND,
-                      color: APP_TEXT_PRIMARY,
-                      boxShadow: '0 18px 36px rgba(0, 0, 0, 0.44)',
-                    },
-                  },
-                  MenuListProps: {
-                    sx: {
-                      py: 0.45,
-                    },
-                  },
-                }}
+                MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
               >
                 {SORT_OPTIONS.map((option) => (
-                  <MenuItem
-                    key={option.value}
-                    value={option.value}
-                    sx={{
-                      fontSize: '0.96rem',
-                      color: APP_TEXT_PRIMARY,
-                      '&.Mui-selected': {
-                        backgroundColor: APP_BUTTON_ACTIVE,
-                      },
-                      '&.Mui-selected:hover': {
-                        backgroundColor: APP_BUTTON_HOVER,
-                      },
-                      '&:hover': {
-                        backgroundColor: APP_BUTTON_HOVER,
-                      },
-                    }}
-                  >
+                  <MenuItem key={option.value} value={option.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>
                     {option.label}
                   </MenuItem>
                 ))}
               </Select>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: '50%',
-                  right: TOP_FILTER_ICON_OFFSET_X,
-                  transform: 'translateY(-50%)',
-                  color: APP_TEXT_SECONDARY,
-                  display: 'grid',
-                  placeItems: 'center',
-                  pointerEvents: 'none',
-                }}
-              >
+              <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
                 <SortGlyph />
               </Box>
             </FormControl>
 
+            {/* New game button — pill, no border */}
             {mode === 'my' ? (
-              <Button
-              onClick={handleOpenWorldCreator}
-              data-tour-id="my-games-create-button"
-              sx={{
-                minHeight: TOP_FILTER_CONTROL_HEIGHT,
-                minWidth: 176,
-                px: 2.35,
-                borderRadius: TOP_FILTER_CONTROL_RADIUS,
-                textTransform: 'none',
-                color: APP_TEXT_PRIMARY,
-                border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                backgroundColor: APP_CARD_BACKGROUND,
-                fontWeight: 700,
-                '&:hover': {
-                  backgroundColor: APP_BUTTON_HOVER,
-                },
-              }}
-            >
-              Новая игра +
-            </Button>
+              <Box
+                component="button"
+                type="button"
+                onClick={handleOpenWorldCreator}
+                data-tour-id="my-games-create-button"
+                sx={{
+                  height: '30px',
+                  px: '12px',
+                  borderRadius: '9999px',
+                  border: 'none',
+                  backgroundColor: APP_CARD_BACKGROUND,
+                  color: APP_TEXT_PRIMARY,
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  transition: 'background-color 150ms ease',
+                  '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
+                }}
+              >
+                Новая игра +
+              </Box>
             ) : null}
           </Box>
 
@@ -1555,6 +1500,85 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         ]}
         onNavigate={onNavigate}
       />
+
+      {/* Mobile search overlay */}
+      <Fade in={isMobileSearchOpen && isPhoneLayout} mountOnEnter unmountOnExit timeout={{ enter: 200, exit: 150 }}>
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 80,
+            zIndex: 50,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+            px: 2,
+            backgroundColor: 'var(--morius-app-base)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
+        >
+          <Box sx={{ position: 'relative', flex: 1 }}>
+            <Box
+              component="input"
+              type="text"
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              value={searchQuery}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value.slice(0, MY_GAMES_SEARCH_QUERY_MAX_LENGTH))}
+              placeholder="Поиск"
+              aria-label="Поиск по библиотеке"
+              sx={{
+                width: '100%',
+                height: 44,
+                borderRadius: '12px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+                color: 'var(--morius-text-primary)',
+                pl: '16px',
+                pr: '44px',
+                outline: 'none',
+                fontSize: '0.9rem',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                transition: 'border-color 180ms ease',
+                '&::placeholder': { color: 'var(--morius-text-secondary)' },
+                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                right: '14px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: 'var(--morius-text-secondary)',
+                display: 'flex',
+                alignItems: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <ThemedSvgIcon markup={searchIconRaw} size={18} />
+            </Box>
+          </Box>
+          <IconButton
+            aria-label="Закрыть поиск"
+            onClick={() => { setIsMobileSearchOpen(false); setSearchQuery('') }}
+            sx={{
+              color: 'var(--morius-text-secondary)',
+              p: 0.5,
+              flexShrink: 0,
+              transition: 'color 180ms ease',
+              '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
+              '&:active': { backgroundColor: 'transparent' },
+            }}
+          >
+            <ThemedSvgIcon markup={searchCloseIconRaw} size={20} />
+          </IconButton>
+        </Box>
+      </Fade>
     </Box>
   )
 }

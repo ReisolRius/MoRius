@@ -133,7 +133,7 @@ STORY_RESPONSE_MAX_TOKENS_MAX = 800
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_REPETITION_PENALTY_MIN = 1.0
 STORY_REPETITION_PENALTY_MAX = 2.0
-STORY_DEFAULT_REPETITION_PENALTY = 1.05
+STORY_DEFAULT_REPETITION_PENALTY = 1.08
 STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6_000
 STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
@@ -145,6 +145,7 @@ STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 5
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
+STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
@@ -160,6 +161,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM47,
+    STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GROK_41_FAST,
     STORY_LLM_MODEL_MISTRAL_NEMO,
@@ -168,6 +170,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_AION_2,
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
+    STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_GROK_41_FAST,
@@ -195,13 +198,13 @@ STORY_SUPPORTED_IMAGE_MODELS = {
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
-STORY_DEFAULT_TOP_K = 55
+STORY_DEFAULT_TOP_K = 50
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
 STORY_DEFAULT_TOP_R = 0.85
 STORY_TEMPERATURE_MIN = 0.0
 STORY_TEMPERATURE_MAX = 2.0
-STORY_DEFAULT_TEMPERATURE = 0.85
+STORY_DEFAULT_TEMPERATURE = 0.82
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
 STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED = False
@@ -228,6 +231,70 @@ STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_MODEL_OPTIMAL_PARAMS: dict[str, dict[str, float | int]] = {
+    STORY_LLM_MODEL_GLM5: {
+        "temperature": 0.90,
+        "top_p": 0.88,
+        "top_k": 60,
+        "repetition_penalty": 1.15,
+    },
+    STORY_LLM_MODEL_GLM51: {
+        "temperature": 0.92,
+        "top_p": 0.88,
+        "top_k": 65,
+        "repetition_penalty": 1.20,
+    },
+    STORY_LLM_MODEL_GLM47: {
+        "temperature": 0.85,
+        "top_p": 0.85,
+        "top_k": 55,
+        "repetition_penalty": 1.05,
+    },
+    # The user supplied only the temperature explicitly for DeepSeek V3.
+    # The remaining defaults intentionally follow the V3.2 tuning profile.
+    STORY_LLM_MODEL_DEEPSEEK_V3: {
+        "temperature": 0.78,
+        "top_p": 0.85,
+        "top_k": 50,
+        "repetition_penalty": 1.08,
+    },
+    STORY_LLM_MODEL_DEEPSEEK_V32: {
+        "temperature": 0.82,
+        "top_p": 0.85,
+        "top_k": 50,
+        "repetition_penalty": 1.08,
+    },
+    STORY_LLM_MODEL_GROK_41_FAST: {
+        "temperature": 0.85,
+        "top_p": 0.85,
+        "top_k": 50,
+        "repetition_penalty": 1.05,
+    },
+    STORY_LLM_MODEL_MISTRAL_NEMO: {
+        "temperature": 0.85,
+        "top_p": 0.85,
+        "top_k": 55,
+        "repetition_penalty": 1.05,
+    },
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH: {
+        "temperature": 0.85,
+        "top_p": 0.85,
+        "top_k": 50,
+        "repetition_penalty": 1.10,
+    },
+    STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO: {
+        "temperature": 0.88,
+        "top_p": 0.87,
+        "top_k": 55,
+        "repetition_penalty": 1.15,
+    },
+    STORY_LLM_MODEL_AION_2: {
+        "temperature": 0.88,
+        "top_p": 0.87,
+        "top_k": 55,
+        "repetition_penalty": 1.10,
+    },
+}
 
 
 def _story_publication_state_out(record: StoryGame) -> StoryPublicationStateOut:
@@ -421,6 +488,31 @@ def coerce_story_llm_model(value: str | None) -> str:
     return STORY_DEFAULT_LLM_MODEL
 
 
+def get_story_model_optimal_params(model_name: str | None) -> dict[str, float | int]:
+    normalized_model_name = coerce_story_llm_model(model_name)
+    params = STORY_MODEL_OPTIMAL_PARAMS.get(normalized_model_name)
+    if params is not None:
+        return dict(params)
+    return dict(STORY_MODEL_OPTIMAL_PARAMS[STORY_DEFAULT_LLM_MODEL])
+
+
+def get_story_model_default_temperature(model_name: str | None) -> float:
+    return round(float(get_story_model_optimal_params(model_name)["temperature"]), 2)
+
+
+def get_story_model_default_repetition_penalty(model_name: str | None) -> float:
+    return round(float(get_story_model_optimal_params(model_name)["repetition_penalty"]), 2)
+
+
+def get_story_model_default_top_k(model_name: str | None) -> int:
+    return int(get_story_model_optimal_params(model_name)["top_k"])
+
+
+def get_story_model_default_top_r(model_name: str | None) -> float:
+    # story_top_r is the persisted UI/backend field that maps to OpenRouter top_p.
+    return round(float(get_story_model_optimal_params(model_name)["top_p"]), 2)
+
+
 def normalize_story_llm_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_LLM_MODEL).strip()
     normalized = STORY_LLM_MODEL_LEGACY_ALIASES.get(normalized, normalized)
@@ -429,9 +521,10 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, deepseek/deepseek-v3.2, "
-                "x-ai/grok-4.1-fast, mistralai/mistral-nemo, xiaomi/mimo-v2-flash, "
-                "xiaomi/mimo-v2-pro, aion-labs/aion-2.0"
+                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, "
+                "deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v3.2, "
+                "x-ai/grok-4.1-fast, mistralai/mistral-nemo, "
+                "xiaomi/mimo-v2-flash, xiaomi/mimo-v2-pro, aion-labs/aion-2.0"
             ),
         )
     return normalized
@@ -479,35 +572,35 @@ def normalize_story_memory_optimization_mode(value: str | None) -> str:
     return STORY_DEFAULT_MEMORY_OPTIMIZATION_MODE
 
 
-def normalize_story_top_k(value: int | None) -> int:
+def normalize_story_top_k(value: int | None, *, model_name: str | None = None) -> int:
     if value is None:
-        return STORY_DEFAULT_TOP_K
+        return get_story_model_default_top_k(model_name)
     return max(STORY_TOP_K_MIN, min(int(value), STORY_TOP_K_MAX))
 
 
-def normalize_story_top_r(value: float | None) -> float:
+def normalize_story_top_r(value: float | None, *, model_name: str | None = None) -> float:
     if value is None:
-        return STORY_DEFAULT_TOP_R
+        return get_story_model_default_top_r(model_name)
     clamped_value = max(STORY_TOP_R_MIN, min(float(value), STORY_TOP_R_MAX))
     return round(clamped_value, 2)
 
 
-def normalize_story_temperature(value: float | None) -> float:
+def normalize_story_temperature(value: float | None, *, model_name: str | None = None) -> float:
     if value is None:
-        return STORY_DEFAULT_TEMPERATURE
+        return get_story_model_default_temperature(model_name)
     clamped_value = max(STORY_TEMPERATURE_MIN, min(float(value), STORY_TEMPERATURE_MAX))
     return round(clamped_value, 2)
 
 
-def normalize_story_repetition_penalty(value: float | None) -> float:
+def normalize_story_repetition_penalty(value: float | None, *, model_name: str | None = None) -> float:
     if value is None:
-        return STORY_DEFAULT_REPETITION_PENALTY
+        return get_story_model_default_repetition_penalty(model_name)
     try:
         numeric_value = float(value)
     except (TypeError, ValueError):
-        return STORY_DEFAULT_REPETITION_PENALTY
+        return get_story_model_default_repetition_penalty(model_name)
     if not math.isfinite(numeric_value):
-        return STORY_DEFAULT_REPETITION_PENALTY
+        return get_story_model_default_repetition_penalty(model_name)
     clamped_value = max(STORY_REPETITION_PENALTY_MIN, min(numeric_value, STORY_REPETITION_PENALTY_MAX))
     return round(clamped_value, 2)
 
@@ -850,6 +943,7 @@ def story_game_summary_to_out(
         version=getattr(game, "updated_at", None),
     )
     current_weather = resolve_story_environment_current_weather_for_output(game)
+    normalized_story_model = coerce_story_llm_model(getattr(game, "story_llm_model", None))
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
@@ -875,7 +969,7 @@ def story_game_summary_to_out(
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
         ),
-        story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
+        story_llm_model=normalized_story_model,
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(game, "image_style_prompt", None)),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -885,11 +979,15 @@ def story_game_summary_to_out(
             getattr(game, "memory_optimization_mode", None)
         ),
         story_repetition_penalty=normalize_story_repetition_penalty(
-            getattr(game, "story_repetition_penalty", None)
+            getattr(game, "story_repetition_penalty", None),
+            model_name=normalized_story_model,
         ),
-        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
-        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
-        story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
+        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None), model_name=normalized_story_model),
+        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None), model_name=normalized_story_model),
+        story_temperature=normalize_story_temperature(
+            getattr(game, "story_temperature", None),
+            model_name=normalized_story_model,
+        ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
@@ -944,6 +1042,7 @@ def story_game_summary_to_compact_out(
         version=getattr(game, "updated_at", None),
     )
     current_weather = resolve_story_environment_current_weather_for_output(game)
+    normalized_story_model = coerce_story_llm_model(getattr(game, "story_llm_model", None))
     return StoryGameSummaryOut(
         id=game.id,
         title=game.title,
@@ -969,7 +1068,7 @@ def story_game_summary_to_compact_out(
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
         ),
-        story_llm_model=coerce_story_llm_model(getattr(game, "story_llm_model", None)),
+        story_llm_model=normalized_story_model,
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt="",
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(
@@ -979,11 +1078,15 @@ def story_game_summary_to_compact_out(
             getattr(game, "memory_optimization_mode", None)
         ),
         story_repetition_penalty=normalize_story_repetition_penalty(
-            getattr(game, "story_repetition_penalty", None)
+            getattr(game, "story_repetition_penalty", None),
+            model_name=normalized_story_model,
         ),
-        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None)),
-        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None)),
-        story_temperature=normalize_story_temperature(getattr(game, "story_temperature", None)),
+        story_top_k=normalize_story_top_k(getattr(game, "story_top_k", None), model_name=normalized_story_model),
+        story_top_r=normalize_story_top_r(getattr(game, "story_top_r", None), model_name=normalized_story_model),
+        story_temperature=normalize_story_temperature(
+            getattr(game, "story_temperature", None),
+            model_name=normalized_story_model,
+        ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),

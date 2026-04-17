@@ -163,7 +163,6 @@ import type {
 } from '../types/story'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import {
-  compressImageFileToDataUrl,
   prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
@@ -309,6 +308,7 @@ const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number] = [1, 2,
 const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number] = [2, 4, 8]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number] = [3, 6, 12]
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
+  'deepseek/deepseek-chat-v3-0324',
   'deepseek/deepseek-v3.2',
   'z-ai/glm-4.7',
   'x-ai/grok-4.1-fast',
@@ -322,16 +322,16 @@ const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
-const STORY_DEFAULT_TOP_K = 55
+const STORY_DEFAULT_TOP_K = 50
 const STORY_REPETITION_PENALTY_MIN = 1
 const STORY_REPETITION_PENALTY_MAX = 2
-const STORY_DEFAULT_REPETITION_PENALTY = 1.05
+const STORY_DEFAULT_REPETITION_PENALTY = 1.08
 const STORY_TOP_R_MIN = 0.1
 const STORY_TOP_R_MAX = 1
 const STORY_DEFAULT_TOP_R = 0.85
 const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
-const STORY_DEFAULT_TEMPERATURE = 0.85
+const STORY_DEFAULT_TEMPERATURE = 0.82
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-v3.2'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
@@ -416,6 +416,13 @@ type StoryNarratorStat = {
   value: number
 }
 
+type StoryNarratorSamplingDefaults = {
+  storyTemperature: number
+  storyRepetitionPenalty: number
+  storyTopK: number
+  storyTopR: number
+}
+
 type StoryNarratorModelOption = {
   id: StoryNarratorModelId
   title: string
@@ -427,6 +434,69 @@ type StoryNarratorModelOption = {
 
 const NARRATOR_STAT_DOT_COUNT = 5
 const NARRATOR_STAT_FALLBACK_LABELS = ['Интеллект', 'Скорость', 'Глубина'] as const
+
+const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarratorSamplingDefaults> = {
+  'z-ai/glm-5': {
+    storyTemperature: 0.9,
+    storyRepetitionPenalty: 1.15,
+    storyTopK: 60,
+    storyTopR: 0.88,
+  },
+  'z-ai/glm-5.1': {
+    storyTemperature: 0.92,
+    storyRepetitionPenalty: 1.2,
+    storyTopK: 65,
+    storyTopR: 0.88,
+  },
+  'z-ai/glm-4.7': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 55,
+    storyTopR: 0.85,
+  },
+  'deepseek/deepseek-chat-v3-0324': {
+    storyTemperature: 0.78,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.85,
+  },
+  'deepseek/deepseek-v3.2': {
+    storyTemperature: 0.82,
+    storyRepetitionPenalty: 1.08,
+    storyTopK: 50,
+    storyTopR: 0.85,
+  },
+  'x-ai/grok-4.1-fast': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 50,
+    storyTopR: 0.85,
+  },
+  'mistralai/mistral-nemo': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.05,
+    storyTopK: 55,
+    storyTopR: 0.85,
+  },
+  'xiaomi/mimo-v2-flash': {
+    storyTemperature: 0.85,
+    storyRepetitionPenalty: 1.1,
+    storyTopK: 50,
+    storyTopR: 0.85,
+  },
+  'xiaomi/mimo-v2-pro': {
+    storyTemperature: 0.88,
+    storyRepetitionPenalty: 1.15,
+    storyTopK: 55,
+    storyTopR: 0.87,
+  },
+  'aion-labs/aion-2.0': {
+    storyTemperature: 0.88,
+    storyRepetitionPenalty: 1.1,
+    storyTopK: 55,
+    storyTopR: 0.87,
+  },
+}
 
 const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
   {
@@ -465,6 +535,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     stats: [
       { label: 'Интеллект', value: 3 },
       { label: 'Скорость', value: 2 },
+      { label: 'Глубина', value: 3 },
+    ],
+  },
+  {
+    id: 'deepseek/deepseek-chat-v3-0324',
+    title: 'DeepSeek V3',
+    description:
+      'Более яркая и динамичная версия DeepSeek. Дает много энергии и неожиданных ходов, но лучше всего раскрывается с четкими правилами и дисциплиной сцены.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'DeepSeek V3',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 5 },
       { label: 'Глубина', value: 3 },
     ],
   },
@@ -515,9 +598,9 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     portraitSrc: narratorOgmaPortrait,
     portraitAlt: 'Mistral Nemo',
     stats: [
-      { label: 'РРЅС‚РµР»Р»РµРєС‚', value: 4 },
-      { label: 'РЎРєРѕСЂРѕСЃС‚СЊ', value: 4 },
-      { label: 'Р“Р»СѓР±РёРЅР°', value: 3 },
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 3 },
     ],
   },
   {
@@ -528,9 +611,9 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     portraitSrc: narratorIsidaPortrait,
     portraitAlt: 'Xiaomi Mimo Pro',
     stats: [
-      { label: 'РРЅС‚РµР»Р»РµРєС‚', value: 4 },
-      { label: 'РЎРєРѕСЂРѕСЃС‚СЊ', value: 4 },
-      { label: 'Р“Р»СѓР±РёРЅР°', value: 4 },
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -541,9 +624,9 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'AionLabs',
     stats: [
-      { label: 'РРЅС‚РµР»Р»РµРєС‚', value: 5 },
-      { label: 'РЎРєРѕСЂРѕСЃС‚СЊ', value: 3 },
-      { label: 'Р“Р»СѓР±РёРЅР°', value: 4 },
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 4 },
     ],
   },
 ].filter(
@@ -2722,6 +2805,15 @@ function normalizeStoryNarratorModelId(value: string | null | undefined): StoryN
   return STORY_DEFAULT_NARRATOR_MODEL_ID
 }
 
+function getStoryNarratorSamplingDefaults(modelId: StoryNarratorModelId): StoryNarratorSamplingDefaults {
+  return STORY_NARRATOR_SAMPLING_DEFAULTS[normalizeStoryNarratorModelId(modelId)] ?? {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  }
+}
+
 function normalizeStoryImageModelId(value: string | null | undefined): StoryImageModelId {
   const normalized = (value ?? '').trim() as StoryImageModelId
   if (normalized === STORY_IMAGE_MODEL_GROK_LEGACY_ID) {
@@ -4001,6 +4093,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isBootstrappingGameData, setIsBootstrappingGameData] = useState(true)
   const [isCreatingGame, setIsCreatingGame] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isFinalizingStoryTurn, setIsFinalizingStoryTurn] = useState(false)
   const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false)
   const [continueHiddenForMessageId, setContinueHiddenForMessageId] = useState<number | null>(null)
   const [hiddenUserMessageIds, setHiddenUserMessageIds] = useState<number[]>([])
@@ -4107,6 +4200,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [loadingCommunityCharacterId, setLoadingCommunityCharacterId] = useState<number | null>(null)
   const [savingCommunityCharacterId, setSavingCommunityCharacterId] = useState<number | null>(null)
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
+  const [worldCardAvatarCropSource, setWorldCardAvatarCropSource] = useState<string | null>(null)
   const [worldCardCharacterMirrorByCardId, setWorldCardCharacterMirrorByCardId] = useState<Record<number, number>>({})
   const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
   const [worldCardEvents, setWorldCardEvents] = useState<StoryWorldCardEvent[]>([])
@@ -4429,21 +4523,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ?? STORY_NARRATOR_MODEL_OPTIONS[0],
     [storyLlmModel],
   )
+  const selectedNarratorSamplingDefaults = useMemo(
+    () => getStoryNarratorSamplingDefaults(storyLlmModel),
+    [storyLlmModel],
+  )
 
   const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
     const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars)
     setContextLimitChars(normalizedContextLimit)
     setContextLimitDraft(String(normalizedContextLimit))
     const runtimeGame = game as Partial<StoryGameSummary>
+    const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
+    const runtimeSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedRuntimeStoryModel)
     const normalizedRuntimeMemoryOptimizationMode = normalizeStoryMemoryOptimizationMode(runtimeGame.memory_optimization_mode)
     const normalizedRuntimeStoryTemperature =
       typeof runtimeGame.story_temperature === 'number'
         ? clampStoryTemperature(runtimeGame.story_temperature)
-        : STORY_DEFAULT_TEMPERATURE
+        : runtimeSamplingDefaults.storyTemperature
     const normalizedRuntimeStoryRepetitionPenalty =
       typeof runtimeGame.story_repetition_penalty === 'number'
         ? clampStoryRepetitionPenalty(runtimeGame.story_repetition_penalty)
-        : STORY_DEFAULT_REPETITION_PENALTY
+        : runtimeSamplingDefaults.storyRepetitionPenalty
     const normalizedImageModel = normalizeStoryImageModelId(runtimeGame.image_model)
     setStoryImageModel(normalizedImageModel)
     const normalizedImageStylePrompt = normalizeStoryImageStylePrompt(runtimeGame.image_style_prompt)
@@ -4498,32 +4598,32 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
-      setStoryLlmModel(normalizeStoryNarratorModelId(runtimeGame.story_llm_model))
+      setStoryLlmModel(normalizedRuntimeStoryModel)
     }
     setMemoryOptimizationEnabled(true)
     setMemoryOptimizationMode(normalizedRuntimeMemoryOptimizationMode)
     if (typeof runtimeGame.story_temperature === 'number') {
       setStoryTemperature(clampStoryTemperature(runtimeGame.story_temperature))
     } else {
-      setStoryTemperature(STORY_DEFAULT_TEMPERATURE)
+      setStoryTemperature(runtimeSamplingDefaults.storyTemperature)
     }
     if (typeof runtimeGame.story_repetition_penalty === 'number') {
       const normalizedRepetitionPenalty = clampStoryRepetitionPenalty(runtimeGame.story_repetition_penalty)
       setStoryRepetitionPenalty(normalizedRepetitionPenalty)
       setStoryRepetitionPenaltyDraft(normalizedRepetitionPenalty.toFixed(2))
     } else {
-      setStoryRepetitionPenalty(STORY_DEFAULT_REPETITION_PENALTY)
-      setStoryRepetitionPenaltyDraft(STORY_DEFAULT_REPETITION_PENALTY.toFixed(2))
+      setStoryRepetitionPenalty(runtimeSamplingDefaults.storyRepetitionPenalty)
+      setStoryRepetitionPenaltyDraft(runtimeSamplingDefaults.storyRepetitionPenalty.toFixed(2))
     }
     if (typeof runtimeGame.story_top_k === 'number') {
       setStoryTopK(clampStoryTopK(runtimeGame.story_top_k))
     } else {
-      setStoryTopK(STORY_DEFAULT_TOP_K)
+      setStoryTopK(runtimeSamplingDefaults.storyTopK)
     }
     if (typeof runtimeGame.story_top_r === 'number') {
       setStoryTopR(clampStoryTopR(runtimeGame.story_top_r))
     } else {
-      setStoryTopR(STORY_DEFAULT_TOP_R)
+      setStoryTopR(runtimeSamplingDefaults.storyTopR)
     }
     setShowGgThoughts(false)
     if (typeof runtimeGame.show_npc_thoughts === 'boolean') {
@@ -4599,30 +4699,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const hasLatestTurnImage = latestTurnImageEntries.some(
     (entry) => entry.status === 'ready' && Boolean(entry.imageUrl),
   )
+  const isStoryTurnBusy = isGenerating || isFinalizingStoryTurn
   const canUndoAssistantStep =
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     Boolean(activeGameId) &&
     messages.length > 0
   const canRedoAssistantStep =
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     Boolean(activeGameId) &&
     canRedoAssistantStepServer
   const canReroll =
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     Boolean(activeGameId) &&
     currentRerollSourceUserMessage !== null
   const canGenerateLatestTurnImage =
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     !isCreatingGame &&
     Boolean(activeGameId) &&
     currentRerollAssistantMessage !== null &&
     !isLatestTurnImageLoading
   const canContinueLatestTurn =
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     !isCreatingGame &&
     currentRerollAssistantMessage !== null &&
@@ -5101,10 +5202,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const speechRecognitionCtor = useMemo(() => resolveSpeechRecognitionCtor(), [])
   const voiceInputSupported = speechRecognitionCtor !== null
   const hasPromptText = inputValue.trim().length > 0
-  const showMicAction = voiceInputEnabled && !isGenerating && (!hasPromptText || isVoiceInputActive)
+  const showMicAction = voiceInputEnabled && !isStoryTurnBusy && (!hasPromptText || isVoiceInputActive)
   const canUseVoiceInput =
     voiceInputEnabled &&
-    !isGenerating &&
+    !isStoryTurnBusy &&
     !isCreatingGame &&
     !hasInsufficientTokensForTurn &&
     voiceInputSupported
@@ -5122,9 +5223,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingCharacterStateEnabled ||
     isSavingEmotionVisualizationEnabled
   const isInstructionCardActionLocked =
-    isGenerating || isSavingInstruction || isCreatingGame || deletingInstructionId !== null || updatingInstructionActiveId !== null
-  const isWorldCardActionLocked = isGenerating || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
-  const isMemoryCardActionLocked = isGenerating || isSavingMemoryBlock || isCreatingGame || deletingMemoryBlockId !== null
+    isStoryTurnBusy || isSavingInstruction || isCreatingGame || deletingInstructionId !== null || updatingInstructionActiveId !== null
+  const isWorldCardActionLocked = isStoryTurnBusy || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
+  const isMemoryCardActionLocked = isStoryTurnBusy || isSavingMemoryBlock || isCreatingGame || deletingMemoryBlockId !== null
   const isDeletionPromptInProgress = Boolean(
     deletionPrompt &&
       ((deletionPrompt.type === 'instruction' && deletingInstructionId === deletionPrompt.targetId) ||
@@ -5962,7 +6063,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const isSelectedMenuInstructionActiveUpdating = Boolean(
     selectedMenuInstructionCard && updatingInstructionActiveId === selectedMenuInstructionCard.id,
   )
-  const isPlotCardActionLocked = isGenerating || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
+  const isPlotCardActionLocked = isStoryTurnBusy || isSavingPlotCard || isCreatingGame || deletingPlotCardId !== null
   const isSelectedMenuWorldCardAiEditUpdating = Boolean(
     selectedMenuWorldCard && updatingWorldCardAiEditId === selectedMenuWorldCard.id,
   )
@@ -6837,6 +6938,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isSavingWorldCardAvatar) {
       return
     }
+    setWorldCardAvatarCropSource(null)
     setWorldCardAvatarTargetId(cardId)
     worldCardAvatarInputRef.current?.click()
   }, [isSavingWorldCardAvatar])
@@ -6852,30 +6954,59 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setErrorMessage('Выберите файл изображения (PNG, JPEG, WEBP или GIF).')
       return
     }
+    if (selectedFile.size > CHARACTER_AVATAR_MAX_BYTES) {
+      setErrorMessage('Файл слишком большой. Максимум 2 МБ.')
+      return
+    }
 
     setErrorMessage('')
-    setIsSavingWorldCardAvatar(true)
     try {
-      const avatarDataUrl = await compressImageFileToDataUrl(selectedFile, {
-        maxBytes: CHARACTER_AVATAR_MAX_BYTES,
-        maxDimension: 960,
-      })
-      const updatedCard = await updateStoryWorldCardAvatar({
-        token: authToken,
-        gameId: activeGameId,
-        cardId: worldCardAvatarTargetId,
-        avatar_url: avatarDataUrl,
-        avatar_original_url: avatarDataUrl,
-      })
-      setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      setWorldCardAvatarCropSource(dataUrl)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обновить аватар персонажа'
+      const detail = error instanceof Error ? error.message : 'Не удалось обработать аватар персонажа'
       setErrorMessage(detail)
-    } finally {
-      setIsSavingWorldCardAvatar(false)
-      setWorldCardAvatarTargetId(null)
     }
   }, [activeGameId, authToken, worldCardAvatarTargetId])
+
+  const handleSaveCroppedWorldCardAvatar = useCallback(
+    async (croppedDataUrl: string) => {
+      if (!croppedDataUrl || !activeGameId || worldCardAvatarTargetId === null || isSavingWorldCardAvatar) {
+        return
+      }
+
+      setErrorMessage('')
+      setIsSavingWorldCardAvatar(true)
+      try {
+        const preparedAvatarPayload = await prepareAvatarPayloadForRequest({
+          avatarUrl: croppedDataUrl,
+          maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+          maxDimension: 960,
+        })
+        if (!preparedAvatarPayload.avatarUrl) {
+          throw new Error('Не удалось подготовить аватар персонажа')
+        }
+
+        const updatedCard = await updateStoryWorldCardAvatar({
+          token: authToken,
+          gameId: activeGameId,
+          cardId: worldCardAvatarTargetId,
+          avatar_url: preparedAvatarPayload.avatarUrl,
+          avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
+          avatar_scale: 1,
+        })
+        setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+        setWorldCardAvatarCropSource(null)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить аватар персонажа'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingWorldCardAvatar(false)
+        setWorldCardAvatarTargetId(null)
+      }
+    },
+    [activeGameId, authToken, isSavingWorldCardAvatar, worldCardAvatarTargetId],
+  )
 
   const handleToggleWorldCardAiEdit = useCallback(async () => {
     if (
@@ -8382,7 +8513,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }
 
   const handleCloseWorldCardDialog = () => {
-    if (isSavingWorldCard || isCreatingGame) {
+    if (isSavingWorldCard || isCreatingGame || isSavingWorldCardAvatar) {
       return
     }
     setWorldCardDialogOpen(false)
@@ -8398,6 +8529,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTriggersDraft('')
     setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setIsWorldCardAdditionalExpanded(false)
+    setWorldCardAvatarCropSource(null)
+    setWorldCardAvatarTargetId(null)
   }
 
   const handleCreateCharacterRace = useCallback(
@@ -9179,6 +9312,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (normalizedModel === storyLlmModel) {
         return
       }
+      const nextSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedModel)
+      const previousStoryLlmModel = storyLlmModel
+      const previousStoryTemperature = storyTemperature
+      const previousStoryRepetitionPenalty = storyRepetitionPenalty
       const previousMemoryOptimizationEnabled = memoryOptimizationEnabled
       const previousStoryTopK = storyTopK
       const previousStoryTopR = storyTopR
@@ -9188,6 +9325,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousResponseMaxTokens = responseMaxTokens
       const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
       setStoryLlmModel(normalizedModel)
+      setStoryTemperature(nextSamplingDefaults.storyTemperature)
+      setStoryRepetitionPenalty(nextSamplingDefaults.storyRepetitionPenalty)
+      setStoryRepetitionPenaltyDraft(nextSamplingDefaults.storyRepetitionPenalty.toFixed(2))
+      setStoryTopK(nextSamplingDefaults.storyTopK)
+      setStoryTopR(nextSamplingDefaults.storyTopR)
       setStorySettingsOverrides((previousOverrides) => ({
         ...previousOverrides,
         [targetGameId]: {
@@ -9197,8 +9339,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
           memoryOptimizationMode,
-          storyTopK: previousStoryTopK,
-          storyTopR: previousStoryTopR,
+          storyTemperature: nextSamplingDefaults.storyTemperature,
+          storyRepetitionPenalty: nextSamplingDefaults.storyRepetitionPenalty,
+          storyTopK: nextSamplingDefaults.storyTopK,
+          storyTopR: nextSamplingDefaults.storyTopR,
           showGgThoughts: previousShowGgThoughts,
           showNpcThoughts: previousShowNpcThoughts,
           ambientEnabled: previousAmbientEnabled,
@@ -9215,8 +9359,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
-          storyTopK: previousStoryTopK,
-          storyTopR: previousStoryTopR,
+          storyTemperature: nextSamplingDefaults.storyTemperature,
+          storyRepetitionPenalty: nextSamplingDefaults.storyRepetitionPenalty,
+          storyTopK: nextSamplingDefaults.storyTopK,
+          storyTopR: nextSamplingDefaults.storyTopR,
           showGgThoughts: previousShowGgThoughts,
           showNpcThoughts: previousShowNpcThoughts,
           ambientEnabled: previousAmbientEnabled,
@@ -9224,17 +9370,59 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars)
         setContextLimitChars(persistedContextLimit)
         setContextLimitDraft(String(persistedContextLimit))
-        setStoryLlmModel(normalizedModel)
+        const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
+        const persistedTemperature =
+          typeof updatedGame.story_temperature === 'number'
+            ? clampStoryTemperature(updatedGame.story_temperature)
+            : nextSamplingDefaults.storyTemperature
+        const persistedRepetitionPenalty =
+          typeof updatedGame.story_repetition_penalty === 'number'
+            ? clampStoryRepetitionPenalty(updatedGame.story_repetition_penalty)
+            : nextSamplingDefaults.storyRepetitionPenalty
+        const persistedTopK =
+          typeof updatedGame.story_top_k === 'number'
+            ? clampStoryTopK(updatedGame.story_top_k)
+            : nextSamplingDefaults.storyTopK
+        const persistedTopR =
+          typeof updatedGame.story_top_r === 'number'
+            ? clampStoryTopR(updatedGame.story_top_r)
+            : nextSamplingDefaults.storyTopR
+        setStoryLlmModel(persistedModel)
+        setStoryTemperature(persistedTemperature)
+        setStoryRepetitionPenalty(persistedRepetitionPenalty)
+        setStoryRepetitionPenaltyDraft(persistedRepetitionPenalty.toFixed(2))
+        setStoryTopK(persistedTopK)
+        setStoryTopR(persistedTopR)
+        setStorySettingsOverrides((previousOverrides) => ({
+          ...previousOverrides,
+          [targetGameId]: {
+            ...previousOverrides[targetGameId],
+            storyLlmModel: persistedModel,
+            responseMaxTokens: previousResponseMaxTokens,
+            responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+            memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
+            memoryOptimizationMode,
+            storyTemperature: persistedTemperature,
+            storyRepetitionPenalty: persistedRepetitionPenalty,
+            storyTopK: persistedTopK,
+            storyTopR: persistedTopR,
+            showGgThoughts: previousShowGgThoughts,
+            showNpcThoughts: previousShowNpcThoughts,
+            ambientEnabled: previousAmbientEnabled,
+          },
+        }))
         setGames((previousGames) =>
           sortGamesByActivity(
             previousGames.map((game) =>
               game.id === updatedGame.id
                 ? {
                     ...updatedGame,
-                    story_llm_model: normalizedModel,
+                    story_llm_model: persistedModel,
                     memory_optimization_enabled: previousMemoryOptimizationEnabled,
-                    story_top_k: previousStoryTopK,
-                    story_top_r: previousStoryTopR,
+                    story_temperature: persistedTemperature,
+                    story_repetition_penalty: persistedRepetitionPenalty,
+                    story_top_k: persistedTopK,
+                    story_top_r: persistedTopR,
                     show_gg_thoughts: previousShowGgThoughts,
                     show_npc_thoughts: previousShowNpcThoughts,
                   }
@@ -9243,6 +9431,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ),
         )
       } catch (error) {
+        setStoryLlmModel(previousStoryLlmModel)
+        setStoryTemperature(previousStoryTemperature)
+        setStoryRepetitionPenalty(previousStoryRepetitionPenalty)
+        setStoryRepetitionPenaltyDraft(previousStoryRepetitionPenalty.toFixed(2))
+        setStoryTopK(previousStoryTopK)
+        setStoryTopR(previousStoryTopR)
+        setStorySettingsOverrides((previousOverrides) => ({
+          ...previousOverrides,
+          [targetGameId]: {
+            ...previousOverrides[targetGameId],
+            storyLlmModel: previousStoryLlmModel,
+            responseMaxTokens: previousResponseMaxTokens,
+            responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+            memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
+            memoryOptimizationMode,
+            storyTemperature: previousStoryTemperature,
+            storyRepetitionPenalty: previousStoryRepetitionPenalty,
+            storyTopK: previousStoryTopK,
+            storyTopR: previousStoryTopR,
+            showGgThoughts: previousShowGgThoughts,
+            showNpcThoughts: previousShowNpcThoughts,
+            ambientEnabled: previousAmbientEnabled,
+          },
+        }))
         const detail = error instanceof Error ? error.message : 'Не удалось обновить модель рассказчика'
         setErrorMessage(detail)
       } finally {
@@ -9268,6 +9480,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       ambientEnabled,
       showGgThoughts,
       showNpcThoughts,
+      storyTemperature,
+      storyRepetitionPenalty,
       storyTopK,
       storyTopR,
       storyLlmModel,
@@ -10355,12 +10569,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleResetStorySampling = useCallback(async () => {
     await persistStorySamplingSettings(
-      STORY_DEFAULT_TEMPERATURE,
-      STORY_DEFAULT_REPETITION_PENALTY,
-      STORY_DEFAULT_TOP_K,
-      STORY_DEFAULT_TOP_R,
+      selectedNarratorSamplingDefaults.storyTemperature,
+      selectedNarratorSamplingDefaults.storyRepetitionPenalty,
+      selectedNarratorSamplingDefaults.storyTopK,
+      selectedNarratorSamplingDefaults.storyTopR,
     )
-  }, [persistStorySamplingSettings])
+  }, [persistStorySamplingSettings, selectedNarratorSamplingDefaults])
 
   const handleOpenBugReportDialog = useCallback(() => {
     if (!activeGameId || isCreatingGame || isGenerating) {
@@ -10604,7 +10818,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const handleGenerateLatestTurnImage = useCallback(() => {
-    if (!activeGameId || !currentRerollAssistantMessage || isGenerating || isCreatingGame || isUndoingAssistantStep) {
+    if (!activeGameId || !currentRerollAssistantMessage || isStoryTurnBusy || isCreatingGame || isUndoingAssistantStep) {
       return
     }
     setIsComposerAiMenuOpen(false)
@@ -10620,15 +10834,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage,
     generateTurnImageAfterAssistantMessage,
     isCreatingGame,
-    isGenerating,
+    isStoryTurnBusy,
     isUndoingAssistantStep,
   ])
 
   useEffect(() => {
-    if (isCreatingGame || isGenerating || isUndoingAssistantStep) {
+    if (isCreatingGame || isStoryTurnBusy || isUndoingAssistantStep) {
       setIsComposerAiMenuOpen(false)
     }
-  }, [isCreatingGame, isGenerating, isUndoingAssistantStep])
+  }, [isCreatingGame, isStoryTurnBusy, isUndoingAssistantStep])
 
   useEffect(() => {
     if (!isComposerAiMenuOpen) {
@@ -10697,6 +10911,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsAutoScrollPaused(false)
       setErrorMessage('')
       setIsGenerating(true)
+      setIsFinalizingStoryTurn(false)
       setActiveAssistantMessageId(null)
       const controller = new AbortController()
       generationAbortRef.current = controller
@@ -10903,6 +11118,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (options.rerollLastResponse && !streamStarted) {
           setIsRerollTurnPendingReplacement(false)
         }
+        setIsFinalizingStoryTurn(true)
         setIsGenerating(false)
         setActiveAssistantMessageId(null)
         generationAbortRef.current = null
@@ -11028,6 +11244,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
           })()
         }
+        setIsFinalizingStoryTurn(false)
       }
 
       return {
@@ -11171,7 +11388,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const sendStoryPrompt = useCallback(
     async (rawPrompt: string, options?: { clearComposer?: boolean; hideUserMessage?: boolean }) => {
-      if (isGenerating) {
+      if (isStoryTurnBusy) {
         return null
       }
 
@@ -11262,7 +11479,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       currentTurnCostTokens,
       hasInsufficientTokensForTurn,
       instructionCards,
-      isGenerating,
+      isStoryTurnBusy,
       onNavigate,
       runStoryGeneration,
     ],
@@ -11282,7 +11499,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setIsVoiceInputActive(false)
     }
 
-    if (isGenerating) {
+    if (isStoryTurnBusy) {
       return
     }
 
@@ -11351,11 +11568,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt: normalizedPrompt,
       instructionCards,
     })
-  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isGenerating, isVoiceInputActive, onNavigate, runStoryGeneration])
+  }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, currentTurnCostTokens, hasInsufficientTokensForTurn, inputValue, instructionCards, isStoryTurnBusy, isVoiceInputActive, onNavigate, runStoryGeneration])
 
   const handleContinueStory = useCallback(
     async (assistantMessageId: number) => {
-      if (isGenerating || isCreatingGame) {
+      if (isStoryTurnBusy || isCreatingGame) {
         return
       }
       setIsComposerAiMenuOpen(false)
@@ -11365,7 +11582,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setContinueHiddenForMessageId(null)
       }
     },
-    [isCreatingGame, isGenerating, sendStoryPrompt],
+    [isCreatingGame, isStoryTurnBusy, sendStoryPrompt],
   )
 
   const handleContinueLatestTurn = useCallback(() => {
@@ -13294,49 +13511,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             mt: 0.95,
                             borderRadius: '16px',
                             backgroundColor: 'var(--morius-card-bg)',
-                            boxShadow: '0 10px 24px color-mix(in srgb, var(--morius-app-base) 48%, transparent)',
+                            boxShadow: 'none',
                             px: 1,
                             pb: 1.05,
                             pt: 0.9,
                           }}
                         >
-                          <Box
-                            sx={{
-                              borderRadius: '12px',
-                              border: 'none',
-                              backgroundColor: 'transparent',
-                              minHeight: 228,
-                              px: 0.65,
-                              pt: 0.45,
-                              display: 'flex',
-                              alignItems: 'flex-end',
-                              justifyContent: 'center',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            <Box
-                              role="img"
-                              aria-label={selectedNarratorOption.portraitAlt}
-                              sx={{
-                                width: '100%',
-                                maxWidth: 286,
-                                height: 226,
-                                backgroundColor: 'var(--morius-text-secondary)',
-                                WebkitMaskImage: `url(${selectedNarratorOption.portraitSrc})`,
-                                WebkitMaskRepeat: 'no-repeat',
-                                WebkitMaskPosition: 'center bottom',
-                                WebkitMaskSize: 'contain',
-                                maskImage: `url(${selectedNarratorOption.portraitSrc})`,
-                                maskRepeat: 'no-repeat',
-                                maskPosition: 'center bottom',
-                                maskSize: 'contain',
-                              }}
-                            />
-                          </Box>
-
                           <Typography
                             sx={{
-                              mt: 0.9,
                               color: 'var(--morius-title-text)',
                               fontSize: '2.2rem',
                               fontWeight: 800,
@@ -14160,10 +14342,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               disabled={
                                 isSavingStorySettings ||
                                 isGenerating ||
-                                (storyTemperature === STORY_DEFAULT_TEMPERATURE &&
-                                  storyRepetitionPenalty === STORY_DEFAULT_REPETITION_PENALTY &&
-                                  storyTopK === STORY_DEFAULT_TOP_K &&
-                                  storyTopR === STORY_DEFAULT_TOP_R)
+                                (storyTemperature === selectedNarratorSamplingDefaults.storyTemperature &&
+                                  storyRepetitionPenalty === selectedNarratorSamplingDefaults.storyRepetitionPenalty &&
+                                  storyTopK === selectedNarratorSamplingDefaults.storyTopK &&
+                                  storyTopR === selectedNarratorSamplingDefaults.storyTopR)
                               }
                               sx={{
                                 minHeight: 30,
@@ -16522,7 +16704,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               value={inputValue}
               placeholder={inputPlaceholder}
               maxLength={STORY_PROMPT_MAX_LENGTH}
-              disabled={isGenerating || hasInsufficientTokensForTurn}
+              disabled={isStoryTurnBusy || hasInsufficientTokensForTurn}
               onChange={(event) => setInputValue(event.target.value.slice(0, STORY_PROMPT_MAX_LENGTH))}
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') {
@@ -16563,7 +16745,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               className="morius-composer-send-button"
               aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
               onClick={handleVoiceActionClick}
-              disabled={isGenerating ? false : (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText))}
+              disabled={isGenerating ? false : (isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
               sx={{
                 '@keyframes morius-voice-pulse': {
                   '0%, 100%': {
@@ -19888,6 +20070,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
+      />
+      <AvatarCropDialog
+        open={Boolean(worldCardAvatarCropSource)}
+        imageSrc={worldCardAvatarCropSource}
+        isSaving={isSavingWorldCardAvatar}
+        outputSize={384}
+        onCancel={() => {
+          if (!isSavingWorldCardAvatar) {
+            setWorldCardAvatarCropSource(null)
+            setWorldCardAvatarTargetId(null)
+          }
+        }}
+        onSave={(croppedDataUrl) => void handleSaveCroppedWorldCardAvatar(croppedDataUrl)}
       />
       <AvatarCropDialog
         open={Boolean(characterAvatarCropSource)}

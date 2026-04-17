@@ -34,6 +34,7 @@ def _build_story_provider_messages(
     model_name: str | None = None,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> list[dict[str, str]]:
@@ -48,6 +49,7 @@ def _build_story_provider_messages(
         response_max_tokens=response_max_tokens,
         translate_for_model=translate_for_model,
         model_name=model_name,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -357,6 +359,7 @@ def _iter_gigachat_story_stream_chunks(
     translate_for_model: bool = False,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ):
@@ -374,6 +377,7 @@ def _iter_gigachat_story_stream_chunks(
         model_name=settings.gigachat_model,
         story_narrator_mode=story_narrator_mode,
         story_romance_enabled=story_romance_enabled,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -502,6 +506,7 @@ def _iter_openrouter_story_stream_chunks(
     translate_for_model: bool = False,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ):
@@ -533,6 +538,7 @@ def _iter_openrouter_story_stream_chunks(
         model_name=model_name,
         story_narrator_mode=story_narrator_mode,
         story_romance_enabled=story_romance_enabled,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -1067,6 +1073,7 @@ def _iter_story_provider_stream_chunks(
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
     use_plot_memory: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
     raw_output_collector: dict[str, str] | None = None,
@@ -1091,6 +1098,7 @@ def _iter_story_provider_stream_chunks(
             translate_for_model=input_translation_enabled,
             story_narrator_mode=story_narrator_mode,
             story_romance_enabled=story_romance_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
@@ -1159,6 +1167,7 @@ def _iter_story_provider_stream_chunks(
                 translate_for_model=input_translation_enabled,
                 story_narrator_mode=story_narrator_mode,
                 story_romance_enabled=story_romance_enabled,
+                reroll_discarded_assistant_text=reroll_discarded_assistant_text,
                 show_gg_thoughts=show_gg_thoughts,
                 show_npc_thoughts=show_npc_thoughts,
             )
@@ -1191,6 +1200,7 @@ def _iter_story_provider_stream_chunks(
             translate_for_model=input_translation_enabled,
             story_narrator_mode=story_narrator_mode,
             story_romance_enabled=story_romance_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         ):

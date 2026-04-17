@@ -75,15 +75,15 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             width: `${moriusThemeTokens.layout.actionButtonSize}px`,
             height: `${moriusThemeTokens.layout.actionButtonSize}px`,
             borderRadius: moriusThemeTokens.radii.button,
-            border: `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
             color: colors.textSecondary,
-            backgroundColor: colors.appElevated,
+            backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : colors.appElevated,
             '&:hover': {
-              backgroundColor: 'transparent',
+              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
               color: colors.accent,
             },
             '&:active': {
-              backgroundColor: 'transparent',
+              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
               color: colors.accent,
             },
           },
@@ -98,16 +98,16 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             borderRadius: moriusThemeTokens.radii.button,
             minHeight: `${moriusThemeTokens.layout.actionButtonSize}px`,
             padding: '10px 20px',
-            border: `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
             backgroundColor: colors.appElevated,
             color: colors.accent,
             '&:hover': {
-              backgroundColor: 'transparent',
+              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
               color: colors.accent,
               borderColor: colors.appBorder,
             },
             '&:active': {
-              backgroundColor: 'transparent',
+              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
               color: colors.accent,
               borderColor: colors.appBorder,
             },
@@ -118,10 +118,10 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
         styleOverrides: {
           root: {
             borderRadius: moriusThemeTokens.radii.button,
-            backgroundColor: colors.appElevated,
+            backgroundColor: colors.inputBg,
             '& .MuiOutlinedInput-notchedOutline': {
-              borderColor: colors.appBorder,
-              borderWidth: `${moriusThemeTokens.borders.width}px`,
+              borderColor: colors.appBorder === 'transparent' ? 'transparent' : colors.appBorder,
+              borderWidth: colors.appBorder === 'transparent' ? '0px' : `${moriusThemeTokens.borders.width}px`,
             },
           },
         },
@@ -130,8 +130,8 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
         styleOverrides: {
           paper: {
             borderRadius: moriusThemeTokens.radii.app,
-            border: `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
-            backgroundColor: colors.appSurface,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            backgroundColor: 'var(--morius-dialog-bg) !important',
           },
         },
       },
@@ -170,7 +170,36 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
         styleOverrides: {
           paper: {
             borderRadius: moriusThemeTokens.radii.menu,
-            border: `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            backgroundColor: colors.appSurface,
+          },
+        },
+      },
+      MuiTabs: {
+        styleOverrides: {
+          root: {
+            backgroundColor: 'transparent',
+            borderBottom: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+          },
+          indicator: {
+            backgroundColor: colors.accent,
+          },
+        },
+      },
+      MuiTab: {
+        styleOverrides: {
+          root: {
+            color: colors.textSecondary,
+            backgroundColor: 'transparent',
+            border: 'none',
+            '&.Mui-selected': {
+              backgroundColor: colors.appElevated,
+              color: colors.accent,
+            },
+            '&:hover': {
+              backgroundColor: colors.appElevated,
+              color: colors.accent,
+            },
           },
         },
       },

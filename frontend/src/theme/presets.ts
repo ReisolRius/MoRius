@@ -34,6 +34,7 @@ const classicDarkColors: MoriusThemeColors = {
   buttonActive: 'color-mix(in srgb, #578EEE 36%, #171716 64%)',
   sendButton: 'color-mix(in srgb, #578EEE 30%, #FFFFFF 70%)',
   panelGradient: '#31302E',
+  dialogBg: '#0F0F0F',
 }
 
 const blueSteelColors: MoriusThemeColors = {
@@ -55,6 +56,7 @@ const blueSteelColors: MoriusThemeColors = {
   panelGradient: '#333C47',
   bootBackground: '#0F1218',
   baseText: '#AAB7C5',
+  dialogBg: '#0A0D10',
 }
 
 const pastelLightColors: MoriusThemeColors = {
@@ -76,6 +78,7 @@ const pastelLightColors: MoriusThemeColors = {
   panelGradient: '#E2DCCE',
   bootBackground: '#F0ECE6',
   baseText: '#000000',
+  dialogBg: '#D2CCBE',
 }
 
 const grayColors: MoriusThemeColors = {
@@ -96,12 +99,13 @@ const grayColors: MoriusThemeColors = {
   panelGradient: '#2A2A2A',
   bootBackground: '#141414',
   baseText: '#BABABA',
+  dialogBg: '#0D0D0D',
 }
 
 const yamiRiusColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
-  appBackground: '#292929',
-  appBase: '#292929',
+  appBackground: '#181818',
+  appBase: '#181818',
   appSurface: '#191919',
   appElevated: '#333333',
   inputBg: '#222222',
@@ -114,8 +118,30 @@ const yamiRiusColors: MoriusThemeColors = {
   buttonActive: '#3A3A3A',
   sendButton: '#FF6666',
   panelGradient: '#333333',
-  bootBackground: '#292929',
+  bootBackground: '#181818',
   baseText: '#CACACA',
+  dialogBg: '#0F0F0F',
+}
+
+const riusDungeonColors: MoriusThemeColors = {
+  ...moriusThemeTokens.colors,
+  appBackground: 'linear-gradient(44deg, #000000 0%, #000000 100%)',
+  appBase: '#000000',
+  appSurface: '#1a1e21',
+  appElevated: '#1a1e21',
+  inputBg: '#1a1e21',
+  appBorder: 'transparent',
+  accent: '#2c9cf8',
+  titleText: '#dbdde7',
+  textPrimary: '#e6e6e7',
+  textSecondary: '#818a94',
+  buttonHover: '#2c9cf8',
+  buttonActive: '#2c9cf8',
+  sendButton: '#2c9cf8',
+  panelGradient: '#1a1e21',
+  bootBackground: '#000000',
+  baseText: '#a4adb6',
+  dialogBg: '#000000',
 }
 
 export const moriusThemePresets: readonly MoriusThemePreset[] = [
@@ -158,6 +184,14 @@ export const moriusThemePresets: readonly MoriusThemePreset[] = [
     description: 'Контрастная темная тема без синих оттенков с акцентом #FF6666.',
     mode: 'dark',
     colors: yamiRiusColors,
+  },
+  {
+    id: 'rius-dungeon',
+    name: 'Rius-Dungeon',
+    subtitle: 'Новая тёмная',
+    description: 'Глубокая чёрная тема с синим акцентом для погружения в атмосферу подземелья.',
+    mode: 'dark',
+    colors: riusDungeonColors,
   },
 ]
 

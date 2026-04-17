@@ -1416,6 +1416,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
                       borderRadius: 'var(--morius-radius)',
                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'var(--morius-button-active)',
+                      color: '#ffffff',
                     }}
                   >
                     Выдать
@@ -1444,6 +1445,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
                       borderRadius: 'var(--morius-radius)',
                       border: 'var(--morius-border-width) solid var(--morius-card-border)',
                       backgroundColor: 'rgba(89, 118, 191, 0.34)',
+                      color: '#ffffff',
                       '&:hover': {
                         backgroundColor: 'rgba(104, 135, 212, 0.44)',
                       },

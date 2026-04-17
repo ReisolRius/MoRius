@@ -118,8 +118,11 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
         return None
 
 try:
-    from app.services.theme_settings import read_theme_settings, write_theme_settings
+    from app.services.theme_settings import ThemeSettingsValidationError, read_theme_settings, write_theme_settings
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
+    class ThemeSettingsValidationError(ValueError):
+        pass
+
     def read_theme_settings(user: User) -> dict[str, Any]:
         active_theme_id = str(getattr(user, "active_theme_id", None) or "classic-dark")
         return {
@@ -978,7 +981,13 @@ def update_my_theme_settings(
     db: Session = Depends(get_db),
 ) -> ThemeSettingsOut:
     user = get_current_user(db, authorization)
-    write_theme_settings(user, payload.model_dump(exclude_none=True))
+    try:
+        write_theme_settings(user, payload.model_dump(exclude_none=True))
+    except ThemeSettingsValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc) or "Theme settings payload is invalid",
+        ) from exc
     db.commit()
     db.refresh(user)
     return _serialize_theme_settings(user)

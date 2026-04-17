@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask, BackgroundTasks
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ from app.services.story_games import (
     normalize_story_top_k,
     normalize_story_top_r,
 )
+from app.services.story_game_operation_lock import acquire_story_game_operation_lock
 from app.services.story_memory import resolve_story_current_location_label
 
 logger = logging.getLogger(__name__)
@@ -562,6 +564,7 @@ def _stream_story_response(
     story_top_k: int,
     story_top_r: float,
     memory_optimization_enabled: bool,
+    reroll_discarded_assistant_text: str | None,
     ambient_enabled: bool,
     emotion_visualization_enabled: bool,
     show_gg_thoughts: bool,
@@ -619,6 +622,7 @@ def _stream_story_response(
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=memory_optimization_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
             raw_output_collector=stream_runtime_meta,
@@ -838,7 +842,7 @@ def _stream_story_response(
                 db.rollback()
                 scene_emotion_payload = None
 
-    if response_has_content:
+    if not aborted and response_has_content:
         logger.info(
             "Story post-process dispatch (inline): game_id=%s assistant_message_id=%s memory_optimization_enabled=%s",
             game.id,
@@ -1067,7 +1071,7 @@ def _stream_story_response(
         yield _sse_event("error", {"detail": _public_story_error_detail(exc)})
 
 
-def generate_story_response(
+def _generate_story_response_locked(
     *,
     deps: StoryRuntimeDeps,
     game_id: int,
@@ -1155,20 +1159,27 @@ def generate_story_response(
         payload.emotion_visualization_enabled,
         raw_emotion_visualization_enabled,
     )
-    story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None))
+    story_top_k = normalize_story_top_k(getattr(game, "story_top_k", None), model_name=story_model_name)
     if payload.story_top_k is not None:
-        story_top_k = normalize_story_top_k(payload.story_top_k)
-    story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None))
+        story_top_k = normalize_story_top_k(payload.story_top_k, model_name=story_model_name)
+    story_top_r = normalize_story_top_r(getattr(game, "story_top_r", None), model_name=story_model_name)
     if payload.story_top_r is not None:
-        story_top_r = normalize_story_top_r(payload.story_top_r)
-    story_temperature = normalize_story_temperature(getattr(game, "story_temperature", None))
+        story_top_r = normalize_story_top_r(payload.story_top_r, model_name=story_model_name)
+    story_temperature = normalize_story_temperature(
+        getattr(game, "story_temperature", None),
+        model_name=story_model_name,
+    )
     if payload.story_temperature is not None:
-        story_temperature = normalize_story_temperature(payload.story_temperature)
+        story_temperature = normalize_story_temperature(payload.story_temperature, model_name=story_model_name)
     story_repetition_penalty = normalize_story_repetition_penalty(
-        getattr(game, "story_repetition_penalty", None)
+        getattr(game, "story_repetition_penalty", None),
+        model_name=story_model_name,
     )
     if payload.story_repetition_penalty is not None:
-        story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
+        story_repetition_penalty = normalize_story_repetition_penalty(
+            payload.story_repetition_penalty,
+            model_name=story_model_name,
+        )
     raw_show_gg_thoughts = getattr(game, "show_gg_thoughts", None)
     show_gg_thoughts = False
     raw_show_npc_thoughts = getattr(game, "show_npc_thoughts", None)
@@ -1188,6 +1199,7 @@ def generate_story_response(
     turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
     discard_last_assistant_steps = max(int(payload.discard_last_assistant_steps or 0), 0)
+    reroll_discarded_assistant_text: str | None = None
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
     if not instruction_cards:
         try:
@@ -1497,6 +1509,7 @@ def generate_story_response(
 
         last_message = messages[-1] if messages else None
         if last_message is not None and last_message.role == deps.story_assistant_role:
+            reroll_discarded_assistant_text = str(getattr(last_message, "content", "") or "").replace("\r\n", "\n").strip() or None
             messages = _drop_last_assistant_steps(
                 steps=1,
                 delete_source_user=False,
@@ -1593,6 +1606,7 @@ def generate_story_response(
         story_top_k=story_top_k,
         story_top_r=story_top_r,
         memory_optimization_enabled=memory_optimization_enabled,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         ambient_enabled=ambient_enabled,
         emotion_visualization_enabled=emotion_visualization_enabled,
         show_gg_thoughts=show_gg_thoughts,
@@ -1623,3 +1637,52 @@ def generate_story_response(
             "Content-Encoding": "identity",
         },
     )
+
+
+def generate_story_response(
+    *,
+    deps: StoryRuntimeDeps,
+    game_id: int,
+    payload: StoryGenerateRequest,
+    authorization: str | None,
+    db: Session,
+) -> StreamingResponse:
+    deps.validate_provider_config()
+    user = deps.get_current_user(db, authorization)
+    game = deps.get_user_story_game_or_404(db, user.id, game_id)
+    operation_lease = acquire_story_game_operation_lock(game.id, operation="story_generate")
+
+    def _release_operation_lease() -> None:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        operation_lease.release()
+
+    try:
+        response = _generate_story_response_locked(
+            deps=deps,
+            game_id=game_id,
+            payload=payload,
+            authorization=authorization,
+            db=db,
+        )
+    except Exception:
+        _release_operation_lease()
+        raise
+
+    existing_background = response.background
+    if existing_background is None:
+        response.background = BackgroundTask(_release_operation_lease)
+        return response
+
+    if isinstance(existing_background, BackgroundTasks):
+        existing_background.add_task(_release_operation_lease)
+        response.background = existing_background
+        return response
+
+    combined_background = BackgroundTasks()
+    combined_background.tasks.append(existing_background)
+    combined_background.add_task(_release_operation_lease)
+    response.background = combined_background
+    return response

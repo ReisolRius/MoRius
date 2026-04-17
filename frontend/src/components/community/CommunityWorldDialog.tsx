@@ -455,6 +455,9 @@ function CommunityWorldDialog({
   moderationControls = null,
 }: CommunityWorldDialogProps) {
   const { themeId } = useMoriusThemeController()
+  const isYamiTheme = themeId === 'yami-rius'
+  const isRiusDungeonTheme = themeId === 'rius-dungeon'
+  const isDarkPureTheme = isYamiTheme || isRiusDungeonTheme
   const [cardTab, setCardTab] = useState<CardTab>('instructions')
   const [isShareNoticeOpen, setIsShareNoticeOpen] = useState(false)
   const [isReportNoticeOpen, setIsReportNoticeOpen] = useState(false)
@@ -495,25 +498,16 @@ function CommunityWorldDialog({
   }, [world])
 
   const isMobileLayout = useMediaQuery('(max-width:899.95px)')
-  const isYamiTheme = themeId === 'yami-rius'
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const [scrollbarRailWidth, setScrollbarRailWidth] = useState(0)
 
   const dialogBackdropSx = useMemo(
     () => ({
-      backgroundColor: isYamiTheme ? 'rgba(0, 0, 0, 0.92)' : 'rgba(1, 4, 8, 0.88)',
+      backgroundColor: isDarkPureTheme ? 'rgba(0, 0, 0, 0.92)' : 'rgba(1, 4, 8, 0.88)',
       backdropFilter: 'none',
       WebkitBackdropFilter: 'none',
     }),
-    [isYamiTheme],
-  )
-
-  const dialogPaperBackground = useMemo(
-    () =>
-      isYamiTheme
-        ? 'linear-gradient(180deg, #080808 0%, #030303 100%)'
-        : 'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 90%, #020304 10%) 100%)',
-    [isYamiTheme],
+    [isDarkPureTheme],
   )
 
   useEffect(() => {
@@ -770,13 +764,16 @@ function CommunityWorldDialog({
         paperSx={{
           '--community-world-card-bg': isYamiTheme
             ? '#121212'
-            : 'var(--morius-card-bg)',
+            : isRiusDungeonTheme
+              ? '#111418'
+              : 'var(--morius-card-bg)',
           '--community-world-elevated-bg': isYamiTheme
             ? '#1a1a1a'
-            : 'var(--morius-elevated-bg)',
+            : isRiusDungeonTheme
+              ? '#1a1e21'
+              : 'var(--morius-elevated-bg)',
           borderRadius: 'var(--morius-radius)',
           border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          background: dialogPaperBackground,
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.56)',
           animation: 'morius-dialog-pop 260ms cubic-bezier(0.22, 1, 0.36, 1)',
           overflow: { xs: 'hidden', md: 'visible' },

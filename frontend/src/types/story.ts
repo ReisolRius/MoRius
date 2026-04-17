@@ -14,6 +14,7 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-5'
   | 'z-ai/glm-5.1'
   | 'z-ai/glm-4.7'
+  | 'deepseek/deepseek-chat-v3-0324'
   | 'deepseek/deepseek-v3.2'
   | 'x-ai/grok-4.1-fast'
   | 'mistralai/mistral-nemo'

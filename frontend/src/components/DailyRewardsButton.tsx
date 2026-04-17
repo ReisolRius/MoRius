@@ -234,6 +234,8 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 56%, transparent) inset, 0 0 18px color-mix(in srgb, var(--morius-accent) 20%, transparent), 0 10px 20px rgba(0, 0, 0, 0.2)'
             : '0 0 0 1px color-mix(in srgb, var(--morius-card-border) 72%, transparent) inset, 0 10px 20px rgba(0, 0, 0, 0.18)',
           transition: 'transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease',
+          position: 'relative',
+          overflow: 'visible',
           '&:hover': {
             backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-card-bg) 12%)',
             boxShadow: canClaim
@@ -251,6 +253,22 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             opacity: canClaim ? 1 : 0.96,
           }}
         />
+        {canClaim ? (
+          <Box
+            aria-hidden="true"
+            sx={{
+              position: 'absolute',
+              top: 4,
+              right: 4,
+              width: 9,
+              height: 9,
+              borderRadius: '50%',
+              backgroundColor: 'var(--morius-accent)',
+              boxShadow: '0 0 0 2px var(--morius-elevated-bg), 0 6px 14px rgba(0, 0, 0, 0.24)',
+              pointerEvents: 'none',
+            }}
+          />
+        ) : null}
       </IconButton>
 
       <Popover

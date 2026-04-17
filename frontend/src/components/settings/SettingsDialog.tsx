@@ -4,8 +4,11 @@ import {
   Box,
   Button,
   Dialog,
+  DialogActions,
   DialogContent,
+  DialogTitle,
   FormControl,
+  IconButton,
   MenuItem,
   Popover,
   Select,
@@ -25,6 +28,7 @@ import {
   updateCurrentUserProfile,
   updateCurrentUserProfilePrivacy,
   updateCurrentUserThemeSelection,
+  CURRENT_USER_CUSTOM_THEME_LIMIT,
   type CurrentUserThemeSettings,
   type UserCustomTheme,
 } from '../../services/authApi'
@@ -66,6 +70,7 @@ const DISPLAY_NAME_MAX = 120
 const THEME_NAME_MAX = 80
 const THEME_DESCRIPTION_MAX = 240
 const COLOR_SWATCHES = ['#FFFFFF', '#000000', '#4D4D4D', '#D0D0D0', '#D9C4A0', '#B9C9DB'] as const
+const trashIconMarkup = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 3.75h6a1.25 1.25 0 0 1 1.25 1.25V6H19a.75.75 0 0 1 0 1.5h-.83l-.64 9.01A2.25 2.25 0 0 1 15.28 18.75H8.72a2.25 2.25 0 0 1-2.25-2.24L5.83 7.5H5a.75.75 0 0 1 0-1.5h2.75V5A1.25 1.25 0 0 1 9 3.75Zm5.75 2.25V5.25h-5.5V6h5.5ZM7.98 7.5l.62 8.9a.75.75 0 0 0 .75.7h6.3a.75.75 0 0 0 .75-.7l.62-8.9H7.98ZM10 9.25a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Zm4 0a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0V10a.75.75 0 0 1 .75-.75Z" fill="currentColor"/></svg>`
 const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: 'profile', label: 'Профиль' },
   { id: 'themes', label: 'Темы' },
@@ -253,6 +258,7 @@ function SettingsDialog({
   })
   const [themeDraft, setThemeDraft] = useState<EditableTheme>(() => buildEditableThemeFromPreset(getMoriusThemeById('classic-dark')))
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
+  const [themeDeleteTarget, setThemeDeleteTarget] = useState<UserCustomTheme | null>(null)
   const [editingColorField, setEditingColorField] = useState<ColorFieldKey | null>(null)
   const [colorInputDraft, setColorInputDraft] = useState('')
   const [colorPickerAnchorEl, setColorPickerAnchorEl] = useState<HTMLElement | null>(null)
@@ -261,10 +267,11 @@ function SettingsDialog({
   const pendingColorSelectionRef = useRef<{ field: ColorFieldKey; color: string } | null>(null)
   const { themeId, activeTheme, setTheme, setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, storyHistoryFontFamilyOptions, storyHistoryFontWeightOptions } = useMoriusThemeController()
   const savedCustomThemes = themeSettings?.custom_themes ?? []
-  const activeSavedCustomTheme = useMemo(
-    () => (themeSettings?.active_theme_kind === 'custom' ? savedCustomThemes.find((item) => item.id === themeSettings.active_theme_id) ?? null : null),
-    [savedCustomThemes, themeSettings],
+  const editingSavedCustomTheme = useMemo(
+    () => (editingThemeId ? savedCustomThemes.find((item) => item.id === editingThemeId) ?? null : null),
+    [editingThemeId, savedCustomThemes],
   )
+  const canCreateMoreCustomThemes = savedCustomThemes.length < CURRENT_USER_CUSTOM_THEME_LIMIT
 
   const applyResolvedTheme = useCallback((settings: CurrentUserThemeSettings | null) => {
     if (!settings) {
@@ -349,6 +356,7 @@ function SettingsDialog({
   const handleDialogClose = () => {
     applyResolvedTheme(themeSettings)
     handleCloseColorPicker()
+    setThemeDeleteTarget(null)
     setError('')
     onClose()
   }
@@ -386,6 +394,10 @@ function SettingsDialog({
   }
 
   const handleStartNewTheme = () => {
+    if (!canCreateMoreCustomThemes) {
+      setError(`Можно создать не более ${CURRENT_USER_CUSTOM_THEME_LIMIT} пользовательских тем.`)
+      return
+    }
     const nextId = createCustomThemeId()
     setActiveTab('themes')
     setEditingThemeId(nextId)
@@ -509,16 +521,20 @@ function SettingsDialog({
       return
     }
     setError('')
+    const themeExists = savedCustomThemes.some((item) => item.id === themeDraft.id)
+    if (!themeExists && savedCustomThemes.length >= CURRENT_USER_CUSTOM_THEME_LIMIT) {
+      setError(`Можно создать не более ${CURRENT_USER_CUSTOM_THEME_LIMIT} пользовательских тем.`)
+      return
+    }
     setIsSavingTheme(true)
     try {
       const payload = buildCustomThemeFromDraft(themeDraft)
-      const themeExists = savedCustomThemes.some((item) => item.id === payload.id)
       const response = themeExists
         ? await updateCurrentUserCustomTheme({ token: authToken, theme: payload })
         : await createCurrentUserCustomTheme({ token: authToken, theme: payload })
       setThemeSettings(response)
       setEditingThemeId(payload.id)
-      setThemeDraft(buildEditableThemeFromCustom(payload))
+      setThemeDraft(buildEditableThemeFromCustom(response.custom_themes.find((item) => item.id === payload.id) ?? payload))
       applyResolvedTheme(response)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось сохранить тему'
@@ -528,17 +544,62 @@ function SettingsDialog({
     }
   }
 
-  const handleDeleteTheme = async () => {
-    if (!editingThemeId || isSavingTheme || !savedCustomThemes.some((item) => item.id === editingThemeId)) {
+  const handleSelectCustomTheme = async (theme: UserCustomTheme) => {
+    if (isSavingTheme) {
       return
     }
     setError('')
     setIsSavingTheme(true)
     try {
-      const response = await deleteCurrentUserCustomTheme({ token: authToken, theme_id: editingThemeId })
+      const response = await updateCurrentUserThemeSelection({
+        token: authToken,
+        active_theme_kind: 'custom',
+        active_theme_id: theme.id,
+      })
+      const selectedTheme = response.custom_themes.find((item) => item.id === theme.id) ?? theme
       setThemeSettings(response)
-      setEditingThemeId(null)
-      setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
+      setEditingThemeId(selectedTheme.id)
+      setThemeDraft(buildEditableThemeFromCustom(selectedTheme))
+      applyResolvedTheme(response)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось применить тему'
+      setError(detail)
+    } finally {
+      setIsSavingTheme(false)
+    }
+  }
+
+  const handleRequestDeleteTheme = (theme: UserCustomTheme) => {
+    setThemeDeleteTarget(theme)
+    setError('')
+  }
+
+  const handleDeleteTheme = async (themeId: string) => {
+    if (isSavingTheme || !savedCustomThemes.some((item) => item.id === themeId)) {
+      return
+    }
+    setError('')
+    setIsSavingTheme(true)
+    try {
+      const response = await deleteCurrentUserCustomTheme({ token: authToken, theme_id: themeId })
+      const deletedEditingTheme = editingThemeId === themeId
+      setThemeSettings(response)
+      setThemeDeleteTarget(null)
+      if (deletedEditingTheme) {
+        if (response.active_theme_kind === 'custom') {
+          const selectedTheme = response.custom_themes.find((item) => item.id === response.active_theme_id)
+          if (selectedTheme) {
+            setEditingThemeId(selectedTheme.id)
+            setThemeDraft(buildEditableThemeFromCustom(selectedTheme))
+          } else {
+            setEditingThemeId(null)
+            setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
+          }
+        } else {
+          setEditingThemeId(null)
+          setThemeDraft(buildEditableThemeFromPreset(getMoriusThemeById(response.active_theme_id)))
+        }
+      }
       applyResolvedTheme(response)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить тему'
@@ -549,9 +610,9 @@ function SettingsDialog({
   }
 
   const handleResetDraft = () => {
-    if (activeSavedCustomTheme) {
-      setEditingThemeId(activeSavedCustomTheme.id)
-      setThemeDraft(buildEditableThemeFromCustom(activeSavedCustomTheme))
+    if (editingSavedCustomTheme) {
+      setEditingThemeId(editingSavedCustomTheme.id)
+      setThemeDraft(buildEditableThemeFromCustom(editingSavedCustomTheme))
       return
     }
     setEditingThemeId(null)
@@ -562,7 +623,6 @@ function SettingsDialog({
   const activeFieldColor = editingColorField ? (isPaletteField(editingColorField) ? themeDraft.palette[editingColorField] : themeDraft.story[editingColorField]) : '#578EEE'
   const activeColorInputValue = colorInputDraft || activeFieldColor
   const pickerColorValue = normalizeHexColor(activeColorInputValue, activeFieldColor).toLowerCase()
-  const isCurrentDraftSavedCustom = Boolean(editingThemeId && savedCustomThemes.some((item) => item.id === editingThemeId))
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
 
   useEffect(() => {
@@ -850,7 +910,22 @@ function SettingsDialog({
                 </Stack>
 
                 <Stack spacing={0.9}>
-                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>Готовые темы</Typography>
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    justifyContent="space-between"
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    spacing={0.4}
+                  >
+                    <Box>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>Все темы</Typography>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                        Нажмите на тему, чтобы применить ее. Сохранение создаст или обновит вашу тему в аккаунте.
+                      </Typography>
+                    </Box>
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>
+                      Свои темы: {savedCustomThemes.length}/{CURRENT_USER_CUSTOM_THEME_LIMIT}
+                    </Typography>
+                  </Stack>
                   <Box sx={{ display: 'grid', gap: 0.8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
                     {moriusThemePresets.map((preset) => {
                       const isActive = themeSettings?.active_theme_kind === 'preset' && themeSettings.active_theme_id === preset.id
@@ -895,8 +970,81 @@ function SettingsDialog({
                         </Button>
                       )
                     })}
+                    {savedCustomThemes.map((theme) => {
+                      const isActive = themeSettings?.active_theme_kind === 'custom' && themeSettings.active_theme_id === theme.id
+                      return (
+                        <Box
+                          key={theme.id}
+                          className="morius-theme-card"
+                          sx={{
+                            position: 'relative',
+                            p: 1.15,
+                            borderRadius: '20px',
+                            border: 'none',
+                            backgroundColor: isActive
+                              ? 'color-mix(in srgb, var(--morius-accent) 11%, var(--morius-card-bg))'
+                              : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
+                            boxShadow: isActive
+                              ? '0 0 24px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 18px 36px rgba(0, 0, 0, 0.22)'
+                              : '0 14px 30px rgba(0, 0, 0, 0.18)',
+                          }}
+                        >
+                          <IconButton
+                            aria-label={`Удалить тему ${theme.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              handleRequestDeleteTheme(theme)
+                            }}
+                            sx={{
+                              position: 'absolute',
+                              top: 8,
+                              right: 8,
+                              width: 30,
+                              height: 30,
+                              borderRadius: '10px',
+                              color: 'var(--morius-title-text)',
+                              backgroundColor: 'color-mix(in srgb, rgba(8, 10, 14, 0.88) 78%, var(--morius-card-bg) 22%)',
+                              opacity: { xs: 1, md: 0 },
+                              transition: 'opacity 160ms ease, transform 160ms ease',
+                              transform: { xs: 'none', md: 'translateY(-2px)' },
+                              '.morius-theme-card:hover &, .morius-theme-card:focus-within &': {
+                                opacity: 1,
+                                transform: 'translateY(0)',
+                              },
+                              '&:hover': {
+                                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, rgba(8, 10, 14, 0.88))',
+                              },
+                            }}
+                          >
+                            <ThemedSvgIcon markup={trashIconMarkup} size={15} />
+                          </IconButton>
+                          <Stack spacing={0.7} sx={{ height: '100%' }}>
+                            <Stack direction="row" spacing={0.45}>
+                              {[theme.palette.title_text, theme.palette.text_primary, theme.palette.background, theme.palette.surface, theme.palette.front].map((color, index) => (
+                                <Box key={`${theme.id}-custom-${index}`} sx={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: color, border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)' }} />
+                              ))}
+                            </Stack>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>{theme.name}</Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.83rem', lineHeight: 1.35, flex: 1 }}>{theme.description || 'Пользовательская палитра'}</Typography>
+                            <Stack direction="row" spacing={0.7}>
+                              <Button
+                                onClick={() => void handleSelectCustomTheme(theme)}
+                                disabled={isSavingTheme}
+                                sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}
+                              >
+                                Применить
+                              </Button>
+                              <Button onClick={() => handleEditCustomTheme(theme)} sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}>
+                                Изменить
+                              </Button>
+                            </Stack>
+                          </Stack>
+                        </Box>
+                      )
+                    })}
                     <Button
                       onClick={handleStartNewTheme}
+                      disabled={isSavingTheme || !canCreateMoreCustomThemes}
                       sx={{
                         minHeight: 96,
                         p: 1.2,
@@ -911,63 +1059,23 @@ function SettingsDialog({
                           backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 66%, var(--morius-elevated-bg) 34%)',
                           boxShadow: '0 16px 32px rgba(0, 0, 0, 0.2)',
                         },
+                        '&.Mui-disabled': {
+                          color: 'var(--morius-text-secondary)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, var(--morius-elevated-bg) 18%)',
+                          boxShadow: 'none',
+                        },
                       }}
                     >
                       <Stack spacing={0.55} alignItems="center">
                         <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 400, lineHeight: 1 }}>+</Typography>
                         <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>Новая тема</Typography>
+                        {!canCreateMoreCustomThemes ? (
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>Лимит достигнут</Typography>
+                        ) : null}
                       </Stack>
                     </Button>
                   </Box>
                 </Stack>
-
-                {savedCustomThemes.length > 0 ? (
-                  <Stack spacing={0.9}>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>Пользовательские темы</Typography>
-                    <Box sx={{ display: 'grid', gap: 0.8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-                      {savedCustomThemes.map((theme) => {
-                        const isActive = themeSettings?.active_theme_kind === 'custom' && themeSettings.active_theme_id === theme.id
-                        return (
-                          <Box
-                            key={theme.id}
-                            sx={{
-                              p: 1.15,
-                              borderRadius: '20px',
-                              border: 'none',
-                              backgroundColor: isActive
-                                ? 'color-mix(in srgb, var(--morius-accent) 11%, var(--morius-card-bg))'
-                                : 'color-mix(in srgb, var(--morius-card-bg) 72%, var(--morius-elevated-bg) 28%)',
-                              boxShadow: isActive
-                                ? '0 0 24px color-mix(in srgb, var(--morius-accent) 18%, transparent), 0 18px 36px rgba(0, 0, 0, 0.22)'
-                                : '0 14px 30px rgba(0, 0, 0, 0.18)',
-                            }}
-                          >
-                            <Stack spacing={0.7}>
-                              <Stack direction="row" spacing={0.45}>
-                                {[theme.palette.title_text, theme.palette.text_primary, theme.palette.background, theme.palette.surface, theme.palette.front].map((color, index) => (
-                                  <Box key={`${theme.id}-custom-${index}`} sx={{ width: 18, height: 18, borderRadius: '50%', backgroundColor: color, border: 'var(--morius-border-width) solid rgba(255,255,255,0.16)' }} />
-                                ))}
-                              </Stack>
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>{theme.name}</Typography>
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.83rem', lineHeight: 1.35 }}>{theme.description || 'Пользовательская палитра'}</Typography>
-                              <Stack direction="row" spacing={0.7}>
-                                <Button
-                                  onClick={() => void updateCurrentUserThemeSelection({ token: authToken, active_theme_kind: 'custom', active_theme_id: theme.id }).then((response) => { setThemeSettings(response); applyResolvedTheme(response) }).catch((requestError) => { const detail = requestError instanceof Error ? requestError.message : 'Не удалось применить тему'; setError(detail) })}
-                                  sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}
-                                >
-                                  Применить
-                                </Button>
-                                <Button onClick={() => handleEditCustomTheme(theme)} sx={{ flex: 1, minHeight: 36, borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-card-bg) 22%)' }}>
-                                  Изменить
-                                </Button>
-                              </Stack>
-                            </Stack>
-                          </Box>
-                        )
-                      })}
-                    </Box>
-                  </Stack>
-                ) : null}
 
                 <Box sx={{ borderRadius: '22px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.45 } }}>
                   <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 0.8fr) minmax(440px, 0.96fr)' } }}>
@@ -1050,7 +1158,6 @@ function SettingsDialog({
 
                       <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.4 }}>
                         <Button onClick={handleResetDraft} sx={{ minHeight: 42, px: 1.8, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, var(--morius-card-bg) 18%)' }}>Сбросить</Button>
-                        {isCurrentDraftSavedCustom ? <Button onClick={() => void handleDeleteTheme()} disabled={isSavingTheme} sx={{ minHeight: 42, px: 1.8, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-text-primary)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, var(--morius-card-bg) 18%)' }}>Удалить</Button> : null}
                         <Button onClick={() => void handleSaveTheme()} disabled={isSavingTheme} sx={{ minHeight: 42, px: 1.8, borderRadius: '14px', textTransform: 'none', color: 'var(--morius-title-text)', border: 'none', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)' }}>
                           {isSavingTheme ? 'Сохраняем...' : 'Сохранить'}
                         </Button>
@@ -1119,6 +1226,53 @@ function SettingsDialog({
           />
         </Stack>
       </Popover>
+
+      <Dialog
+        open={Boolean(themeDeleteTarget)}
+        onClose={() => {
+          if (isSavingTheme) {
+            return
+          }
+          setThemeDeleteTarget(null)
+        }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
+            color: 'var(--morius-text-primary)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Удалить тему?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.45 }}>
+            {themeDeleteTarget ? `Тема «${themeDeleteTarget.name}» будет удалена из вашего аккаунта. Это действие нельзя отменить.` : ''}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setThemeDeleteTarget(null)} disabled={isSavingTheme} sx={{ color: 'var(--morius-text-secondary)' }}>
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void (themeDeleteTarget ? handleDeleteTheme(themeDeleteTarget.id) : Promise.resolve())}
+            disabled={!themeDeleteTarget || isSavingTheme}
+            sx={{
+              minHeight: 40,
+              px: 1.8,
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: 'var(--morius-title-text)',
+              border: 'none',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
+            }}
+          >
+            {isSavingTheme ? 'Удаляем...' : 'Удалить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   )
 }

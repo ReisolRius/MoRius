@@ -23,8 +23,7 @@ type BaseDialogProps = {
 const defaultPaperSx = {
   borderRadius: 'var(--morius-radius)',
   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 90%, #020304 10%) 100%)',
+  background: 'var(--morius-dialog-bg)',
   boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
 } as const
 

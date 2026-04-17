@@ -1092,6 +1092,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": "z-ai/glm-5",
     "z-ai/glm-5.1": "z-ai/glm-5.1",
     "z-ai/glm-4.7": "z-ai/glm-4.7",
+    "deepseek/deepseek-chat-v3-0324": "z-ai/glm-5",
     "deepseek/deepseek-v3.2": "z-ai/glm-5",
     "x-ai/grok-4.1-fast": "z-ai/glm-5",
     "mistralai/mistral-nemo": "z-ai/glm-5",
@@ -1104,6 +1105,7 @@ STORY_LEGACY_MODEL_ALIASES = {
     "arcee-ai/trinity-large-preview:free": "xiaomi/mimo-v2-flash",
 }
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
+    "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
 }
 STORY_NON_SAMPLING_MODEL_HINTS = {
@@ -1111,6 +1113,7 @@ STORY_NON_SAMPLING_MODEL_HINTS = {
 }
 STORY_OPENROUTER_PROVIDER_FRIENDLI = "friendli"
 STORY_OPENROUTER_PROVIDER_MISTRAL = "mistral"
+STORY_OPENROUTER_PROVIDER_ATLAS_CLOUD_FP8 = "atlas-cloud/fp8"
 STORY_OPENROUTER_PROVIDER_NOVITA_FP8 = "novita/fp8"
 STORY_OPENROUTER_PROVIDER_XIAOMI_FP8 = "xiaomi/fp8"
 STORY_OPENROUTER_PROVIDER_AION_LABS = "aion-labs"
@@ -1118,6 +1121,7 @@ STORY_OPENROUTER_PROVIDER_XAI = "xai"
 STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_FRIENDLI,
     "z-ai/glm-5.1": STORY_OPENROUTER_PROVIDER_FRIENDLI,
+    "deepseek/deepseek-chat-v3-0324": STORY_OPENROUTER_PROVIDER_ATLAS_CLOUD_FP8,
     "deepseek/deepseek-v3.2": STORY_OPENROUTER_PROVIDER_NOVITA_FP8,
     "mistralai/mistral-nemo": STORY_OPENROUTER_PROVIDER_MISTRAL,
     "xiaomi/mimo-v2-pro": STORY_OPENROUTER_PROVIDER_XIAOMI_FP8,
@@ -1128,6 +1132,7 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
     "z-ai/glm-4.7",
+    "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
     "x-ai/grok-4.1-fast",
     "mistralai/mistral-nemo",
@@ -1300,13 +1305,145 @@ STORY_PLOT_CARD_POINT_PREFIX_PATTERN = re.compile(
     re.IGNORECASE,
 )
 STORY_SYSTEM_PROMPT = (
-    "Ты ведущий интерактивной текстовой RPG и пишешь как рассказчик. "
-    "Follow LANGUAGE CONTRACT below for output language. "
-    "Продолжай сцену строго по действию игрока, без советов и объяснения правил. "
-    "Пиши художественно от второго лица с учетом контекста и карточек. "
-    "Не выходи из роли, не упоминай ИИ и не добавляй мета-комментарии. "
-    "Формат ответа: 2-5 абзацев. Протокол маркеров обязателен."
+    "Ты — мастер интерактивной текстовой RPG. Ты управляешь игровой вселенной: "
+    "создаешь события, ведешь диалоги NPC, генерируешь неожиданные повороты и реагируешь на действия игрока. "
+    "Твоя задача — увлечь игрока живой, эмоциональной и непредсказуемой историей."
 )
+STORY_CREATIVE_WRITING_RULES = (
+    "",
+    "СТИЛЬ ПОВЕСТВОВАНИЯ (ОБЯЗАТЕЛЬНО):",
+    "1) Пиши как талантливый автор художественной прозы, а не как бот-генератор текста.",
+    "2) Каждый NPC — живая личность: у него своя манера речи, словечки, темперамент, привычки. Не делай NPC одинаковыми «вежливыми собеседниками».",
+    "3) Диалоги должны звучать как реальная устная речь: с паузами, недосказанностью, перебиваниями, сарказмом, юмором, неловкостью — в зависимости от характера NPC.",
+    "4) Передавай эмоции через конкретные физические детали: дрожь рук, сбитое дыхание, прищуренный взгляд, нервное постукивание пальцами — вместо прямых называний «он злился».",
+    "5) Окружение — живое: шумы, запахи, свет, температура, текстуры. Вплетай их в нарратив, а не перечисляй списком.",
+    "6) Двигай сюжет вперед каждым ответом. Каждая сцена должна содержать хотя бы одно микро-событие: новая деталь, реакция NPC, изменение обстановки, появление угрозы или возможности.",
+    "7) Заканчивай ответ на точке напряжения, выбора или интриги — чтобы у игрока чесались руки написать следующий ход.",
+    "8) Если в карточках инструкций игрока заданы стилистические предпочтения (тон, темп, жанровый акцент, запрещенные темы), они имеют абсолютный приоритет над твоими стилистическими привычками.",
+)
+STORY_ANTI_REPETITION_RULES = (
+    "",
+    "ЗАПРЕТ ПОВТОРЕНИЙ (СТРОГО):",
+    "1) Никогда не начинай два подряд абзаца одинаковой конструкцией или словом.",
+    "2) Запрещены клише-связки: «Между тем», «Тем временем», «Впрочем», «Однако» — в начале каждого второго абзаца. Варьируй.",
+    "3) Если NPC уже произнес фразу или совершил жест в предыдущих ходах, не повторяй то же самое. Ищи новый ракурс.",
+    "4) Не описывай одну и ту же эмоцию дважды подряд одними словами. «Он нахмурился» в прошлом ходе → «Складка между бровями стала глубже» в этом.",
+    "5) Варьируй длину предложений: чередуй короткие, рубленые фразы с длинными, плавными описаниями для создания ритма.",
+    "6) Если чувствуешь, что пишешь «на автопилоте» — остановись и придумай неожиданную деталь, которая удивит даже тебя.",
+)
+STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
+    "deepseek/deepseek-v3.2": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (DeepSeek V3.2):",
+        "Ты обладаешь глубоким пониманием мотиваций и психологии персонажей — используй это.",
+        "Избегай монотонно-мрачного тона. Даже в тёмных сеттингах вплетай контрасты: чёрный юмор, неожиданную теплоту, абсурдные бытовые детали.",
+        "Делай NPC эмоционально разнообразными: пусть один ворчит, другой хохочет, третий молчит и давит взглядом.",
+        "Не уходи в философские монологи и длинные описания настроения. Предпочитай конкретные действия и живые диалоги.",
+        "Темп: каждый ответ = движение вперед. Не буксуй на месте.",
+        "CRITICAL FORMAT MODE (DeepSeek):",
+        "Нарративные абзацы пиши обычным текстом без [[NARRATOR]] и без любого другого маркера.",
+        "Маркер в начале абзаца нужен только для прямой речи и внутренних мыслей.",
+        "Абзац с репликой или мыслью должен содержать ровно один маркер в самом начале.",
+        "Никогда не вставляй новый [[...]] маркер в середину уже начатого абзаца.",
+        "Между абзацами оставляй пустую строку.",
+        "АБСОЛЮТНЫЙ ЗАПРЕТ: не используй [[GG:...]] и [[GG_THOUGHT:...]].",
+        "Никогда не придумывай за ГГ новые реплики, мысли или действия, которых игрок не писал.",
+        "DEEPSEEK INSTRUCTION OVERRIDE:",
+        "PLAYER INSTRUCTION CARDS are mandatory operating rules.",
+        "Do not bypass them even if they reduce drama, speed, or stylistic freedom.",
+    ),
+    "deepseek/deepseek-chat-v3-0324": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (DeepSeek V3):",
+        "Ты ярок и динамичен — сохраняй этот огонь. Но ДИСЦИПЛИНА превыше всего:",
+        "1) Прежде чем писать ответ, перечитай ВСЕ активные карточки инструкций и правил. Если твой ответ нарушает хотя бы одно правило — перепиши.",
+        "2) Не перескакивай через события. Один ход = одна сцена, одно логичное продолжение.",
+        "3) Реализм диалогов: NPC не произносят пафосных речей без повода. Обычные люди говорят обычно. Пафос — только когда уместен.",
+        "4) Эмоции персонажей должны быть заслужены предыдущими событиями, а не появляться на ровном месте для драматического эффекта.",
+        "5) Не навязывай сюжетные повороты, которых нет в карточках сюжета. Развивай то, что уже заложено.",
+        "CRITICAL FORMAT MODE (DeepSeek):",
+        "Нарративные абзацы пиши обычным текстом без [[NARRATOR]].",
+        "АБСОЛЮТНЫЙ ЗАПРЕТ: не используй [[GG:...]] и [[GG_THOUGHT:...]].",
+    ),
+    "z-ai/glm-5": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (GLM-5):",
+        "ЯЗЫКОВАЯ ДИСЦИПЛИНА (ПРИОРИТЕТ №1):",
+        "Пиши ТОЛЬКО настоящими русскими словами. Если не уверен в слове — замени на синоним, в котором уверен.",
+        "Не транслитерируй с английского и китайского. Не придумывай несуществующих слов.",
+        "Перед финализацией ответа мысленно проверь каждое предложение: звучит ли оно как речь носителя русского языка?",
+        "",
+        "БОРЬБА С ШАБЛОННОСТЬЮ:",
+        "Запрещены фразы-паразиты: «как бы то ни было», «так или иначе», «стоит отметить», «нельзя не заметить», «в этот момент».",
+        "Не начинай ответ с описания обстановки, если предыдущий ответ тоже начинался с этого.",
+        "Каждый новый ход — новый стилистический прием: начни с диалога, или с действия, или с неожиданного звука, или со внутреннего ощущения.",
+        "",
+        "ЭМОЦИОНАЛЬНОСТЬ:",
+        "NPC реагируют живо, а не шаблонно. Вместо «он кивнул» — «он дернул подбородком, не отрывая взгляда от огня».",
+        "Каждый ответ должен содержать минимум одну яркую сенсорную деталь (запах, звук, тактильное ощущение, вкус).",
+    ),
+    "z-ai/glm-5.1": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (GLM-5.1):",
+        "КРИТИЧЕСКИЙ ПРИОРИТЕТ — БОРЬБА С ПОВТОРАМИ:",
+        "Ты имеешь тенденцию повторять одни и те же конструкции. Это твоя главная слабость.",
+        "ПЕРЕД каждым ответом мысленно вспомни свои последние 3 ответа и намеренно используй ДРУГИЕ слова, ДРУГУЮ структуру, ДРУГОЙ ритм.",
+        "Запрещено: использовать одно и то же прилагательное более одного раза в ответе.",
+        "Запрещено: начинать более одного предложения в ответе с одного и того же слова.",
+        "Если описываешь персонажа — каждый раз подмечай новую деталь, а не повторяй уже сказанное.",
+        "",
+        "ЯЗЫКОВАЯ ЧИСТОТА:",
+        "Только реальный русский язык. Никаких выдуманных, искажённых или транслитерированных слов.",
+        "Если сомневаешься в слове — используй простой, точно верный синоним.",
+        "",
+        "ЖИВОСТЬ ТЕКСТА:",
+        "Пиши так, чтобы каждый абзац нёс энергию. Никакой «воды».",
+        "Каждое предложение должно либо двигать сюжет, либо раскрывать персонажа, либо создавать атмосферу.",
+    ),
+    "xiaomi/mimo-v2-pro": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (MiMo V2 Pro):",
+        "Ты — сильная reasoning-модель. Используй эту силу для глубоких, многослойных сцен с подтекстом и внутренней логикой.",
+        "",
+        "БОРЬБА С ПОВТОРАМИ (твоя слабость):",
+        "Каждый новый ответ должен стилистически отличаться от предыдущего.",
+        "Не используй одни и те же описательные конструкции от хода к ходу.",
+        "Варьируй: начало абзацев, длину реплик NPC, тип деталей (визуальные → звуковые → тактильные → запахи).",
+        "",
+        "СИЛА ДИАЛОГОВ:",
+        "Каждый NPC говорит по-своему: словарный запас, длина фраз, любимые словечки, уровень вежливости — всё уникально.",
+        "Диалоги — не информационные дампы. NPC недоговаривают, лгут, уходят от темы, шутят невпопад.",
+        "",
+        "РУССКИЙ ЯЗЫК:",
+        "Пиши только корректным литературным русским. Не допускай транслитераций и искажений слов.",
+    ),
+    "xiaomi/mimo-v2-flash": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (MiMo V2 Flash):",
+        "Пиши кратко, но ярко. Не пытайся быть сложным — сосредоточься на:",
+        "1) Чёткие, понятные реакции NPC на действия игрока.",
+        "2) Одна яркая деталь окружения в каждом ответе.",
+        "3) Естественные короткие диалоги.",
+        "Русский язык: используй только простые, точно верные слова.",
+    ),
+    "x-ai/grok-4.1-fast": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Grok 4.1 Fast):",
+        "Пиши на русском языке уверенно и естественно.",
+        "Сосредоточься на чётких, конкретных действиях и реакциях.",
+        "NPC должны говорить живо и по делу.",
+        "Избегай длинных описательных пассажей — предпочитай действие.",
+    ),
+    "aion-labs/aion-2.0": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Aion-2):",
+        "Используй свой потенциал для создания глубоких, атмосферных сцен с тонкой проработкой персонажей.",
+        "Каждый NPC — уникальная личность с прописанным характером из карточек.",
+        "Диалоги должны раскрывать характер, а не просто передавать информацию.",
+        "Пиши на чистом литературном русском.",
+        "Двигай сюжет вперед, не застревай в описаниях.",
+    ),
+}
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
     "CRITICAL LANGUAGE CONTRACT:",
     "1) All narrative, dialogue, and thought text outside [[...]] markers MUST be English.",
@@ -4286,7 +4423,8 @@ def _build_story_system_prompt(
         if compact_mode
         else world_cards
     )
-    lines = [STORY_SYSTEM_PROMPT]
+    normalized_model_name = _normalize_story_model_id(model_name)
+    lines = [STORY_SYSTEM_PROMPT, *STORY_CREATIVE_WRITING_RULES, *STORY_ANTI_REPETITION_RULES]
     character_card_locks = _build_story_text_character_card_locks(world_cards)
 
     if character_card_locks:
@@ -4435,8 +4573,6 @@ def _build_story_system_prompt(
             "Если сцене нужен следующий шаг от ГГ, заканчивай ответ на точке выбора, давлении обстоятельств, вопросе NPC или новом событии, оставляя ход игроку.",
         ]
     )
-
-    normalized_model_name = _normalize_story_model_id(model_name)
     use_english_language_contract = (
         not _is_story_output_translation_model(normalized_model_name)
         and _story_user_language_code() != "ru"
@@ -4447,30 +4583,9 @@ def _build_story_system_prompt(
         else STORY_STRICT_RUSSIAN_OUTPUT_RULES
     )
     lines.extend(["", *STORY_DIALOGUE_FORMAT_RULES_V2, "", *language_contract_rules])
-    if "deepseek/" in normalized_model_name:
-        lines.extend(
-            [
-                "",
-                "CRITICAL FORMAT MODE (DeepSeek):",
-                "Нарративные абзацы пиши обычным текстом без [[NARRATOR]] и без любого другого маркера.",
-                "Маркер в начале абзаца нужен только для прямой речи и внутренних мыслей.",
-                "Абзац с репликой или мыслью должен содержать ровно один маркер в самом начале.",
-                "Никогда не вставляй новый [[...]] маркер в середину уже начатого абзаца.",
-                "Между абзацами оставляй пустую строку.",
-                "АБСОЛЮТНЫЙ ЗАПРЕТ: не используй [[GG:...]] и [[GG_THOUGHT:...]].",
-                "Никогда не придумывай за ГГ новые реплики, мысли или действия, которых игрок не писал.",
-                "Описывай только реакцию мира и NPC на уже совершенное действие игрока.",
-            ]
-        )
-    if "deepseek/" in normalized_model_name:
-        lines.extend(
-            [
-                "",
-                "DEEPSEEK INSTRUCTION OVERRIDE:",
-                "PLAYER INSTRUCTION CARDS are mandatory operating rules.",
-                "Do not bypass them even if they reduce drama, speed, or stylistic freedom.",
-            ]
-        )
+    model_specific_rules = STORY_MODEL_SPECIFIC_RULES.get(normalized_model_name)
+    if model_specific_rules:
+        lines.extend(model_specific_rules)
     if not show_npc_thoughts:
         lines.extend(
             [
@@ -6295,6 +6410,51 @@ def _select_story_history_source(
     return [latest_user_turn]
 
 
+STORY_REROLL_REFERENCE_MAX_CHARS = 1_800
+
+
+def _normalize_story_reroll_reference_text(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    if len(normalized) <= STORY_REROLL_REFERENCE_MAX_CHARS:
+        return normalized
+
+    head_chars = 1_000
+    tail_chars = 650
+    head = normalized[:head_chars].rstrip()
+    tail = normalized[-tail_chars:].lstrip()
+    if not head:
+        return tail
+    if not tail:
+        return head
+    return f"{head}\n...\n{tail}"
+
+
+def _build_story_reroll_system_message(
+    discarded_assistant_text: str | None,
+) -> dict[str, str] | None:
+    reference_text = _normalize_story_reroll_reference_text(discarded_assistant_text)
+    if not reference_text:
+        return None
+
+    return {
+        "role": "system",
+        "content": (
+            "REROLL REQUIREMENTS:\n"
+            "- You are regenerating the discarded last assistant turn for the same player action.\n"
+            "- Keep the same user intent, established facts, and current world state.\n"
+            "- Produce a genuinely different continuation.\n"
+            "- Do not reuse the discarded answer's opening, structure, sequence of beats, or conclusion.\n"
+            "- Do not paraphrase or lightly edit the discarded answer.\n\n"
+            "Discarded assistant answer:\n"
+            f"{reference_text}"
+        ),
+    }
+
+
 def _build_story_provider_messages(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
@@ -6306,6 +6466,7 @@ def _build_story_provider_messages(
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
     model_name: str | None = None,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> list[dict[str, str]]:
@@ -6389,7 +6550,11 @@ def _build_story_provider_messages(
                 }
             ]
 
-    messages_payload = [{"role": "system", "content": system_prompt}, *history]
+    messages_payload = [{"role": "system", "content": system_prompt}]
+    reroll_system_message = _build_story_reroll_system_message(reroll_discarded_assistant_text)
+    if reroll_system_message is not None:
+        messages_payload.append(reroll_system_message)
+    messages_payload.extend(history)
     if not translate_for_model:
         return messages_payload
 
@@ -10082,6 +10247,7 @@ def _iter_gigachat_story_stream_chunks(
     context_limit_chars: int,
     response_max_tokens: int | None = None,
     translate_for_model: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ):
@@ -10097,6 +10263,7 @@ def _iter_gigachat_story_stream_chunks(
         response_max_tokens=response_max_tokens,
         translate_for_model=translate_for_model,
         model_name=settings.gigachat_model,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -10220,6 +10387,7 @@ def _iter_openrouter_story_stream_chunks(
     top_p: float | None = None,
     max_tokens: int | None = None,
     translate_for_model: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ):
@@ -10249,6 +10417,7 @@ def _iter_openrouter_story_stream_chunks(
         response_max_tokens=max_tokens,
         translate_for_model=translate_for_model,
         model_name=model_name,
+        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -12902,6 +13071,7 @@ def _iter_story_provider_stream_chunks(
     story_top_r: float = 1.0,
     story_response_max_tokens: int | None = None,
     use_plot_memory: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
     raw_output_collector: dict[str, str] | None = None,
@@ -12930,6 +13100,7 @@ def _iter_story_provider_stream_chunks(
             context_limit_chars=context_limit_chars,
             response_max_tokens=effective_response_max_tokens,
             translate_for_model=input_translation_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
@@ -12987,6 +13158,7 @@ def _iter_story_provider_stream_chunks(
                 top_p=top_p_value,
                 max_tokens=effective_response_max_tokens,
                 translate_for_model=input_translation_enabled,
+                reroll_discarded_assistant_text=reroll_discarded_assistant_text,
                 show_gg_thoughts=show_gg_thoughts,
                 show_npc_thoughts=show_npc_thoughts,
             )
@@ -13014,6 +13186,7 @@ def _iter_story_provider_stream_chunks(
             top_p=top_p_value,
             max_tokens=effective_response_max_tokens,
             translate_for_model=input_translation_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         ):

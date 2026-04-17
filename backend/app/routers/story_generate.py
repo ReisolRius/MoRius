@@ -75,6 +75,27 @@ _FALLBACK_OPENROUTER_FAILURE_MARKERS = (
     "openrouter chat error (503)",
     "openrouter chat error (504)",
 )
+_FALLBACK_REROLL_REFERENCE_MAX_CHARS = 1_800
+
+
+def _normalize_story_reroll_reference_text(value: str | None) -> str:
+    normalized = str(value or "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    if len(normalized) <= _FALLBACK_REROLL_REFERENCE_MAX_CHARS:
+        return normalized
+
+    head_chars = 1_000
+    tail_chars = 650
+    head = normalized[:head_chars].rstrip()
+    tail = normalized[-tail_chars:].lstrip()
+    if not head:
+        return tail
+    if not tail:
+        return head
+    return f"{head}\n...\n{tail}"
 
 
 def _fallback_is_story_provider_failure_detail(detail: str | None) -> bool:
@@ -432,6 +453,7 @@ def _fallback_build_provider_messages(
     plot_cards: list[dict[str, str]],
     world_cards: list[dict[str, Any]],
     context_limit_chars: int,
+    reroll_discarded_assistant_text: str | None = None,
 ) -> list[dict[str, str]]:
     system_prompt = (
         "Ты рассказчик интерактивной текстовой RPG. "
@@ -517,6 +539,23 @@ def _fallback_build_provider_messages(
     history_budget = max(context_limit_chars * 3, 6_000)
     trimmed_history = _fallback_trim_history_messages(context_messages, max_chars=history_budget)
     payload_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    normalized_reroll_reference = _normalize_story_reroll_reference_text(reroll_discarded_assistant_text)
+    if normalized_reroll_reference:
+        payload_messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "REROLL REQUIREMENTS:\n"
+                    "- You are regenerating the discarded last assistant turn for the same player action.\n"
+                    "- Keep the same user intent, established facts, and current world state.\n"
+                    "- Produce a genuinely different continuation.\n"
+                    "- Do not reuse the discarded answer's opening, structure, sequence of beats, or conclusion.\n"
+                    "- Do not paraphrase or lightly edit the discarded answer.\n\n"
+                    "Discarded assistant answer:\n"
+                    f"{normalized_reroll_reference}"
+                ),
+            }
+        )
     if context_sections:
         payload_messages.append({"role": "system", "content": "\n\n".join(context_sections)})
     for message in trimmed_history:
@@ -545,6 +584,7 @@ def _fallback_iter_story_provider_chunks(
     story_top_k: int,
     story_top_r: float,
     use_plot_memory: bool,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
     raw_output_collector: dict[str, str] | None = None,
@@ -588,6 +628,7 @@ def _fallback_iter_story_provider_chunks(
             story_top_k=story_top_k,
             story_top_r=story_top_r,
             use_plot_memory=use_plot_memory,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
             raw_output_collector=raw_output_collector,
@@ -633,6 +674,7 @@ def _fallback_iter_story_provider_chunks(
             plot_cards=plot_cards if use_plot_memory else [],
             world_cards=world_cards,
             context_limit_chars=context_limit_chars,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
         ),
         "temperature": float(story_temperature),
         "repetition_penalty": float(story_repetition_penalty),

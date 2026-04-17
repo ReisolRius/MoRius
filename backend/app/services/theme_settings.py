@@ -40,10 +40,14 @@ DEFAULT_THEME_SETTINGS = {
     "custom_themes": [],
 }
 
-MAX_CUSTOM_THEMES_PER_USER = 24
+MAX_CUSTOM_THEMES_PER_USER = 5
 THEME_COLOR_MAX_LENGTH = 64
 THEME_NAME_MAX_LENGTH = 80
 THEME_DESCRIPTION_MAX_LENGTH = 240
+
+
+class ThemeSettingsValidationError(ValueError):
+    pass
 
 
 def _normalize_non_empty_string(value: Any, *, default: str = "", max_length: int) -> str:
@@ -142,6 +146,26 @@ def normalize_custom_theme(payload: Any) -> dict[str, Any] | None:
     }
 
 
+def normalize_custom_theme_collection(raw_value: Any, *, enforce_limit: bool) -> list[dict[str, Any]]:
+    ordered_themes: dict[str, dict[str, Any]] = {}
+    if isinstance(raw_value, list):
+        for item in raw_value:
+            normalized_theme = normalize_custom_theme(item)
+            if normalized_theme is None:
+                continue
+            theme_id = str(normalized_theme["id"])
+            if theme_id in ordered_themes:
+                ordered_themes.pop(theme_id, None)
+            ordered_themes[theme_id] = normalized_theme
+
+    custom_themes = list(ordered_themes.values())
+    if enforce_limit and len(custom_themes) > MAX_CUSTOM_THEMES_PER_USER:
+        raise ThemeSettingsValidationError(
+            f"Можно создать не более {MAX_CUSTOM_THEMES_PER_USER} пользовательских тем.",
+        )
+    return custom_themes[:MAX_CUSTOM_THEMES_PER_USER]
+
+
 def read_theme_settings(user: User) -> dict[str, Any]:
     raw_value = str(getattr(user, "theme_preferences", "") or "").strip()
     parsed_value: dict[str, Any] = {}
@@ -163,14 +187,10 @@ def read_theme_settings(user: User) -> dict[str, Any]:
         max_length=80,
     )
 
-    custom_themes_raw = parsed_value.get("custom_themes")
-    normalized_custom_themes: list[dict[str, Any]] = []
-    if isinstance(custom_themes_raw, list):
-        for item in custom_themes_raw[:MAX_CUSTOM_THEMES_PER_USER]:
-            normalized_theme = normalize_custom_theme(item)
-            if normalized_theme is None:
-                continue
-            normalized_custom_themes.append(normalized_theme)
+    normalized_custom_themes = normalize_custom_theme_collection(
+        parsed_value.get("custom_themes"),
+        enforce_limit=False,
+    )
 
     if active_theme_kind == THEME_KIND_CUSTOM:
         active_custom_theme = next(
@@ -195,7 +215,16 @@ def read_theme_settings(user: User) -> dict[str, Any]:
 
 
 def write_theme_settings(user: User, payload: Any) -> dict[str, Any]:
-    normalized = read_theme_settings_payload(payload)
+    current_settings = read_theme_settings(user)
+    incoming_payload = payload if isinstance(payload, dict) else {}
+    normalized = read_theme_settings_payload(
+        {
+            "active_theme_kind": incoming_payload.get("active_theme_kind", current_settings["active_theme_kind"]),
+            "active_theme_id": incoming_payload.get("active_theme_id", current_settings["active_theme_id"]),
+            "story": incoming_payload.get("story", current_settings["story"]),
+            "custom_themes": incoming_payload.get("custom_themes", current_settings["custom_themes"]),
+        }
+    )
     user.theme_preferences = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
     return normalized
 
@@ -212,14 +241,10 @@ def read_theme_settings_payload(payload: Any) -> dict[str, Any]:
         max_length=80,
     )
 
-    custom_themes: list[dict[str, Any]] = []
-    raw_custom_themes = value.get("custom_themes")
-    if isinstance(raw_custom_themes, list):
-        for item in raw_custom_themes[:MAX_CUSTOM_THEMES_PER_USER]:
-            normalized_theme = normalize_custom_theme(item)
-            if normalized_theme is None:
-                continue
-            custom_themes.append(normalized_theme)
+    custom_themes = normalize_custom_theme_collection(
+        value.get("custom_themes"),
+        enforce_limit=True,
+    )
 
     story = normalize_story_preferences(value.get("story"))
 

@@ -1917,11 +1917,10 @@ function AppHeader({
         open={isSupportDialogOpen}
         onClose={handleCloseSupportDialog}
         maxWidth="sm"
-        header={<Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Нашли баг? Сообщите нам.</Typography>}
+        header={<Typography sx={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--morius-title-text)' }}>Нашли баг? Сообщите нам.</Typography>}
         paperSx={{
           borderRadius: '14px',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
           animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
         contentSx={{ px: { xs: 1.2, sm: 2 }, pb: { xs: 1.2, sm: 1.8 } }}
@@ -1931,11 +1930,12 @@ function AppHeader({
             sx={{
               minHeight: 40,
               borderRadius: '10px',
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'var(--morius-elevated-bg)',
-              color: 'var(--morius-title-text)',
+              border: 'none',
+              backgroundColor: 'transparent',
+              color: 'var(--morius-text-secondary)',
               '&:hover': {
-                backgroundColor: 'var(--morius-button-hover)',
+                backgroundColor: 'transparent',
+                color: 'var(--morius-title-text)',
               },
             }}
           >
@@ -1944,7 +1944,7 @@ function AppHeader({
         }
       >
         <Stack spacing={1.25}>
-          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.92rem' }}>
+          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', opacity: 0.72 }}>
             Выберите удобный канал и перейдите в сообщество в один клик.
           </Typography>
           <Box
@@ -1954,7 +1954,7 @@ function AppHeader({
               gap: 1,
             }}
           >
-            <Button
+            <Box
               component="a"
               href="https://t.me/+t2ueY4x_KvE4ZWEy"
               target="_blank"
@@ -1963,26 +1963,27 @@ function AppHeader({
                 minHeight: 72,
                 borderRadius: '12px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                background:
-                  'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-active) 74%, transparent) 0%, var(--morius-elevated-bg) 100%)',
+                backgroundColor: 'var(--morius-elevated-bg)',
                 color: 'var(--morius-title-text)',
-                textTransform: 'none',
-                justifyContent: 'flex-start',
-                px: 1.2,
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                px: 1.5,
+                py: 1,
+                transition: 'background-color 160ms ease',
                 '&:hover': {
-                  background:
-                    'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-hover) 72%, transparent) 0%, var(--morius-elevated-bg) 100%)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 80%, var(--morius-text-secondary) 20%)',
                 },
               }}
             >
-              <Stack alignItems="flex-start" spacing={0.1}>
-                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2 }}>Телеграм</Typography>
+              <Stack alignItems="flex-start" spacing={0.2}>
+                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2, color: 'var(--morius-title-text)' }}>Телеграм</Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
                   https://t.me/+t2ueY4x_KvE4ZWEy
                 </Typography>
               </Stack>
-            </Button>
-            <Button
+            </Box>
+            <Box
               component="a"
               href="https://vk.com/moriusai"
               target="_blank"
@@ -1991,23 +1992,24 @@ function AppHeader({
                 minHeight: 72,
                 borderRadius: '12px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                background:
-                  'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-active) 74%, transparent) 0%, var(--morius-elevated-bg) 100%)',
+                backgroundColor: 'var(--morius-elevated-bg)',
                 color: 'var(--morius-title-text)',
-                textTransform: 'none',
-                justifyContent: 'flex-start',
-                px: 1.2,
+                textDecoration: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                px: 1.5,
+                py: 1,
+                transition: 'background-color 160ms ease',
                 '&:hover': {
-                  background:
-                    'linear-gradient(180deg, color-mix(in srgb, var(--morius-button-hover) 72%, transparent) 0%, var(--morius-elevated-bg) 100%)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 80%, var(--morius-text-secondary) 20%)',
                 },
               }}
             >
-              <Stack alignItems="flex-start" spacing={0.1}>
-                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2 }}>ВКонтакте</Typography>
+              <Stack alignItems="flex-start" spacing={0.2}>
+                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2, color: 'var(--morius-title-text)' }}>ВКонтакте</Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>https://vk.com/moriusai</Typography>
               </Stack>
-            </Button>
+            </Box>
           </Box>
           <Box
             sx={{

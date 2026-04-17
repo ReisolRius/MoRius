@@ -1579,7 +1579,8 @@ def _create_story_game_publication_copy_from_source(
             getattr(source_game, "memory_optimization_mode", None)
         ),
         story_repetition_penalty=normalize_story_repetition_penalty(
-            getattr(source_game, "story_repetition_penalty", None)
+            getattr(source_game, "story_repetition_penalty", None),
+            model_name=getattr(source_game, "story_llm_model", None),
         ),
         story_top_k=source_game.story_top_k,
         story_top_r=source_game.story_top_r,
@@ -1955,9 +1956,18 @@ def launch_story_community_world(
         memory_optimization_mode=normalize_story_memory_optimization_mode(
             getattr(world, "memory_optimization_mode", None)
         ),
-        story_top_k=normalize_story_top_k(getattr(world, "story_top_k", None)),
-        story_top_r=normalize_story_top_r(getattr(world, "story_top_r", None)),
-        story_temperature=normalize_story_temperature(getattr(world, "story_temperature", None)),
+        story_top_k=normalize_story_top_k(
+            getattr(world, "story_top_k", None),
+            model_name=getattr(world, "story_llm_model", None),
+        ),
+        story_top_r=normalize_story_top_r(
+            getattr(world, "story_top_r", None),
+            model_name=getattr(world, "story_llm_model", None),
+        ),
+        story_temperature=normalize_story_temperature(
+            getattr(world, "story_temperature", None),
+            model_name=getattr(world, "story_llm_model", None),
+        ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(world, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(world, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
@@ -2337,10 +2347,13 @@ def create_story_game(
     image_style_prompt = normalize_story_image_style_prompt(payload.image_style_prompt)
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
     memory_optimization_mode = normalize_story_memory_optimization_mode(payload.memory_optimization_mode)
-    story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
-    story_top_k = normalize_story_top_k(payload.story_top_k)
-    story_top_r = normalize_story_top_r(payload.story_top_r)
-    story_temperature = normalize_story_temperature(payload.story_temperature)
+    story_repetition_penalty = normalize_story_repetition_penalty(
+        payload.story_repetition_penalty,
+        model_name=story_llm_model,
+    )
+    story_top_k = normalize_story_top_k(payload.story_top_k, model_name=story_llm_model)
+    story_top_r = normalize_story_top_r(payload.story_top_r, model_name=story_llm_model)
+    story_temperature = normalize_story_temperature(payload.story_temperature, model_name=story_llm_model)
     show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
@@ -2462,6 +2475,8 @@ def create_story_quick_start_game(
         hero_triggers_source = [protagonist_name, hero_class, genre]
     hero_triggers = normalize_story_world_card_triggers(hero_triggers_source, fallback_title=protagonist_name)
 
+    default_story_llm_model = normalize_story_llm_model(None)
+
     game = StoryGame(
         user_id=user.id,
         title=game_title,
@@ -2482,15 +2497,15 @@ def create_story_quick_start_game(
         context_limit_chars=normalize_story_context_limit_chars(None),
         response_max_tokens=normalize_story_response_max_tokens(None),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(None),
-        story_llm_model=normalize_story_llm_model(None),
+        story_llm_model=default_story_llm_model,
         image_model=normalize_story_image_model(None),
         image_style_prompt=normalize_story_image_style_prompt(None),
         memory_optimization_enabled=normalize_story_memory_optimization_enabled(None),
         memory_optimization_mode=normalize_story_memory_optimization_mode(None),
-        story_repetition_penalty=normalize_story_repetition_penalty(None),
-        story_top_k=normalize_story_top_k(None),
-        story_top_r=normalize_story_top_r(None),
-        story_temperature=normalize_story_temperature(None),
+        story_repetition_penalty=normalize_story_repetition_penalty(None, model_name=default_story_llm_model),
+        story_top_k=normalize_story_top_k(None, model_name=default_story_llm_model),
+        story_top_r=normalize_story_top_r(None, model_name=default_story_llm_model),
+        story_temperature=normalize_story_temperature(None, model_name=default_story_llm_model),
         show_gg_thoughts=normalize_story_show_gg_thoughts(None),
         show_npc_thoughts=normalize_story_show_npc_thoughts(None),
         ambient_enabled=normalize_story_ambient_enabled(None),
@@ -2598,11 +2613,21 @@ def clone_story_game(
             getattr(source_game, "memory_optimization_mode", None)
         ),
         story_repetition_penalty=normalize_story_repetition_penalty(
-            getattr(source_game, "story_repetition_penalty", None)
+            getattr(source_game, "story_repetition_penalty", None),
+            model_name=getattr(source_game, "story_llm_model", None),
         ),
-        story_top_k=normalize_story_top_k(getattr(source_game, "story_top_k", None)),
-        story_top_r=normalize_story_top_r(getattr(source_game, "story_top_r", None)),
-        story_temperature=normalize_story_temperature(getattr(source_game, "story_temperature", None)),
+        story_top_k=normalize_story_top_k(
+            getattr(source_game, "story_top_k", None),
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
+        story_top_r=normalize_story_top_r(
+            getattr(source_game, "story_top_r", None),
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
+        story_temperature=normalize_story_temperature(
+            getattr(source_game, "story_temperature", None),
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
@@ -2728,6 +2753,12 @@ def update_story_game_settings(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    current_story_model = coerce_story_llm_model(getattr(game, "story_llm_model", None))
+    next_story_model = current_story_model
+    if "story_llm_model" in payload.model_fields_set:
+        next_story_model = normalize_story_llm_model(payload.story_llm_model)
+        game.story_llm_model = next_story_model
+    story_model_changed = next_story_model != current_story_model
     if payload.context_limit_chars is not None:
         game.context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
     if payload.response_max_tokens is not None:
@@ -2736,8 +2767,6 @@ def update_story_game_settings(
         game.response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
             payload.response_max_tokens_enabled
         )
-    if payload.story_llm_model is not None:
-        game.story_llm_model = normalize_story_llm_model(payload.story_llm_model)
     if payload.image_model is not None:
         game.image_model = normalize_story_image_model(payload.image_model)
     if payload.image_style_prompt is not None:
@@ -2748,14 +2777,25 @@ def update_story_game_settings(
     )
     if payload.memory_optimization_mode is not None:
         game.memory_optimization_mode = normalize_story_memory_optimization_mode(payload.memory_optimization_mode)
-    if payload.story_top_k is not None:
-        game.story_top_k = normalize_story_top_k(payload.story_top_k)
-    if payload.story_top_r is not None:
-        game.story_top_r = normalize_story_top_r(payload.story_top_r)
-    if payload.story_temperature is not None:
-        game.story_temperature = normalize_story_temperature(payload.story_temperature)
-    if payload.story_repetition_penalty is not None:
-        game.story_repetition_penalty = normalize_story_repetition_penalty(payload.story_repetition_penalty)
+    if "story_top_k" in payload.model_fields_set:
+        game.story_top_k = normalize_story_top_k(payload.story_top_k, model_name=next_story_model)
+    elif story_model_changed:
+        game.story_top_k = normalize_story_top_k(None, model_name=next_story_model)
+    if "story_top_r" in payload.model_fields_set:
+        game.story_top_r = normalize_story_top_r(payload.story_top_r, model_name=next_story_model)
+    elif story_model_changed:
+        game.story_top_r = normalize_story_top_r(None, model_name=next_story_model)
+    if "story_temperature" in payload.model_fields_set:
+        game.story_temperature = normalize_story_temperature(payload.story_temperature, model_name=next_story_model)
+    elif story_model_changed:
+        game.story_temperature = normalize_story_temperature(None, model_name=next_story_model)
+    if "story_repetition_penalty" in payload.model_fields_set:
+        game.story_repetition_penalty = normalize_story_repetition_penalty(
+            payload.story_repetition_penalty,
+            model_name=next_story_model,
+        )
+    elif story_model_changed:
+        game.story_repetition_penalty = normalize_story_repetition_penalty(None, model_name=next_story_model)
     if payload.show_gg_thoughts is not None:
         game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     if payload.show_npc_thoughts is not None:

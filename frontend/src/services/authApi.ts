@@ -77,6 +77,8 @@ export type CurrentUserThemeSettings = {
   story: ThemeStorySettings
   custom_themes: UserCustomTheme[]
 }
+
+export const CURRENT_USER_CUSTOM_THEME_LIMIT = 5
 export type AdminModerationAuthor = {
   id: number
   email: string
@@ -1290,7 +1292,14 @@ export async function createCurrentUserCustomTheme(payload: {
   theme: UserCustomTheme
 }): Promise<CurrentUserThemeSettings> {
   const currentSettings = await getCurrentUserThemeSettings(payload.token)
-  const nextThemes = currentSettings.custom_themes.filter((item) => item.id !== payload.theme.id).concat(payload.theme)
+  const existingThemeIndex = currentSettings.custom_themes.findIndex((item) => item.id === payload.theme.id)
+  if (existingThemeIndex < 0 && currentSettings.custom_themes.length >= CURRENT_USER_CUSTOM_THEME_LIMIT) {
+    throw new Error(`Можно создать не более ${CURRENT_USER_CUSTOM_THEME_LIMIT} пользовательских тем.`)
+  }
+  const nextThemes =
+    existingThemeIndex >= 0
+      ? currentSettings.custom_themes.map((item) => (item.id === payload.theme.id ? payload.theme : item))
+      : currentSettings.custom_themes.concat(payload.theme)
   const response = await requestJson<CurrentUserThemeSettings>(
     '/api/auth/me/theme-settings',
     {
@@ -1312,7 +1321,26 @@ export async function updateCurrentUserCustomTheme(payload: {
   token: string
   theme: UserCustomTheme
 }): Promise<CurrentUserThemeSettings> {
-  return createCurrentUserCustomTheme(payload)
+  const currentSettings = await getCurrentUserThemeSettings(payload.token)
+  const themeExists = currentSettings.custom_themes.some((item) => item.id === payload.theme.id)
+  if (!themeExists) {
+    return createCurrentUserCustomTheme(payload)
+  }
+  const response = await requestJson<CurrentUserThemeSettings>(
+    '/api/auth/me/theme-settings',
+    {
+      method: 'PUT',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({
+        active_theme_kind: 'custom',
+        active_theme_id: payload.theme.id,
+        story: payload.theme.story,
+        custom_themes: currentSettings.custom_themes.map((item) => (item.id === payload.theme.id ? payload.theme : item)),
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeCurrentUserThemeSettings(response)
 }
 
 export async function deleteCurrentUserCustomTheme(payload: {

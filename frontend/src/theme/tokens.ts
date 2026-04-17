@@ -20,6 +20,7 @@ export const moriusThemeTokens = {
     panelGradient: '#31302e',
     bootBackground: '#111111',
     baseText: '#a4adb6',
+    dialogBg: '#0F0F0F',
   },
   radii: {
     app: 12,
@@ -77,12 +78,14 @@ export type MoriusThemeColors = {
   panelGradient: string
   bootBackground: string
   baseText: string
+  dialogBg: string
 }
 
 export function createMoriusCssVariables(colors: MoriusThemeColors = moriusThemeTokens.colors) {
   return {
     '--morius-app-bg': colors.appBackground,
     '--morius-app-base': colors.appBase,
+    '--morius-dialog-bg': colors.dialogBg,
     '--morius-card-bg': colors.appSurface,
     '--morius-elevated-bg': colors.appElevated,
     '--morius-input-bg': colors.inputBg,

@@ -66,8 +66,6 @@ function HeaderAccountActions({
     }
   }, [refreshUnreadCount])
 
-  const unreadCountLabel = unreadCount > 99 ? '99+' : String(unreadCount)
-
   return (
     <Stack direction="row" spacing={2.35} alignItems="center">
       {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={avatarSize} /> : null}
@@ -108,28 +106,18 @@ function HeaderAccountActions({
             <Box
               sx={{
                 position: 'absolute',
-                top: -5,
-                right: -5,
-                minWidth: 20,
-                height: 20,
-                px: 0.5,
-                borderRadius: '999px',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
+                top: 2,
+                right: 2,
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
                 border: '2px solid var(--morius-app-bg)',
                 backgroundColor: 'var(--morius-accent)',
-                color: '#fff7f2',
-                fontSize: '0.68rem',
-                fontWeight: 800,
-                lineHeight: 1,
                 pointerEvents: 'none',
                 boxShadow: '0 8px 18px rgba(0, 0, 0, 0.22)',
                 zIndex: 2,
               }}
-            >
-              {unreadCountLabel}
-            </Box>
+            />
           ) : null}
         </Box>
       )}

@@ -17,6 +17,7 @@ from app.schemas import (
     StoryMemoryBlockUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
+from app.services.story_game_operation_lock import acquire_story_game_operation_lock
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_KEY,
     normalize_story_memory_block_content,
@@ -142,46 +143,47 @@ def optimize_story_memory(
 ) -> list[StoryMemoryBlockOut]:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    starting_assistant_message_id = _resolve_story_memory_optimize_start_assistant_message_id(
-        db=db,
-        game_id=game.id,
-        message_id=payload.message_id,
-    )
-
-    try:
-        from app.services import story_memory_pipeline
-
-        optimize_memory_fn = getattr(story_memory_pipeline, "_optimize_story_memory_state", None)
-        if not callable(optimize_memory_fn):
-            raise RuntimeError("Story memory optimization helper is unavailable")
-        optimize_memory_fn(
+    with acquire_story_game_operation_lock(game.id, operation="story_memory_optimize"):
+        starting_assistant_message_id = _resolve_story_memory_optimize_start_assistant_message_id(
             db=db,
-            game=game,
-            starting_assistant_message_id=starting_assistant_message_id,
-            max_assistant_messages=int(payload.max_assistant_messages or 48),
-            max_model_requests=2,
-            require_model_compaction=True,
-        )
-        db.commit()
-    except Exception as exc:
-        detail = str(exc).strip() or "Failed to optimize story memory"
-        logger.exception(
-            "Story memory optimize request failed: game_id=%s message_id=%s starting_assistant_message_id=%s",
-            game.id,
-            payload.message_id,
-            starting_assistant_message_id,
-        )
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to optimize story memory: {detail[:420]}",
+            game_id=game.id,
+            message_id=payload.message_id,
         )
 
-    memory_blocks = list_story_memory_blocks(db, game.id)
-    return [StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks]
+        try:
+            from app.services import story_memory_pipeline
+
+            optimize_memory_fn = getattr(story_memory_pipeline, "_optimize_story_memory_state", None)
+            if not callable(optimize_memory_fn):
+                raise RuntimeError("Story memory optimization helper is unavailable")
+            optimize_memory_fn(
+                db=db,
+                game=game,
+                starting_assistant_message_id=starting_assistant_message_id,
+                max_assistant_messages=int(payload.max_assistant_messages or 48),
+                max_model_requests=2,
+                require_model_compaction=True,
+            )
+            db.commit()
+        except Exception as exc:
+            detail = str(exc).strip() or "Failed to optimize story memory"
+            logger.exception(
+                "Story memory optimize request failed: game_id=%s message_id=%s starting_assistant_message_id=%s",
+                game.id,
+                payload.message_id,
+                starting_assistant_message_id,
+            )
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to optimize story memory: {detail[:420]}",
+            )
+
+        memory_blocks = list_story_memory_blocks(db, game.id)
+        return [StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks]
 
 
 @router.delete("/api/story/games/{game_id}/memory-blocks/{block_id}", response_model=MessageResponse)

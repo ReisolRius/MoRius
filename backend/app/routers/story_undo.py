@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import StoryPlotCardChangeEvent, StoryWorldCardChangeEvent
 from app.schemas import MessageResponse
 from app.services.auth_identity import get_current_user
+from app.services.story_game_operation_lock import acquire_story_game_operation_lock
 from app.services.story_queries import get_user_story_game_or_404
 from app.services.story_undo import (
     redo_story_assistant_step,
@@ -27,7 +28,8 @@ def undo_story_assistant_step_route(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    action = undo_story_assistant_step(db=db, game=game)
+    with acquire_story_game_operation_lock(game.id, operation="story_assistant_step_undo"):
+        action = undo_story_assistant_step(db=db, game=game)
 
     if action == "assistant_image_deleted":
         message = "Assistant image reverted"
@@ -48,7 +50,8 @@ def redo_story_assistant_step_route(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    action = redo_story_assistant_step(db=db, game=game)
+    with acquire_story_game_operation_lock(game.id, operation="story_assistant_step_redo"):
+        action = redo_story_assistant_step(db=db, game=game)
 
     if action == "assistant_image_restored":
         message = "Assistant image restored"
@@ -70,16 +73,17 @@ def undo_story_world_card_event_route(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    event = db.scalar(
-        select(StoryWorldCardChangeEvent).where(
-            StoryWorldCardChangeEvent.id == event_id,
-            StoryWorldCardChangeEvent.game_id == game.id,
+    with acquire_story_game_operation_lock(game.id, operation="story_world_event_undo"):
+        event = db.scalar(
+            select(StoryWorldCardChangeEvent).where(
+                StoryWorldCardChangeEvent.id == event_id,
+                StoryWorldCardChangeEvent.game_id == game.id,
+            )
         )
-    )
-    if event is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card event not found")
+        if event is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card event not found")
 
-    undo_story_world_card_change_event(db, game, event)
+        undo_story_world_card_change_event(db, game, event)
     return MessageResponse(message="World card change reverted")
 
 
@@ -92,14 +96,15 @@ def undo_story_plot_card_event_route(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    event = db.scalar(
-        select(StoryPlotCardChangeEvent).where(
-            StoryPlotCardChangeEvent.id == event_id,
-            StoryPlotCardChangeEvent.game_id == game.id,
+    with acquire_story_game_operation_lock(game.id, operation="story_plot_event_undo"):
+        event = db.scalar(
+            select(StoryPlotCardChangeEvent).where(
+                StoryPlotCardChangeEvent.id == event_id,
+                StoryPlotCardChangeEvent.game_id == game.id,
+            )
         )
-    )
-    if event is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card event not found")
+        if event is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plot card event not found")
 
-    undo_story_plot_card_change_event(db, game, event)
+        undo_story_plot_card_change_event(db, game, event)
     return MessageResponse(message="Plot card change reverted")

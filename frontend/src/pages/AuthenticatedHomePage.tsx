@@ -119,14 +119,7 @@ const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HOME_NEWS_SKELETON_KEYS = Array.from({ length: 3 }, (_, index) => `home-news-skeleton-${index}`)
 const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 3 }, (_, index) => `home-community-skeleton-${index}`)
 const HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
-const HOME_FOOTER_SOCIAL_LINKS: Array<{ label: string; href: string; external?: boolean }> = [
-  { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
-  { label: 'Телеграмм', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
-]
-const HOME_FOOTER_INFO_LINKS: Array<{ label: string; path: string }> = [
-  { label: 'Политика конфиденциальности', path: '/privacy-policy' },
-  { label: 'Пользовательское соглашение', path: '/terms-of-service' },
-]
+
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const DASHBOARD_RECENT_GAME_LIMIT = 12
 const HOME_COMMUNITY_WORLD_LIMIT = 10
@@ -1668,97 +1661,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             )}
           </Box>
 
-          <Box component="footer" sx={{ mt: 2.8, pb: 0.3 }}>
-            <Box
-              sx={{
-                borderRadius: 'var(--morius-radius)',
-                border: `var(--morius-border-width) solid color-mix(in srgb, ${APP_BORDER_COLOR} 80%, transparent)`,
-                background:
-                  'linear-gradient(145deg, color-mix(in srgb, var(--morius-card-bg) 94%, #03070d 6%), color-mix(in srgb, var(--morius-card-bg) 89%, #02060b 11%))',
-                px: { xs: 1.4, md: 2.2 },
-                py: { xs: 1.6, md: 2.1 },
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: { xs: 1.8, md: 2.6 },
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: '1.25fr 0.8fr 1.25fr' },
-                  mb: 1.4,
-                }}
-              >
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>О проекте</Typography>
-                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', maxWidth: 320, lineHeight: 1.48 }}>
-                    Текстовое приключение, где ИИ ведёт игру, а ты решаешь, кем стать и как закончится история
-                  </Typography>
-                </Stack>
 
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>Соц сети</Typography>
-                  {HOME_FOOTER_SOCIAL_LINKS.map((link) => (
-                    <Typography
-                      key={link.label}
-                      component="a"
-                      href={link.href}
-                      target={link.external ? '_blank' : undefined}
-                      rel={link.external ? 'noopener noreferrer' : undefined}
-                      sx={{
-                        color: APP_TEXT_SECONDARY,
-                        textDecoration: 'none',
-                        fontSize: '0.92rem',
-                        width: 'fit-content',
-                        transition: 'color 170ms ease',
-                        '&:hover': {
-                          color: APP_TEXT_PRIMARY,
-                        },
-                      }}
-                    >
-                      {link.label}
-                    </Typography>
-                  ))}
-                </Stack>
-
-                <Stack spacing={0.55}>
-                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 700 }}>Информация</Typography>
-                  {HOME_FOOTER_INFO_LINKS.map((link) => (
-                    <Box
-                      key={link.label}
-                      component="button"
-                      type="button"
-                      onClick={() => onNavigate(link.path)}
-                      sx={{
-                        p: 0,
-                        m: 0,
-                        border: 'none',
-                        background: 'none',
-                        color: APP_TEXT_SECONDARY,
-                        textAlign: 'left',
-                        font: 'inherit',
-                        fontSize: '0.92rem',
-                        width: 'fit-content',
-                        cursor: 'pointer',
-                        transition: 'color 170ms ease',
-                        '&:hover': {
-                          color: APP_TEXT_PRIMARY,
-                        },
-                      }}
-                    >
-                      {link.label}
-                    </Box>
-                  ))}
-                </Stack>
-              </Box>
-
-              <Typography sx={{ textAlign: 'center', color: APP_TEXT_SECONDARY, fontSize: '0.84rem' }}>
-                MoRius ©
-              </Typography>
-            </Box>
-
-            <Typography sx={{ textAlign: 'center', color: APP_TEXT_SECONDARY, fontSize: '0.78rem', mt: 1.05 }}>
-              Бондарук Александр Георгиевич | ИНН: 772702320496 | ОГРНИП: 325774600487692 | Почта: alexunderstood8@gmail.com
-            </Typography>
-          </Box>
         </Box>
       </Box>
 

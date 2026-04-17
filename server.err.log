@@ -1,0 +1,39 @@
+Failed to import router module app.routers.story_map for service app startup
+Traceback (most recent call last):
+  File "C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\microservices\factory.py", line 83, in _include_router_module
+    module = importlib.import_module(module_path)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\routers\story_map.py", line 11, in <module>
+    from app.schemas import (
+    ...<7 lines>...
+    )
+ImportError: cannot import name 'StoryMapImageGenerateOut' from 'app.schemas' (C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\schemas.py)
+Failed to import router module app.routers.story_turn_audio for service app startup
+Traceback (most recent call last):
+  File "C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\microservices\factory.py", line 83, in _include_router_module
+    module = importlib.import_module(module_path)
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3312.0_x64__qbz5n2kfra8p0\Lib\importlib\__init__.py", line 88, in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap>", line 1387, in _gcd_import
+  File "<frozen importlib._bootstrap>", line 1360, in _find_and_load
+  File "<frozen importlib._bootstrap>", line 1331, in _find_and_load_unlocked
+  File "<frozen importlib._bootstrap>", line 935, in _load_unlocked
+  File "<frozen importlib._bootstrap_external>", line 1023, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\routers\story_turn_audio.py", line 7, in <module>
+    from app.schemas import StoryTurnAudioGenerateOut, StoryTurnAudioGenerateRequest
+ImportError: cannot import name 'StoryTurnAudioGenerateOut' from 'app.schemas' (C:\Users\alexu\OneDrive\Desktop\MoRius\backend\app\schemas.py)
+INFO:     Started server process [54776]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+Story generate request failed before stream start: game_id=723 status=401 detail=Missing authorization token
