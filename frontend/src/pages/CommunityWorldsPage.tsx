@@ -1983,7 +1983,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           px: { xs: 2, md: 3.2 },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
+        <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
           {actionError ? (
             <Alert severity="error" onClose={() => setActionError('')} sx={{ mb: 2.2, borderRadius: '12px' }}>
               {actionError}
@@ -2024,10 +2024,10 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '5px',
-                    height: '26px',
-                    px: '10px',
+                    height: '38px',
+                    px: '16px',
                     borderRadius: '48px',
-                    fontSize: '12px',
+                    fontSize: '16px',
                     fontWeight: 700,
                     fontFamily: 'inherit',
                     lineHeight: 1,
@@ -2098,8 +2098,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     sx={{
                       flex: '0 0 auto',
                       whiteSpace: 'nowrap',
-                      px: '12px',
-                      py: '5px',
+                      px: '14px',
+                      py: '8px',
                       border: '1px solid',
                       borderColor: isSelected
                         ? 'color-mix(in srgb, var(--morius-accent) 28%, transparent)'
@@ -2107,7 +2107,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                       outline: 'none',
                       cursor: 'pointer',
                       borderRadius: '9999px',
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: isSelected ? 700 : 500,
                       fontFamily: 'inherit',
                       lineHeight: 1.4,
@@ -2144,14 +2144,14 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     onChange={(event: SelectChangeEvent) => setWorldSortMode(event.target.value as CommunityWorldSortMode)}
                     IconComponent={() => null}
                     sx={{
-                      height: '30px',
+                      height: '38px',
                       color: APP_TEXT_PRIMARY,
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       '& .MuiSelect-select': {
                         py: '0 !important',
-                        pl: '10px',
-                        pr: '26px !important',
+                        pl: '14px',
+                        pr: '30px !important',
                         height: '100%',
                         display: 'flex',
                         alignItems: 'center',
@@ -2162,7 +2162,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
                     {WORLD_SORT_OPTIONS.map((o) => (
-                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '16px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
                   <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
@@ -2176,14 +2176,14 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     onChange={(event: SelectChangeEvent) => setWorldAgeFilter(event.target.value as CommunityWorldAgeFilter)}
                     IconComponent={() => null}
                     sx={{
-                      height: '30px',
+                      height: '38px',
                       color: APP_TEXT_PRIMARY,
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       '& .MuiSelect-select': {
                         py: '0 !important',
-                        pl: '10px',
-                        pr: '26px !important',
+                        pl: '14px',
+                        pr: '30px !important',
                         height: '100%',
                         display: 'flex',
                         alignItems: 'center',
@@ -2194,7 +2194,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
                     {AGE_FILTER_OPTIONS.map((o) => (
-                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '16px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
                   <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
@@ -2214,14 +2214,14 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     }}
                     IconComponent={() => null}
                     sx={{
-                      height: '30px',
+                      height: '38px',
                       color: APP_TEXT_PRIMARY,
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       '& .MuiSelect-select': {
                        py: '0 !important',
-                        pl: '10px',
-                        pr: '26px !important',
+                        pl: '14px',
+                        pr: '30px !important',
                         height: '100%',
                         display: 'flex',
                         alignItems: 'center',
@@ -2232,7 +2232,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
                     {CARD_SORT_OPTIONS.map((o) => (
-                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '16px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
                   <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>
@@ -2249,14 +2249,14 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     }}
                     IconComponent={() => null}
                     sx={{
-                      height: '30px',
+                      height: '38px',
                       color: APP_TEXT_PRIMARY,
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       '& .MuiSelect-select': {
                         py: '0 !important',
-                        pl: '10px',
-                        pr: '26px !important',
+                        pl: '14px',
+                        pr: '30px !important',
                         height: '100%',
                         display: 'flex',
                         alignItems: 'center',
@@ -2267,7 +2267,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
                   >
                     {ADDED_FILTER_OPTIONS.map((o) => (
-                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
+                      <MenuItem key={o.value} value={o.value} sx={{ fontSize: '16px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{o.label}</MenuItem>
                     ))}
                   </Select>
                   <Box sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)', color: APP_TEXT_SECONDARY, pointerEvents: 'none', display: 'grid', placeItems: 'center' }}>

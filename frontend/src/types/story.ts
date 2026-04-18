@@ -196,7 +196,7 @@ export type StoryMemoryBlock = {
 }
 
 export type StoryWorldCardSource = 'user' | 'ai'
-export type StoryWorldCardKind = 'world' | 'npc' | 'main_hero'
+export type StoryWorldCardKind = 'world' | 'world_profile' | 'npc' | 'main_hero'
 
 export type StoryWorldCard = {
   id: number
@@ -209,6 +209,7 @@ export type StoryWorldCard = {
   health_status: string
   triggers: string[]
   kind: StoryWorldCardKind
+  detail_type: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number
@@ -233,6 +234,7 @@ export type StoryWorldCardSnapshot = {
   health_status: string
   triggers: string[]
   kind: StoryWorldCardKind
+  detail_type: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number
@@ -319,6 +321,31 @@ export type StoryCommunityCharacterSummary = {
 export type StoryCharacterRace = {
   id: number
   name: string
+  created_at: string
+  updated_at: string
+}
+
+export type StoryWorldDetailType = {
+  id: number
+  name: string
+  created_at: string
+  updated_at: string
+}
+
+export type StoryWorldCardTemplateKind = 'world' | 'world_profile'
+
+export type StoryWorldCardTemplate = {
+  id: number
+  user_id: number
+  title: string
+  content: string
+  triggers: string[]
+  kind: StoryWorldCardTemplateKind
+  detail_type: string
+  avatar_url: string | null
+  avatar_original_url?: string | null
+  avatar_scale: number
+  memory_turns: number | null
   created_at: string
   updated_at: string
 }

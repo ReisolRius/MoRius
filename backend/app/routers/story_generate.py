@@ -539,23 +539,6 @@ def _fallback_build_provider_messages(
     history_budget = max(context_limit_chars * 3, 6_000)
     trimmed_history = _fallback_trim_history_messages(context_messages, max_chars=history_budget)
     payload_messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
-    normalized_reroll_reference = _normalize_story_reroll_reference_text(reroll_discarded_assistant_text)
-    if normalized_reroll_reference:
-        payload_messages.append(
-            {
-                "role": "system",
-                "content": (
-                    "REROLL REQUIREMENTS:\n"
-                    "- You are regenerating the discarded last assistant turn for the same player action.\n"
-                    "- Keep the same user intent, established facts, and current world state.\n"
-                    "- Produce a genuinely different continuation.\n"
-                    "- Do not reuse the discarded answer's opening, structure, sequence of beats, or conclusion.\n"
-                    "- Do not paraphrase or lightly edit the discarded answer.\n\n"
-                    "Discarded assistant answer:\n"
-                    f"{normalized_reroll_reference}"
-                ),
-            }
-        )
     if context_sections:
         payload_messages.append({"role": "system", "content": "\n\n".join(context_sections)})
     for message in trimmed_history:

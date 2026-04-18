@@ -935,7 +935,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           px: { xs: 2, md: 3.2 },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
+          <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
           {errorMessage ? (
             <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 2.2, borderRadius: '12px' }}>
               {errorMessage}
@@ -962,15 +962,15 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 value={sortMode}
                 onChange={(event: SelectChangeEvent) => setSortMode(event.target.value as GamesSortMode)}
                 IconComponent={() => null}
-                sx={{
-                  height: '30px',
+              sx={{
+                  height: '38px',
                   color: APP_TEXT_PRIMARY,
-                  fontSize: '12px',
+                  fontSize: '16px',
                   fontWeight: 700,
                   '& .MuiSelect-select': {
                     py: '0 !important',
-                    pl: '10px',
-                    pr: '26px !important',
+                    pl: '14px',
+                    pr: '30px !important',
                     height: '100%',
                     display: 'flex',
                     alignItems: 'center',
@@ -981,7 +981,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 MenuProps={{ PaperProps: { sx: { mt: 0.5, borderRadius: '12px', border: `0.5px solid ${APP_BORDER_COLOR}`, backgroundColor: APP_CARD_BACKGROUND, color: APP_TEXT_PRIMARY, boxShadow: '0 18px 36px rgba(0,0,0,0.5)' } } }}
               >
                 {SORT_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value} sx={{ fontSize: '12px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>
+                  <MenuItem key={option.value} value={option.value} sx={{ fontSize: '16px', fontWeight: 700, color: APP_TEXT_PRIMARY, '&.Mui-selected': { backgroundColor: APP_BUTTON_ACTIVE }, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>
                     {option.label}
                   </MenuItem>
                 ))}
@@ -999,13 +999,13 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                 onClick={handleOpenWorldCreator}
                 data-tour-id="my-games-create-button"
                 sx={{
-                  height: '30px',
-                  px: '12px',
+                  height: '38px',
+                  px: '16px',
                   borderRadius: '9999px',
                   border: 'none',
                   backgroundColor: APP_CARD_BACKGROUND,
                   color: APP_TEXT_PRIMARY,
-                  fontSize: '12px',
+                  fontSize: '16px',
                   fontWeight: 700,
                   fontFamily: 'inherit',
                   cursor: 'pointer',

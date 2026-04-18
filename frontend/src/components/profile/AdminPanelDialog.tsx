@@ -84,6 +84,7 @@ const ADMIN_BAN_DURATION_MAX_LENGTH = 5
 const ADMIN_USER_PAGE_SIZE = 40
 
 type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports'
+type AdminUserSortMode = 'created_desc' | 'coins_desc' | 'coins_asc'
 
 type ModerationWorldDraft = AdminModerationWorldDetail & {
   game: StoryGameSummary
@@ -274,6 +275,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
   const [activeTab, setActiveTab] = useState<AdminPanelTab>('users')
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminManagedUser[]>([])
+  const [userSortMode, setUserSortMode] = useState<AdminUserSortMode>('created_desc')
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null)
   const [tokenAmountDraft, setTokenAmountDraft] = useState('100')
   const [banDurationDraft, setBanDurationDraft] = useState('24')
@@ -385,6 +387,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
           query: searchValue,
           limit: ADMIN_USER_PAGE_SIZE,
           offset,
+          sort: userSortMode,
         })
         const nextUsers = response.users
         setUsers((previous) => {
@@ -421,7 +424,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
         setIsLoadingUsers(false)
       }
     },
-    [authToken, canUseAdminPanel, open],
+    [authToken, canUseAdminPanel, open, userSortMode],
   )
 
   const handleUsersListScroll = useCallback(() => {
@@ -611,7 +614,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
       return
     }
     void loadBugReports()
-  }, [activeTab, loadBugReports, loadModerationQueue, loadReports, loadUsers, open, query])
+  }, [activeTab, loadBugReports, loadModerationQueue, loadReports, loadUsers, open, query, userSortMode])
 
   useEffect(() => {
     handleUsersListScroll()
@@ -634,6 +637,7 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
     }
     setActiveTab('users')
     setQuery('')
+    setUserSortMode('created_desc')
     setUsers([])
     setUsersTotalCount(0)
     setHasMoreUsers(false)
@@ -1301,16 +1305,32 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
 
             {activeTab === 'users' ? (
               <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
-                <TextField
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value.slice(0, ADMIN_SEARCH_QUERY_MAX_LENGTH))}
-                  placeholder="Введите email или ник"
-                  size="small"
-                  disabled={!canUseAdminPanel || isApplyingUserAction}
-                  inputProps={{ maxLength: ADMIN_SEARCH_QUERY_MAX_LENGTH }}
-                  helperText={<TextLimitIndicator currentLength={query.length} maxLength={ADMIN_SEARCH_QUERY_MAX_LENGTH} />}
-                  FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-                />
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
+                  <TextField
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value.slice(0, ADMIN_SEARCH_QUERY_MAX_LENGTH))}
+                    placeholder="Введите email или ник"
+                    size="small"
+                    disabled={!canUseAdminPanel || isApplyingUserAction}
+                    inputProps={{ maxLength: ADMIN_SEARCH_QUERY_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={query.length} maxLength={ADMIN_SEARCH_QUERY_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    select
+                    size="small"
+                    label="Сортировка"
+                    value={userSortMode}
+                    onChange={(event) => setUserSortMode(event.target.value as AdminUserSortMode)}
+                    disabled={!canUseAdminPanel || isApplyingUserAction}
+                    sx={{ width: { xs: '100%', md: 260 }, flexShrink: 0 }}
+                  >
+                    <MenuItem value="created_desc">Новые сначала</MenuItem>
+                    <MenuItem value="coins_desc">По солам: сначала больше</MenuItem>
+                    <MenuItem value="coins_asc">По солам: сначала меньше</MenuItem>
+                  </TextField>
+                </Stack>
 
                 <Box
                   ref={usersListContainerRef}

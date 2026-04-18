@@ -9,6 +9,7 @@ import {
   type MoriusThemeId,
   type MoriusThemePreset,
 } from './presets'
+import { resolveDialogBgFromThemeColors } from './customTheme'
 import { createMoriusCssVariables } from './tokens'
 
 export type StoryHistoryFontFamilyId = 'default' | 'inter' | 'verdana'
@@ -167,6 +168,23 @@ function readInitialCustomTheme(): MoriusThemePreset | null {
       colors: {
         ...baseTheme.colors,
         ...(parsed.colors ?? {}),
+        dialogBg: resolveDialogBgFromThemeColors(
+          {
+            dialogBg: typeof (parsed.colors as { dialogBg?: unknown } | undefined)?.dialogBg === 'string'
+              ? (parsed.colors as { dialogBg: string }).dialogBg
+              : undefined,
+            appBase: typeof (parsed.colors as { appBase?: unknown } | undefined)?.appBase === 'string'
+              ? (parsed.colors as { appBase: string }).appBase
+              : undefined,
+            appSurface: typeof (parsed.colors as { appSurface?: unknown } | undefined)?.appSurface === 'string'
+              ? (parsed.colors as { appSurface: string }).appSurface
+              : undefined,
+            inputBg: typeof (parsed.colors as { inputBg?: unknown } | undefined)?.inputBg === 'string'
+              ? (parsed.colors as { inputBg: string }).inputBg
+              : undefined,
+          },
+          baseTheme.colors.dialogBg,
+        ),
       },
       story:
         parsed.story && typeof parsed.story === 'object'

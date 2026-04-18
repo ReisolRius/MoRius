@@ -10,6 +10,8 @@ from app.models import (
     CoinPurchase,
     StoryCharacter,
     StoryCharacterRace,
+    StoryWorldCardTemplate,
+    StoryWorldDetailType,
     StoryBugReport,
     StoryCommunityCharacterAddition,
     StoryCommunityCharacterReport,
@@ -87,6 +89,8 @@ def _ensure_user_account_columns_exist() -> None:
 
     user_columns = {column["name"] for column in inspector.get_columns(User.__tablename__)}
     alter_statements: list[str] = []
+    if "avatar_url" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN avatar_url VARCHAR(1024)")
     if "coins" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
     if "profile_description" not in user_columns:
@@ -99,6 +103,14 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN show_public_worlds INTEGER NOT NULL DEFAULT 0")
     if "show_private_worlds" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN show_private_worlds INTEGER NOT NULL DEFAULT 0")
+    if "show_public_characters" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_characters INTEGER NOT NULL DEFAULT 0")
+    if "show_public_instruction_templates" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_instruction_templates INTEGER NOT NULL DEFAULT 0")
+    if "google_sub" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)")
+    if "auth_provider" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) NOT NULL DEFAULT 'email'")
     if "role" not in user_columns:
         alter_statements.append(f"ALTER TABLE users ADD COLUMN role VARCHAR(32) NOT NULL DEFAULT '{DEFAULT_USER_ROLE}'")
     if "level" not in user_columns:
@@ -109,6 +121,34 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN ban_expires_at TIMESTAMP WITH TIME ZONE")
     if "onboarding_guide_state" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN onboarding_guide_state TEXT NOT NULL DEFAULT '{}'")
+    if "theme_preferences" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN theme_preferences TEXT NOT NULL DEFAULT '{}'")
+    if "email_notifications_enabled" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN email_notifications_enabled INTEGER NOT NULL DEFAULT 0")
+    if "notifications_enabled" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notifications_enabled INTEGER NOT NULL DEFAULT 1")
+    if "notify_comment_reply" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_comment_reply INTEGER NOT NULL DEFAULT 1")
+    if "notify_world_comment" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_world_comment INTEGER NOT NULL DEFAULT 1")
+    if "notify_publication_review" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_publication_review INTEGER NOT NULL DEFAULT 1")
+    if "notify_new_follower" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_new_follower INTEGER NOT NULL DEFAULT 1")
+    if "notify_moderation_report" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_moderation_report INTEGER NOT NULL DEFAULT 1")
+    if "notify_moderation_queue" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN notify_moderation_queue INTEGER NOT NULL DEFAULT 1")
+    if "daily_reward_claimed_days" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claimed_days INTEGER NOT NULL DEFAULT 0")
+    if "daily_reward_last_claimed_at" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_last_claimed_at TIMESTAMP WITH TIME ZONE")
+    if "daily_reward_cycle_started_at" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_cycle_started_at TIMESTAMP WITH TIME ZONE")
+    if "daily_reward_claim_month" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_month VARCHAR(7) NOT NULL DEFAULT ''")
+    if "daily_reward_claim_mask" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_mask INTEGER NOT NULL DEFAULT 0")
 
     if not alter_statements:
         return
@@ -397,6 +437,11 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             f"ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT '{defaults.world_kind}'"
         )
+    if "detail_type" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN detail_type VARCHAR(120) NOT NULL DEFAULT ''"
+        )
     if "avatar_url" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -460,28 +505,6 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
-
-
-def _ensure_story_instruction_card_extended_columns_exist() -> None:
-    inspector = inspect(engine)
-    if not inspector.has_table(StoryInstructionCard.__tablename__):
-        return
-
-    existing_columns = {column["name"] for column in inspector.get_columns(StoryInstructionCard.__tablename__)}
-    alter_statements: list[str] = []
-
-    if "is_active" not in existing_columns:
-        alter_statements.append(
-            f"ALTER TABLE {StoryInstructionCard.__tablename__} "
-            "ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
-        )
-
-    if not alter_statements:
-        return
-
-    with engine.begin() as connection:
-        for statement in alter_statements:
-            _execute_schema_statement(connection, statement)
         if "avatar_original_url" not in existing_columns:
             connection.execute(
                 text(
@@ -505,6 +528,28 @@ def _ensure_story_instruction_card_extended_columns_exist() -> None:
                     f"WHERE kind = '{defaults.main_hero_kind}'"
                 )
             )
+
+
+def _ensure_story_instruction_card_extended_columns_exist() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(StoryInstructionCard.__tablename__):
+        return
+
+    existing_columns = {column["name"] for column in inspector.get_columns(StoryInstructionCard.__tablename__)}
+    alter_statements: list[str] = []
+
+    if "is_active" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryInstructionCard.__tablename__} "
+            "ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+        )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
 
 
 def _ensure_story_plot_card_extended_columns_exist() -> None:
@@ -940,6 +985,14 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryCharacterRace.__tablename__} (user_id, name, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_character_races_user_name_key_id "
         f"ON {StoryCharacterRace.__tablename__} (user_id, name_key, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_detail_types_user_name_id "
+        f"ON {StoryWorldDetailType.__tablename__} (user_id, name, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_detail_types_user_name_key_id "
+        f"ON {StoryWorldDetailType.__tablename__} (user_id, name_key, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_card_templates_user_kind_id "
+        f"ON {StoryWorldCardTemplate.__tablename__} (user_id, kind, id)",
+        "CREATE INDEX IF NOT EXISTS ix_story_world_card_templates_user_updated_id "
+        f"ON {StoryWorldCardTemplate.__tablename__} (user_id, updated_at, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_id_id "
         f"ON {StoryWorldCardChangeEvent.__tablename__} (game_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_story_world_events_game_undone_id "
@@ -1015,6 +1068,8 @@ LEGACY_STORY_AVATAR_MEDIA_SPECS: dict[str, tuple[type[object], str]] = {
     "story-character-avatar-original": (StoryCharacter, "avatar_original_url"),
     "story-world-card-avatar": (StoryWorldCard, "avatar_url"),
     "story-world-card-avatar-original": (StoryWorldCard, "avatar_original_url"),
+    "story-world-card-template-avatar": (StoryWorldCardTemplate, "avatar_url"),
+    "story-world-card-template-avatar-original": (StoryWorldCardTemplate, "avatar_original_url"),
 }
 
 
@@ -1134,6 +1189,37 @@ def _repair_legacy_story_avatar_media_tokens() -> None:
                 changed = True
             if resolved_avatar_original_url != getattr(world_card, "avatar_original_url", None):
                 world_card.avatar_original_url = resolved_avatar_original_url
+                changed = True
+
+        template_records = (
+            db.query(StoryWorldCardTemplate)
+            .filter(
+                or_(
+                    StoryWorldCardTemplate.avatar_url.like(f"{MEDIA_URL_PREFIX}%"),
+                    StoryWorldCardTemplate.avatar_original_url.like(f"{MEDIA_URL_PREFIX}%"),
+                )
+            )
+            .all()
+        )
+        for template in template_records:
+            resolved_avatar_url = _resolve_legacy_story_avatar_media_value(
+                getattr(template, "avatar_url", None),
+                db=db,
+            )
+            resolved_avatar_original_url = _resolve_legacy_story_avatar_media_value(
+                getattr(template, "avatar_original_url", None),
+                db=db,
+            )
+            if resolved_avatar_url is None and resolved_avatar_original_url is not None:
+                resolved_avatar_url = resolved_avatar_original_url
+            if resolved_avatar_original_url is None and resolved_avatar_url is not None:
+                resolved_avatar_original_url = resolved_avatar_url
+
+            if resolved_avatar_url != getattr(template, "avatar_url", None):
+                template.avatar_url = resolved_avatar_url
+                changed = True
+            if resolved_avatar_original_url != getattr(template, "avatar_original_url", None):
+                template.avatar_original_url = resolved_avatar_original_url
                 changed = True
 
         if changed:

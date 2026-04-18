@@ -52,6 +52,17 @@ const defaultActionsSx = {
   columnGap: 'var(--morius-content-gap)',
 } as const
 
+function flattenSx(parts: Array<SxProps<Theme> | undefined>): SxProps<Theme> {
+  const flattened = parts.flatMap((part) => {
+    if (!part) {
+      return []
+    }
+    return Array.isArray(part) ? part : [part]
+  })
+
+  return flattened.length === 1 ? flattened[0] : flattened
+}
+
 function BaseDialog({
   open,
   onClose,
@@ -70,11 +81,12 @@ function BaseDialog({
   showCloseButton = true,
 }: BaseDialogProps) {
   const mobileSheet = useMobileDialogSheet({ onClose })
-  const mergedPaperSx = paperSx ? ([defaultPaperSx, paperSx] as SxProps<Theme>) : defaultPaperSx
-  const mergedTitleSx = titleSx ? ([defaultTitleSx, titleSx] as SxProps<Theme>) : defaultTitleSx
+  const mergedPaperSx = flattenSx([defaultPaperSx, paperSx, mobileSheet.paperSx])
+  const mergedTitleSx = flattenSx([defaultTitleSx, titleSx])
   const contentBaseSx = header ? defaultContentSxWithHeader : defaultContentSxWithoutHeader
-  const mergedContentSx = contentSx ? ([contentBaseSx, contentSx] as SxProps<Theme>) : contentBaseSx
-  const mergedActionsSx = actionsSx ? ([defaultActionsSx, actionsSx] as SxProps<Theme>) : defaultActionsSx
+  const mergedContentSx = flattenSx([contentBaseSx, contentSx])
+  const mergedActionsSx = flattenSx([defaultActionsSx, actionsSx])
+  const mergedBackdropSx = flattenSx([mobileSheet.backdropSx, backdropSx])
 
   return (
     <Dialog
@@ -105,11 +117,11 @@ function BaseDialog({
         },
       }}
       BackdropProps={{
-        sx: backdropSx ? ([mobileSheet.backdropSx, backdropSx] as SxProps<Theme>) : mobileSheet.backdropSx,
+        sx: mergedBackdropSx,
       }}
       PaperProps={{
         ...mobileSheet.paperTouchHandlers,
-        sx: [mergedPaperSx, mobileSheet.paperSx] as SxProps<Theme>,
+        sx: mergedPaperSx,
       }}
     >
       {showCloseButton && !mobileSheet.isMobileSheet ? (

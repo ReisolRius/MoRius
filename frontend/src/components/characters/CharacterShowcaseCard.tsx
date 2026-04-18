@@ -127,6 +127,7 @@ function CharacterShowcaseCard({
       >
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Typography
+            title={title}
             sx={{
               color: 'var(--morius-text-primary)',
               fontSize: '1.06rem',
@@ -134,6 +135,9 @@ function CharacterShowcaseCard({
               lineHeight: 1.16,
               minWidth: 0,
               flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}
           >
             {title}

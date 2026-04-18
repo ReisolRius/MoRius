@@ -139,6 +139,7 @@ export type ProfileView = {
   is_following: boolean
   followers_count: number
   subscriptions_count: number
+  world_card_templates_count: number
   privacy: ProfilePrivacySettings
   can_view_subscriptions: boolean
   can_view_public_worlds: boolean
@@ -463,6 +464,10 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
     subscriptions_count:
       typeof view.subscriptions_count === 'number' && Number.isFinite(view.subscriptions_count)
         ? Math.max(0, Math.trunc(view.subscriptions_count))
+        : 0,
+    world_card_templates_count:
+      typeof view.world_card_templates_count === 'number' && Number.isFinite(view.world_card_templates_count)
+        ? Math.max(0, Math.trunc(view.world_card_templates_count))
         : 0,
     privacy: normalizeProfilePrivacySettings(view.privacy ?? null),
     can_view_subscriptions: Boolean(view.can_view_subscriptions),
@@ -961,12 +966,14 @@ export async function searchUsersForAdminPanel(payload: {
   query?: string
   limit?: number
   offset?: number
+  sort?: 'created_desc' | 'coins_desc' | 'coins_asc'
 }): Promise<AdminUserListResponse> {
   const query = encodeURIComponent((payload.query ?? '').trim())
   const limit = Math.max(1, Math.min(payload.limit ?? 30, 100))
   const offset = Math.max(0, Math.trunc(payload.offset ?? 0))
+  const sort = encodeURIComponent(payload.sort ?? 'created_desc')
   return requestJson<AdminUserListResponse>(
-    `/api/auth/admin/users?query=${query}&limit=${limit}&offset=${offset}`,
+    `/api/auth/admin/users?query=${query}&limit=${limit}&offset=${offset}&sort=${sort}`,
     {
       method: 'GET',
       headers: {

@@ -1509,7 +1509,6 @@ def _generate_story_response_locked(
 
         last_message = messages[-1] if messages else None
         if last_message is not None and last_message.role == deps.story_assistant_role:
-            reroll_discarded_assistant_text = str(getattr(last_message, "content", "") or "").replace("\r\n", "\n").strip() or None
             messages = _drop_last_assistant_steps(
                 steps=1,
                 delete_source_user=False,

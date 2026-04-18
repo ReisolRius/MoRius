@@ -129,21 +129,21 @@
 }
 
 .avatar-crop-button--ghost {
-  background: var(--morius-elevated-bg);
-  color: var(--morius-accent);
+  background: transparent;
+  color: var(--morius-title-text);
 }
 
 .avatar-crop-button--ghost:hover:not(:disabled) {
-  background: var(--morius-button-hover);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .avatar-crop-button--primary {
-  background: var(--morius-elevated-bg);
-  color: var(--morius-accent);
+  background: transparent;
+  color: var(--morius-title-text);
 }
 
 .avatar-crop-button--primary:hover:not(:disabled) {
-  background: var(--morius-button-hover);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 @media (max-width: 640px) {

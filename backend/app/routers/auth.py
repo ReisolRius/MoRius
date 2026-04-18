@@ -355,6 +355,56 @@ def _serialize_daily_reward_status(
     )
 
 
+def _build_daily_reward_status_fallback(
+    *,
+    claimed_reward_amount: int | None = None,
+    claimed_reward_day: int | None = None,
+) -> DailyRewardStatusOut:
+    days = [
+        DailyRewardDayOut(
+            day=index,
+            amount=int(amount),
+            is_claimed=False,
+            is_current=index == 1,
+            is_locked=index > 1,
+        )
+        for index, amount in enumerate(DAILY_REWARD_AMOUNTS, start=1)
+    ]
+    reward_amount = int(DAILY_REWARD_AMOUNTS[0]) if DAILY_REWARD_AMOUNTS else None
+    return DailyRewardStatusOut(
+        server_time=_utcnow(),
+        current_day=1 if days else None,
+        claimed_days=0,
+        can_claim=False,
+        is_completed=False,
+        next_claim_at=None,
+        last_claimed_at=None,
+        cycle_started_at=None,
+        reward_amount=reward_amount,
+        claimed_reward_amount=claimed_reward_amount,
+        claimed_reward_day=claimed_reward_day,
+        days=days,
+    )
+
+
+def _build_notification_counters_fallback() -> UserNotificationUnreadCountOut:
+    return UserNotificationUnreadCountOut(
+        unread_count=0,
+        total_count=0,
+    )
+
+
+def _build_notification_list_fallback(*, limit: int, offset: int) -> UserNotificationListResponseOut:
+    return UserNotificationListResponseOut(
+        items=[],
+        unread_count=0,
+        total_count=0,
+        limit=max(1, int(limit or 1)),
+        offset=max(0, int(offset or 0)),
+        has_more=False,
+    )
+
+
 def _verify_google_token_with_tokeninfo(id_token_value: str) -> dict[str, Any] | None:
     try:
         response = requests.get(
@@ -857,23 +907,27 @@ def get_my_notifications(
     user = get_current_user(db, authorization)
     normalized_limit = max(1, min(int(limit or 12), 120))
     normalized_offset = max(0, int(offset or 0))
-    total_count = count_total_user_notifications(db, user_id=int(user.id))
-    unread_count = count_unread_user_notifications(db, user_id=int(user.id))
-    items = list_user_notifications_out(
-        db,
-        user_id=int(user.id),
-        limit=normalized_limit,
-        offset=normalized_offset,
-        sort_desc=order != "asc",
-    )
-    return UserNotificationListResponseOut(
-        items=items,
-        unread_count=unread_count,
-        total_count=total_count,
-        limit=normalized_limit,
-        offset=normalized_offset,
-        has_more=normalized_offset + len(items) < total_count,
-    )
+    try:
+        total_count = count_total_user_notifications(db, user_id=int(user.id))
+        unread_count = count_unread_user_notifications(db, user_id=int(user.id))
+        items = list_user_notifications_out(
+            db,
+            user_id=int(user.id),
+            limit=normalized_limit,
+            offset=normalized_offset,
+            sort_desc=order != "asc",
+        )
+        return UserNotificationListResponseOut(
+            items=items,
+            unread_count=unread_count,
+            total_count=total_count,
+            limit=normalized_limit,
+            offset=normalized_offset,
+            has_more=normalized_offset + len(items) < total_count,
+        )
+    except SQLAlchemyError:
+        logger.exception("Failed to load notifications for user_id=%s", int(user.id))
+        return _build_notification_list_fallback(limit=normalized_limit, offset=normalized_offset)
 
 
 @router.get("/api/auth/me/notifications/summary", response_model=UserNotificationUnreadCountOut)
@@ -882,10 +936,14 @@ def get_my_notification_summary(
     db: Session = Depends(get_db),
 ) -> UserNotificationUnreadCountOut:
     user = get_current_user(db, authorization)
-    return UserNotificationUnreadCountOut(
-        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
-        total_count=count_total_user_notifications(db, user_id=int(user.id)),
-    )
+    try:
+        return UserNotificationUnreadCountOut(
+            unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
+            total_count=count_total_user_notifications(db, user_id=int(user.id)),
+        )
+    except SQLAlchemyError:
+        logger.exception("Failed to load notification summary for user_id=%s", int(user.id))
+        return _build_notification_counters_fallback()
 
 
 @router.get("/api/auth/me/notifications/unread-count", response_model=UserNotificationUnreadCountOut)
@@ -894,10 +952,14 @@ def get_my_notification_unread_count(
     db: Session = Depends(get_db),
 ) -> UserNotificationUnreadCountOut:
     user = get_current_user(db, authorization)
-    return UserNotificationUnreadCountOut(
-        unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
-        total_count=count_total_user_notifications(db, user_id=int(user.id)),
-    )
+    try:
+        return UserNotificationUnreadCountOut(
+            unread_count=count_unread_user_notifications(db, user_id=int(user.id)),
+            total_count=count_total_user_notifications(db, user_id=int(user.id)),
+        )
+    except SQLAlchemyError:
+        logger.exception("Failed to load unread notification count for user_id=%s", int(user.id))
+        return _build_notification_counters_fallback()
 
 
 @router.post("/api/auth/me/notifications/read-all", response_model=UserNotificationUnreadCountOut)
@@ -941,7 +1003,11 @@ def get_my_daily_rewards(
     db: Session = Depends(get_db),
 ) -> DailyRewardStatusOut:
     user = get_current_user(db, authorization)
-    return _serialize_daily_reward_status(user)
+    try:
+        return _serialize_daily_reward_status(user)
+    except Exception:
+        logger.exception("Failed to build daily reward status for user_id=%s", int(user.id))
+        return _build_daily_reward_status_fallback()
 
 
 @router.post("/api/auth/me/daily-rewards/claim", response_model=DailyRewardStatusOut)
@@ -950,7 +1016,14 @@ def claim_my_daily_reward(
     db: Session = Depends(get_db),
 ) -> DailyRewardStatusOut:
     user = get_current_user(db, authorization)
-    reward_grant = claim_daily_reward(db, user=user)
+    try:
+        reward_grant = claim_daily_reward(db, user=user)
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to claim daily reward for user_id=%s", int(user.id))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Daily rewards are temporarily unavailable",
+        ) from exc
     if reward_grant is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -958,11 +1031,18 @@ def claim_my_daily_reward(
         )
     db.commit()
     db.refresh(user)
-    return _serialize_daily_reward_status(
-        user,
-        claimed_reward_amount=int(reward_grant.reward_amount),
-        claimed_reward_day=int(reward_grant.reward_day),
-    )
+    try:
+        return _serialize_daily_reward_status(
+            user,
+            claimed_reward_amount=int(reward_grant.reward_amount),
+            claimed_reward_day=int(reward_grant.reward_day),
+        )
+    except Exception:
+        logger.exception("Failed to serialize claimed daily reward for user_id=%s", int(user.id))
+        return _build_daily_reward_status_fallback(
+            claimed_reward_amount=int(reward_grant.reward_amount),
+            claimed_reward_day=int(reward_grant.reward_day),
+        )
 
 
 @router.get("/api/auth/me/theme-settings", response_model=ThemeSettingsOut)

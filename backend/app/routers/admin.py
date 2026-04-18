@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from sqlalchemy import delete as sa_delete, func, or_, select
@@ -449,6 +450,7 @@ def search_users(
     query: str = Query(default="", max_length=SEARCH_QUERY_MAX_LENGTH),
     limit: int = Query(default=DEFAULT_SEARCH_LIMIT, ge=1, le=MAX_SEARCH_LIMIT),
     offset: int = Query(default=0, ge=0),
+    sort: Literal["created_desc", "coins_desc", "coins_asc"] = Query(default="created_desc"),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AdminUserListResponse:
@@ -475,12 +477,14 @@ def search_users(
         0,
     )
 
-    statement = (
-        statement
-        .order_by(User.created_at.desc(), User.id.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    if sort == "coins_desc":
+        statement = statement.order_by(User.coins.desc(), User.created_at.desc(), User.id.desc())
+    elif sort == "coins_asc":
+        statement = statement.order_by(User.coins.asc(), User.created_at.desc(), User.id.desc())
+    else:
+        statement = statement.order_by(User.created_at.desc(), User.id.desc())
+
+    statement = statement.offset(offset).limit(limit)
 
     users = list(db.scalars(statement).all())
     _sync_users_access_state(db, users)

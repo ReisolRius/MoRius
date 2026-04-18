@@ -685,10 +685,12 @@ STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_WORLD_CARD_KIND_WORLD = "world"
+STORY_WORLD_CARD_KIND_WORLD_PROFILE = "world_profile"
 STORY_WORLD_CARD_KIND_NPC = "npc"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
 STORY_WORLD_CARD_KINDS = {
     STORY_WORLD_CARD_KIND_WORLD,
+    STORY_WORLD_CARD_KIND_WORLD_PROFILE,
     STORY_WORLD_CARD_KIND_NPC,
     STORY_WORLD_CARD_KIND_MAIN_HERO,
 }
@@ -2429,7 +2431,7 @@ def _normalize_story_world_card_kind(value: str | None) -> str:
 
 def _default_story_world_card_memory_turns(kind: str) -> int:
     normalized_kind = _normalize_story_world_card_kind(kind)
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         return STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS
@@ -2444,7 +2446,7 @@ def _normalize_story_world_card_memory_turns_for_storage(
     current_value: int | None = None,
 ) -> int:
     normalized_kind = _normalize_story_world_card_kind(kind)
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
 
     fallback_value = (
@@ -2493,7 +2495,7 @@ def _serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str
         explicit=False,
         current_value=raw_value,
     )
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return None
     if normalized_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return None
@@ -3707,6 +3709,7 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "health_status": _normalize_story_character_health_status(getattr(card, "health_status", "")),
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
         "kind": card_kind,
+        "detail_type": " ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
         "avatar_url": _normalize_avatar_value(card.avatar_url),
         "avatar_original_url": _normalize_avatar_value(getattr(card, "avatar_original_url", None)) or _normalize_avatar_value(card.avatar_url),
         "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
@@ -4107,8 +4110,9 @@ def _select_story_world_cards_for_prompt(
     ranked_cards: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
     kind_rank = {
         STORY_WORLD_CARD_KIND_MAIN_HERO: 0,
-        STORY_WORLD_CARD_KIND_NPC: 1,
-        STORY_WORLD_CARD_KIND_WORLD: 2,
+        STORY_WORLD_CARD_KIND_WORLD_PROFILE: 1,
+        STORY_WORLD_CARD_KIND_NPC: 2,
+        STORY_WORLD_CARD_KIND_WORLD: 3,
     }
 
     main_hero_card = next(
@@ -4311,8 +4315,9 @@ def _select_story_world_cards_triggered_by_text(
     ranked_cards: list[tuple[tuple[int, int], dict[str, Any]]] = []
     kind_rank = {
         STORY_WORLD_CARD_KIND_MAIN_HERO: 0,
-        STORY_WORLD_CARD_KIND_NPC: 1,
-        STORY_WORLD_CARD_KIND_WORLD: 2,
+        STORY_WORLD_CARD_KIND_WORLD_PROFILE: 1,
+        STORY_WORLD_CARD_KIND_NPC: 2,
+        STORY_WORLD_CARD_KIND_WORLD: 3,
     }
 
     for card in world_cards:
@@ -4496,9 +4501,12 @@ def _build_story_system_prompt(
             raw_clothing = str(card.get("clothing", "")).replace("\r\n", "\n").strip()
             raw_inventory = str(card.get("inventory", "")).replace("\r\n", "\n").strip()
             raw_health_status = str(card.get("health_status", "")).replace("\r\n", "\n").strip()
+            raw_detail_type = " ".join(str(card.get("detail_type", "")).replace("\r\n", " ").split()).strip()
             card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
             if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
                 kind_label = "главный_герой"
+            elif card_kind == STORY_WORLD_CARD_KIND_WORLD_PROFILE:
+                kind_label = "описание_мира"
             elif card_kind == STORY_WORLD_CARD_KIND_NPC:
                 kind_label = "npc"
             else:
@@ -4526,6 +4534,8 @@ def _build_story_system_prompt(
                     explicit_fragments.append(f"inventory={_normalize_story_prompt_text(raw_inventory, max_chars=70)}")
                 if raw_health_status:
                     explicit_fragments.append(f"health={_normalize_story_prompt_text(raw_health_status, max_chars=70)}")
+                if raw_detail_type:
+                    explicit_fragments.append(f"type={_normalize_story_prompt_text(raw_detail_type, max_chars=48)}")
                 trigger_line = _normalize_story_prompt_list(
                     trigger_values,
                     max_items=STORY_PROMPT_COMPACT_TRIGGER_MAX_ITEMS,
@@ -4544,6 +4554,8 @@ def _build_story_system_prompt(
                 lines.append(f"Explicit clothing: {raw_clothing or 'not specified'}")
                 lines.append(f"Explicit inventory: {raw_inventory or 'not specified'}")
                 lines.append(f"Explicit health status: {raw_health_status or 'not specified'}")
+                if card_kind == STORY_WORLD_CARD_KIND_WORLD:
+                    lines.append(f"Тип детали: {raw_detail_type or 'not specified'}")
                 lines.append(f"Триггеры: {trigger_line or 'нет'}")
                 lines.append(f"Тип: {kind_label}")
 
@@ -6436,23 +6448,7 @@ def _normalize_story_reroll_reference_text(value: str | None) -> str:
 def _build_story_reroll_system_message(
     discarded_assistant_text: str | None,
 ) -> dict[str, str] | None:
-    reference_text = _normalize_story_reroll_reference_text(discarded_assistant_text)
-    if not reference_text:
-        return None
-
-    return {
-        "role": "system",
-        "content": (
-            "REROLL REQUIREMENTS:\n"
-            "- You are regenerating the discarded last assistant turn for the same player action.\n"
-            "- Keep the same user intent, established facts, and current world state.\n"
-            "- Produce a genuinely different continuation.\n"
-            "- Do not reuse the discarded answer's opening, structure, sequence of beats, or conclusion.\n"
-            "- Do not paraphrase or lightly edit the discarded answer.\n\n"
-            "Discarded assistant answer:\n"
-            f"{reference_text}"
-        ),
-    }
+    return None
 
 
 def _build_story_provider_messages(
@@ -7195,6 +7191,7 @@ def _build_story_world_card_change_messages(
                 "content": content,
                 "triggers": triggers_preview,
                 "kind": _normalize_story_world_card_kind(card.kind),
+                "detail_type": " ".join(str(getattr(card, "detail_type", "") or "").split()).strip(),
                 "is_locked": bool(card.is_locked),
                 "ai_edit_enabled": bool(card.ai_edit_enabled),
                 "memory_turns": _serialize_story_world_card_memory_turns(

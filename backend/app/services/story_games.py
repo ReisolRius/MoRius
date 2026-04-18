@@ -1475,6 +1475,7 @@ def clone_story_world_cards_to_game(
                 health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
                 triggers=card.triggers,
                 kind=card_kind,
+                detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
                 avatar_url=normalize_story_character_avatar_url(card.avatar_url),
                 avatar_original_url=(
                     normalize_story_character_avatar_original_url(getattr(card, "avatar_original_url", None))
@@ -1512,6 +1513,7 @@ def clone_story_world_cards_to_game(
                 )
             ),
             kind=card_kind,
+            detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
             avatar_url=normalize_story_character_avatar_url(card.avatar_url),
             avatar_original_url=(
                 normalize_story_character_avatar_original_url(getattr(card, "avatar_original_url", None))

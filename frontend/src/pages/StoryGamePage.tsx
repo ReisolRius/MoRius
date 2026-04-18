@@ -46,6 +46,7 @@ import narratorIlonPortrait from '../assets/images/narrators/ilon.svg'
 import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
+import cardsCharactersTabIconMarkup from '../assets/icons/cards-characters.svg?raw'
 import cardsPlotTabIconMarkup from '../assets/icons/cards-plot.svg?raw'
 import cardsRulesTabIconMarkup from '../assets/icons/cards-rules.svg?raw'
 import cardsWorldTabIconMarkup from '../assets/icons/cards-world.svg?raw'
@@ -63,7 +64,10 @@ import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
+import ImageCropper from '../components/ImageCropper'
 import HeaderAccountActions from '../components/HeaderAccountActions'
+import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
+import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import BaseDialog from '../components/dialogs/BaseDialog'
@@ -89,7 +93,9 @@ import {
 import {
   addCommunityCharacter,
   createStoryCharacterRace,
+  createStoryWorldDetailType,
   createStoryCharacter,
+  listStoryWorldDetailTypes,
   createStoryBugReport,
   createStoryInstructionCard,
   createStoryMemoryBlock,
@@ -159,12 +165,18 @@ import type {
   StoryPlotCardEvent,
   StoryWorldCard,
   StoryWorldCardKind,
+  StoryWorldDetailType,
   StoryWorldCardEvent,
 } from '../types/story'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import {
   prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
+import {
+  buildStoryWorldDetailTypeSuggestions,
+  normalizeStoryWorldDetailTypeValue,
+  STORY_WORLD_BANNER_ASPECT,
+} from '../utils/storyWorldCards'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
 
 type StoryGamePageProps = {
@@ -174,6 +186,12 @@ type StoryGamePageProps = {
   onNavigate: (path: string) => void
   onLogout: () => void
   onUserUpdate: (user: AuthUser) => void
+}
+
+type WorldDetailTypeAutocompleteOption = {
+  label: string
+  value: string
+  isCreateAction?: boolean
 }
 
 type StorySettingsOverride = {
@@ -204,7 +222,7 @@ type CharacterRaceOption = {
 type RightPanelMode = 'ai' | 'world' | 'memory'
 type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
-type CardsPanelTab = 'world' | 'instructions' | 'plot'
+type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
 type MemoryPanelTab = 'memory' | 'dev'
 type PanelCardMenuType = 'instruction' | 'plot' | 'world'
 type DeletionTargetType = 'instruction' | 'plot' | 'world' | 'memory' | 'character'
@@ -265,6 +283,7 @@ const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
 const STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8000
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const CARDS_PANEL_TABS_DRAG_THRESHOLD_PX = 10
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
@@ -292,6 +311,7 @@ const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 32000
 const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
 const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
+const filterWorldDetailTypeOptions = createFilterOptions<WorldDetailTypeAutocompleteOption>()
 const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 6000
 const STORY_CONTEXT_LIMIT_MAX = 32000
@@ -2388,7 +2408,7 @@ function mapWorldSnapshotToCard(
     return null
   }
   const normalizedKind: StoryWorldCardKind =
-    snapshot.kind === 'npc' || snapshot.kind === 'main_hero' || snapshot.kind === 'world'
+    snapshot.kind === 'npc' || snapshot.kind === 'main_hero' || snapshot.kind === 'world' || snapshot.kind === 'world_profile'
       ? snapshot.kind
       : 'world'
   const normalizedAvatarScale =
@@ -2410,6 +2430,7 @@ function mapWorldSnapshotToCard(
     health_status: normalizeCharacterAdditionalValue(snapshot.health_status),
     triggers: toStoryStringList(snapshot.triggers),
     kind: normalizedKind,
+    detail_type: normalizeStoryWorldDetailTypeValue(snapshot.detail_type),
     avatar_url: normalizedAvatarUrl || null,
     avatar_scale: normalizedAvatarScale,
     character_id: normalizedCharacterId,
@@ -2420,31 +2441,6 @@ function mapWorldSnapshotToCard(
     created_at: nowIso,
     updated_at: nowIso,
   }
-}
-
-function rollbackPlotCardsByEvents(
-  cards: StoryPlotCard[],
-  events: StoryPlotCardEvent[],
-  gameId: number,
-): StoryPlotCard[] {
-  let nextCards = [...cards]
-  const nowIso = new Date().toISOString()
-  const rollbackEvents = [...events].sort((left, right) => right.id - left.id)
-  rollbackEvents.forEach((event) => {
-    if (event.action === 'added') {
-      const removedCardId = event.plot_card_id ?? event.after_snapshot?.id ?? null
-      if (removedCardId) {
-        nextCards = nextCards.filter((card) => card.id !== removedCardId)
-      }
-      return
-    }
-
-    const restoredCard = mapPlotSnapshotToCard(event.before_snapshot, gameId, event.plot_card_id, nowIso)
-    if (restoredCard) {
-      nextCards = upsertStoryPlotCard(nextCards, restoredCard)
-    }
-  })
-  return nextCards
 }
 
 function reapplyPlotCardsByEvents(
@@ -2467,31 +2463,6 @@ function reapplyPlotCardsByEvents(
     const appliedCard = mapPlotSnapshotToCard(event.after_snapshot, gameId, event.plot_card_id, nowIso)
     if (appliedCard) {
       nextCards = upsertStoryPlotCard(nextCards, appliedCard)
-    }
-  })
-  return nextCards
-}
-
-function rollbackWorldCardsByEvents(
-  cards: StoryWorldCard[],
-  events: StoryWorldCardEvent[],
-  gameId: number,
-): StoryWorldCard[] {
-  let nextCards = [...cards]
-  const nowIso = new Date().toISOString()
-  const rollbackEvents = [...events].sort((left, right) => right.id - left.id)
-  rollbackEvents.forEach((event) => {
-    if (event.action === 'added') {
-      const removedCardId = event.world_card_id ?? event.after_snapshot?.id ?? null
-      if (removedCardId) {
-        nextCards = nextCards.filter((card) => card.id !== removedCardId)
-      }
-      return
-    }
-
-    const restoredCard = mapWorldSnapshotToCard(event.before_snapshot, gameId, event.world_card_id, nowIso)
-    if (restoredCard) {
-      nextCards = upsertStoryWorldCard(nextCards, restoredCard)
     }
   })
   return nextCards
@@ -2520,26 +2491,6 @@ function reapplyWorldCardsByEvents(
     }
   })
   return nextCards
-}
-
-function mergePlotEvents(
-  existingEvents: StoryPlotCardEvent[],
-  incomingEvents: StoryPlotCardEvent[],
-): StoryPlotCardEvent[] {
-  const nextMap = new Map<number, StoryPlotCardEvent>()
-  existingEvents.forEach((event) => nextMap.set(event.id, event))
-  incomingEvents.forEach((event) => nextMap.set(event.id, event))
-  return [...nextMap.values()].sort((left, right) => left.id - right.id)
-}
-
-function mergeWorldEvents(
-  existingEvents: StoryWorldCardEvent[],
-  incomingEvents: StoryWorldCardEvent[],
-): StoryWorldCardEvent[] {
-  const nextMap = new Map<number, StoryWorldCardEvent>()
-  existingEvents.forEach((event) => nextMap.set(event.id, event))
-  incomingEvents.forEach((event) => nextMap.set(event.id, event))
-  return [...nextMap.values()].sort((left, right) => left.id - right.id)
 }
 
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
@@ -3411,7 +3362,7 @@ function countStoryCompletedTurns(messages: StoryMessage[]): number {
 }
 
 function resolveWorldCardMemoryTurns(card: Pick<StoryWorldCard, 'kind' | 'memory_turns'>): number | null {
-  if (card.kind === 'main_hero') {
+  if (card.kind === 'main_hero' || card.kind === 'world_profile') {
     return null
   }
   if (card.memory_turns === null) {
@@ -3468,6 +3419,10 @@ function resolvePlotCardMemoryTurns(card: Pick<StoryPlotCard, 'memory_turns'>): 
 }
 
 const STORY_WORLD_CARD_AI_ACCESS_TOOLTIP = 'ИИ имеет доступ к редактированию карточки.'
+
+function supportsWorldCardAiStateUi(card: Pick<StoryWorldCard, 'kind'>) {
+  return card.kind === 'main_hero' || card.kind === 'npc'
+}
 
 function renderWorldCardAiAccessBadge(card: Pick<StoryWorldCard, 'ai_edit_enabled'>) {
   if (!card.ai_edit_enabled) {
@@ -3561,7 +3516,7 @@ function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: 
   const stateById = new Map<number, WorldCardContextState>()
   worldCards.forEach((card) => {
     const memoryTurns = resolveWorldCardMemoryTurns(card)
-    if (card.kind === 'main_hero') {
+    if (card.kind === 'main_hero' || card.kind === 'world_profile') {
       stateById.set(card.id, {
         isActive: true,
         isAlwaysActive: true,
@@ -4200,6 +4155,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [loadingCommunityCharacterId, setLoadingCommunityCharacterId] = useState<number | null>(null)
   const [savingCommunityCharacterId, setSavingCommunityCharacterId] = useState<number | null>(null)
   const [worldCardAvatarTargetId, setWorldCardAvatarTargetId] = useState<number | null>(null)
+  const [worldCardAvatarTargetMode, setWorldCardAvatarTargetMode] = useState<'persisted' | 'draft' | null>(null)
   const [worldCardAvatarCropSource, setWorldCardAvatarCropSource] = useState<string | null>(null)
   const [worldCardCharacterMirrorByCardId, setWorldCardCharacterMirrorByCardId] = useState<Record<number, number>>({})
   const [isSavingWorldCardAvatar, setIsSavingWorldCardAvatar] = useState(false)
@@ -4213,6 +4169,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [editingWorldCardKind, setEditingWorldCardKind] = useState<StoryWorldCardKind>('world')
   const [worldCardTitleDraft, setWorldCardTitleDraft] = useState('')
   const [worldCardContentDraft, setWorldCardContentDraft] = useState('')
+  const [worldCardDetailTypeDraft, setWorldCardDetailTypeDraft] = useState('')
+  const [isSavingWorldDetailType, setIsSavingWorldDetailType] = useState(false)
   const [worldCardRaceDraft, setWorldCardRaceDraft] = useState('')
   const [worldCardRaceInputDraft, setWorldCardRaceInputDraft] = useState('')
   const [worldCardClothingDraft, setWorldCardClothingDraft] = useState('')
@@ -4220,10 +4178,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardHealthStatusDraft, setWorldCardHealthStatusDraft] = useState('')
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
   const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+  const [worldCardAvatarDraft, setWorldCardAvatarDraft] = useState<string | null>(null)
+  const [worldCardAvatarOriginalDraft, setWorldCardAvatarOriginalDraft] = useState<string | null>(null)
+  const [worldCardAvatarScaleDraft, setWorldCardAvatarScaleDraft] = useState(1)
+  const [isWorldCardAvatarDraftDirty, setIsWorldCardAvatarDraftDirty] = useState(false)
   const [isWorldCardAdditionalExpanded, setIsWorldCardAdditionalExpanded] = useState(false)
   const [isSavingWorldCard, setIsSavingWorldCard] = useState(false)
   const [updatingWorldCardAiEditId, setUpdatingWorldCardAiEditId] = useState<number | null>(null)
   const [deletingWorldCardId, setDeletingWorldCardId] = useState<number | null>(null)
+  const [worldCardTemplatePickerOpen, setWorldCardTemplatePickerOpen] = useState(false)
+  const [worldCardTemplatePickerKind, setWorldCardTemplatePickerKind] = useState<'world' | 'world_profile'>('world')
+  const [worldDetailTypeOptions, setWorldDetailTypeOptions] = useState<StoryWorldDetailType[]>([])
+  const [hasLoadedWorldDetailTypes, setHasLoadedWorldDetailTypes] = useState(false)
+  const [isLoadingWorldDetailTypes, setIsLoadingWorldDetailTypes] = useState(false)
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
   const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
@@ -4262,6 +4229,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
   const storySettingsOverridesRef = useRef<Record<number, StorySettingsOverride>>({})
+  const cardsPanelTabsScrollerRef = useRef<HTMLDivElement | null>(null)
+  const cardsPanelTabsDragStateRef = useRef<{
+    pointerId: number | null
+    startX: number
+    startY: number
+    scrollLeft: number
+    isDragging: boolean
+    suppressClick: boolean
+  }>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    isDragging: false,
+    suppressClick: false,
+  })
   const [isSavingStoryLlmModel, setIsSavingStoryLlmModel] = useState(false)
   const [isSavingStoryImageModel, setIsSavingStoryImageModel] = useState(false)
   const [isSavingImageStylePrompt, setIsSavingImageStylePrompt] = useState(false)
@@ -4714,7 +4697,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     Boolean(activeGameId) &&
-    currentRerollSourceUserMessage !== null
+    currentRerollSourceUserMessage !== null &&
+    currentRerollAssistantMessage !== null
   const canGenerateLatestTurnImage =
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
@@ -5284,6 +5268,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => worldCards.filter((card) => card.kind !== 'main_hero'),
     [worldCards],
   )
+  const worldProfileCard = useMemo(
+    () => worldCards.find((card) => card.kind === 'world_profile') ?? null,
+    [worldCards],
+  )
   const displayedNpcCards = useMemo(
     () =>
       [...displayedWorldCards.filter((card) => card.kind === 'npc')].sort((left, right) => {
@@ -5296,9 +5284,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }),
     [displayedWorldCards, worldCardContextStateById],
   )
-  const displayedContextWorldCards = useMemo(
+  const displayedDetailCards = useMemo(
     () =>
-      [...displayedWorldCards.filter((card) => card.kind !== 'npc')].sort((left, right) => {
+      [...displayedWorldCards.filter((card) => card.kind === 'world')].sort((left, right) => {
         const leftActive = Boolean(worldCardContextStateById.get(left.id)?.isActive)
         const rightActive = Boolean(worldCardContextStateById.get(right.id)?.isActive)
         if (leftActive !== rightActive) {
@@ -5308,6 +5296,79 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }),
     [displayedWorldCards, worldCardContextStateById],
   )
+  const worldDetailTypeSuggestionLabels = useMemo(
+    () => buildStoryWorldDetailTypeSuggestions(worldDetailTypeOptions, [worldCardDetailTypeDraft]),
+    [worldCardDetailTypeDraft, worldDetailTypeOptions],
+  )
+  const normalizedWorldCardDetailTypeDraft = useMemo(
+    () => normalizeStoryWorldDetailTypeValue(worldCardDetailTypeDraft),
+    [worldCardDetailTypeDraft],
+  )
+  const worldDetailTypeAutocompleteOptions = useMemo<WorldDetailTypeAutocompleteOption[]>(
+    () => worldDetailTypeSuggestionLabels.map((label) => ({ label, value: label })),
+    [worldDetailTypeSuggestionLabels],
+  )
+  const handleCardsPanelTabSelect = useCallback((nextTab: CardsPanelTab) => {
+    if (cardsPanelTabsDragStateRef.current.suppressClick) {
+      cardsPanelTabsDragStateRef.current.suppressClick = false
+      return
+    }
+    setCardsPanelTab(nextTab)
+  }, [])
+  const handleCardsPanelTabsPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return
+    }
+    const currentTarget = event.currentTarget
+    cardsPanelTabsDragStateRef.current.pointerId = event.pointerId
+    cardsPanelTabsDragStateRef.current.startX = event.clientX
+    cardsPanelTabsDragStateRef.current.startY = event.clientY
+    cardsPanelTabsDragStateRef.current.scrollLeft = currentTarget.scrollLeft
+    cardsPanelTabsDragStateRef.current.isDragging = false
+    cardsPanelTabsDragStateRef.current.suppressClick = false
+  }, [])
+  const handleCardsPanelTabsPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (cardsPanelTabsDragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    const deltaX = event.clientX - cardsPanelTabsDragStateRef.current.startX
+    const deltaY = event.clientY - cardsPanelTabsDragStateRef.current.startY
+    const hasEnoughHorizontalTravel = Math.abs(deltaX) >= CARDS_PANEL_TABS_DRAG_THRESHOLD_PX
+    const isHorizontalIntent = Math.abs(deltaX) > Math.abs(deltaY) * 1.1
+
+    if (!cardsPanelTabsDragStateRef.current.isDragging) {
+      if (!hasEnoughHorizontalTravel || !isHorizontalIntent) {
+        return
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      cardsPanelTabsDragStateRef.current.isDragging = true
+    }
+    event.currentTarget.scrollLeft = cardsPanelTabsDragStateRef.current.scrollLeft - deltaX
+    cardsPanelTabsDragStateRef.current.suppressClick = true
+    event.preventDefault()
+  }, [])
+  const handleCardsPanelTabsPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (cardsPanelTabsDragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    cardsPanelTabsDragStateRef.current.pointerId = null
+    cardsPanelTabsDragStateRef.current.isDragging = false
+    if (cardsPanelTabsDragStateRef.current.suppressClick) {
+      window.setTimeout(() => {
+        cardsPanelTabsDragStateRef.current.suppressClick = false
+      }, 0)
+    }
+  }, [])
+  const handleOpenWorldCardTemplatePicker = useCallback((kind: 'world' | 'world_profile') => {
+    if (isWorldCardActionLocked) {
+      return
+    }
+    setWorldCardTemplatePickerKind(kind)
+    setWorldCardTemplatePickerOpen(true)
+  }, [isWorldCardActionLocked])
   const resolveDirectWorldCardAvatar = useCallback(
     (card: StoryWorldCard | null): string | null => {
       if (!card) {
@@ -5369,6 +5430,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => worldCardRaceOptions.find((option) => option.value === normalizedWorldCardRaceDraft) ?? null,
     [normalizedWorldCardRaceDraft, worldCardRaceOptions],
   )
+  const selectedWorldCardDetailTypeOption = useMemo(() => {
+    if (!normalizedWorldCardDetailTypeDraft) {
+      return null
+    }
+    return (
+      worldDetailTypeAutocompleteOptions.find(
+        (option) => option.value.toLocaleLowerCase() === normalizedWorldCardDetailTypeDraft.toLocaleLowerCase(),
+      ) ?? {
+        label: normalizedWorldCardDetailTypeDraft,
+        value: normalizedWorldCardDetailTypeDraft,
+      }
+    )
+  }, [normalizedWorldCardDetailTypeDraft, worldDetailTypeAutocompleteOptions])
   const mainHeroCharacterId = useMemo(
     () => (mainHeroCard && mainHeroCard.character_id && mainHeroCard.character_id > 0 ? mainHeroCard.character_id : null),
     [mainHeroCard],
@@ -5429,8 +5503,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
   const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
   const editingWorldCardAvatarUrl = useMemo(
-    () => resolveWorldCardAvatar(editingWorldCard),
-    [editingWorldCard, resolveWorldCardAvatar],
+    () => worldCardAvatarDraft ?? resolveWorldCardAvatar(editingWorldCard),
+    [editingWorldCard, resolveWorldCardAvatar, worldCardAvatarDraft],
+  )
+  const editingWorldCardPreviewAvatarUrl = useMemo(
+    () => worldCardAvatarOriginalDraft ?? worldCardAvatarDraft ?? resolveWorldCardPreviewAvatar(editingWorldCard),
+    [editingWorldCard, resolveWorldCardPreviewAvatar, worldCardAvatarDraft, worldCardAvatarOriginalDraft],
   )
   const mainHeroPreviewAvatarUrl = useMemo(
     () => resolveWorldCardPreviewAvatar(mainHeroCard),
@@ -6166,11 +6244,30 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [authToken])
 
+  const loadWorldDetailTypes = useCallback(async () => {
+    setIsLoadingWorldDetailTypes(true)
+    try {
+      const loadedTypes = await listStoryWorldDetailTypes({ token: authToken })
+      setWorldDetailTypeOptions(loadedTypes)
+      setHasLoadedWorldDetailTypes(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить типы деталей мира'
+      setErrorMessage(detail)
+      setWorldDetailTypeOptions([])
+      setHasLoadedWorldDetailTypes(true)
+    } finally {
+      setIsLoadingWorldDetailTypes(false)
+    }
+  }, [authToken])
+
   useEffect(() => {
     setCharacterRaceOptions([])
     setHasLoadedCharacterRaces(false)
     setIsLoadingCharacterRaces(false)
     setIsSavingCharacterRace(false)
+    setWorldDetailTypeOptions([])
+    setHasLoadedWorldDetailTypes(false)
+    setIsLoadingWorldDetailTypes(false)
   }, [authToken])
 
   const resetCharacterDraft = useCallback(() => {
@@ -6427,6 +6524,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isLoadingCharacterRaces,
     loadCharacterRaces,
     worldCardDialogOpen,
+  ])
+
+  useEffect(() => {
+    if (
+      (!worldCardDialogOpen && !worldCardTemplatePickerOpen) ||
+      isCharacterWorldCardEditor ||
+      isLoadingWorldDetailTypes ||
+      hasLoadedWorldDetailTypes
+    ) {
+      return
+    }
+    void loadWorldDetailTypes()
+  }, [
+    hasLoadedWorldDetailTypes,
+    isCharacterWorldCardEditor,
+    isLoadingWorldDetailTypes,
+    loadWorldDetailTypes,
+    worldCardDialogOpen,
+    worldCardTemplatePickerOpen,
   ])
 
   const handleToggleCommunityCharacterCard = useCallback(
@@ -6934,19 +7050,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     ],
   )
 
-  const handleOpenWorldCardAvatarPicker = useCallback((cardId: number) => {
+  const handleOpenWorldCardAvatarPicker = useCallback((cardId: number | null, mode: 'persisted' | 'draft' = 'persisted') => {
     if (isSavingWorldCardAvatar) {
       return
     }
     setWorldCardAvatarCropSource(null)
     setWorldCardAvatarTargetId(cardId)
+    setWorldCardAvatarTargetMode(mode)
     worldCardAvatarInputRef.current?.click()
   }, [isSavingWorldCardAvatar])
 
   const handleWorldCardAvatarChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0]
     event.target.value = ''
-    if (!selectedFile || !activeGameId || worldCardAvatarTargetId === null) {
+    if (!selectedFile) {
       return
     }
 
@@ -6964,14 +7081,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const dataUrl = await readFileAsDataUrl(selectedFile)
       setWorldCardAvatarCropSource(dataUrl)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось обработать аватар персонажа'
+      const detail = error instanceof Error ? error.message : 'Не удалось обработать изображение карточки мира'
       setErrorMessage(detail)
     }
-  }, [activeGameId, authToken, worldCardAvatarTargetId])
+  }, [])
 
   const handleSaveCroppedWorldCardAvatar = useCallback(
     async (croppedDataUrl: string) => {
-      if (!croppedDataUrl || !activeGameId || worldCardAvatarTargetId === null || isSavingWorldCardAvatar) {
+      if (!croppedDataUrl || isSavingWorldCardAvatar) {
+        return
+      }
+      if (worldCardAvatarTargetMode === 'draft') {
+        setWorldCardAvatarDraft(croppedDataUrl)
+        setWorldCardAvatarOriginalDraft(croppedDataUrl)
+        setWorldCardAvatarScaleDraft(1)
+        setIsWorldCardAvatarDraftDirty(true)
+        setWorldCardAvatarCropSource(null)
+        setWorldCardAvatarTargetId(null)
+        setWorldCardAvatarTargetMode(null)
+        return
+      }
+      if (!activeGameId || worldCardAvatarTargetId === null) {
         return
       }
 
@@ -6984,7 +7114,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           maxDimension: 960,
         })
         if (!preparedAvatarPayload.avatarUrl) {
-          throw new Error('Не удалось подготовить аватар персонажа')
+          throw new Error('Не удалось подготовить изображение карточки мира')
         }
 
         const updatedCard = await updateStoryWorldCardAvatar({
@@ -6998,14 +7128,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
         setWorldCardAvatarCropSource(null)
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось обновить аватар персонажа'
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить изображение карточки мира'
         setErrorMessage(detail)
       } finally {
         setIsSavingWorldCardAvatar(false)
         setWorldCardAvatarTargetId(null)
+        setWorldCardAvatarTargetMode(null)
       }
     },
-    [activeGameId, authToken, isSavingWorldCardAvatar, worldCardAvatarTargetId],
+    [activeGameId, authToken, isSavingWorldCardAvatar, worldCardAvatarTargetId, worldCardAvatarTargetMode],
   )
 
   const handleToggleWorldCardAiEdit = useCallback(async () => {
@@ -7388,7 +7519,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             if (!isActive) {
               return [] as StoryGameSummary[]
             }
-            const detail = error instanceof Error ? error.message : 'РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ СЃРїРёСЃРѕРє РёРіСЂ'
+            const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
             setErrorMessage(detail)
             return [] as StoryGameSummary[]
           })
@@ -8389,22 +8520,34 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, deletingPlotCardId, editingPlotCardId, isCreatingGame, isSavingPlotCard],
   )
 
-  const handleOpenCreateWorldCardDialog = () => {
+  const handleOpenCreateWorldCardDialog = (kind: StoryWorldCardKind = 'world') => {
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
     }
+    if (kind === 'world_profile' && worldProfileCard) {
+      handleOpenEditWorldCardDialog(worldProfileCard)
+      return
+    }
     setEditingWorldCardId(null)
-    setEditingWorldCardKind('world')
+    setEditingWorldCardKind(kind)
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
+    setWorldCardDetailTypeDraft('')
     setWorldCardRaceDraft('')
     setWorldCardRaceInputDraft('')
     setWorldCardClothingDraft('')
     setWorldCardInventoryDraft('')
     setWorldCardHealthStatusDraft('')
     setWorldCardTriggersDraft('')
-    setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardMemoryTurnsDraft(kind === 'npc' ? NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS : WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardAvatarDraft(null)
+    setWorldCardAvatarOriginalDraft(null)
+    setWorldCardAvatarScaleDraft(1)
+    setIsWorldCardAvatarDraftDirty(false)
     setIsWorldCardAdditionalExpanded(false)
+    setWorldCardAvatarCropSource(null)
+    setWorldCardAvatarTargetId(null)
+    setWorldCardAvatarTargetMode(null)
     setWorldCardDialogOpen(true)
   }
 
@@ -8495,6 +8638,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setEditingWorldCardKind(card.kind)
     setWorldCardTitleDraft(card.title)
     setWorldCardContentDraft(card.content)
+    setWorldCardDetailTypeDraft(normalizeStoryWorldDetailTypeValue(card.detail_type))
     setWorldCardRaceDraft(normalizeCharacterRaceValue(card.race))
     setWorldCardRaceInputDraft(normalizeCharacterRaceValue(card.race))
     setWorldCardClothingDraft(normalizeCharacterAdditionalValue(card.clothing))
@@ -8502,6 +8646,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(card.health_status))
     setWorldCardTriggersDraft(card.triggers.join(', '))
     setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(card)))
+    setWorldCardAvatarDraft(resolveWorldCardAvatar(card))
+    setWorldCardAvatarOriginalDraft(resolveWorldCardPreviewAvatar(card) ?? resolveWorldCardAvatar(card))
+    setWorldCardAvatarScaleDraft(card.avatar_scale ?? 1)
+    setIsWorldCardAvatarDraftDirty(false)
     setIsWorldCardAdditionalExpanded(
       Boolean(
         normalizeCharacterAdditionalValue(card.clothing) ||
@@ -8509,6 +8657,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           normalizeCharacterAdditionalValue(card.health_status),
       ),
     )
+    setWorldCardAvatarCropSource(null)
+    setWorldCardAvatarTargetId(null)
+    setWorldCardAvatarTargetMode(null)
     setWorldCardDialogOpen(true)
   }
 
@@ -8521,16 +8672,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setEditingWorldCardKind('world')
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
+    setWorldCardDetailTypeDraft('')
     setWorldCardRaceDraft('')
     setWorldCardRaceInputDraft('')
     setWorldCardClothingDraft('')
     setWorldCardInventoryDraft('')
     setWorldCardHealthStatusDraft('')
     setWorldCardTriggersDraft('')
-    setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    setWorldCardAvatarDraft(null)
+    setWorldCardAvatarOriginalDraft(null)
+    setWorldCardAvatarScaleDraft(1)
+    setIsWorldCardAvatarDraftDirty(false)
     setIsWorldCardAdditionalExpanded(false)
     setWorldCardAvatarCropSource(null)
     setWorldCardAvatarTargetId(null)
+    setWorldCardAvatarTargetMode(null)
   }
 
   const handleCreateCharacterRace = useCallback(
@@ -8582,6 +8739,59 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [authToken, worldCardRaceOptions],
   )
 
+  const handleCreateWorldDetailType = useCallback(
+    async (rawValue: string): Promise<string | null> => {
+      const normalizedValue = normalizeStoryWorldDetailTypeValue(rawValue)
+      if (!normalizedValue) {
+        return ''
+      }
+      const existingOption = worldDetailTypeAutocompleteOptions.find(
+        (option) => option.value.toLocaleLowerCase() === normalizedValue.toLocaleLowerCase(),
+      )
+      if (existingOption) {
+        return existingOption.value
+      }
+      setIsSavingWorldDetailType(true)
+      setErrorMessage('')
+      try {
+        const createdType = await createStoryWorldDetailType({
+          token: authToken,
+          name: normalizedValue,
+        })
+        const normalizedCreatedValue = normalizeStoryWorldDetailTypeValue(createdType.name)
+        setWorldDetailTypeOptions((previous) => {
+          const nextItems = [...previous]
+          const existingIndex = nextItems.findIndex(
+            (item) =>
+              normalizeStoryWorldDetailTypeValue(item.name).toLocaleLowerCase() ===
+              normalizedCreatedValue.toLocaleLowerCase(),
+          )
+          if (existingIndex >= 0) {
+            nextItems[existingIndex] = createdType
+          } else {
+            nextItems.push(createdType)
+          }
+          nextItems.sort((left, right) =>
+            normalizeStoryWorldDetailTypeValue(left.name).localeCompare(
+              normalizeStoryWorldDetailTypeValue(right.name),
+              'ru',
+              { sensitivity: 'base' },
+            ),
+          )
+          return nextItems
+        })
+        return normalizedCreatedValue
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось сохранить тип детали мира'
+        setErrorMessage(detail)
+        return null
+      } finally {
+        setIsSavingWorldDetailType(false)
+      }
+    },
+    [authToken, worldDetailTypeAutocompleteOptions],
+  )
+
   const handleWorldCardRaceSelectionChange = useCallback(
     async (_event: unknown, option: CharacterRaceOption | null) => {
       if (!option) {
@@ -8604,6 +8814,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [handleCreateCharacterRace],
   )
 
+  const handleWorldCardDetailTypeSelectionChange = useCallback(
+    async (_event: unknown, option: WorldDetailTypeAutocompleteOption | null) => {
+      if (!option) {
+        setWorldCardDetailTypeDraft('')
+        return
+      }
+      if (option.isCreateAction) {
+        const createdValue = await handleCreateWorldDetailType(option.value)
+        if (createdValue === null) {
+          return
+        }
+        setWorldCardDetailTypeDraft(createdValue)
+        return
+      }
+      setWorldCardDetailTypeDraft(option.value)
+    },
+    [handleCreateWorldDetailType],
+  )
+
   const handleSaveWorldCard = useCallback(async () => {
     if (isSavingWorldCard || isCreatingGame) {
       return
@@ -8611,6 +8840,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const normalizedTitle = worldCardTitleDraft.replace(/\s+/g, ' ').trim()
     const normalizedContent = worldCardContentDraft.replace(/\r\n/g, '\n').trim()
+    let normalizedDetailType = normalizeStoryWorldDetailTypeValue(worldCardDetailTypeDraft)
     const normalizedRace = normalizeCharacterRaceValue(worldCardRaceDraft)
     const normalizedClothing = normalizeCharacterAdditionalValue(worldCardClothingDraft)
     const normalizedInventory = normalizeCharacterAdditionalValue(worldCardInventoryDraft)
@@ -8629,37 +8859,53 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const normalizedTriggers = normalizeWorldCardTriggersDraft(worldCardTriggersDraft, normalizedTitle)
+    if (editingWorldCardKind === 'world' && !normalizedDetailType) {
+      setErrorMessage('Укажите тип детали мира')
+      return
+    }
+
+    const normalizedTriggers =
+      editingWorldCardKind === 'world_profile'
+        ? normalizeWorldCardTriggersDraft('', normalizedTitle)
+        : normalizeWorldCardTriggersDraft(worldCardTriggersDraft, normalizedTitle)
     const normalizedMemoryTurns =
-      editingWorldCardKind === 'npc'
+      editingWorldCardKind === 'npc' || editingWorldCardKind === 'world'
         ? worldCardMemoryTurnsDraft
-        : undefined
+        : editingWorldCardKind === 'world_profile'
+          ? null
+          : undefined
+    const shouldPersistWorldCardBanner = editingWorldCardKind === 'world' || editingWorldCardKind === 'world_profile'
+
     setErrorMessage('')
     setIsSavingWorldCard(true)
-    let targetGameId = activeGameId
     try {
+      const targetGameId = activeGameId ?? (await ensureGameForInstructionCard())
       if (!targetGameId) {
-        setIsCreatingGame(true)
-        const newGame = await createStoryGame({ token: authToken })
-        setGames((previousGames) =>
-          sortGamesByActivity([newGame, ...previousGames.filter((game) => game.id !== newGame.id)]),
-        )
-        setActiveGameId(newGame.id)
-        applyStoryGameSettings(newGame)
-        setInstructionCards([])
-        setPlotCards([])
-        setAiMemoryBlocks([])
-        setWorldCards([])
-        applyPlotCardEvents([])
-        applyWorldCardEvents([])
-        onNavigate(`/home/${newGame.id}`)
-        targetGameId = newGame.id
-      }
-
-      if (!targetGameId) {
-        setErrorMessage('Не удалось создать игру для карточки мира')
         return
       }
+
+      if (editingWorldCardKind === 'world' && normalizedDetailType) {
+        const hasExistingDetailType = worldDetailTypeOptions.some(
+          (item) =>
+            normalizeStoryWorldDetailTypeValue(item.name).toLocaleLowerCase() === normalizedDetailType.toLocaleLowerCase(),
+        )
+        if (!hasExistingDetailType) {
+          const createdDetailType = await handleCreateWorldDetailType(normalizedDetailType)
+          if (createdDetailType === null) {
+            return
+          }
+          normalizedDetailType = createdDetailType
+        }
+      }
+
+      const preparedAvatarPayload = shouldPersistWorldCardBanner
+        ? await prepareAvatarPayloadForRequest({
+            avatarUrl: worldCardAvatarDraft,
+            avatarOriginalUrl: worldCardAvatarOriginalDraft ?? worldCardAvatarDraft,
+            maxBytes: CHARACTER_AVATAR_MAX_BYTES,
+            maxDimension: 1280,
+          })
+        : { avatarUrl: null, avatarOriginalUrl: null }
 
       if (editingWorldCardId === null) {
         const createdCard = await createStoryWorldCard({
@@ -8672,9 +8918,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           inventory: normalizedInventory,
           health_status: normalizedHealthStatus,
           triggers: normalizedTriggers,
+          kind: editingWorldCardKind,
+          detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
+          avatar_url: shouldPersistWorldCardBanner ? preparedAvatarPayload.avatarUrl : null,
+          avatar_original_url: shouldPersistWorldCardBanner ? preparedAvatarPayload.avatarOriginalUrl : null,
+          avatar_scale: shouldPersistWorldCardBanner ? worldCardAvatarScaleDraft : undefined,
           memory_turns: normalizedMemoryTurns,
         })
-        setWorldCards((previousCards) => [...previousCards, createdCard])
+        setWorldCards((previousCards) =>
+          editingWorldCardKind === 'world_profile'
+            ? [...previousCards.filter((card) => card.kind !== 'world_profile'), createdCard]
+            : [...previousCards, createdCard],
+        )
       } else {
         const updatedCard = await updateStoryWorldCard({
           token: authToken,
@@ -8687,9 +8942,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           inventory: normalizedInventory,
           health_status: normalizedHealthStatus,
           triggers: normalizedTriggers,
+          detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
           memory_turns: normalizedMemoryTurns,
         })
-        setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+        const finalCard =
+          shouldPersistWorldCardBanner && isWorldCardAvatarDraftDirty
+            ? await updateStoryWorldCardAvatar({
+                token: authToken,
+                gameId: targetGameId,
+                cardId: editingWorldCardId,
+                avatar_url: preparedAvatarPayload.avatarUrl,
+                avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
+                avatar_scale: worldCardAvatarScaleDraft,
+              })
+            : updatedCard
+        setWorldCards((previousCards) => previousCards.map((card) => (card.id === finalCard.id ? finalCard : card)))
       }
 
       setWorldCardDialogOpen(false)
@@ -8697,33 +8964,40 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setEditingWorldCardKind('world')
       setWorldCardTitleDraft('')
       setWorldCardContentDraft('')
+      setWorldCardDetailTypeDraft('')
       setWorldCardRaceDraft('')
       setWorldCardRaceInputDraft('')
       setWorldCardClothingDraft('')
       setWorldCardInventoryDraft('')
       setWorldCardHealthStatusDraft('')
       setWorldCardTriggersDraft('')
-      setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+      setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+      setWorldCardAvatarDraft(null)
+      setWorldCardAvatarOriginalDraft(null)
+      setWorldCardAvatarScaleDraft(1)
+      setIsWorldCardAvatarDraftDirty(false)
       setIsWorldCardAdditionalExpanded(false)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить карточку мира'
       setErrorMessage(detail)
     } finally {
       setIsSavingWorldCard(false)
-
     }
   }, [
     activeGameId,
-    applyStoryGameSettings,
     authToken,
     editingWorldCardId,
     editingWorldCardKind,
+    ensureGameForInstructionCard,
+    handleCreateWorldDetailType,
     isCreatingGame,
     isSavingWorldCard,
-    onNavigate,
-    applyPlotCardEvents,
-    applyWorldCardEvents,
+    isWorldCardAvatarDraftDirty,
+    worldCardAvatarDraft,
+    worldCardAvatarOriginalDraft,
+    worldCardAvatarScaleDraft,
     worldCardContentDraft,
+    worldCardDetailTypeDraft,
     worldCardClothingDraft,
     worldCardHealthStatusDraft,
     worldCardInventoryDraft,
@@ -8731,7 +9005,95 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     worldCardRaceDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
+    worldDetailTypeOptions,
   ])
+
+  const handleApplyWorldCardTemplate = useCallback(
+    async (template: {
+      id: number
+      title: string
+      content: string
+      triggers: string[]
+      kind: 'world' | 'world_profile'
+      detail_type: string
+      avatar_url: string | null
+      avatar_original_url?: string | null
+      avatar_scale: number
+      memory_turns: number | null
+    }) => {
+      if (isSavingWorldCard || isCreatingGame) {
+        return
+      }
+      if (template.kind === 'world_profile' && worldProfileCard) {
+        setWorldCardTemplatePickerOpen(false)
+        setErrorMessage('Описание мира уже создано. Его можно только изменить.')
+        return
+      }
+
+      setErrorMessage('')
+      setWorldCardTemplatePickerOpen(false)
+      setIsSavingWorldCard(true)
+      try {
+        const targetGameId = activeGameId ?? (await ensureGameForInstructionCard())
+        if (!targetGameId) {
+          return
+        }
+
+        const createdCard = await createStoryWorldCard({
+          token: authToken,
+          gameId: targetGameId,
+          title: template.title,
+          content: template.content,
+          triggers: template.triggers,
+          kind: template.kind,
+          detail_type: template.kind === 'world' ? template.detail_type : '',
+          avatar_url: template.avatar_url,
+          avatar_original_url: template.avatar_original_url ?? null,
+          avatar_scale: template.avatar_scale,
+          memory_turns: template.memory_turns,
+        })
+        setWorldCards((previousCards) =>
+          template.kind === 'world_profile'
+            ? [...previousCards.filter((card) => card.kind !== 'world_profile'), createdCard]
+            : [...previousCards, createdCard],
+        )
+        if (template.kind === 'world' && template.detail_type.trim()) {
+          const normalizedDetailType = normalizeStoryWorldDetailTypeValue(template.detail_type)
+          setWorldDetailTypeOptions((previous) => {
+            const alreadyExists = previous.some(
+              (item) => normalizeStoryWorldDetailTypeValue(item.name).toLocaleLowerCase() === normalizedDetailType.toLocaleLowerCase(),
+            )
+            if (alreadyExists) {
+              return previous
+            }
+            const now = new Date().toISOString()
+            return [
+              ...previous,
+              {
+                id: -Date.now(),
+                name: normalizedDetailType,
+                created_at: now,
+                updated_at: now,
+              },
+            ]
+          })
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось применить шаблон карточки мира'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingWorldCard(false)
+      }
+    },
+    [
+      activeGameId,
+      authToken,
+      ensureGameForInstructionCard,
+      isCreatingGame,
+      isSavingWorldCard,
+      worldProfileCard,
+    ],
+  )
 
   const handleDeleteWorldCard = useCallback(
     async (cardId: number) => {
@@ -8762,8 +9124,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setEditingWorldCardKind('world')
           setWorldCardTitleDraft('')
           setWorldCardContentDraft('')
+          setWorldCardDetailTypeDraft('')
           setWorldCardTriggersDraft('')
-          setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+          setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось удалить карточку мира'
@@ -10951,7 +11314,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
-            if (options.rerollLastResponse) {
+            if (options.rerollLastResponse || (options.discardLastAssistantSteps ?? 0) > 0) {
               setIsRerollTurnPendingReplacement(false)
             }
             startedAssistantMessageId = payload.assistant_message_id
@@ -11115,7 +11478,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
         }
       } finally {
-        if (options.rerollLastResponse && !streamStarted) {
+        if ((options.rerollLastResponse || (options.discardLastAssistantSteps ?? 0) > 0) && !streamStarted) {
           setIsRerollTurnPendingReplacement(false)
         }
         setIsFinalizingStoryTurn(true)
@@ -11387,7 +11750,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [canUseVoiceInput, hasPromptText, inputValue, isCreatingGame, isGenerating, isVoiceInputActive, hasInsufficientTokensForTurn, speechRecognitionCtor])
 
   const sendStoryPrompt = useCallback(
-    async (rawPrompt: string, options?: { clearComposer?: boolean; hideUserMessage?: boolean }) => {
+    async (
+      rawPrompt: string,
+      options?: { clearComposer?: boolean; hideUserMessage?: boolean; discardLastAssistantSteps?: number },
+    ) => {
       if (isStoryTurnBusy) {
         return null
       }
@@ -11467,6 +11833,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return runStoryGeneration({
         gameId: targetGameId,
         prompt: normalizedPrompt,
+        discardLastAssistantSteps: options?.discardLastAssistantSteps,
         instructionCards,
       })
     },
@@ -11816,7 +12183,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId, authToken, canRedoAssistantStep, isUndoingAssistantStep, loadGameById])
 
   const handleRerollLastResponse = useCallback(async () => {
-    if (!canReroll || !activeGameId) {
+    if (!canReroll || !activeGameId || !currentRerollAssistantMessage || !currentRerollSourceUserMessage) {
       return
     }
 
@@ -11832,93 +12199,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     setErrorMessage('')
 
-    if (!currentRerollSourceUserMessage) {
-      return
-    }
-
     const rerollAssistantMessage = currentRerollAssistantMessage
-    const relatedPlotEvents = rerollAssistantMessage
-      ? plotCardEvents
-          .filter((event) => event.assistant_message_id === rerollAssistantMessage.id)
-          .sort((left, right) => left.id - right.id)
-      : []
-    const relatedWorldEvents = rerollAssistantMessage
-      ? worldCardEvents
-          .filter((event) => event.assistant_message_id === rerollAssistantMessage.id)
-          .sort((left, right) => left.id - right.id)
-      : []
-    const remainingPlotEvents = rerollAssistantMessage
-      ? plotCardEvents.filter((event) => event.assistant_message_id !== rerollAssistantMessage.id)
-      : plotCardEvents
-    const remainingWorldEvents = rerollAssistantMessage
-      ? worldCardEvents.filter((event) => event.assistant_message_id !== rerollAssistantMessage.id)
-      : worldCardEvents
-    const relatedMemoryBlocks = rerollAssistantMessage
-      ? aiMemoryBlocks
-          .filter((block) => block.assistant_message_id === rerollAssistantMessage.id)
-          .sort((left, right) => left.id - right.id)
-      : []
-    const remainingMemoryBlocks = rerollAssistantMessage
-      ? aiMemoryBlocks.filter((block) => block.assistant_message_id !== rerollAssistantMessage.id)
-      : aiMemoryBlocks
+    const rerollSourceUserMessage = currentRerollSourceUserMessage
+    setIsRerollTurnPendingReplacement(true)
+    setMessages((previousMessages) =>
+      previousMessages.filter(
+        (message) => message.id !== rerollAssistantMessage.id && message.id !== rerollSourceUserMessage.id,
+      ),
+    )
+    clearTurnImageEntries([rerollAssistantMessage.id])
 
-    if (rerollAssistantMessage) {
-      setIsRerollTurnPendingReplacement(true)
-      setMessages((previousMessages) => previousMessages.filter((message) => message.id !== rerollAssistantMessage.id))
-      clearTurnImageEntries([rerollAssistantMessage.id])
-      setPlotCards((previousCards) => rollbackPlotCardsByEvents(previousCards, relatedPlotEvents, activeGameId))
-      setWorldCards((previousCards) => rollbackWorldCardsByEvents(previousCards, relatedWorldEvents, activeGameId))
-      setAiMemoryBlocks(remainingMemoryBlocks)
-      setOpenedAiMemoryBlockId((previousId) => {
-        if (previousId === null) {
-          return previousId
-        }
-        return remainingMemoryBlocks.some((block) => block.id === previousId) ? previousId : null
-      })
-      applyPlotCardEvents(remainingPlotEvents)
-      applyWorldCardEvents(remainingWorldEvents)
-    }
-
-    const generationResult = await runStoryGeneration({
-      gameId: activeGameId,
-      rerollLastResponse: true,
-      instructionCards,
+    const generationResult = await sendStoryPrompt(rerollSourceUserMessage.content, {
+      discardLastAssistantSteps: 1,
     })
-
-    if (rerollAssistantMessage && generationResult.failed && !generationResult.streamStarted) {
-      setIsRerollTurnPendingReplacement(false)
+    if (generationResult === null) {
       setMessages((previousMessages) => {
-        if (previousMessages.some((message) => message.id === rerollAssistantMessage.id)) {
-          return previousMessages
+        const restoredMessages = [...previousMessages]
+        if (!restoredMessages.some((message) => message.id === rerollSourceUserMessage.id)) {
+          restoredMessages.push(rerollSourceUserMessage)
         }
-        return [...previousMessages, rerollAssistantMessage].sort((left, right) => left.id - right.id)
+        if (!restoredMessages.some((message) => message.id === rerollAssistantMessage.id)) {
+          restoredMessages.push(rerollAssistantMessage)
+        }
+        return restoredMessages.sort((left, right) => left.id - right.id)
       })
-      setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, relatedPlotEvents, activeGameId))
-      setWorldCards((previousCards) => reapplyWorldCardsByEvents(previousCards, relatedWorldEvents, activeGameId))
-      setAiMemoryBlocks((previousBlocks) =>
-        [...previousBlocks, ...relatedMemoryBlocks]
-          .filter((block, index, array) => array.findIndex((candidate) => candidate.id === block.id) === index)
-          .sort((left, right) => left.id - right.id),
-      )
-      applyPlotCardEvents(mergePlotEvents(remainingPlotEvents, relatedPlotEvents))
-      applyWorldCardEvents(mergeWorldEvents(remainingWorldEvents, relatedWorldEvents))
+      setIsRerollTurnPendingReplacement(false)
     }
   }, [
-    aiMemoryBlocks,
     activeGameId,
-    applyPlotCardEvents,
-    applyWorldCardEvents,
     canReroll,
     clearTurnImageEntries,
     currentTurnCostTokens,
     currentRerollAssistantMessage,
     currentRerollSourceUserMessage,
     hasInsufficientTokensForTurn,
-    instructionCards,
-    plotCardEvents,
-    runStoryGeneration,
+    sendStoryPrompt,
     setIsRerollTurnPendingReplacement,
-    worldCardEvents,
   ])
 
   const handleCloseProfileDialog = () => {
@@ -12395,8 +12711,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
           {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
             <Box data-tour-id="story-world-cards-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
-              <Stack direction="row" spacing={0.6} sx={{ flexWrap: 'wrap' }}>
-                {[ 
+              <Box
+                ref={cardsPanelTabsScrollerRef}
+                className="morius-scrollbar"
+                onPointerDown={handleCardsPanelTabsPointerDown}
+                onPointerMove={handleCardsPanelTabsPointerMove}
+                onPointerUp={handleCardsPanelTabsPointerEnd}
+                onPointerCancel={handleCardsPanelTabsPointerEnd}
+                sx={{
+                  display: 'flex',
+                  gap: 0.6,
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                  touchAction: 'pan-x',
+                  cursor: 'grab',
+                  pr: 0.2,
+                  '&::-webkit-scrollbar': {
+                    display: 'none',
+                  },
+                  '&:active': {
+                    cursor: 'grabbing',
+                  },
+                }}
+              >
+                {[
+                  { key: 'characters' as const, label: 'Персонажи', iconMarkup: cardsCharactersTabIconMarkup },
                   { key: 'world' as const, label: 'Мир', iconMarkup: cardsWorldTabIconMarkup },
                   { key: 'instructions' as const, label: 'Правила', iconMarkup: cardsRulesTabIconMarkup },
                   { key: 'plot' as const, label: 'Сюжет', iconMarkup: cardsPlotTabIconMarkup },
@@ -12405,7 +12746,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   return (
                     <Button
                       key={tab.key}
-                      onClick={() => setCardsPanelTab(tab.key)}
+                      onClick={() => handleCardsPanelTabSelect(tab.key)}
                       sx={{
                         ...rightPanelTextTabButtonSx(isActive),
                         minHeight: 46,
@@ -12414,6 +12755,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         gap: 0.62,
                         fontSize: '12px',
                         letterSpacing: 0,
+                        flexShrink: 0,
                         color: isActive ? 'var(--morius-accent) !important' : 'var(--morius-title-text) !important',
                       }}
                     >
@@ -12422,10 +12764,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Button>
                   )
                 })}
-              </Stack>
+              </Box>
 
               <Box className="morius-scrollbar" sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0 }}>
-                {cardsPanelTab === 'world' ? (
+                {cardsPanelTab === 'characters' ? (
                   <Stack spacing={0.9}>
                     <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Главный герой</Typography>
                     {!mainHeroCard ? (
@@ -12538,107 +12880,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Stack>
                     )}
 
-                    {displayedContextWorldCards.length > 0 ? (
-                      <>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Мир и объекты</Typography>
-                        <Stack spacing={0.85}>
-                          {displayedContextWorldCards.map((card) => {
-                            const contextState = worldCardContextStateById.get(card.id)
-                            const isCardContextActive = Boolean(contextState?.isActive)
-                            return (
-                              <Box
-                                key={card.id}
-                                sx={{
-                                  borderRadius: '18px',
-                                  border: isCardContextActive
-                                    ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))'
-                                    : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
-                                  backgroundColor: isCardContextActive
-                                    ? 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-card-bg))'
-                                    : 'var(--morius-card-bg)',
-                                  boxShadow: isCardContextActive
-                                    ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 20%, transparent) inset'
-                                    : 'none',
-                                  p: 0.95,
-                                  position: 'relative',
-                                  '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': {
-                                    opacity: 1,
-                                    pointerEvents: 'auto',
-                                  },
-                                }}
-                              >
-                                <Stack direction="row" spacing={0.75} alignItems="flex-start">
-                                  <Box
-                                    sx={{
-                                      width: 44,
-                                      height: 44,
-                                      borderRadius: '14px',
-                                      border: isCardContextActive
-                                        ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 44%, var(--morius-card-border))'
-                                        : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-                                      backgroundColor: isCardContextActive
-                                        ? 'color-mix(in srgb, var(--morius-accent) 12%, transparent)'
-                                        : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
-                                      display: 'grid',
-                                      placeItems: 'center',
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    <ThemedSvgIcon
-                                      markup={cardsWorldTabIconMarkup}
-                                      size={18}
-                                      sx={{ color: isCardContextActive ? 'var(--morius-accent)' : 'var(--morius-title-text)' }}
-                                    />
-                                  </Box>
-                                  <Stack spacing={0.28} sx={{ minWidth: 0, flex: 1 }}>
-                                    <Stack direction="row" spacing={0.55} alignItems="center" sx={{ minWidth: 0 }}>
-                                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1 }}>
-                                        {card.title}
-                                      </Typography>
-                                      <Typography
-                                        sx={{
-                                          ...buildStatusChipSx(isCardContextActive),
-                                          px: 0.55,
-                                          py: 0.18,
-                                          fontSize: '0.64rem',
-                                          fontWeight: 700,
-                                          flexShrink: 0,
-                                        }}
-                                      >
-                                        {formatWorldCardContextStatus(contextState)}
-                                      </Typography>
-                                    </Stack>
-                                    <Typography
-                                      sx={{
-                                        color: 'var(--morius-text-secondary)',
-                                        fontSize: '0.82rem',
-                                        lineHeight: 1.42,
-                                        whiteSpace: 'pre-wrap',
-                                        display: '-webkit-box',
-                                        WebkitLineClamp: 3,
-                                        WebkitBoxOrient: 'vertical',
-                                        overflow: 'hidden',
-                                      }}
-                                    >
-                                      {card.content}
-                                    </Typography>
-                                  </Stack>
-                                  <IconButton
-                                    className="morius-overflow-action"
-                                    onClick={(event) => handleOpenCardMenu(event, 'world', card.id)}
-                                    disabled={isWorldCardActionLocked}
-                                    sx={overflowActionButtonSx}
-                                  >
-                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                                  </IconButton>
-                                </Stack>
-                              </Box>
-                            )
-                          })}
-                        </Stack>
-                      </>
-                    ) : null}
-
                     {!mainHeroCard ? (
                       <Button
                         onClick={() => void handleOpenCharacterSelectorForMainHero()}
@@ -12650,7 +12891,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     ) : null}
                     <Stack direction="row" spacing={0.65}>
                       <Button
-                        onClick={handleOpenCreateWorldCardDialog}
+                        onClick={() => handleOpenCreateWorldCardDialog('npc')}
                         disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
                         sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
                       >
@@ -12659,6 +12900,152 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <Button
                         onClick={() => void handleOpenCharacterSelectorForNpc()}
                         disabled={isGenerating || isCreatingGame}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        Из шаблона
+                      </Button>
+                    </Stack>
+                  </Stack>
+                ) : cardsPanelTab === 'world' ? (
+                  <Stack spacing={0.9}>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Описание мира</Typography>
+                    {!worldProfileCard ? (
+                      <RightPanelEmptyState
+                        iconSrc={icons.world}
+                        title="Описание мира не задано"
+                        description="Опишите лор, правила, атмосферу, расы и общий контекст мира. Эта карточка всегда остается в памяти рассказчика."
+                      />
+                    ) : (
+                      <Box sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}>
+                        <CharacterShowcaseCard
+                          title={worldProfileCard.title}
+                          description={replaceMainHeroInlineTags(worldProfileCard.content, mainHeroDisplayNameForTags)}
+                          imageUrl={resolveWorldCardAvatar(worldProfileCard)}
+                          imageScale={worldProfileCard.avatar_scale}
+                          eyebrow="Описание мира"
+                          footerHint="Всегда в памяти рассказчика"
+                          descriptionLineClamp={5}
+                          onClick={() => handleOpenEditWorldCardDialog(worldProfileCard)}
+                          actionSlot={
+                            <IconButton
+                              className="morius-overflow-action"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                handleOpenCardMenu(event, 'world', worldProfileCard.id)
+                              }}
+                              disabled={isWorldCardActionLocked}
+                              sx={overflowActionButtonSx}
+                            >
+                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                            </IconButton>
+                          }
+                        />
+                      </Box>
+                    )}
+
+                    <Stack direction="row" spacing={0.65}>
+                      <Button
+                        onClick={() =>
+                          worldProfileCard
+                            ? handleOpenEditWorldCardDialog(worldProfileCard)
+                            : handleOpenCreateWorldCardDialog('world_profile')
+                        }
+                        disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        {worldProfileCard ? 'Редактировать' : 'Создать'}
+                      </Button>
+                      <Button
+                        onClick={() => handleOpenWorldCardTemplatePicker('world_profile')}
+                        disabled={isGenerating || isSavingWorldCard || isCreatingGame || Boolean(worldProfileCard)}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        Из шаблона
+                      </Button>
+                    </Stack>
+
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Детали</Typography>
+                    {displayedDetailCards.length === 0 ? (
+                      <RightPanelEmptyState
+                        iconSrc={icons.world}
+                        title="Деталей пока нет"
+                        description="Добавляйте места, предметы, заклинания, мобов и другие элементы мира, чтобы рассказчик учитывал их в сценах."
+                      />
+                    ) : (
+                      <Stack spacing={0.85}>
+                        {displayedDetailCards.map((card) => {
+                          const contextState = worldCardContextStateById.get(card.id)
+                          const isCardContextActive = Boolean(contextState?.isActive)
+                          const memoryTurns = resolveWorldCardMemoryTurns(card)
+                          const memoryTurnsLabelValue =
+                            isCardContextActive &&
+                            !contextState?.isAlwaysActive &&
+                            typeof contextState?.turnsRemaining === 'number' &&
+                            contextState.turnsRemaining > 0
+                              ? contextState.turnsRemaining
+                              : null
+                          const triggerPreview =
+                            card.triggers.length > 0
+                              ? `Триггеры: ${card.triggers.slice(0, 3).join(', ')}${card.triggers.length > 3 ? ', ...' : ''}`
+                              : 'Триггеры не заданы'
+
+                          return (
+                            <Box
+                              key={card.id}
+                              sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}
+                            >
+                              <CharacterShowcaseCard
+                                title={card.title}
+                                description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                imageUrl={resolveWorldCardAvatar(card)}
+                                imageScale={card.avatar_scale}
+                                eyebrow={card.detail_type || 'Деталь мира'}
+                                footerHint={triggerPreview}
+                                metaPrimary={formatWorldCardMemoryLabel(memoryTurns)}
+                                highlighted={isCardContextActive}
+                                descriptionLineClamp={4}
+                                titleAccessory={
+                                  isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
+                                    <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                      <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
+                                      <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
+                                        {memoryTurnsLabelValue}
+                                      </Typography>
+                                    </Stack>
+                                  ) : null
+                                }
+                                onClick={() => handleOpenEditWorldCardDialog(card)}
+                                actionSlot={
+                                  <IconButton
+                                    className="morius-overflow-action"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleOpenCardMenu(event, 'world', card.id)
+                                    }}
+                                    disabled={isWorldCardActionLocked}
+                                    sx={overflowActionButtonSx}
+                                  >
+                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                  </IconButton>
+                                }
+                              />
+                            </Box>
+                          )
+                        })}
+                      </Stack>
+                    )}
+
+                    <Stack direction="row" spacing={0.65}>
+                      <Button
+                        onClick={() => handleOpenCreateWorldCardDialog('world')}
+                        disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
+                        sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
+                      >
+                        Создать
+                      </Button>
+                      <Button
+                        onClick={() => handleOpenWorldCardTemplatePicker('world')}
+                        disabled={isGenerating || isSavingWorldCard || isCreatingGame}
                         sx={{ ...rightPanelCompactActionButtonSx, flex: 1, minHeight: 40 }}
                       >
                         Из шаблона
@@ -15233,7 +15620,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Box>
               )}
               <Button
-                onClick={handleOpenCreateWorldCardDialog}
+                onClick={() => handleOpenCreateWorldCardDialog('world')}
                 disabled={isGenerating || isSavingWorldCard || deletingWorldCardId !== null || isCreatingGame}
                 sx={{
                   minHeight: 40,
@@ -16923,7 +17310,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
         }}
         rawChildren
       >
@@ -17123,7 +17510,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
         }}
         rawChildren
       >
@@ -17236,7 +17623,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           },
         }}
       >
-        {cardMenuType === 'world' && characterStateEnabled ? (
+        {cardMenuType === 'world' && characterStateEnabled && selectedMenuWorldCard && supportsWorldCardAiStateUi(selectedMenuWorldCard) ? (
           <MenuItem
             onClick={() => {
               void handleToggleWorldCardAiEdit()
@@ -17325,7 +17712,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
         }}
         header={
           <Stack spacing={0.35}>
@@ -17373,7 +17760,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           animation: 'morius-dialog-pop 320ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
         rawChildren
@@ -17421,9 +17808,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: { xs: 'calc(100dvh - 18px)', sm: 'min(92vh, 960px)' },
         }}
         rawChildren
       >
@@ -17432,7 +17822,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             {editingInstructionId === null ? 'Новая инструкция' : 'Редактирование инструкции'}
           </Typography>
         </DialogTitle>
-        <DialogContent sx={{ pt: 0.3 }}>
+        <DialogContent className="morius-scrollbar" sx={{ pt: 0.3, overflowY: 'auto' }}>
           {false ? (
             <Stack spacing={0.95}>
               <Stack spacing={0.7} alignItems="center">
@@ -17711,7 +18101,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -18053,7 +18443,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -18341,7 +18731,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -18408,7 +18798,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -18420,9 +18810,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               ? editingWorldCardId === null
                 ? 'Новый профиль NPC'
                 : 'Редактирование профиля NPC'
-              : editingWorldCardId === null
-                ? 'Новая карточка мира'
-                : 'Редактирование карточки мира'}
+              : editingWorldCardKind === 'world_profile'
+                ? editingWorldCardId === null
+                  ? 'Описание мира'
+                  : 'Редактирование описания мира'
+                : editingWorldCardId === null
+                  ? 'Новая деталь мира'
+                  : 'Редактирование детали мира'}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.3 }}>
@@ -18739,98 +19133,83 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               ) : null}
             </Stack>
           ) : (
-          false ? (
-            <Stack spacing={0.95}>
-              <Stack spacing={0.7} alignItems="center">
-                <Box
-                  role="button"
-                  tabIndex={editingWorldCard ? 0 : -1}
-                  aria-label="change character avatar"
-                  onClick={() => {
-                    if (!editingWorldCard || isWorldCardActionLocked) {
+            <Stack spacing={1.05}>
+              <WorldCardBannerPreview
+                imageUrl={editingWorldCardPreviewAvatarUrl}
+                imageScale={worldCardAvatarScaleDraft || 1}
+                title="Баннер карточки"
+                description="Добавьте широкое изображение для мира или детали, чтобы карточка выглядела как баннер."
+                actionLabel="Выбрать баннер"
+                disabled={isWorldCardActionLocked || isSavingWorldCardAvatar}
+                loading={isSavingWorldCardAvatar}
+                onClick={() => handleOpenWorldCardAvatarPicker(editingWorldCardId, 'draft')}
+              />
+
+              {editingWorldCardKind === 'world' ? (
+                <Autocomplete<WorldDetailTypeAutocompleteOption, false, false, false>
+                  options={worldDetailTypeAutocompleteOptions}
+                  value={selectedWorldCardDetailTypeOption}
+                  inputValue={worldCardDetailTypeDraft}
+                  onInputChange={(_event, nextValue, reason) => {
+                    if (reason === 'reset') {
+                      setWorldCardDetailTypeDraft(selectedWorldCardDetailTypeOption?.value ?? '')
                       return
                     }
-                    handleOpenWorldCardAvatarPicker(editingWorldCard.id)
+                    setWorldCardDetailTypeDraft(nextValue.slice(0, STORY_CHARACTER_RACE_MAX_LENGTH))
                   }}
-                  onKeyDown={(event) => {
-                    if ((event.key === 'Enter' || event.key === ' ') && editingWorldCard && !isWorldCardActionLocked) {
-                      event.preventDefault()
-                      handleOpenWorldCardAvatarPicker(editingWorldCard.id)
+                  onChange={(event, nextValue) => {
+                    void handleWorldCardDetailTypeSelectionChange(event, nextValue)
+                  }}
+                  filterOptions={(options, params) => {
+                    const filtered = filterWorldDetailTypeOptions(options, params)
+                    const normalizedInputValue = normalizeStoryWorldDetailTypeValue(params.inputValue)
+                    const hasExactMatch = options.some(
+                      (option) => option.value.toLocaleLowerCase() === normalizedInputValue.toLocaleLowerCase(),
+                    )
+                    if (normalizedInputValue && !hasExactMatch) {
+                      filtered.push({
+                        label: `Добавить: ${normalizedInputValue}`,
+                        value: normalizedInputValue,
+                        isCreateAction: true,
+                      })
                     }
+                    return filtered
                   }}
-                  sx={{
-                    position: 'relative',
-                    width: 248,
-                    height: 248,
-                    borderRadius: '50%',
-                    overflow: 'hidden',
-                    cursor: editingWorldCard && !isWorldCardActionLocked ? 'pointer' : 'default',
-                    border: '1px dashed rgba(194, 208, 226, 0.5)',
-                    background: 'linear-gradient(135deg, rgba(30, 33, 39, 0.86), rgba(56, 60, 68, 0.9))',
-                    outline: 'none',
-                    '&:hover .morius-world-card-avatar-overlay': {
-                      opacity: editingWorldCard && !isWorldCardActionLocked ? 1 : 0,
-                    },
-                    '&:focus-visible .morius-world-card-avatar-overlay': {
-                      opacity: editingWorldCard && !isWorldCardActionLocked ? 1 : 0,
-                    },
-                  }}
-                >
-                  <CharacterAvatar
-                    avatarUrl={editingWorldCardAvatarUrl}
-                    avatarScale={editingWorldCard?.avatar_scale ?? 1}
-                    fallbackLabel={worldCardTitleDraft || 'РџРµСЂСЃРѕРЅР°Р¶'}
-                    size={248}
-                  />
-                  <Box
-                    className="morius-world-card-avatar-overlay"
-                    sx={{
-                      position: 'absolute',
-                      inset: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      backgroundColor: 'rgba(16, 18, 20, 0.58)',
-                      opacity: 0,
-                      transition: 'opacity 180ms ease',
-                      pointerEvents: 'none',
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        width: 62,
-                        height: 62,
-                        borderRadius: '50%',
-                        border: 'var(--morius-border-width) solid rgba(219, 221, 231, 0.68)',
-                        backgroundColor: 'rgba(22, 24, 27, 0.66)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: 'var(--morius-text-primary)',
-                        fontSize: '2rem',
-                        fontWeight: 400,
+                  getOptionLabel={(option) => option.label}
+                  isOptionEqualToValue={(option, value) => option.value === value.value && option.isCreateAction === value.isCreateAction}
+                  loading={isLoadingWorldDetailTypes || isSavingWorldDetailType}
+                  disabled={isWorldCardActionLocked}
+                  fullWidth
+                  noOptionsText="Типы не найдены"
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Тип"
+                      placeholder="Место, предмет, заклинание, моб..."
+                      inputProps={{
+                        ...params.inputProps,
+                        maxLength: STORY_CHARACTER_RACE_MAX_LENGTH,
                       }}
-                    >
-                      +
-                    </Box>
-                  </Box>
-                  {isSavingWorldCardAvatar ? (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        inset: 0,
-                        display: 'grid',
-                        placeItems: 'center',
-                        backgroundColor: 'rgba(14, 16, 20, 0.56)',
+                      helperText={<TextLimitIndicator currentLength={normalizedWorldCardDetailTypeDraft.length} maxLength={STORY_CHARACTER_RACE_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      InputProps={{
+                        ...params.InputProps,
+                        endAdornment: (
+                          <>
+                            {isLoadingWorldDetailTypes || isSavingWorldDetailType ? (
+                              <CircularProgress color="inherit" size={16} />
+                            ) : null}
+                            {params.InputProps.endAdornment}
+                          </>
+                        ),
                       }}
-                    >
-                      <CircularProgress size={28} sx={{ color: 'rgba(224, 232, 243, 0.95)' }} />
-                    </Box>
-                  ) : null}
-                </Box>
-              </Stack>
+                    />
+                  )}
+                />
+              ) : null}
+
               <TextField
-                label="РРјСЏ"
+                label={editingWorldCardKind === 'world_profile' ? 'Название мира' : 'Название детали'}
                 value={worldCardTitleDraft}
                 onChange={(event) => setWorldCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))}
                 fullWidth
@@ -18840,228 +19219,110 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 helperText={<TextLimitIndicator currentLength={worldCardTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+
               <TextField
-                label="РћРїРёСЃР°РЅРёРµ"
+                label={editingWorldCardKind === 'world_profile' ? 'Описание мира' : 'Описание'}
                 value={worldCardContentDraft}
                 onChange={(event) => setWorldCardContentDraft(event.target.value.slice(0, WORLD_CARD_CONTENT_MAX_LENGTH))}
                 fullWidth
                 multiline
-                minRows={4}
-                maxRows={8}
+                minRows={editingWorldCardKind === 'world_profile' ? 6 : 4}
+                maxRows={editingWorldCardKind === 'world_profile' ? 12 : 8}
                 disabled={isWorldCardActionLocked}
+                placeholder={
+                  editingWorldCardKind === 'world_profile'
+                    ? 'Опишите лор мира, правила, эпоху, магию, технологии, расы и всё, что рассказчик должен помнить всегда.'
+                    : 'Опишите место, предмет, заклинание, моба или другую важную деталь мира.'
+                }
                 inputProps={{ maxLength: WORLD_CARD_CONTENT_MAX_LENGTH }}
                 helperText={<TextLimitIndicator currentLength={worldCardContentDraft.length} maxLength={WORLD_CARD_CONTENT_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
-              <TextField
-                label="РўСЂРёРіРіРµСЂС‹"
-                value={worldCardTriggersDraft}
-                onChange={(event) => setWorldCardTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))}
-                fullWidth
-                multiline
-                minRows={2}
-                maxRows={4}
-                disabled={isWorldCardActionLocked}
-                placeholder="С‡РµСЂРµР· Р·Р°РїСЏС‚СѓСЋ"
-                inputProps={{ maxLength: STORY_TRIGGER_INPUT_MAX_LENGTH }}
-                helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
-                FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
-              />
-              {editingWorldCardKind === 'npc' ? (
-                <Stack spacing={0.35}>
-                  <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                    РџР°РјСЏС‚СЊ NPC РІ РєРѕРЅС‚РµРєСЃС‚Рµ
-                  </Typography>
-                  <Box
-                    component="select"
-                    value={
-                      worldCardMemoryTurnsDraft === null
-                        ? 'always'
-                        : worldCardMemoryTurnsDraft === NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
-                          ? 'off'
-                          : String(worldCardMemoryTurnsDraft)
-                    }
-                    onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                      const nextValue = event.target.value
-                      if (nextValue === 'always') {
-                        setWorldCardMemoryTurnsDraft(null)
-                        return
+
+              {editingWorldCardKind === 'world_profile' ? <Box sx={{ display: 'none' }} /> : (
+                <>
+                  <TextField
+                    label="Триггеры"
+                    value={worldCardTriggersDraft}
+                    onChange={(event) => setWorldCardTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))}
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    maxRows={4}
+                    disabled={isWorldCardActionLocked}
+                    placeholder="Через запятую: храм, артефакт, некромантия"
+                    inputProps={{ maxLength: STORY_TRIGGER_INPUT_MAX_LENGTH }}
+                    helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
+                    FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                  />
+
+                  <Stack spacing={0.35}>
+                    <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
+                      Память детали в контексте
+                    </Typography>
+                    <Box
+                      component="select"
+                      value={
+                        worldCardMemoryTurnsDraft === null
+                          ? 'always'
+                          : worldCardMemoryTurnsDraft === NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
+                            ? 'off'
+                            : String(worldCardMemoryTurnsDraft)
                       }
-                      if (nextValue === 'off') {
-                        setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_MEMORY_TURNS_DISABLED)
-                        return
-                      }
-                      setWorldCardMemoryTurnsDraft(Number(nextValue) as NpcMemoryTurnsOption)
-                    }}
-                    sx={{
-                      width: '100%',
-                      minHeight: 40,
-                      borderRadius: 'var(--morius-radius)',
-                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                      backgroundColor: 'var(--morius-card-bg)',
-                      color: 'var(--morius-text-primary)',
-                      px: 1.1,
-                      outline: 'none',
-                      fontSize: '0.9rem',
-                    }}
-                  >
-                    <option value="off">РћС‚РєР»СЋС‡РµРЅРѕ</option>
-                    <option value="3">3 С…РѕРґР°</option>
-                    <option value="5">5 С…РѕРґРѕРІ</option>
-                    <option value="10">10 С…РѕРґРѕРІ</option>
-                    <option value="always">РџРѕРјРЅРёС‚СЊ РІСЃРµРіРґР°</option>
-                  </Box>
-                </Stack>
-              ) : null}
+                      onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+                        const nextValue = event.target.value
+                        if (nextValue === 'always') {
+                          setWorldCardMemoryTurnsDraft(null)
+                          return
+                        }
+                        if (nextValue === 'off') {
+                          setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_MEMORY_TURNS_DISABLED)
+                          return
+                        }
+                        setWorldCardMemoryTurnsDraft(Number(nextValue) as NpcMemoryTurnsOption)
+                      }}
+                      sx={{
+                        width: '100%',
+                        minHeight: 40,
+                        borderRadius: 'var(--morius-radius)',
+                        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                        backgroundColor: 'var(--morius-card-bg)',
+                        color: 'var(--morius-text-primary)',
+                        px: 1.1,
+                        outline: 'none',
+                        fontSize: '0.9rem',
+                      }}
+                    >
+                      <option value="off">Отключено</option>
+                      <option value="3">3 хода</option>
+                      <option value="5">5 ходов</option>
+                      <option value="10">10 ходов</option>
+                      <option value="always">Помнить всегда</option>
+                    </Box>
+                  </Stack>
+                </>
+              )}
             </Stack>
-          ) : (
-            <Stack spacing={1.1}>
-            <Box
-              component="input"
-              value={worldCardTitleDraft}
-              placeholder="Название (персонаж, предмет, место)"
-              maxLength={STORY_CARD_TITLE_MAX_LENGTH}
-              autoFocus
-              onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                setWorldCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))
-              }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
-                  event.preventDefault()
-                  void handleSaveWorldCard()
-                }
-              }}
-              sx={{
-                width: '100%',
-                minHeight: 42,
-                borderRadius: 'var(--morius-radius)',
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
-                backgroundColor: 'var(--morius-card-bg)',
-                color: 'var(--morius-text-primary)',
-                px: 1.1,
-                outline: 'none',
-                fontSize: '0.96rem',
-              }}
-            />
-            <TextLimitIndicator currentLength={worldCardTitleDraft.length} maxLength={STORY_CARD_TITLE_MAX_LENGTH} />
-            <Box
-              component="textarea"
-              value={worldCardContentDraft}
-              placeholder="Кратко опишите сущность: внешность, роль, свойства, важные детали."
-              maxLength={WORLD_CARD_CONTENT_MAX_LENGTH}
-              onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
-                setWorldCardContentDraft(event.target.value.slice(0, WORLD_CARD_CONTENT_MAX_LENGTH))
-              }
-              onKeyDown={(event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                  event.preventDefault()
-                  void handleSaveWorldCard()
-                }
-              }}
-              sx={{
-                width: '100%',
-                minHeight: 130,
-                resize: 'vertical',
-                borderRadius: 'var(--morius-radius)',
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                backgroundColor: 'var(--morius-card-bg)',
-                color: 'var(--morius-text-primary)',
-                px: 1.1,
-                py: 0.9,
-                outline: 'none',
-                fontSize: '0.96rem',
-                lineHeight: 1.45,
-                fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
-              }}
-            />
-            <Box
-              component="input"
-              value={worldCardTriggersDraft}
-              placeholder="Триггеры через запятую: Алекс, Алексу, капитан"
-              maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH}
-              onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                setWorldCardTriggersDraft(event.target.value.slice(0, STORY_TRIGGER_INPUT_MAX_LENGTH))
-              }
-              sx={{
-                width: '100%',
-                minHeight: 40,
-                borderRadius: 'var(--morius-radius)',
-                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                backgroundColor: 'var(--morius-card-bg)',
-                color: 'var(--morius-text-primary)',
-                px: 1.1,
-                outline: 'none',
-                fontSize: '0.9rem',
-              }}
-            />
-            <TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />
-            {editingWorldCardKind === 'npc' ? (
-              <Stack spacing={0.35}>
-                <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
-                  Память NPC в контексте
-                </Typography>
-                <Box
-                  component="select"
-                  value={
-                    worldCardMemoryTurnsDraft === null
-                      ? 'always'
-                      : worldCardMemoryTurnsDraft === NPC_WORLD_CARD_MEMORY_TURNS_DISABLED
-                        ? 'off'
-                        : String(worldCardMemoryTurnsDraft)
-                  }
-                  onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                    const nextValue = event.target.value
-                    if (nextValue === 'always') {
-                      setWorldCardMemoryTurnsDraft(null)
-                      return
-                    }
-                    if (nextValue === 'off') {
-                      setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_MEMORY_TURNS_DISABLED)
-                      return
-                    }
-                    setWorldCardMemoryTurnsDraft(Number(nextValue) as NpcMemoryTurnsOption)
-                  }}
-                  sx={{
-                    width: '100%',
-                    minHeight: 40,
-                    borderRadius: 'var(--morius-radius)',
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                    backgroundColor: 'var(--morius-card-bg)',
-                    color: 'var(--morius-text-primary)',
-                    px: 1.1,
-                    outline: 'none',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  <option value="off">Отключено</option>
-                  <option value="3">3 хода</option>
-                  <option value="5">5 ходов</option>
-                  <option value="10">10 ходов</option>
-                  <option value="always">Помнить всегда</option>
-                </Box>
-              </Stack>
-            ) : null}
-            <TextLimitIndicator currentLength={worldCardContentDraft.length} maxLength={WORLD_CARD_CONTENT_MAX_LENGTH} />
-            </Stack>
-          ))}
+          )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
-          <Button onClick={handleCloseWorldCardDialog} disabled={isSavingWorldCard || isCreatingGame} sx={{ color: 'text.secondary' }}>
+          <Button
+            onClick={handleCloseWorldCardDialog}
+            disabled={isSavingWorldCard || isCreatingGame}
+            sx={{ color: 'var(--morius-title-text)' }}
+          >
             Отмена
           </Button>
           <Button
-            variant="contained"
             onClick={() => void handleSaveWorldCard()}
             disabled={isSavingWorldCard || isCreatingGame}
             sx={{
-              backgroundColor: 'var(--morius-card-bg)',
-              color: 'var(--morius-text-primary)',
+              color: 'var(--morius-accent)',
               minWidth: 118,
-              '&:hover': { backgroundColor: 'transparent' },
             }}
           >
             {isSavingWorldCard || isCreatingGame ? (
-              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+              <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
             ) : editingWorldCardId === null ? (
               'Добавить'
             ) : (
@@ -19070,6 +19331,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Button>
         </DialogActions>
       </BaseDialog>
+
+      <WorldCardTemplatePickerDialog
+        open={worldCardTemplatePickerOpen}
+        authToken={authToken}
+        kind={worldCardTemplatePickerKind}
+        title={worldCardTemplatePickerKind === 'world_profile' ? 'Шаблоны описания мира' : 'Шаблоны деталей мира'}
+        emptyTitle={worldCardTemplatePickerKind === 'world_profile' ? 'Шаблонов мира пока нет' : 'Шаблонов деталей пока нет'}
+        emptyDescription={
+          worldCardTemplatePickerKind === 'world_profile'
+            ? 'Создайте карточки мира в профиле, чтобы быстро применять их в новых историях.'
+            : 'Создайте шаблоны мест, предметов, мобов и других деталей мира в профиле.'
+        }
+        onClose={() => setWorldCardTemplatePickerOpen(false)}
+        onSelectTemplate={(template) => {
+          void handleApplyWorldCardTemplate(template)
+        }}
+      />
 
       <CharacterManagerDialog
         open={characterManagerDialogOpen}
@@ -19159,7 +19437,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -19856,7 +20134,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         paperSx={{
           borderRadius: 'var(--morius-radius)',
           border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-card-bg)',
+          background: 'var(--morius-dialog-bg)',
           boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
           animation: 'morius-dialog-pop 330ms cubic-bezier(0.22, 1, 0.36, 1)',
         }}
@@ -20071,19 +20349,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
       />
-      <AvatarCropDialog
-        open={Boolean(worldCardAvatarCropSource)}
-        imageSrc={worldCardAvatarCropSource}
-        isSaving={isSavingWorldCardAvatar}
-        outputSize={384}
-        onCancel={() => {
-          if (!isSavingWorldCardAvatar) {
-            setWorldCardAvatarCropSource(null)
-            setWorldCardAvatarTargetId(null)
-          }
-        }}
-        onSave={(croppedDataUrl) => void handleSaveCroppedWorldCardAvatar(croppedDataUrl)}
-      />
+      {worldCardAvatarCropSource && isCharacterWorldCardEditor ? (
+        <AvatarCropDialog
+          open={Boolean(worldCardAvatarCropSource)}
+          imageSrc={worldCardAvatarCropSource}
+          isSaving={isSavingWorldCardAvatar}
+          outputSize={384}
+          onCancel={() => {
+            if (!isSavingWorldCardAvatar) {
+              setWorldCardAvatarCropSource(null)
+              setWorldCardAvatarTargetId(null)
+              setWorldCardAvatarTargetMode(null)
+            }
+          }}
+          onSave={(croppedDataUrl) => void handleSaveCroppedWorldCardAvatar(croppedDataUrl)}
+        />
+      ) : null}
+      {worldCardAvatarCropSource && !isCharacterWorldCardEditor ? (
+        <ImageCropper
+          imageSrc={worldCardAvatarCropSource}
+          aspect={STORY_WORLD_BANNER_ASPECT}
+          frameRadius={20}
+          title="Настройка баннера карточки"
+          isSaving={isSavingWorldCardAvatar}
+          onCancel={() => {
+            if (!isSavingWorldCardAvatar) {
+              setWorldCardAvatarCropSource(null)
+              setWorldCardAvatarTargetId(null)
+              setWorldCardAvatarTargetMode(null)
+            }
+          }}
+          onSave={(croppedDataUrl) => void handleSaveCroppedWorldCardAvatar(croppedDataUrl)}
+        />
+      ) : null}
       <AvatarCropDialog
         open={Boolean(characterAvatarCropSource)}
         imageSrc={characterAvatarCropSource}

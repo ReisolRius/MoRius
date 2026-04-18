@@ -257,6 +257,11 @@ select {
   animation: morius-composer-glow 1.3s ease-in-out infinite;
 }
 
+@keyframes morius-news-progress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
 @keyframes morius-fade-up {
   0% {
     opacity: 0;

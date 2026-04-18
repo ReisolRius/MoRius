@@ -34,6 +34,7 @@ import {
 } from '../../services/authApi'
 import type { AuthUser } from '../../types/auth'
 import { getMoriusThemeById, moriusThemePresets, useMoriusThemeController, type MoriusThemePreset } from '../../theme'
+import { buildPresetFromCustomTheme } from '../../theme/customTheme'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
 import UserAvatar from '../profile/UserAvatar'
@@ -157,38 +158,6 @@ function buildEditableThemeFromCustom(theme: UserCustomTheme): EditableTheme {
 
 function buildCustomThemeFromDraft(theme: EditableTheme): UserCustomTheme {
   return { id: theme.id.trim() || createCustomThemeId(), name: theme.name.trim() || 'Новая тема', description: theme.description.trim(), palette: { ...theme.palette }, story: { ...theme.story } }
-}
-
-function buildPresetFromCustomTheme(theme: UserCustomTheme): MoriusThemePreset {
-  const fallback = getMoriusThemeById('classic-dark')
-  return {
-    ...fallback,
-    id: theme.id,
-    name: theme.name,
-    subtitle: 'Пользовательская тема',
-    description: theme.description || 'Пользовательская палитра',
-    colors: {
-      ...fallback.colors,
-      titleText: theme.palette.title_text,
-      textPrimary: theme.palette.text_primary,
-      textSecondary: theme.story.player_text_color,
-      appBackground: theme.palette.background,
-      appBase: theme.palette.background,
-      appSurface: theme.palette.surface,
-      appElevated: theme.palette.surface,
-      inputBg: theme.palette.input,
-      accent: theme.palette.front,
-      sendButton: theme.palette.front,
-      panelGradient: theme.palette.surface,
-      bootBackground: theme.palette.background,
-      baseText: theme.story.player_text_color,
-    },
-    story: {
-      correctedTextColor: theme.story.corrected_text_color,
-      playerTextColor: theme.story.player_text_color,
-      assistantTextColor: theme.story.assistant_text_color,
-    },
-  }
 }
 
 function isPaletteField(field: ColorFieldKey): field is PaletteFieldKey {

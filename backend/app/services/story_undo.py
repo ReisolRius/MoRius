@@ -58,6 +58,7 @@ from app.services.story_world_cards import (
     normalize_story_world_card_source,
     normalize_story_world_card_title,
     normalize_story_world_card_triggers,
+    normalize_story_world_detail_type,
     serialize_story_world_card_triggers,
 )
 
@@ -136,6 +137,7 @@ def restore_story_world_card_from_snapshot(
     clothing = normalize_story_character_clothing(snapshot.get("clothing"))
     inventory = normalize_story_character_inventory(snapshot.get("inventory"))
     health_status = normalize_story_character_health_status(snapshot.get("health_status"))
+    detail_type = normalize_story_world_detail_type(snapshot.get("detail_type"))
     raw_avatar = snapshot.get("avatar_url")
     avatar_url = normalize_avatar_value(raw_avatar) if isinstance(raw_avatar, str) else None
     if avatar_url is not None and avatar_url.startswith("data:image/"):
@@ -215,6 +217,7 @@ def restore_story_world_card_from_snapshot(
             health_status=health_status,
             triggers=serialize_story_world_card_triggers(triggers),
             kind=kind,
+            detail_type=detail_type,
             avatar_url=avatar_url,
             avatar_original_url=avatar_original_url if avatar_url else None,
             avatar_scale=avatar_scale,
@@ -236,6 +239,7 @@ def restore_story_world_card_from_snapshot(
     world_card.health_status = health_status
     world_card.triggers = serialize_story_world_card_triggers(triggers)
     world_card.kind = kind
+    world_card.detail_type = detail_type
     world_card.avatar_url = avatar_url
     world_card.avatar_original_url = avatar_original_url if avatar_url else None
     world_card.avatar_scale = avatar_scale

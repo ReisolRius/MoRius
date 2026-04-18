@@ -10,7 +10,7 @@
 }
 
 .image-cropper-modal {
-  width: min(92vw, 960px);
+  width: min(94vw, 1040px);
   border-radius: var(--morius-radius);
   border: var(--morius-border-width) solid var(--morius-card-border);
   background: var(--morius-card-bg);
@@ -18,10 +18,45 @@
   overflow: hidden;
 }
 
+.image-cropper-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+}
+
+.image-cropper-title {
+  color: var(--morius-text-primary);
+  font-size: 1.08rem;
+  font-weight: 700;
+}
+
+.image-cropper-close {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--morius-text-secondary);
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.image-cropper-close:hover:not(:disabled) {
+  color: var(--morius-text-primary);
+}
+
+.image-cropper-close:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
 .image-cropper-stage {
   position: relative;
   width: 100%;
-  height: min(70vh, 620px);
+  height: clamp(340px, 64vh, 620px);
   background: var(--morius-app-base);
   overflow: hidden;
   user-select: none;
@@ -103,7 +138,7 @@
   display: flex;
   justify-content: flex-end;
   gap: var(--morius-icon-gap);
-  padding: 14px;
+  padding: 14px 16px 16px;
   border-top: var(--morius-border-width) solid var(--morius-card-border);
 }
 
@@ -123,21 +158,22 @@
 }
 
 .image-cropper-button--ghost {
-  color: var(--morius-accent);
-  background: var(--morius-elevated-bg);
+  color: var(--morius-title-text);
+  background: transparent;
 }
 
 .image-cropper-button--ghost:hover:not(:disabled) {
-  background: var(--morius-button-hover);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .image-cropper-button--primary {
-  color: var(--morius-elevated-bg);
-  background: var(--morius-send-button-bg);
+  color: var(--morius-title-text);
+  border-color: rgba(228, 236, 245, 0.54);
+  background: transparent;
 }
 
 .image-cropper-button--primary:hover:not(:disabled) {
-  background: var(--morius-button-hover);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 @media (max-width: 640px) {
@@ -146,7 +182,7 @@
   }
 
   .image-cropper-stage {
-    height: min(64vh, 480px);
+    height: clamp(300px, 56vh, 500px);
   }
 
   .image-cropper-actions {

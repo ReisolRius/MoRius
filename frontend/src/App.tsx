@@ -3,13 +3,13 @@ import {
   getCurrentUser,
   getCurrentUserThemeSettings,
   type CurrentUserThemeSettings,
-  type UserCustomTheme,
 } from './services/authApi'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
-import { getMoriusThemeById, useMoriusThemeController, type MoriusThemePreset } from './theme'
+import { getMoriusThemeById, useMoriusThemeController } from './theme'
+import { buildPresetFromCustomTheme } from './theme/customTheme'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -202,38 +202,6 @@ function clearAuthSession(): void {
   localStorage.removeItem(USER_STORAGE_KEY)
 }
 
-function buildPresetFromCustomTheme(theme: UserCustomTheme): MoriusThemePreset {
-  const fallback = getMoriusThemeById('classic-dark')
-  return {
-    ...fallback,
-    id: theme.id,
-    name: theme.name,
-    subtitle: 'Пользовательская тема',
-    description: theme.description || 'Пользовательская палитра',
-    colors: {
-      ...fallback.colors,
-      titleText: theme.palette.title_text,
-      textPrimary: theme.palette.text_primary,
-      textSecondary: theme.story.player_text_color,
-      appBackground: theme.palette.background,
-      appBase: theme.palette.background,
-      appSurface: theme.palette.surface,
-      appElevated: theme.palette.surface,
-      inputBg: theme.palette.input,
-      accent: theme.palette.front,
-      sendButton: theme.palette.front,
-      panelGradient: theme.palette.surface,
-      bootBackground: theme.palette.background,
-      baseText: theme.story.player_text_color,
-    },
-    story: {
-      correctedTextColor: theme.story.corrected_text_color,
-      playerTextColor: theme.story.player_text_color,
-      assistantTextColor: theme.story.assistant_text_color,
-    },
-  }
-}
-
 const initialSession = loadAuthSession()
 const loadPublicLandingPage = () => import('./pages/PublicLandingPage')
 const loadAuthenticatedHomePage = () => import('./pages/AuthenticatedHomePage')
@@ -322,7 +290,7 @@ function App() {
         setCustomTheme(buildPresetFromCustomTheme(selectedCustomTheme))
       } else {
         setCustomTheme(null)
-        setTheme(getMoriusThemeById('classic-dark').id)
+        setTheme(getMoriusThemeById('rius-dungeon').id)
       }
     } else {
       setCustomTheme(null)
@@ -495,7 +463,7 @@ function App() {
           setTheme(authUser.active_theme_id)
           return
         }
-        setTheme(getMoriusThemeById('classic-dark').id)
+        setTheme(getMoriusThemeById('rius-dungeon').id)
       })
 
     return () => {

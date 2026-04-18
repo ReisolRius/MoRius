@@ -896,7 +896,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
       />
 
       <Box sx={{ pt: 'var(--morius-header-menu-top)', pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 }, px: { xs: 2, md: 3.2 } }}>
-        <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
+        <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
           {errorMessage ? (
             <Alert severity="error" onClose={() => setErrorMessage('')} sx={{ mb: 2, borderRadius: '12px' }}>
               {errorMessage}
@@ -925,10 +925,10 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '5px',
-                      height: '26px',
-                      px: '10px',
+                      height: '38px',
+                      px: '16px',
                       borderRadius: '48px',
-                      fontSize: '12px',
+                      fontSize: '16px',
                       fontWeight: 700,
                       fontFamily: 'inherit',
                       lineHeight: 1,

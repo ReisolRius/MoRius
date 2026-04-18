@@ -30,17 +30,38 @@ function HeaderAccountActions({
     try {
       const response = await getCurrentUserNotificationUnreadCount({ token: authToken })
       setUnreadCount(Math.max(0, response.unread_count))
+      return true
     } catch {
       // Keep the previous value when polling fails.
+      return false
     }
   }, [authToken])
 
   useEffect(() => {
-    void refreshUnreadCount()
+    let active = true
+    let timeoutId: number | null = null
 
-    const intervalId = window.setInterval(() => {
-      void refreshUnreadCount()
-    }, 60_000)
+    const scheduleRefresh = (delayMs: number) => {
+      if (!active) {
+        return
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+      timeoutId = window.setTimeout(() => {
+        void runRefresh()
+      }, delayMs)
+    }
+
+    const runRefresh = async () => {
+      const isSuccess = await refreshUnreadCount()
+      if (!active) {
+        return
+      }
+      scheduleRefresh(isSuccess ? 60_000 : 300_000)
+    }
+
+    void runRefresh()
 
     const handleNotificationsChanged = (event: Event) => {
       const detail = (event as CustomEvent<NotificationsChangedDetail>).detail
@@ -48,19 +69,22 @@ function HeaderAccountActions({
         setUnreadCount(Math.max(0, Math.trunc(detail.unreadCount)))
         return
       }
-      void refreshUnreadCount()
+      void runRefresh()
     }
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void refreshUnreadCount()
+        void runRefresh()
       }
     }
 
     window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged as EventListener)
     document.addEventListener('visibilitychange', handleVisibilityChange)
     return () => {
-      window.clearInterval(intervalId)
+      active = false
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
       window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handleNotificationsChanged as EventListener)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }

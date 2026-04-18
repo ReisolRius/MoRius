@@ -151,6 +151,7 @@ class ProfileViewOut(BaseModel):
     is_following: bool
     followers_count: int
     subscriptions_count: int
+    world_card_templates_count: int = 0
     privacy: ProfilePrivacyOut
     can_view_subscriptions: bool
     can_view_public_worlds: bool
@@ -786,6 +787,7 @@ class StoryWorldCardCreateRequest(BaseModel):
     health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
+    detail_type: str = Field(default="", max_length=120)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -801,6 +803,7 @@ class StoryWorldCardUpdateRequest(BaseModel):
     inventory: str = Field(default="", max_length=1_000)
     health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    detail_type: str = Field(default="", max_length=120)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
 
@@ -1043,6 +1046,7 @@ class StoryWorldCardOut(BaseModel):
     health_status: str = ""
     triggers: list[str]
     kind: str
+    detail_type: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
@@ -1145,6 +1149,7 @@ class StoryWorldCardSnapshotOut(BaseModel):
     health_status: str = ""
     triggers: list[str]
     kind: str
+    detail_type: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
@@ -1352,6 +1357,56 @@ class StoryCharacterRaceOut(BaseModel):
 
 class StoryCharacterRaceCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+
+
+class StoryWorldDetailTypeOut(BaseModel):
+    id: int
+    name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class StoryWorldDetailTypeCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class StoryWorldCardTemplateCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=6_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    kind: str | None = Field(default=None, max_length=16)
+    detail_type: str = Field(default="", max_length=120)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    memory_turns: int | None = Field(default=None)
+
+
+class StoryWorldCardTemplateUpdateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=6_000)
+    triggers: list[str] = Field(default_factory=list, max_length=40)
+    detail_type: str = Field(default="", max_length=120)
+    avatar_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
+    avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
+    memory_turns: int | None = Field(default=None)
+
+
+class StoryWorldCardTemplateOut(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    content: str
+    triggers: list[str]
+    kind: str
+    detail_type: str = ""
+    avatar_url: str | None
+    avatar_original_url: str | None = None
+    avatar_scale: float
+    memory_turns: int | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class AdminModerationQueueResponse(BaseModel):

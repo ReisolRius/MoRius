@@ -39,6 +39,7 @@ import AdminPanelDialog from '../components/profile/AdminPanelDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
 import ProfileDialog from '../components/profile/ProfileDialog'
+import WorldCardTemplatesPanel from '../components/profile/WorldCardTemplatesPanel'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import UserAvatar from '../components/profile/UserAvatar'
@@ -94,7 +95,7 @@ type ProfilePageProps = {
   viewedUserId?: number | null
 }
 
-type TabId = 'characters' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
+type TabId = 'characters' | 'world_cards' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
 
@@ -114,6 +115,7 @@ const PROFILE_TAB_BUTTON_SKELETON_KEYS = Array.from({ length: 6 }, (_, index) =>
 
 const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'characters', label: 'Персонажи' },
+  { id: 'world_cards', label: 'Карточки мира' },
   { id: 'instructions', label: 'Инструкции' },
   { id: 'favorites', label: 'Любимые миры' },
   { id: 'plots', label: 'Сюжеты' },
@@ -124,6 +126,7 @@ const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
 const PROFILE_TAB_LABELS: Record<Exclude<TabId, 'notifications'>, string> = {
   publications: 'Публикации',
   characters: 'Персонажи',
+  world_cards: 'Карточки мира',
   instructions: 'Инструкции',
   favorites: 'Любимое',
   plots: 'Сюжеты',
@@ -454,6 +457,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [isLoadingContent, setIsLoadingContent] = useState(false)
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
+  const [worldCardTemplateCount, setWorldCardTemplateCount] = useState(0)
   const [favoriteWorlds, setFavoriteWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [hasLoadedFavoriteWorlds, setHasLoadedFavoriteWorlds] = useState(false)
   const [isFavoriteWorldsLoading, setIsFavoriteWorldsLoading] = useState(false)
@@ -804,6 +808,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     if (isOwnProfile) {
       items.push(
         { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: managedCharacters.length },
+        { id: 'world_cards', label: PROFILE_TAB_LABELS.world_cards, count: worldCardTemplateCount },
         { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: sortedTemplates.length },
         { id: 'favorites', label: PROFILE_TAB_LABELS.favorites, count: favoriteWorlds.length },
         { id: 'notifications', label: PROFILE_NOTIFICATIONS_LABEL, count: notificationCounts.total_count },
@@ -821,6 +826,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     subscriptionsCount,
     visiblePublicationWorlds.length,
     visibleUnpublishedWorlds.length,
+    worldCardTemplateCount,
   ])
   const profileSidebarSubscriptions = useMemo(() => visibleSubscriptions.slice(0, 6), [visibleSubscriptions])
   const mobileContentTabs = useMemo(
@@ -828,6 +834,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       { id: 'publications' as TabId, label: 'Миры' },
       { id: 'instructions' as TabId, label: 'Инструкции' },
       { id: 'characters' as TabId, label: 'Персонажи' },
+      { id: 'world_cards' as TabId, label: 'Карточки мира' },
       { id: 'plots' as TabId, label: 'Сюжеты' },
     ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
     [tabs],
@@ -1151,6 +1158,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         user_id: normalizedViewedUserId,
       })
       setProfileView(response)
+      setWorldCardTemplateCount(Math.max(0, response.world_card_templates_count ?? 0))
       setPrivacyDraft({
         show_subscriptions: response.privacy.show_subscriptions,
         show_public_worlds: response.privacy.show_public_worlds,
@@ -1167,6 +1175,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   useEffect(() => {
     setProfileView(null)
+    setWorldCardTemplateCount(0)
     setFavoriteWorlds([])
     setHasLoadedFavoriteWorlds(false)
     setNotifications([])
@@ -2517,6 +2526,18 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       }
       return renderCharacters()
     }
+    if (tab === 'world_cards') {
+      if (!isOwnProfile) {
+        return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
+      }
+      return (
+        <WorldCardTemplatesPanel
+          authToken={authToken}
+          searchQuery={contentSearchQuery}
+          onTemplatesCountChange={setWorldCardTemplateCount}
+        />
+      )
+    }
     if (tab === 'instructions') {
       if (!isOwnProfile) {
         return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
@@ -2596,7 +2617,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           px: { xs: 1.2, md: 3.2 },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1280, mx: 'auto' }}>
+        <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
           {error ? (
             <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.1, borderRadius: '12px' }}>
               {error}

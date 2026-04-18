@@ -56,10 +56,14 @@ export type ImageCropperProps = {
   title?: string
   cancelLabel?: string
   saveLabel?: string
+  isSaving?: boolean
 }
 
 const DEFAULT_ASPECT = 1
 const MIN_CROP_SIZE = 64
+const DEFAULT_OUTPUT_MIME = 'image/webp'
+const DEFAULT_OUTPUT_QUALITY = 0.92
+const FALLBACK_OUTPUT_MIME = 'image/png'
 
 function clamp(value: number, min: number, max: number): number {
   if (value < min) {
@@ -210,6 +214,7 @@ export function ImageCropper({
   title = 'Настройка изображения',
   cancelLabel = 'Отмена',
   saveLabel = 'Сохранить',
+  isSaving = false,
 }: ImageCropperProps) {
   const normalizedAspect = aspect > 0 ? aspect : DEFAULT_ASPECT
 
@@ -234,13 +239,13 @@ export function ImageCropper({
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !isSaving) {
         onCancel()
       }
     }
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [onCancel])
+  }, [isSaving, onCancel])
 
   useLayoutEffect(() => {
     const stage = stageRef.current
@@ -445,12 +450,36 @@ export function ImageCropper({
       canvas.height,
     )
 
-    onSave(canvas.toDataURL('image/png'))
+    const compressedDataUrl = canvas.toDataURL(DEFAULT_OUTPUT_MIME, DEFAULT_OUTPUT_QUALITY)
+    onSave(
+      compressedDataUrl.startsWith(`data:${DEFAULT_OUTPUT_MIME}`)
+        ? compressedDataUrl
+        : canvas.toDataURL(FALLBACK_OUTPUT_MIME),
+    )
   }
 
   return (
-    <div className="image-cropper-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+    <div
+      className="image-cropper-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !isSaving) {
+          onCancel()
+        }
+      }}
+    >
       <div className="image-cropper-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="image-cropper-header">
+          <div className="image-cropper-title">{title}</div>
+          <button
+            type="button"
+            className="image-cropper-close"
+            onClick={onCancel}
+            disabled={isSaving}
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
+        </div>
         <div ref={stageRef} className="image-cropper-stage">
           <img
             ref={imageElementRef}
@@ -515,16 +544,21 @@ export function ImageCropper({
         </div>
 
         <div className="image-cropper-actions">
-          <button type="button" className="image-cropper-button image-cropper-button--ghost" onClick={onCancel}>
+          <button
+            type="button"
+            className="image-cropper-button image-cropper-button--ghost"
+            onClick={onCancel}
+            disabled={isSaving}
+          >
             {cancelLabel}
           </button>
           <button
             type="button"
             className="image-cropper-button image-cropper-button--primary"
             onClick={handleSave}
-            disabled={!cropRect}
+            disabled={!cropRect || isSaving}
           >
-            {saveLabel}
+            {isSaving ? 'Сохраняем…' : saveLabel}
           </button>
         </div>
       </div>

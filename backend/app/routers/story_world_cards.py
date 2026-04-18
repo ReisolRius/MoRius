@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select, update as sa_update
+from sqlalchemy import func, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryWorldCard, StoryWorldCardChangeEvent
+from app.models import StoryWorldCard, StoryWorldCardChangeEvent, StoryWorldCardTemplate, StoryWorldDetailType
 from app.schemas import (
     MessageResponse,
     StoryCharacterAssignRequest,
@@ -13,6 +13,11 @@ from app.schemas import (
     StoryWorldCardAvatarUpdateRequest,
     StoryWorldCardCreateRequest,
     StoryWorldCardOut,
+    StoryWorldCardTemplateCreateRequest,
+    StoryWorldCardTemplateOut,
+    StoryWorldCardTemplateUpdateRequest,
+    StoryWorldDetailTypeCreateRequest,
+    StoryWorldDetailTypeOut,
     StoryWorldCardUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
@@ -37,16 +42,27 @@ from app.services.story_queries import (
 from app.services.story_world_cards import (
     STORY_WORLD_CARD_KIND_MAIN_HERO,
     STORY_WORLD_CARD_KIND_NPC,
+    STORY_WORLD_CARD_KIND_WORLD,
+    STORY_WORLD_CARD_KIND_WORLD_PROFILE,
     STORY_WORLD_CARD_SOURCE_USER,
     build_story_world_card_from_character,
     normalize_story_npc_profile_content,
     normalize_story_world_card_content,
+    normalize_story_world_detail_type,
     normalize_story_world_card_kind,
     normalize_story_world_card_memory_turns_for_storage,
     normalize_story_world_card_title,
     normalize_story_world_card_triggers,
     serialize_story_world_card_triggers,
     story_world_card_to_out,
+)
+from app.services.story_world_card_templates import (
+    STORY_WORLD_CARD_TEMPLATE_KINDS,
+    build_story_world_card_template,
+    normalize_story_world_card_template_kind,
+    story_world_card_template_to_out,
+    story_world_detail_type_to_out,
+    upsert_story_world_detail_type,
 )
 
 router = APIRouter()
@@ -71,6 +87,151 @@ def _refresh_public_story_game_snapshots_if_needed(db: Session, game) -> None:
 
 def _is_public_story_game(game) -> bool:
     return (str(getattr(game, "visibility", "") or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC)
+
+
+@router.get("/api/story/world-detail-types", response_model=list[StoryWorldDetailTypeOut])
+def list_story_world_detail_types(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryWorldDetailTypeOut]:
+    user = get_current_user(db, authorization)
+    detail_types = db.scalars(
+        select(StoryWorldDetailType)
+        .where(StoryWorldDetailType.user_id == int(user.id))
+        .order_by(func.lower(StoryWorldDetailType.name).asc(), StoryWorldDetailType.id.asc())
+    ).all()
+    return [story_world_detail_type_to_out(detail_type) for detail_type in detail_types]
+
+
+@router.post("/api/story/world-detail-types", response_model=StoryWorldDetailTypeOut)
+def create_story_world_detail_type(
+    payload: StoryWorldDetailTypeCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldDetailTypeOut:
+    user = get_current_user(db, authorization)
+    detail_type = upsert_story_world_detail_type(
+        db,
+        user_id=int(user.id),
+        name=payload.name,
+    )
+    if detail_type is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="World detail type cannot be empty")
+    db.commit()
+    db.refresh(detail_type)
+    return story_world_detail_type_to_out(detail_type)
+
+
+@router.get("/api/story/world-card-templates", response_model=list[StoryWorldCardTemplateOut])
+def list_story_world_card_templates(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> list[StoryWorldCardTemplateOut]:
+    user = get_current_user(db, authorization)
+    templates = db.scalars(
+        select(StoryWorldCardTemplate)
+        .where(StoryWorldCardTemplate.user_id == int(user.id))
+        .order_by(StoryWorldCardTemplate.updated_at.desc(), StoryWorldCardTemplate.id.desc())
+    ).all()
+    return [story_world_card_template_to_out(template) for template in templates]
+
+
+@router.post("/api/story/world-card-templates", response_model=StoryWorldCardTemplateOut)
+def create_story_world_card_template(
+    payload: StoryWorldCardTemplateCreateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardTemplateOut:
+    user = get_current_user(db, authorization)
+    template = build_story_world_card_template(
+        user_id=int(user.id),
+        title=payload.title,
+        content=payload.content,
+        triggers=payload.triggers,
+        kind=payload.kind,
+        detail_type=payload.detail_type,
+        avatar_url=payload.avatar_url,
+        avatar_original_url=payload.avatar_original_url,
+        avatar_scale=payload.avatar_scale,
+        memory_turns=payload.memory_turns,
+        memory_turns_explicit="memory_turns" in payload.model_fields_set,
+    )
+    if template.kind == STORY_WORLD_CARD_KIND_WORLD and template.detail_type:
+        upsert_story_world_detail_type(db, user_id=int(user.id), name=template.detail_type)
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return story_world_card_template_to_out(template)
+
+
+@router.patch("/api/story/world-card-templates/{template_id}", response_model=StoryWorldCardTemplateOut)
+def update_story_world_card_template(
+    template_id: int,
+    payload: StoryWorldCardTemplateUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> StoryWorldCardTemplateOut:
+    user = get_current_user(db, authorization)
+    template = db.scalar(
+        select(StoryWorldCardTemplate).where(
+            StoryWorldCardTemplate.id == template_id,
+            StoryWorldCardTemplate.user_id == int(user.id),
+        )
+    )
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card template not found")
+
+    normalized_kind = normalize_story_world_card_template_kind(getattr(template, "kind", None))
+    prepared_template = build_story_world_card_template(
+        user_id=int(user.id),
+        title=payload.title,
+        content=payload.content,
+        triggers=payload.triggers,
+        kind=normalized_kind,
+        detail_type=payload.detail_type,
+        avatar_url=payload.avatar_url,
+        avatar_original_url=payload.avatar_original_url,
+        avatar_scale=payload.avatar_scale,
+        memory_turns=payload.memory_turns,
+        memory_turns_explicit="memory_turns" in payload.model_fields_set,
+    )
+
+    template.title = prepared_template.title
+    template.content = prepared_template.content
+    template.triggers = prepared_template.triggers
+    template.kind = normalized_kind
+    template.detail_type = prepared_template.detail_type
+    template.avatar_url = prepared_template.avatar_url
+    template.avatar_original_url = prepared_template.avatar_original_url
+    template.avatar_scale = prepared_template.avatar_scale
+    template.memory_turns = prepared_template.memory_turns
+
+    if template.kind == STORY_WORLD_CARD_KIND_WORLD and template.detail_type:
+        upsert_story_world_detail_type(db, user_id=int(user.id), name=template.detail_type)
+
+    db.commit()
+    db.refresh(template)
+    return story_world_card_template_to_out(template)
+
+
+@router.delete("/api/story/world-card-templates/{template_id}", response_model=MessageResponse)
+def delete_story_world_card_template(
+    template_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    template = db.scalar(
+        select(StoryWorldCardTemplate).where(
+            StoryWorldCardTemplate.id == template_id,
+            StoryWorldCardTemplate.user_id == int(user.id),
+        )
+    )
+    if template is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card template not found")
+    db.delete(template)
+    db.commit()
+    return MessageResponse(message="World card template deleted")
 
 
 @router.get("/api/story/games/{game_id}/world-cards", response_model=list[StoryWorldCardOut])
@@ -290,14 +451,17 @@ def create_story_world_card(
 ) -> StoryWorldCardOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    existing_cards = list_story_world_cards(db, game.id)
     normalized_title = normalize_story_world_card_title(payload.title)
     normalized_content = normalize_story_world_card_content(payload.content)
-    normalized_race = normalize_story_character_race(payload.race)
-    normalized_clothing = normalize_story_character_clothing(payload.clothing)
-    normalized_inventory = normalize_story_character_inventory(payload.inventory)
-    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(payload.kind)
+    is_character_card = normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}
+    normalized_race = normalize_story_character_race(payload.race) if is_character_card else ""
+    normalized_clothing = normalize_story_character_clothing(payload.clothing) if is_character_card else ""
+    normalized_inventory = normalize_story_character_inventory(payload.inventory) if is_character_card else ""
+    normalized_health_status = normalize_story_character_health_status(payload.health_status) if is_character_card else ""
+    normalized_detail_type = normalize_story_world_detail_type(payload.detail_type) if normalized_kind == STORY_WORLD_CARD_KIND_WORLD else ""
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -310,7 +474,7 @@ def create_story_world_card(
     normalized_avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     linked_character = (
         get_story_character_for_user_or_404(db, user.id, payload.character_id)
-        if payload.character_id is not None
+        if is_character_card and payload.character_id is not None
         else None
     )
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
@@ -326,6 +490,20 @@ def create_story_world_card(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Main hero is already selected and cannot be changed",
             )
+    if normalized_kind == STORY_WORLD_CARD_KIND_WORLD_PROFILE:
+        existing_world_profile = next(
+            (
+                card
+                for card in existing_cards
+                if normalize_story_world_card_kind(getattr(card, "kind", None)) == STORY_WORLD_CARD_KIND_WORLD_PROFILE
+            ),
+            None,
+        )
+        if existing_world_profile is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="World description card is already created",
+            )
 
     world_card = StoryWorldCard(
         game_id=game.id,
@@ -337,6 +515,7 @@ def create_story_world_card(
         health_status=normalized_health_status,
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
+        detail_type=normalized_detail_type,
         avatar_url=normalized_avatar,
         avatar_original_url=normalized_avatar_original if normalized_avatar else None,
         avatar_scale=normalized_avatar_scale,
@@ -347,6 +526,8 @@ def create_story_world_card(
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
     db.add(world_card)
+    if normalized_kind == STORY_WORLD_CARD_KIND_WORLD and normalized_detail_type:
+        upsert_story_world_detail_type(db, user_id=int(user.id), name=normalized_detail_type)
     sync_story_character_state_payload_from_world_cards(
         db=db,
         game=game,
@@ -385,12 +566,14 @@ def update_story_world_card(
 
     normalized_title = normalize_story_world_card_title(payload.title)
     normalized_content = normalize_story_world_card_content(payload.content)
-    normalized_race = normalize_story_character_race(payload.race)
-    normalized_clothing = normalize_story_character_clothing(payload.clothing)
-    normalized_inventory = normalize_story_character_inventory(payload.inventory)
-    normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_triggers = normalize_story_world_card_triggers(payload.triggers, fallback_title=normalized_title)
     normalized_kind = normalize_story_world_card_kind(world_card.kind)
+    is_character_card = normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}
+    normalized_race = normalize_story_character_race(payload.race) if is_character_card else ""
+    normalized_clothing = normalize_story_character_clothing(payload.clothing) if is_character_card else ""
+    normalized_inventory = normalize_story_character_inventory(payload.inventory) if is_character_card else ""
+    normalized_health_status = normalize_story_character_health_status(payload.health_status) if is_character_card else ""
+    normalized_detail_type = normalize_story_world_detail_type(payload.detail_type) if normalized_kind == STORY_WORLD_CARD_KIND_WORLD else ""
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -420,13 +603,18 @@ def update_story_world_card(
     world_card.inventory = normalized_inventory
     world_card.health_status = normalized_health_status
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
-    if "character_id" in payload.model_fields_set:
+    world_card.detail_type = normalized_detail_type
+    if not is_character_card:
+        world_card.character_id = None
+    elif "character_id" in payload.model_fields_set:
         if payload.character_id is None:
             world_card.character_id = None
         else:
             linked_character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
             world_card.character_id = linked_character.id
     world_card.memory_turns = normalized_memory_turns
+    if normalized_kind == STORY_WORLD_CARD_KIND_WORLD and normalized_detail_type:
+        upsert_story_world_detail_type(db, user_id=int(user.id), name=normalized_detail_type)
     sync_story_character_state_payload_from_world_cards(
         db=db,
         game=game,

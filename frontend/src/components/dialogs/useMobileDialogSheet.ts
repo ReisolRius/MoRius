@@ -230,8 +230,7 @@ function useMobileDialogSheet({
             '--morius-title-bottom-gap': '18px',
             transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : 'translateY(0)',
             transition: isDragging ? 'none' : 'transform 220ms ease',
-            background:
-              'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 88%, #020304 12%) 100%)',
+            background: 'var(--morius-dialog-bg)',
             boxShadow: '0 -26px 56px rgba(0, 0, 0, 0.42)',
             ...(showHandleIndicator
               ? {

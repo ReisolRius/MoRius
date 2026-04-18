@@ -11,6 +11,7 @@ from app.models import (
     StoryCommunityWorldRating,
     StoryCommunityWorldReport,
     StoryGame,
+    StoryWorldCardTemplate,
     User,
     UserFollow,
 )
@@ -90,6 +91,15 @@ def _count_subscriptions(db: Session, *, user_id: int) -> int:
         select(func.count())
         .select_from(UserFollow)
         .where(UserFollow.follower_user_id == user_id)
+    )
+    return int(value or 0)
+
+
+def _count_world_card_templates(db: Session, *, user_id: int) -> int:
+    value = db.scalar(
+        select(func.count())
+        .select_from(StoryWorldCardTemplate)
+        .where(StoryWorldCardTemplate.user_id == user_id)
     )
     return int(value or 0)
 
@@ -262,6 +272,7 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
 
     followers_count = _count_followers(db, user_id=target_user.id)
     subscriptions_count = _count_subscriptions(db, user_id=target_user.id)
+    world_card_templates_count = _count_world_card_templates(db, user_id=target_user.id) if is_self else 0
 
     subscriptions = _list_subscriptions(db, user_id=target_user.id) if can_view_subscriptions else []
     published_worlds = _list_published_worlds(db, owner_user=target_user, viewer_user_id=viewer_user.id) if can_view_public_worlds else []
@@ -273,6 +284,7 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         is_following=is_following,
         followers_count=followers_count,
         subscriptions_count=subscriptions_count,
+        world_card_templates_count=world_card_templates_count,
         privacy=privacy,
         can_view_subscriptions=can_view_subscriptions,
         can_view_public_worlds=can_view_public_worlds,

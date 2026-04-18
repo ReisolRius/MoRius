@@ -1,23 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from 'react'
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  IconButton,
-  InputAdornment,
-  MenuItem,
-  Stack,
-  TextField,
-  Typography,
-} from '@mui/material'
+import { Alert, Box, Button, CircularProgress, IconButton, InputAdornment, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { icons } from '../assets'
 import AppHeader from '../components/AppHeader'
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
+import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
+import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
+import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import BaseDialog from '../components/dialogs/BaseDialog'
 import FormDialog from '../components/dialogs/FormDialog'
@@ -26,6 +18,7 @@ import TextLimitIndicator from '../components/TextLimitIndicator'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
+import { STORY_WORLD_BANNER_ASPECT } from '../utils/storyWorldCards'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
@@ -60,10 +53,12 @@ import type {
   StoryCommunityCharacterSummary,
   StoryGameVisibility,
   StoryWorldCard,
+  StoryWorldCardTemplate,
 } from '../types/story'
 import {
   compressImageDataUrl,
   compressImageFileToDataUrl,
+  getJsonDataUrlRequestSafeMaxBytes,
   prepareAvatarUrlForRequest,
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
@@ -105,6 +100,15 @@ type EditableCharacterCard = {
   emotion_prompt_lock: string | null
 }
 
+type EditableWorldProfileCard = {
+  id?: number
+  title: string
+  content: string
+  avatar_url: string | null
+  avatar_original_url: string | null
+  avatar_scale: number
+}
+
 type CharacterPickerSourceTab = 'my' | 'community'
 type CommunityAddedFilter = 'all' | 'added' | 'not_added'
 type CommunitySortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
@@ -120,12 +124,28 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const OPENING_SCENE_TAG_BUTTON_SX = {
+  minHeight: 30,
+  borderRadius: '10px',
+  textTransform: 'none',
+  fontSize: '0.8rem',
+  fontWeight: 700,
+  color: 'var(--morius-accent)',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+  backgroundColor: 'transparent',
+  '&:hover': {
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+}
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const AVATAR_SCALE_MIN = 1
 const AVATAR_SCALE_MAX = 3
 const COVER_MAX_BYTES = 2 * 1024 * 1024
 const CHARACTER_AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const WORLD_PROFILE_BANNER_MAX_BYTES = 2 * 1024 * 1024
 const CARD_WIDTH = 286
+const WORLD_PROFILE_TITLE_MAX_LENGTH = 120
+const WORLD_PROFILE_CONTENT_MAX_LENGTH = 6000
 const AGE_RATING_OPTIONS = ['6+', '16+', '18+'] as const
 const MAX_WORLD_GENRES = 3
 const OPENING_SCENE_MAX_LENGTH = 4_000
@@ -159,7 +179,7 @@ type StoryAgeRating = (typeof AGE_RATING_OPTIONS)[number]
 const dialogPaperSx = {
   borderRadius: 'var(--morius-radius)',
   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-  background: APP_CARD_BACKGROUND,
+  background: 'var(--morius-dialog-bg)',
   boxShadow: '0 26px 60px rgba(0, 0, 0, 0.52)',
 }
 
@@ -311,6 +331,31 @@ function toEditableCharacterFromWorldCard(card: StoryWorldCard): EditableCharact
     emotion_assets: {},
     emotion_model: '',
     emotion_prompt_lock: null,
+  }
+}
+
+function toEditableWorldProfileFromWorldCard(card: StoryWorldCard): EditableWorldProfileCard {
+  return {
+    id: card.id,
+    title: card.title,
+    content: card.content,
+    avatar_url: card.avatar_url,
+    avatar_original_url: card.avatar_original_url ?? card.avatar_url,
+    avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+  }
+}
+
+function toEditableWorldProfileFromTemplate(
+  template: StoryWorldCardTemplate,
+  existingId: number | undefined,
+): EditableWorldProfileCard {
+  return {
+    id: existingId,
+    title: template.title,
+    content: template.content,
+    avatar_url: template.avatar_url,
+    avatar_original_url: template.avatar_original_url ?? template.avatar_url,
+    avatar_scale: clamp(template.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
   }
 }
 
@@ -576,6 +621,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const [instructionCards, setInstructionCards] = useState<EditableCard[]>([])
   const [plotCards, setPlotCards] = useState<EditableCard[]>([])
+  const [worldProfile, setWorldProfile] = useState<EditableWorldProfileCard | null>(null)
   const [mainHero, setMainHero] = useState<EditableCharacterCard | null>(null)
   const [npcs, setNpcs] = useState<EditableCharacterCard[]>([])
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
@@ -588,6 +634,15 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [cardTriggersDraft, setCardTriggersDraft] = useState('')
   const [cardIsEnabledDraft, setCardIsEnabledDraft] = useState(false)
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
+  const [worldProfileDialogOpen, setWorldProfileDialogOpen] = useState(false)
+  const [worldProfileDialogCardId, setWorldProfileDialogCardId] = useState<number | undefined>(undefined)
+  const [worldProfileTitleDraft, setWorldProfileTitleDraft] = useState('')
+  const [worldProfileContentDraft, setWorldProfileContentDraft] = useState('')
+  const [worldProfileAvatarUrlDraft, setWorldProfileAvatarUrlDraft] = useState<string | null>(null)
+  const [worldProfileAvatarOriginalUrlDraft, setWorldProfileAvatarOriginalUrlDraft] = useState<string | null>(null)
+  const [worldProfileAvatarScaleDraft, setWorldProfileAvatarScaleDraft] = useState(1)
+  const [worldProfileCropSource, setWorldProfileCropSource] = useState<string | null>(null)
+  const [worldProfileTemplatePickerOpen, setWorldProfileTemplatePickerOpen] = useState(false)
 
   const [characterPickerTarget, setCharacterPickerTarget] = useState<'main_hero' | 'npc' | null>(null)
   const [characterPickerSourceTab, setCharacterPickerSourceTab] = useState<CharacterPickerSourceTab>('my')
@@ -608,6 +663,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [isOpeningCharacterManager, setIsOpeningCharacterManager] = useState(false)
 
   const coverInputRef = useRef<HTMLInputElement | null>(null)
+  const worldProfileBannerInputRef = useRef<HTMLInputElement | null>(null)
   const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
   const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
   const publishWithoutMainHeroConfirmedRef = useRef(false)
@@ -979,6 +1035,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             is_enabled: Boolean(card.is_enabled),
           })),
         )
+        const worldProfileCard = payload.world_cards.find((card) => card.kind === 'world_profile') ?? null
+        setWorldProfile(worldProfileCard ? toEditableWorldProfileFromWorldCard(worldProfileCard) : null)
         const hero = payload.world_cards.find((card) => card.kind === 'main_hero') ?? null
         setMainHero(isMyPublicationsEdit ? null : hero ? toEditableCharacterFromWorldCard(hero) : null)
         setNpcs(payload.world_cards.filter((card) => card.kind === 'npc').map(toEditableCharacterFromWorldCard))
@@ -1019,7 +1077,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const handleSaveCoverCrop = useCallback(async (croppedDataUrl: string) => {
     try {
       const preparedCover = await compressImageDataUrl(croppedDataUrl, {
-        maxBytes: COVER_MAX_BYTES,
+        maxBytes: getJsonDataUrlRequestSafeMaxBytes(COVER_MAX_BYTES),
         maxDimension: 1800,
       })
       setCoverImageUrl(preparedCover)
@@ -1031,6 +1089,105 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось подготовить обложку')
     }
+  }, [])
+
+  const openWorldProfileDialog = useCallback((card?: EditableWorldProfileCard | null) => {
+    setWorldProfileDialogCardId(card?.id)
+    setWorldProfileTitleDraft(card?.title ?? '')
+    setWorldProfileContentDraft(card?.content ?? '')
+    setWorldProfileAvatarUrlDraft(card?.avatar_url ?? null)
+    setWorldProfileAvatarOriginalUrlDraft(card?.avatar_original_url ?? card?.avatar_url ?? null)
+    setWorldProfileAvatarScaleDraft(card?.avatar_scale ?? 1)
+    setWorldProfileCropSource(null)
+    setWorldProfileDialogOpen(true)
+  }, [])
+
+  const closeWorldProfileDialog = useCallback(() => {
+    setWorldProfileDialogOpen(false)
+    setWorldProfileCropSource(null)
+  }, [])
+
+  const handleWorldProfileBannerUpload = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) {
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Выберите изображение для баннера мира.')
+      return
+    }
+    try {
+      const dataUrl = await compressImageFileToDataUrl(file, {
+        maxBytes: WORLD_PROFILE_BANNER_MAX_BYTES,
+        maxDimension: 1800,
+      })
+      setWorldProfileCropSource(dataUrl)
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось загрузить баннер мира')
+    }
+  }, [])
+
+  const openWorldProfileCropEditor = useCallback(() => {
+    const cropSource = worldProfileAvatarOriginalUrlDraft ?? worldProfileAvatarUrlDraft
+    if (!cropSource) {
+      worldProfileBannerInputRef.current?.click()
+      return
+    }
+    setWorldProfileCropSource(cropSource)
+  }, [worldProfileAvatarOriginalUrlDraft, worldProfileAvatarUrlDraft])
+
+  const handleCancelWorldProfileCrop = useCallback(() => {
+    setWorldProfileCropSource(null)
+  }, [])
+
+  const handleSaveWorldProfileCrop = useCallback(async (croppedDataUrl: string) => {
+    try {
+      const preparedBanner = await compressImageDataUrl(croppedDataUrl, {
+        maxBytes: getJsonDataUrlRequestSafeMaxBytes(WORLD_PROFILE_BANNER_MAX_BYTES),
+        maxDimension: 1800,
+      })
+      setWorldProfileAvatarUrlDraft(preparedBanner)
+      setWorldProfileAvatarOriginalUrlDraft(preparedBanner)
+      setWorldProfileAvatarScaleDraft(1)
+      setWorldProfileCropSource(null)
+      setErrorMessage('')
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Не удалось подготовить баннер мира')
+    }
+  }, [])
+
+  const saveWorldProfileDialog = useCallback(() => {
+    const normalizedTitle = worldProfileTitleDraft.replace(/\s+/g, ' ').trim()
+    const normalizedContent = worldProfileContentDraft.replace(/\r\n/g, '\n').trim()
+    if (!normalizedTitle || !normalizedContent) {
+      return
+    }
+    setWorldProfile({
+      id: worldProfileDialogCardId,
+      title: normalizedTitle,
+      content: normalizedContent,
+      avatar_url: worldProfileAvatarUrlDraft,
+      avatar_original_url: worldProfileAvatarOriginalUrlDraft ?? worldProfileAvatarUrlDraft,
+      avatar_scale: clamp(worldProfileAvatarScaleDraft ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+    })
+    setWorldProfileDialogOpen(false)
+    setWorldProfileCropSource(null)
+    setErrorMessage('')
+  }, [
+    worldProfileAvatarOriginalUrlDraft,
+    worldProfileAvatarScaleDraft,
+    worldProfileAvatarUrlDraft,
+    worldProfileContentDraft,
+    worldProfileDialogCardId,
+    worldProfileTitleDraft,
+  ])
+
+  const handleApplyWorldProfileTemplate = useCallback((template: StoryWorldCardTemplate) => {
+    setWorldProfile((previous) => toEditableWorldProfileFromTemplate(template, previous?.id))
+    setWorldProfileTemplatePickerOpen(false)
+    setErrorMessage('')
   }, [])
 
   const openCardDialog = useCallback((kind: 'instruction' | 'plot', card?: EditableCard) => {
@@ -1440,7 +1597,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       const normalizedOpeningScene = openingScene.replace(/\r\n/g, '\n').trim()
       const preparedCoverImageUrl = coverImageUrl?.startsWith('data:image/')
         ? await compressImageDataUrl(coverImageUrl, {
-            maxBytes: COVER_MAX_BYTES,
+            maxBytes: getJsonDataUrlRequestSafeMaxBytes(COVER_MAX_BYTES),
             maxDimension: 1800,
           })
         : coverImageUrl
@@ -1448,6 +1605,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         return prepareAvatarUrlForRequest(avatarUrl, {
           maxBytes: CHARACTER_AVATAR_MAX_BYTES,
           maxDimension: 1200,
+        })
+      }
+      const prepareWorldBannerForRequest = async (avatarUrl: string | null): Promise<string | null> => {
+        return prepareAvatarUrlForRequest(avatarUrl, {
+          maxBytes: WORLD_PROFILE_BANNER_MAX_BYTES,
+          maxDimension: 1800,
         })
       }
       const ensureLinkedCharacter = async (card: EditableCharacterCard | null): Promise<EditableCharacterCard | null> => {
@@ -1548,6 +1711,43 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
       }
       for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
+      const existingWorldProfile = latest.world_cards.find((card) => card.kind === 'world_profile') ?? null
+      if (worldProfile) {
+        const preparedWorldProfileBannerUrl = await prepareWorldBannerForRequest(worldProfile.avatar_url)
+        const worldProfileTargetId = existingWorldProfile?.id ?? worldProfile.id
+        if (worldProfileTargetId) {
+          await updateStoryWorldCard({
+            token: authToken,
+            gameId,
+            cardId: worldProfileTargetId,
+            title: worldProfile.title,
+            content: worldProfile.content,
+            triggers: parseTriggers('', worldProfile.title),
+            memory_turns: null,
+          })
+          await updateStoryWorldCardAvatar({
+            token: authToken,
+            gameId,
+            cardId: worldProfileTargetId,
+            avatar_url: preparedWorldProfileBannerUrl,
+            avatar_scale: worldProfile.avatar_scale,
+          })
+        } else {
+          await createStoryWorldCard({
+            token: authToken,
+            gameId,
+            kind: 'world_profile',
+            title: worldProfile.title,
+            content: worldProfile.content,
+            triggers: parseTriggers('', worldProfile.title),
+            avatar_url: preparedWorldProfileBannerUrl,
+            avatar_scale: worldProfile.avatar_scale,
+            memory_turns: null,
+          })
+        }
+      } else if (existingWorldProfile) {
+        await deleteStoryWorldCard({ token: authToken, gameId, cardId: existingWorldProfile.id })
+      }
       const resolvedMainHero = isMyPublicationsEdit ? null : await ensureLinkedCharacter(mainHero)
       const resolvedNpcs: EditableCharacterCard[] = []
       for (const npc of npcs) {
@@ -1679,7 +1879,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     } finally {
       setIsSubmitting(false)
     }
-  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, shouldConfirmPublishWithoutMainHero, title, user.id, visibility])
+  }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, editingGameId, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])
 
   const helpEmpty = (text: string) => (
     <Box sx={{ borderRadius: '12px', border: `var(--morius-border-width) dashed rgba(170, 188, 214, 0.34)`, background: 'var(--morius-elevated-bg)', p: 1.1 }}><Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem' }}>{text}</Typography></Box>
@@ -1785,6 +1985,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           {isLoading ? <Stack alignItems="center" sx={{ py: 8 }}><CircularProgress /></Stack> : <Stack spacing={2.2}>
             <Stack data-tour-id="world-create-cover" spacing={0.95} sx={{ scrollMarginTop: '120px' }}>
               <input ref={coverInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" onChange={handleCoverUpload} style={{ display: 'none' }} />
+              <input
+                ref={worldProfileBannerInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={handleWorldProfileBannerUpload}
+                style={{ display: 'none' }}
+              />
               <Box
                 sx={{
                   position: 'relative',
@@ -1978,80 +2185,35 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                         <Button
                           size="small"
                           onClick={() => insertOpeningSceneTag('gg_name')}
-                          sx={{
-                            minHeight: 30,
-                            borderRadius: '10px',
-                            textTransform: 'none',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                          }}
+                          sx={OPENING_SCENE_TAG_BUTTON_SX}
                         >
                           ГГ
                         </Button>
                         <Button
                           size="small"
                           onClick={() => insertOpeningSceneTag('gg_speech')}
-                          sx={{
-                            minHeight: 30,
-                            borderRadius: '10px',
-                            textTransform: 'none',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                          }}
+                          sx={OPENING_SCENE_TAG_BUTTON_SX}
                         >
                           GG реплика
                         </Button>
                         <Button
                           size="small"
                           onClick={() => insertOpeningSceneTag('gg_thought')}
-                          sx={{
-                            minHeight: 30,
-                            borderRadius: '10px',
-                            textTransform: 'none',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                          }}
+                          sx={OPENING_SCENE_TAG_BUTTON_SX}
                         >
                           GG мысли
                         </Button>
                         <Button
                           size="small"
                           onClick={() => insertOpeningSceneTag('npc_speech')}
-                          sx={{
-                            minHeight: 30,
-                            borderRadius: '10px',
-                            textTransform: 'none',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                          }}
+                          sx={OPENING_SCENE_TAG_BUTTON_SX}
                         >
                           NPC реплика
                         </Button>
                         <Button
                           size="small"
                           onClick={() => insertOpeningSceneTag('npc_thought')}
-                          sx={{
-                            minHeight: 30,
-                            borderRadius: '10px',
-                            textTransform: 'none',
-                            fontSize: '0.8rem',
-                            fontWeight: 700,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            backgroundColor: APP_BUTTON_ACTIVE,
-                            '&:hover': { backgroundColor: APP_BUTTON_HOVER },
-                          }}
+                          sx={OPENING_SCENE_TAG_BUTTON_SX}
                         >
                           NPC мысли
                         </Button>
@@ -2184,6 +2346,46 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               </Stack>
 
               <Stack spacing={0.9} sx={{ mt: 2.2 }}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Мир</Typography>
+                {worldProfile ? (
+                  <Box sx={{ width: { xs: '100%', sm: 380 }, maxWidth: '100%' }}>
+                    <CharacterShowcaseCard
+                      title={worldProfile.title}
+                      description={worldProfile.content}
+                      imageUrl={worldProfile.avatar_url}
+                      imageScale={worldProfile.avatar_scale}
+                      eyebrow="Описание мира"
+                      metaPrimary="Всегда в памяти"
+                      footerHint="Лор, правила, расы и общая атмосфера мира."
+                      descriptionLineClamp={4}
+                      minHeight={304}
+                      onClick={() => openWorldProfileDialog(worldProfile)}
+                    />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} sx={{ mt: 0.9 }}>
+                      <Button onClick={() => openWorldProfileDialog(worldProfile)} sx={{ minHeight: 34, flex: 1 }}>
+                        Изменить
+                      </Button>
+                      <Button onClick={() => setWorldProfileTemplatePickerOpen(true)} sx={{ minHeight: 34, flex: 1 }}>
+                        Из шаблона
+                      </Button>
+                      <Button onClick={() => setWorldProfile(null)} sx={{ minHeight: 34, flex: 1, color: APP_TEXT_SECONDARY }}>
+                        Убрать
+                      </Button>
+                    </Stack>
+                  </Box>
+                ) : (
+                  <EmptyAddCard
+                    onClick={() => openWorldProfileDialog()}
+                    label="Добавить карточку мира"
+                    actions={[
+                      { label: 'Создать', onClick: () => openWorldProfileDialog() },
+                      { label: 'Из шаблона', onClick: () => setWorldProfileTemplatePickerOpen(true) },
+                    ]}
+                  />
+                )}
+              </Stack>
+
+              <Stack spacing={0.9} sx={{ mt: 2.2 }}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
                 {!isMyGamesEdit && !isMyPublicationsEdit ? (
                   <Stack spacing={0.7}>
@@ -2280,7 +2482,19 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
             <Stack direction="row" spacing={0.8} justifyContent="flex-end" sx={{ pt: 0.6 }}>
               <Button onClick={() => onNavigate('/games')} sx={{ minHeight: 38, color: APP_TEXT_SECONDARY }}>Отмена</Button>
-              <Button data-tour-id="world-create-submit" onClick={() => void handleSaveWorld()} disabled={!canSubmit} sx={{ minHeight: 38, border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}>{isSubmitting ? <CircularProgress size={16} sx={{ color: APP_TEXT_PRIMARY }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}</Button>
+              <Button
+                data-tour-id="world-create-submit"
+                onClick={() => void handleSaveWorld()}
+                disabled={!canSubmit}
+                sx={{
+                  minHeight: 38,
+                  color: 'var(--morius-accent)',
+                  backgroundColor: 'transparent',
+                  '&:hover': { backgroundColor: 'rgba(255,255,255,0.04)' },
+                }}
+              >
+                {isSubmitting ? <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} /> : isEditMode ? 'Сохранить' : visibility === 'public' ? 'Опубликовать' : 'Создать'}
+              </Button>
             </Stack>
           </Stack>}
         </Box>
@@ -2413,6 +2627,98 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           </Stack>
         
       </FormDialog>
+
+      <FormDialog
+        open={worldProfileDialogOpen}
+        onClose={closeWorldProfileDialog}
+        onSubmit={saveWorldProfileDialog}
+        title="Карточка мира"
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        titleSx={{ pb: 0.85 }}
+        contentSx={{ pt: 0.4, overflowY: 'auto' }}
+        actionsSx={{ px: 3, pb: 2.2 }}
+        cancelButtonSx={{ color: 'var(--morius-title-text)' }}
+        submitButtonSx={{
+          color: 'var(--morius-accent)',
+        }}
+        submitDisabled={!worldProfileTitleDraft.trim() || !worldProfileContentDraft.trim()}
+      >
+        <Stack spacing={1}>
+          <WorldCardBannerPreview
+            imageUrl={worldProfileAvatarUrlDraft}
+            imageScale={worldProfileAvatarScaleDraft || 1}
+            title="Баннер мира"
+            description="Широкое изображение для карточки лора. Можно загрузить новое или перекадрировать текущее."
+            actionLabel={worldProfileAvatarUrlDraft ? 'Перекадрировать баннер' : 'Выбрать баннер'}
+            onClick={openWorldProfileCropEditor}
+          />
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7}>
+            <Button
+              onClick={() => worldProfileBannerInputRef.current?.click()}
+              sx={{ minHeight: 36, flex: 1 }}
+            >
+              {worldProfileAvatarUrlDraft ? 'Заменить баннер' : 'Загрузить баннер'}
+            </Button>
+            <Button
+              onClick={openWorldProfileCropEditor}
+              sx={{ minHeight: 36, flex: 1 }}
+            >
+              {worldProfileAvatarUrlDraft ? 'Перекадрировать' : 'Выбрать баннер'}
+            </Button>
+            {worldProfileAvatarUrlDraft ? (
+              <Button
+                onClick={() => {
+                  setWorldProfileAvatarUrlDraft(null)
+                  setWorldProfileAvatarOriginalUrlDraft(null)
+                  setWorldProfileAvatarScaleDraft(1)
+                }}
+                sx={{ minHeight: 36, flex: 1, color: APP_TEXT_SECONDARY }}
+              >
+                Убрать
+              </Button>
+            ) : null}
+          </Stack>
+
+          <Box sx={{ display: 'none' }}>
+            Эту карточку мы помним всегда. В ней лучше описывать лор мира, его правила, устройства, расы и ограничения.
+          </Box>
+
+          <TextField
+            label="Название мира"
+            value={worldProfileTitleDraft}
+            onChange={(event) => setWorldProfileTitleDraft(event.target.value)}
+            fullWidth
+            inputProps={{ maxLength: WORLD_PROFILE_TITLE_MAX_LENGTH }}
+            helperText={<TextLimitIndicator currentLength={worldProfileTitleDraft.length} maxLength={WORLD_PROFILE_TITLE_MAX_LENGTH} />}
+            FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+          />
+          <TextField
+            label="Описание мира"
+            value={worldProfileContentDraft}
+            onChange={(event) => setWorldProfileContentDraft(event.target.value)}
+            fullWidth
+            multiline
+            minRows={6}
+            maxRows={12}
+            inputProps={{ maxLength: WORLD_PROFILE_CONTENT_MAX_LENGTH }}
+            helperText={<TextLimitIndicator currentLength={worldProfileContentDraft.length} maxLength={WORLD_PROFILE_CONTENT_MAX_LENGTH} />}
+            FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+          />
+        </Stack>
+      </FormDialog>
+
+      <WorldCardTemplatePickerDialog
+        open={worldProfileTemplatePickerOpen}
+        authToken={authToken}
+        kind="world_profile"
+        title="Шаблоны мира"
+        emptyTitle="Шаблонов мира пока нет"
+        emptyDescription="Создайте карточки мира в профиле, и потом их можно будет быстро подставлять сюда."
+        onClose={() => setWorldProfileTemplatePickerOpen(false)}
+        onSelectTemplate={handleApplyWorldProfileTemplate}
+      />
 
       <BaseDialog
         open={characterPickerTarget !== null}
@@ -2754,6 +3060,16 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           title="Настройка обложки"
           onCancel={handleCancelCoverCrop}
           onSave={handleSaveCoverCrop}
+        />
+      ) : null}
+      {worldProfileCropSource ? (
+        <ImageCropper
+          imageSrc={worldProfileCropSource}
+          aspect={STORY_WORLD_BANNER_ASPECT}
+          frameRadius={18}
+          title="Настройка баннера мира"
+          onCancel={handleCancelWorldProfileCrop}
+          onSave={handleSaveWorldProfileCrop}
         />
       ) : null}
       <TopUpDialog

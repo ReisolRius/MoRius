@@ -213,7 +213,7 @@ export const moriusThemePlaceholders: readonly MoriusThemePlaceholder[] = [
   },
 ]
 
-export const MORIUS_DEFAULT_THEME_ID: MoriusThemeId = moriusThemePresets[0].id
+export const MORIUS_DEFAULT_THEME_ID: MoriusThemeId = 'rius-dungeon'
 
 export function getMoriusThemeById(themeId: string | null | undefined): MoriusThemePreset {
   if (!themeId) {

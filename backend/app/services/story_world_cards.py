@@ -23,14 +23,17 @@ from app.services.story_characters import (
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
 STORY_WORLD_CARD_KIND_WORLD = "world"
+STORY_WORLD_CARD_KIND_WORLD_PROFILE = "world_profile"
 STORY_WORLD_CARD_KIND_NPC = "npc"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
 STORY_WORLD_CARD_KINDS = {
     STORY_WORLD_CARD_KIND_WORLD,
+    STORY_WORLD_CARD_KIND_WORLD_PROFILE,
     STORY_WORLD_CARD_KIND_NPC,
     STORY_WORLD_CARD_KIND_MAIN_HERO,
 }
 STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 6_000
+STORY_WORLD_DETAIL_TYPE_MAX_LENGTH = 120
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 3
 STORY_WORLD_CARD_MEMORY_TURNS_OPTIONS = {3, 5, 10}
@@ -149,9 +152,22 @@ def normalize_story_world_card_kind(value: str | None) -> str:
     return STORY_WORLD_CARD_KIND_WORLD
 
 
+def normalize_story_world_detail_type(value: str | None) -> str:
+    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
+    if not normalized:
+        return ""
+    if len(normalized) > STORY_WORLD_DETAIL_TYPE_MAX_LENGTH:
+        normalized = normalized[:STORY_WORLD_DETAIL_TYPE_MAX_LENGTH].rstrip()
+    return normalized
+
+
+def normalize_story_world_detail_type_key(value: str | None) -> str:
+    return normalize_story_world_detail_type(value).casefold()
+
+
 def _default_story_world_card_memory_turns(kind: str) -> int:
     normalized_kind = normalize_story_world_card_kind(kind)
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         return STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS
@@ -166,7 +182,7 @@ def normalize_story_world_card_memory_turns_for_storage(
     current_value: int | None = None,
 ) -> int:
     normalized_kind = normalize_story_world_card_kind(kind)
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
 
     fallback_value = (
@@ -215,7 +231,7 @@ def serialize_story_world_card_memory_turns(raw_value: int | None, *, kind: str)
         explicit=False,
         current_value=raw_value,
     )
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return None
     if normalized_value == STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS:
         return None
@@ -272,6 +288,7 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
         triggers=deserialize_story_world_card_triggers(card.triggers),
         kind=normalized_kind,
+        detail_type=normalize_story_world_detail_type(getattr(card, "detail_type", "")),
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(card.avatar_scale),
@@ -311,6 +328,7 @@ def build_story_world_card_from_character(
         health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
+        detail_type="",
         avatar_url=normalize_story_character_avatar_url(character.avatar_url),
         avatar_original_url=(
             normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None))

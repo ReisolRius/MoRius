@@ -1,5 +1,8 @@
 const DEFAULT_TARGET_MIME = 'image/webp'
 const TRANSPARENT_TARGET_MIME = 'image/png'
+// Requests send images as base64 data URLs inside JSON bodies.
+// Keeping the decoded payload around 1.5 MB avoids proxy-side 413s once base64 expansion is added.
+const JSON_DATA_URL_REQUEST_SAFE_MAX_BYTES = 1_500_000
 
 function estimateDataUrlBytes(dataUrl: string): number {
   const commaIndex = dataUrl.indexOf(',')
@@ -45,6 +48,13 @@ type PrepareAvatarPayloadOptions = {
   avatarOriginalUrl?: string | null
   maxBytes: number
   maxDimension?: number
+}
+
+export function getJsonDataUrlRequestSafeMaxBytes(maxBytes: number): number {
+  if (!Number.isFinite(maxBytes) || maxBytes <= 0) {
+    return JSON_DATA_URL_REQUEST_SAFE_MAX_BYTES
+  }
+  return Math.min(Math.max(1, Math.trunc(maxBytes)), JSON_DATA_URL_REQUEST_SAFE_MAX_BYTES)
 }
 
 async function compressLoadedImageToDataUrl(image: HTMLImageElement, options: CompressOptions): Promise<string> {
@@ -165,13 +175,18 @@ export async function prepareAvatarUrlForRequest(
     return null
   }
 
+  const requestSafeOptions: CompressOptions = {
+    ...options,
+    maxBytes: getJsonDataUrlRequestSafeMaxBytes(options.maxBytes),
+  }
+
   if (normalizedAvatarUrl.startsWith('data:image/')) {
-    return compressImageDataUrl(normalizedAvatarUrl, options)
+    return compressImageDataUrl(normalizedAvatarUrl, requestSafeOptions)
   }
 
   if (isLocalMediaDisplayUrl(normalizedAvatarUrl) || normalizedAvatarUrl.startsWith('blob:')) {
     const resolvedAvatarDataUrl = await resolveImageSourceToDataUrl(normalizedAvatarUrl)
-    return compressImageDataUrl(resolvedAvatarDataUrl, options)
+    return compressImageDataUrl(resolvedAvatarDataUrl, requestSafeOptions)
   }
 
   return normalizedAvatarUrl
