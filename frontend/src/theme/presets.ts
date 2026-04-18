@@ -130,6 +130,7 @@ const riusDungeonColors: MoriusThemeColors = {
   appSurface: '#1a1e21',
   appElevated: '#1a1e21',
   inputBg: '#1a1e21',
+  inputBorder: 'rgba(201, 210, 223, 0.34)',
   appBorder: 'transparent',
   accent: '#2c9cf8',
   titleText: '#dbdde7',

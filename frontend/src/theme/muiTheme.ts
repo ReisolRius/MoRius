@@ -2,6 +2,9 @@ import { createTheme } from '@mui/material'
 import { moriusThemeTokens, type MoriusThemeColors } from './tokens'
 
 export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeTokens.colors, mode: 'dark' | 'light' = 'dark') {
+  const inputBorderColor = colors.inputBorder ?? (colors.appBorder === 'transparent' ? 'transparent' : colors.appBorder)
+  const inputBorderWidth = inputBorderColor === 'transparent' ? '0px' : `${moriusThemeTokens.borders.width}px`
+
   return createTheme({
     palette: {
       mode,
@@ -120,8 +123,8 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             borderRadius: moriusThemeTokens.radii.button,
             backgroundColor: colors.inputBg,
             '& .MuiOutlinedInput-notchedOutline': {
-              borderColor: colors.appBorder === 'transparent' ? 'transparent' : colors.appBorder,
-              borderWidth: colors.appBorder === 'transparent' ? '0px' : `${moriusThemeTokens.borders.width}px`,
+              borderColor: inputBorderColor,
+              borderWidth: inputBorderWidth,
             },
           },
         },

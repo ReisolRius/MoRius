@@ -67,6 +67,7 @@ export type MoriusThemeColors = {
   appSurface: string
   appElevated: string
   inputBg: string
+  inputBorder?: string
   appBorder: string
   accent: string
   titleText: string
