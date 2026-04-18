@@ -38,7 +38,7 @@ import {
 import { prepareAvatarPayloadForRequest, readFileAsDataUrl } from '../../utils/avatar'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
-const TEMPLATE_CONTENT_MAX_LENGTH = 6000
+const TEMPLATE_CONTENT_MAX_LENGTH = 8000
 const TEMPLATE_TRIGGER_INPUT_MAX_LENGTH = 600
 const DETAIL_TYPE_MAX_LENGTH = 120
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024

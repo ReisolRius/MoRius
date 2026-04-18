@@ -314,7 +314,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="World card content should not be empty",
             )
-        return normalized[:6000]
+        return normalized[:8000]
 
     def normalize_story_world_card_triggers(values: list[str] | None, fallback_title: str = "") -> list[str]:
         normalized_values: list[str] = []

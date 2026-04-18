@@ -710,7 +710,7 @@ STORY_WORLD_CARD_EVENT_ACTIONS = {
     STORY_WORLD_CARD_EVENT_UPDATED,
     STORY_WORLD_CARD_EVENT_DELETED,
 }
-STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 6_000
+STORY_WORLD_CARD_MAX_CONTENT_LENGTH = 8_000
 STORY_WORLD_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_PLOT_CARD_MAX_CHANGED_TEXT_LENGTH = 600
 STORY_WORLD_CARD_MAX_AI_CHANGES = 3
@@ -7243,7 +7243,7 @@ def _build_story_world_card_change_messages(
                 "4) Prefer update for existing cards when new important details appear.\n"
                 "5) Never update or delete cards with \"is_locked\": true or \"ai_edit_enabled\": false.\n"
                 "6) Delete only if a card became invalid/irrelevant.\n"
-                "7) For add/update provide full current card text (max 6000 chars) and useful triggers.\n"
+                "7) For add/update provide full current card text (max 8000 chars) and useful triggers.\n"
                 "8) NPC cards must describe a specific named character only, not a faceless group.\n"
                 "9) For NPC add/update title must be character name; content must include appearance/personality and important details.\n"
                 "10) Do not create generic NPC names like \"bandit\", \"guards\", \"soldiers\" without a unique name.\n"

@@ -37,6 +37,7 @@ import type { StoryCommunityWorldComment, StoryCommunityWorldPayload } from '../
 import { buildWorldFallbackArtwork } from '../../utils/worldBackground'
 import DeferredImage from '../media/DeferredImage'
 import ProgressiveAvatar from '../media/ProgressiveAvatar'
+import ProgressiveImage from '../media/ProgressiveImage'
 import TextLimitIndicator from '../TextLimitIndicator'
 import BaseDialog from '../dialogs/BaseDialog'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
@@ -289,18 +290,45 @@ const CommunityPreviewCard = memo(function CommunityPreviewCard({
         }}
       >
         {avatarUrl ? (
-          <Box
-            component="img"
+          <ProgressiveImage
             src={avatarUrl}
             alt={title}
-            sx={{
+            loading="eager"
+            fetchPriority="high"
+            objectFit="cover"
+            loaderSize={22}
+            containerSx={{
               width: '100%',
               height: '100%',
-              objectFit: 'cover',
+            }}
+            imgSx={{
               transform: `scale(${safeScale})`,
               transformOrigin: 'center center',
-              display: 'block',
             }}
+            fallback={
+              <Box
+                sx={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'grid',
+                  placeItems: 'center',
+                  background: 'color-mix(in srgb, var(--morius-elevated-bg) 55%, var(--morius-card-border))',
+                }}
+              >
+                <Typography
+                  aria-hidden
+                  sx={{
+                    fontSize: '2rem',
+                    fontWeight: 800,
+                    color: APP_TEXT_SECONDARY,
+                    opacity: 0.28,
+                    userSelect: 'none',
+                  }}
+                >
+                  {fallbackLetter}
+                </Typography>
+              </Box>
+            }
           />
         ) : (
           <Box

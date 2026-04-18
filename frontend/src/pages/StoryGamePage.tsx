@@ -169,6 +169,8 @@ import type {
   StoryWorldCardEvent,
 } from '../types/story'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
+import { MobileCardItem } from '../components/mobile/MobileCardSlider'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import {
   prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
@@ -307,7 +309,7 @@ const DEFAULT_CHARACTER_RACE_VALUES = [
   '\u0413\u043d\u043e\u043c',
   '\u0414\u0440\u0443\u0433\u043e\u0435',
 ] as const
-const WORLD_CARD_CONTENT_MAX_LENGTH = 6000
+const WORLD_CARD_CONTENT_MAX_LENGTH = 8000
 const STORY_PLOT_CARD_CONTENT_MAX_LENGTH = 32000
 const STORY_CHARACTER_DESCRIPTION_MAX_LENGTH = 6000
 const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
@@ -866,6 +868,65 @@ function AssetMaskIcon({
         ...(sx ?? {}),
       }}
     />
+  )
+}
+
+function ViewToggleButton({
+  cardsViewMode,
+  setCardsViewMode,
+}: {
+  cardsViewMode: 'full' | 'compact'
+  setCardsViewMode: (mode: 'full' | 'compact') => void
+}) {
+  return (
+    <Box
+      component="button"
+      type="button"
+      onClick={() => {
+        const next = cardsViewMode === 'full' ? 'compact' : 'full'
+        setCardsViewMode(next)
+        try { localStorage.setItem('morius-cards-view-mode', next) } catch { /* ignore */ }
+      }}
+      title={cardsViewMode === 'full' ? 'Компактный вид' : 'Полный вид'}
+      aria-label={cardsViewMode === 'full' ? 'Переключить в компактный вид' : 'Переключить в полный вид'}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.55,
+        px: 1.1,
+        py: 0.5,
+        border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
+        borderRadius: '8px',
+        backgroundColor: 'transparent',
+        color: 'var(--morius-text-secondary)',
+        fontSize: '0.76rem',
+        fontWeight: 600,
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+        flexShrink: 0,
+        transition: 'color 140ms ease, border-color 140ms ease, background-color 140ms ease',
+        '&:hover': {
+          color: 'var(--morius-text-primary)',
+          borderColor: 'var(--morius-card-border)',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+        },
+      }}
+    >
+      {cardsViewMode === 'full' ? (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <rect x="0" y="1" width="5" height="12" rx="1.5" fill="currentColor" opacity="0.7"/>
+          <line x1="7" y1="3" x2="14" y2="3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="7" y1="7" x2="14" y2="7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="7" y1="11" x2="14" y2="11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <rect x="0" y="0" width="6" height="14" rx="1.5" fill="currentColor" opacity="0.7"/>
+          <rect x="8" y="0" width="6" height="14" rx="1.5" fill="currentColor" opacity="0.5"/>
+        </svg>
+      )}
+      {cardsViewMode === 'full' ? 'Компакт' : 'Полный'}
+    </Box>
   )
 }
 
@@ -4063,6 +4124,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeAiPanelTab, setActiveAiPanelTab] = useState<AiPanelTab>('settings')
   const [activeWorldPanelTab, setActiveWorldPanelTab] = useState<WorldPanelTab>('story')
   const [cardsPanelTab, setCardsPanelTab] = useState<CardsPanelTab>('world')
+  const [cardsViewMode, setCardsViewMode] = useState<'compact' | 'full'>(() => {
+    try { return (localStorage.getItem('morius-cards-view-mode') as 'compact' | 'full') ?? 'full' } catch { return 'full' }
+  })
   const [activeMemoryPanelTab, setActiveMemoryPanelTab] = useState<MemoryPanelTab>('memory')
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
   const [instructionTemplateDialogOpen, setInstructionTemplateDialogOpen] = useState(false)
@@ -12769,14 +12833,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box className="morius-scrollbar" sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0 }}>
                 {cardsPanelTab === 'characters' ? (
                   <Stack spacing={0.9}>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Главный герой</Typography>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Главный герой</Typography>
+                      <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
+                    </Stack>
                     {!mainHeroCard ? (
                       <RightPanelEmptyState
                         iconSrc={icons.world}
                         title="Герой не выбран"
                         description="Выберите главного героя, чтобы зафиксировать его внешность и роль в текущей истории."
                       />
-                    ) : (
+                    ) : cardsViewMode === 'full' ? (
                       <Box sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}>
                         <CharacterShowcaseCard
                           title={mainHeroCard!.title}
@@ -12802,6 +12869,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           }
                         />
                       </Box>
+                    ) : (
+                      <MobileCardItem
+                        imageUrl={mainHeroAvatarUrl}
+                        fallbackBackground={buildWorldFallbackArtwork(mainHeroCard!.id) as Record<string, unknown>}
+                        title={mainHeroCard!.title}
+                        description={replaceMainHeroInlineTags(mainHeroCard!.content, mainHeroDisplayNameForTags)}
+                        showPlayButton={false}
+                        onMenuClick={(e) => handleOpenCardMenu(e, 'world', mainHeroCard!.id)}
+                        infoNode={characterStateEnabled ? renderWorldCardAiAccessBadge(mainHeroCard!) : undefined}
+                        onClick={() => handleOpenEditWorldCardDialog(mainHeroCard!)}
+                      />
                     )}
 
                     <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Персонажи</Typography>
@@ -12812,72 +12890,120 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         description="Добавляйте спутников, противников и важных персонажей, чтобы они сразу участвовали в истории."
                       />
                     ) : (
-                      <Stack spacing={0.85}>
-                        {displayedNpcCards.map((card) => {
-                          const contextState = worldCardContextStateById.get(card.id)
-                          const isCardContextActive = Boolean(contextState?.isActive)
-                          const memoryTurnsLabelValue =
-                            isCardContextActive &&
-                            !contextState?.isAlwaysActive &&
-                            typeof contextState?.turnsRemaining === 'number' &&
-                            contextState.turnsRemaining > 0
-                              ? contextState.turnsRemaining
-                              : null
+                      <>
+                        {cardsViewMode === 'full' ? (
+                          /* Full view: portrait CharacterShowcaseCards */
+                          <Stack spacing={0.85}>
+                            {displayedNpcCards.map((card) => {
+                              const contextState = worldCardContextStateById.get(card.id)
+                              const isCardContextActive = Boolean(contextState?.isActive)
+                              const memoryTurnsLabelValue =
+                                isCardContextActive &&
+                                !contextState?.isAlwaysActive &&
+                                typeof contextState?.turnsRemaining === 'number' &&
+                                contextState.turnsRemaining > 0
+                                  ? contextState.turnsRemaining
+                                  : null
 
-                          return (
-                          <Box
-                            key={card.id}
-                            sx={{
-                              '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' },
-                              animation: isCardContextActive ? 'morius-npc-prioritize-enter 280ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
-                              '@keyframes morius-npc-prioritize-enter': {
-                                from: { opacity: 0.72, transform: 'translateY(10px)' },
-                                to: { opacity: 1, transform: 'translateY(0)' },
-                              },
-                            }}
-                          >
-                            <CharacterShowcaseCard
-                              title={card.title}
-                              description={card.content}
-                              imageUrl={resolveWorldCardAvatar(card)}
-                              imageScale={card.avatar_scale}
-                              hideFooter
-                              highlighted={isCardContextActive}
-                              descriptionLineClamp={4}
-                              titleAccessory={
-                                (isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0) || (characterStateEnabled && card.ai_edit_enabled) ? (
-                                  <Stack direction="row" spacing={0.52} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
-                                    {isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
-                                      <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
-                                        <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
-                                        <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
-                                          {memoryTurnsLabelValue}
-                                        </Typography>
-                                      </Stack>
-                                    ) : null}
-                                    {characterStateEnabled ? renderWorldCardAiAccessBadge(card) : null}
-                                  </Stack>
-                                ) : null
-                              }
-                              onClick={() => handleOpenEditWorldCardDialog(card)}
-                              actionSlot={
-                                <IconButton
-                                  className="morius-overflow-action"
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    handleOpenCardMenu(event, 'world', card.id)
+                              return (
+                                <Box
+                                  key={card.id}
+                                  sx={{
+                                    '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' },
+                                    animation: isCardContextActive ? 'morius-npc-prioritize-enter 280ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
+                                    '@keyframes morius-npc-prioritize-enter': {
+                                      from: { opacity: 0.72, transform: 'translateY(10px)' },
+                                      to: { opacity: 1, transform: 'translateY(0)' },
+                                    },
                                   }}
-                                  disabled={isWorldCardActionLocked}
-                                  sx={overflowActionButtonSx}
                                 >
-                                  <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                                </IconButton>
-                              }
-                            />
-                          </Box>
-                          )
-                        })}
-                      </Stack>
+                                  <CharacterShowcaseCard
+                                    title={card.title}
+                                    description={card.content}
+                                    imageUrl={resolveWorldCardAvatar(card)}
+                                    imageScale={card.avatar_scale}
+                                    hideFooter
+                                    highlighted={isCardContextActive}
+                                    descriptionLineClamp={4}
+                                    titleAccessory={
+                                      (isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0) || (characterStateEnabled && card.ai_edit_enabled) ? (
+                                        <Stack direction="row" spacing={0.52} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                          {isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
+                                            <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                              <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
+                                              <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
+                                                {memoryTurnsLabelValue}
+                                              </Typography>
+                                            </Stack>
+                                          ) : null}
+                                          {characterStateEnabled ? renderWorldCardAiAccessBadge(card) : null}
+                                        </Stack>
+                                      ) : null
+                                    }
+                                    onClick={() => handleOpenEditWorldCardDialog(card)}
+                                    actionSlot={
+                                      <IconButton
+                                        className="morius-overflow-action"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleOpenCardMenu(event, 'world', card.id)
+                                        }}
+                                        disabled={isWorldCardActionLocked}
+                                        sx={overflowActionButtonSx}
+                                      >
+                                        <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                      </IconButton>
+                                    }
+                                  />
+                                </Box>
+                              )
+                            })}
+                          </Stack>
+                        ) : (
+                          /* Compact view: landscape MobileCardItem list */
+                          <Stack spacing={1.2}>
+                            {displayedNpcCards.map((card) => {
+                              const contextState = worldCardContextStateById.get(card.id)
+                              const isCardContextActive = Boolean(contextState?.isActive)
+                              const memoryTurnsLabelValue =
+                                isCardContextActive &&
+                                !contextState?.isAlwaysActive &&
+                                typeof contextState?.turnsRemaining === 'number' &&
+                                contextState.turnsRemaining > 0
+                                  ? contextState.turnsRemaining
+                                  : null
+                              return (
+                                <MobileCardItem
+                                  key={card.id}
+                                  imageUrl={resolveApiResourceUrl(resolveWorldCardAvatar(card))}
+                                  fallbackBackground={buildWorldFallbackArtwork(card.id) as Record<string, unknown>}
+                                  title={card.title}
+                                  description={card.content}
+                                  isActive={isCardContextActive}
+                                  showPlayButton={false}
+                                  onMenuClick={(e) => handleOpenCardMenu(e, 'world', card.id)}
+                                  infoNode={
+                                    (isCardContextActive && memoryTurnsLabelValue) || (characterStateEnabled && card.ai_edit_enabled) ? (
+                                      <Stack direction="row" spacing={0.6} alignItems="center">
+                                        {isCardContextActive && memoryTurnsLabelValue ? (
+                                          <Stack direction="row" spacing={0.3} alignItems="center">
+                                            <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
+                                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--morius-text-secondary)', lineHeight: 1 }}>
+                                              {memoryTurnsLabelValue}
+                                            </Typography>
+                                          </Stack>
+                                        ) : null}
+                                        {characterStateEnabled ? renderWorldCardAiAccessBadge(card) : null}
+                                      </Stack>
+                                    ) : undefined
+                                  }
+                                  onClick={() => handleOpenEditWorldCardDialog(card)}
+                                />
+                              )
+                            })}
+                          </Stack>
+                        )}
+                      </>
                     )}
 
                     {!mainHeroCard ? (
@@ -12908,14 +13034,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Stack>
                 ) : cardsPanelTab === 'world' ? (
                   <Stack spacing={0.9}>
-                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Описание мира</Typography>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Описание мира</Typography>
+                      <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
+                    </Stack>
                     {!worldProfileCard ? (
                       <RightPanelEmptyState
                         iconSrc={icons.world}
                         title="Описание мира не задано"
                         description="Опишите лор, правила, атмосферу, расы и общий контекст мира. Эта карточка всегда остается в памяти рассказчика."
                       />
-                    ) : (
+                    ) : cardsViewMode === 'full' ? (
                       <Box sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}>
                         <CharacterShowcaseCard
                           title={worldProfileCard.title}
@@ -12941,6 +13070,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           }
                         />
                       </Box>
+                    ) : (
+                      <MobileCardItem
+                        imageUrl={resolveWorldCardAvatar(worldProfileCard)}
+                        fallbackBackground={buildWorldFallbackArtwork(worldProfileCard.id) as Record<string, unknown>}
+                        title={worldProfileCard.title}
+                        description={replaceMainHeroInlineTags(worldProfileCard.content, mainHeroDisplayNameForTags)}
+                        showPlayButton={false}
+                        onMenuClick={(e) => handleOpenCardMenu(e, 'world', worldProfileCard.id)}
+                        onClick={() => handleOpenEditWorldCardDialog(worldProfileCard)}
+                      />
                     )}
 
                     <Stack direction="row" spacing={0.65}>
@@ -12972,67 +13111,113 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         description="Добавляйте места, предметы, заклинания, мобов и другие элементы мира, чтобы рассказчик учитывал их в сценах."
                       />
                     ) : (
-                      <Stack spacing={0.85}>
-                        {displayedDetailCards.map((card) => {
-                          const contextState = worldCardContextStateById.get(card.id)
-                          const isCardContextActive = Boolean(contextState?.isActive)
-                          const memoryTurns = resolveWorldCardMemoryTurns(card)
-                          const memoryTurnsLabelValue =
-                            isCardContextActive &&
-                            !contextState?.isAlwaysActive &&
-                            typeof contextState?.turnsRemaining === 'number' &&
-                            contextState.turnsRemaining > 0
-                              ? contextState.turnsRemaining
-                              : null
-                          const triggerPreview =
-                            card.triggers.length > 0
-                              ? `Триггеры: ${card.triggers.slice(0, 3).join(', ')}${card.triggers.length > 3 ? ', ...' : ''}`
-                              : 'Триггеры не заданы'
-
-                          return (
-                            <Box
-                              key={card.id}
-                              sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}
-                            >
-                              <CharacterShowcaseCard
-                                title={card.title}
-                                description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
-                                imageUrl={resolveWorldCardAvatar(card)}
-                                imageScale={card.avatar_scale}
-                                eyebrow={card.detail_type || 'Деталь мира'}
-                                footerHint={triggerPreview}
-                                metaPrimary={formatWorldCardMemoryLabel(memoryTurns)}
-                                highlighted={isCardContextActive}
-                                descriptionLineClamp={4}
-                                titleAccessory={
-                                  isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
-                                    <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
-                                      <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
-                                      <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
-                                        {memoryTurnsLabelValue}
+                      <>
+                        {cardsViewMode === 'full' ? (
+                          /* Full view: portrait CharacterShowcaseCards */
+                          <Stack spacing={0.85}>
+                            {displayedDetailCards.map((card) => {
+                              const contextState = worldCardContextStateById.get(card.id)
+                              const isCardContextActive = Boolean(contextState?.isActive)
+                              const memoryTurns = resolveWorldCardMemoryTurns(card)
+                              const memoryTurnsLabelValue =
+                                isCardContextActive &&
+                                !contextState?.isAlwaysActive &&
+                                typeof contextState?.turnsRemaining === 'number' &&
+                                contextState.turnsRemaining > 0
+                                  ? contextState.turnsRemaining
+                                  : null
+                              const triggerPreview =
+                                card.triggers.length > 0
+                                  ? `Триггеры: ${card.triggers.slice(0, 3).join(', ')}${card.triggers.length > 3 ? ', ...' : ''}`
+                                  : 'Триггеры не заданы'
+                              return (
+                                <Box
+                                  key={card.id}
+                                  sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}
+                                >
+                                  <CharacterShowcaseCard
+                                    title={card.title}
+                                    description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                    imageUrl={resolveWorldCardAvatar(card)}
+                                    imageScale={card.avatar_scale}
+                                    eyebrow={card.detail_type || 'Деталь мира'}
+                                    footerHint={triggerPreview}
+                                    metaPrimary={formatWorldCardMemoryLabel(memoryTurns)}
+                                    highlighted={isCardContextActive}
+                                    descriptionLineClamp={4}
+                                    titleAccessory={
+                                      isCardContextActive && memoryTurnsLabelValue && memoryTurnsLabelValue > 0 ? (
+                                        <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                          <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
+                                          <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
+                                            {memoryTurnsLabelValue}
+                                          </Typography>
+                                        </Stack>
+                                      ) : null
+                                    }
+                                    onClick={() => handleOpenEditWorldCardDialog(card)}
+                                    actionSlot={
+                                      <IconButton
+                                        className="morius-overflow-action"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          handleOpenCardMenu(event, 'world', card.id)
+                                        }}
+                                        disabled={isWorldCardActionLocked}
+                                        sx={overflowActionButtonSx}
+                                      >
+                                        <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                      </IconButton>
+                                    }
+                                  />
+                                </Box>
+                              )
+                            })}
+                          </Stack>
+                        ) : (
+                          /* Compact view: landscape MobileCardItem list */
+                          <Stack spacing={1.2}>
+                            {displayedDetailCards.map((card) => {
+                              const contextState = worldCardContextStateById.get(card.id)
+                              const isCardContextActive = Boolean(contextState?.isActive)
+                              const memoryTurnsLabelValue =
+                                isCardContextActive &&
+                                !contextState?.isAlwaysActive &&
+                                typeof contextState?.turnsRemaining === 'number' &&
+                                contextState.turnsRemaining > 0
+                                  ? contextState.turnsRemaining
+                                  : null
+                              return (
+                                <MobileCardItem
+                                  key={card.id}
+                                  imageUrl={resolveApiResourceUrl(resolveWorldCardAvatar(card))}
+                                  fallbackBackground={buildWorldFallbackArtwork(card.id) as Record<string, unknown>}
+                                  title={card.title}
+                                  description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                  isActive={isCardContextActive}
+                                  showPlayButton={false}
+                                  onMenuClick={(e) => handleOpenCardMenu(e, 'world', card.id)}
+                                  infoNode={
+                                    isCardContextActive && memoryTurnsLabelValue ? (
+                                      <Stack direction="row" spacing={0.3} alignItems="center">
+                                        <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
+                                        <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--morius-text-secondary)', lineHeight: 1 }}>
+                                          {memoryTurnsLabelValue}
+                                        </Typography>
+                                      </Stack>
+                                    ) : card.detail_type ? (
+                                      <Typography sx={{ fontSize: '0.72rem', color: 'var(--morius-text-secondary)', lineHeight: 1 }}>
+                                        {card.detail_type}
                                       </Typography>
-                                    </Stack>
-                                  ) : null
-                                }
-                                onClick={() => handleOpenEditWorldCardDialog(card)}
-                                actionSlot={
-                                  <IconButton
-                                    className="morius-overflow-action"
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      handleOpenCardMenu(event, 'world', card.id)
-                                    }}
-                                    disabled={isWorldCardActionLocked}
-                                    sx={overflowActionButtonSx}
-                                  >
-                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                                  </IconButton>
-                                }
-                              />
-                            </Box>
-                          )
-                        })}
-                      </Stack>
+                                    ) : undefined
+                                  }
+                                  onClick={() => handleOpenEditWorldCardDialog(card)}
+                                />
+                              )
+                            })}
+                          </Stack>
+                        )}
+                      </>
                     )}
 
                     <Stack direction="row" spacing={0.65}>
@@ -13054,6 +13239,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Stack>
                 ) : cardsPanelTab === 'instructions' ? (
                   <Stack spacing={0.9}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Правила</Typography>
+                      <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
+                    </Stack>
                     {instructionCards.length === 0 ? (
                       <RightPanelEmptyState
                         iconSrc={icons.ai}
@@ -13061,62 +13250,105 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         description="Создайте правила или возьмите шаблон, чтобы зафиксировать стиль, ограничения и важные указания для ИИ."
                       />
                     ) : (
-                      instructionCards.map((card) => (
-                        <Box
-                          key={card.id}
-                          sx={{
-                            borderRadius: '16px',
-                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
-                            backgroundColor: 'var(--morius-card-bg)',
-                            p: 0.9,
-                            opacity: card.is_active ? 1 : 0.78,
-                            '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': {
-                              opacity: 1,
-                              pointerEvents: 'auto',
-                            },
-                          }}
-                        >
-                          <Stack direction="row" spacing={0.55} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1 }}>
-                              {card.title}
-                            </Typography>
-                            <Typography
-                              sx={{
-                                ...buildStatusChipSx(card.is_active),
-                                px: 0.55,
-                                py: 0.18,
-                                fontSize: '0.64rem',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {card.is_active ? 'Активно' : 'Выкл'}
-                            </Typography>
-                            <IconButton
-                              className="morius-overflow-action"
-                              onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
-                              disabled={isInstructionCardActionLocked}
-                              sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto' }}
-                            >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                            </IconButton>
+                      <>
+                        {cardsViewMode === 'full' ? (
+                          /* Full view: compact title+content cards (same for all screen sizes) */
+                          <Stack spacing={0.9}>
+                            {instructionCards.map((card) => (
+                              <Box
+                                key={card.id}
+                                sx={{
+                                  borderRadius: '16px',
+                                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
+                                  backgroundColor: 'var(--morius-card-bg)',
+                                  p: 0.9,
+                                  opacity: card.is_active ? 1 : 0.78,
+                                  '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': {
+                                    opacity: 1,
+                                    pointerEvents: 'auto',
+                                  },
+                                }}
+                              >
+                                <Stack direction="row" spacing={0.55} alignItems="center">
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {card.title}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      ...buildStatusChipSx(card.is_active),
+                                      px: 0.55,
+                                      py: 0.18,
+                                      fontSize: '0.64rem',
+                                      fontWeight: 700,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {card.is_active ? 'Активно' : 'Выкл'}
+                                  </Typography>
+                                  <IconButton
+                                    className="morius-overflow-action"
+                                    onClick={(event) => handleOpenCardMenu(event, 'instruction', card.id)}
+                                    disabled={isInstructionCardActionLocked}
+                                    sx={{ ...overflowActionButtonSx, opacity: 1, pointerEvents: 'auto', flexShrink: 0 }}
+                                  >
+                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                  </IconButton>
+                                </Stack>
+                                <Typography
+                                  sx={{
+                                    mt: 0.45,
+                                    color: 'var(--morius-text-secondary)',
+                                    fontSize: '0.82rem',
+                                    lineHeight: 1.42,
+                                    whiteSpace: 'pre-wrap',
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 4,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden',
+                                  }}
+                                >
+                                  {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                </Typography>
+                              </Box>
+                            ))}
                           </Stack>
-                          <Typography
-                            sx={{
-                              mt: 0.45,
-                              color: 'var(--morius-text-secondary)',
-                              fontSize: '0.82rem',
-                              lineHeight: 1.42,
-                              whiteSpace: 'pre-wrap',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 4,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
-                          </Typography>
-                        </Box>
-                      ))
+                        ) : (
+                          /* Compact view: landscape MobileCardItem list */
+                          <Stack spacing={1.2}>
+                            {instructionCards.map((card) => (
+                              <MobileCardItem
+                                key={card.id}
+                                fallbackBackground={buildWorldFallbackArtwork(card.id + 500000) as Record<string, unknown>}
+                                title={card.title}
+                                description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                                isActive={card.is_active}
+                                showPlayButton={false}
+                                onMenuClick={(e) => handleOpenCardMenu(e, 'instruction', card.id)}
+                                infoNode={
+                                  <Typography
+                                    component="span"
+                                    sx={{
+                                      ...buildStatusChipSx(card.is_active),
+                                      px: 0.55,
+                                      py: 0.18,
+                                      fontSize: '0.64rem',
+                                      fontWeight: 700,
+                                      borderRadius: '6px',
+                                    }}
+                                  >
+                                    {card.is_active ? 'Активно' : 'Выкл'}
+                                  </Typography>
+                                }
+                                onClick={() => handleOpenCardMenu(
+                                  // open menu on card click in compact mode — user can pick Edit
+                                  { currentTarget: document.body } as unknown as React.MouseEvent<HTMLElement>,
+                                  'instruction', card.id
+                                )}
+                              />
+                            ))}
+                          </Stack>
+                        )}
+                      </>
                     )}
                     <Stack direction="row" spacing={0.65}>
                       <Button
@@ -13137,12 +13369,69 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Stack>
                 ) : (
                   <Stack spacing={0.9}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Сюжет</Typography>
+                      <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
+                    </Stack>
                     {plotCards.length === 0 ? (
                       <RightPanelEmptyState
                         iconSrc={icons.communityInfo}
                         title="Сюжет пока пуст"
                         description="Записывайте сюда важные события и незакрытые линии, чтобы держать эпизод в фокусе."
                       />
+                    ) : cardsViewMode === 'compact' ? (
+                      <Stack spacing={1.2}>
+                        {plotCards.map((card) => {
+                          const contextState = plotCardContextStateById.get(card.id)
+                          const isPlotCardDisabled = isPlotCardManuallyDisabled(card)
+                          const isPlotCardContextActive = Boolean(contextState?.isActive)
+                          const plotTurnsRemaining =
+                            isPlotCardContextActive &&
+                            contextState?.lastTriggerTurn !== null &&
+                            typeof contextState?.turnsRemaining === 'number' &&
+                            contextState.turnsRemaining > 0
+                              ? contextState.turnsRemaining
+                              : null
+                          return (
+                            <MobileCardItem
+                              key={card.id}
+                              fallbackBackground={buildWorldFallbackArtwork(card.id + 700000) as Record<string, unknown>}
+                              title={card.title}
+                              description={replaceMainHeroInlineTags(card.content, mainHeroDisplayNameForTags)}
+                              isActive={isPlotCardContextActive && !isPlotCardDisabled}
+                              showPlayButton={false}
+                              onMenuClick={(e) => handleOpenCardMenu(e, 'plot', card.id)}
+                              infoNode={
+                                <Stack direction="row" spacing={0.5} alignItems="center">
+                                  {plotTurnsRemaining !== null ? (
+                                    <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                      <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 13, height: 13, opacity: 0.9 }} />
+                                      <Typography sx={{ fontSize: '0.76rem', fontWeight: 800, lineHeight: 1 }}>{plotTurnsRemaining}</Typography>
+                                    </Stack>
+                                  ) : null}
+                                  <Typography
+                                    component="span"
+                                    sx={{
+                                      ...buildStatusChipSx(isPlotCardContextActive && !isPlotCardDisabled),
+                                      px: 0.55,
+                                      py: 0.18,
+                                      fontSize: '0.64rem',
+                                      fontWeight: 700,
+                                      borderRadius: '6px',
+                                    }}
+                                  >
+                                    {formatPlotCardContextStatus(contextState)}
+                                  </Typography>
+                                </Stack>
+                              }
+                              onClick={() => handleOpenCardMenu(
+                                { currentTarget: document.body } as unknown as React.MouseEvent<HTMLElement>,
+                                'plot', card.id
+                              )}
+                            />
+                          )
+                        })}
+                      </Stack>
                     ) : (
                       plotCards.map((card) => {
                         const contextState = plotCardContextStateById.get(card.id)
@@ -13176,11 +13465,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }}
                           >
                             <Stack direction="row" spacing={0.55} alignItems="center">
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1 }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.95rem', fontWeight: 800, minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {card.title}
                               </Typography>
                               {plotTurnsRemaining !== null ? (
-                                <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)' }}>
+                                <Stack direction="row" spacing={0.42} alignItems="center" sx={{ color: 'var(--morius-title-text)', flexShrink: 0 }}>
                                   <Box component="img" src={clockMemoryIcon} alt="" sx={{ width: 14, height: 14, display: 'block', opacity: 0.94 }} />
                                   <Typography sx={{ fontSize: '0.92rem', fontWeight: 800, lineHeight: 1 }}>
                                     {plotTurnsRemaining}

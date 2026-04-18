@@ -56,7 +56,8 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 3,
+          flexWrap: { xs: 'wrap', md: 'nowrap' },
+          gap: { xs: '14px', md: 3 },
         }}
       >
         {/* Logo */}
@@ -67,8 +68,13 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
           sx={{ height: { xs: 50, md: 64 }, width: 'auto', flexShrink: 0, opacity: 0.9 }}
         />
 
-        {/* Nav links — centered */}
-        <Stack direction="row" spacing={{ xs: '32px', md: '60px' }} alignItems="center">
+        {/* Nav links — centered on desktop, full-width row on mobile */}
+        <Stack
+          direction="row"
+          spacing={{ xs: '24px', md: '60px' }}
+          alignItems="center"
+          sx={{ order: { xs: 2, md: 0 }, width: { xs: '100%', md: 'auto' }, justifyContent: { xs: 'center', md: 'flex-start' } }}
+        >
           {infoLinks.map((link) =>
             link.path && onNavigate ? (
               <Box
@@ -113,7 +119,7 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
         </Stack>
 
         {/* Social icon buttons from Figma */}
-        <Stack direction="row" spacing="16px" alignItems="center" sx={{ flexShrink: 0 }}>
+        <Stack direction="row" spacing="16px" alignItems="center" sx={{ flexShrink: 0, order: { xs: 1, md: 0 }, ml: { xs: 'auto', md: 0 } }}>
           {telegramLink?.href && (
             <Box
               component="a"

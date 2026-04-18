@@ -34,6 +34,7 @@ import sidebarShopIconMarkup from '../assets/icons/custom/shop.svg?raw'
 import BaseDialog from './dialogs/BaseDialog'
 import useMobileDialogSheet from './dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from './icons/ThemedSvgIcon'
+import ProgressiveImage from './media/ProgressiveImage'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
 
 export type AppHeaderMenuItem = {
@@ -677,17 +678,19 @@ function AppHeader({
                         >
                           {hasCoverImage ? (
                             <>
-                              <Box
-                                component="img"
+                              <ProgressiveImage
                                 src={item.imageSrc}
                                 alt=""
-                                sx={{
+                                loading="eager"
+                                fetchPriority="high"
+                                objectFit="cover"
+                                objectPosition={item.imagePosition ?? 'center'}
+                                loaderSize={22}
+                                containerSx={{
                                   position: 'absolute',
                                   inset: 0,
-                                  width: '100%',
-                                  height: '100%',
-                                  objectFit: 'cover',
-                                  objectPosition: item.imagePosition ?? 'center',
+                                }}
+                                imgSx={{
                                   opacity: 0.92,
                                 }}
                               />
@@ -758,16 +761,19 @@ function AppHeader({
                               ) : null}
                             </Stack>
                             {item.imageSrc && !hasCoverImage ? (
-                              <Box
-                                component="img"
+                              <ProgressiveImage
                                 src={item.imageSrc}
                                 alt=""
-                                sx={{
+                                loading="eager"
+                                fetchPriority="high"
+                                objectFit="contain"
+                                loaderSize={18}
+                                containerSx={{
                                   width: 80,
                                   height: 80,
-                                  objectFit: 'contain',
                                   flexShrink: 0,
                                   alignSelf: 'flex-end',
+                                  backgroundColor: 'transparent',
                                 }}
                               />
                             ) : null}
@@ -919,7 +925,7 @@ function AppHeader({
                 borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
                 backgroundColor: 'var(--morius-card-bg)',
                 boxShadow: '0 -18px 34px rgba(0, 0, 0, 0.24)',
-                px: 0.6,
+                px: 2.5,
                 pt: 0.4,
                 pb: 0.45,
               }}

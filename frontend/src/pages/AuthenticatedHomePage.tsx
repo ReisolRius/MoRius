@@ -15,8 +15,10 @@ import {
   Button,
   ButtonBase,
   Grow,
+  IconButton,
   Skeleton,
   Stack,
+  SvgIcon,
   TextField,
   Typography,
   useMediaQuery,
@@ -33,8 +35,10 @@ import quickStartDashboardImage from '../assets/images/dashboard/quick-start.png
 import newWorldDashboardImage from '../assets/images/dashboard/new-world.png'
 import shopDashboardImage from '../assets/images/dashboard/shop.png'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
+import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import DeferredImage from '../components/media/DeferredImage'
@@ -68,6 +72,8 @@ import {
   getStoryGame,
   getCommunityWorld,
   launchCommunityWorld,
+  listCommunityCharacters,
+  listCommunityInstructionTemplates,
   listCommunityWorlds,
   listStoryGames,
   rateCommunityWorld,
@@ -78,7 +84,10 @@ import {
 } from '../services/storyApi'
 import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
-import type { StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
+import type { StoryCommunityCharacterSummary, StoryCommunityInstructionTemplateSummary, StoryCommunityWorldPayload, StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+import { resolveApiResourceUrl } from '../services/httpClient'
+import { MobileCardItem, MobileCardSlider } from '../components/mobile/MobileCardSlider'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -171,12 +180,278 @@ const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
 const HOME_NEWS_SKELETON_KEYS = Array.from({ length: 3 }, (_, index) => `home-news-skeleton-${index}`)
-const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 3 }, (_, index) => `home-community-skeleton-${index}`)
-const HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) => `home-community-skeleton-${index}`)
+const HOME_COMMUNITY_WORLD_LIMIT = 12
+
+/** Section header with title, subtitle, and "Показать все" button */
+function HomeSliderHeader({ title, subtitle, onShowAll }: { title: string; subtitle: string; onShowAll: () => void }) {
+  return (
+    <Stack sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}>
+      {/* Title row: always inline, button right-aligned */}
+      <Stack direction="row" justifyContent="space-between" alignItems="center">
+        <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+          {title}
+        </Typography>
+        <Button
+          onClick={onShowAll}
+          sx={{
+            minHeight: 'var(--morius-action-size)',
+            px: 1.35,
+            flexShrink: 0,
+            borderRadius: 'var(--morius-radius)',
+            textTransform: 'none',
+            fontWeight: 700,
+            fontSize: { xs: '0.82rem', md: '0.9rem' },
+            border: 'var(--morius-border-width) solid transparent',
+            backgroundColor: 'transparent',
+            color: 'var(--morius-accent)',
+            '&:hover': { border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_HOVER },
+            '&:active': { border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`, backgroundColor: APP_BUTTON_ACTIVE },
+          }}
+        >
+          Показать все
+        </Button>
+      </Stack>
+      {/* Subtitle below */}
+      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem', mt: 0.35 }}>
+        {subtitle}
+      </Typography>
+    </Stack>
+  )
+}
+
+/** AI-Dungeon-style horizontal slider with hover arrows */
+function HomeCardSlider({ children, cardCount = 0 }: { children: React.ReactNode; cardCount?: number }) {
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 4)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 4)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    checkScroll()
+    const ro = new ResizeObserver(checkScroll)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [checkScroll, cardCount])
+
+  const scroll = (dir: 'left' | 'right') => {
+    // Scroll by the full visible width → moves exactly 4 cards
+    const visibleWidth = scrollRef.current?.clientWidth ?? 0
+    scrollRef.current?.scrollBy({
+      left: dir === 'left' ? -visibleWidth : visibleWidth,
+      behavior: 'smooth',
+    })
+  }
+
+  const arrowSx = {
+    position: 'absolute' as const,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    zIndex: 4,
+    width: 44,
+    height: 44,
+    borderRadius: '50%',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, transparent)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    color: 'var(--morius-title-text)',
+    boxShadow: '0 4px 20px rgba(0,0,0,0.38)',
+    opacity: 0,
+    pointerEvents: 'none' as const,
+    transition: 'opacity 200ms ease, background-color 180ms ease',
+    '&:hover': {
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 98%, white 2%)',
+    },
+  }
+
+  return (
+    <Box
+      sx={{ position: 'relative', overflow: 'hidden', mx: '-4px' }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Left arrow */}
+      <IconButton
+        onClick={() => scroll('left')}
+        aria-label="Прокрутить влево"
+        sx={{
+          ...arrowSx,
+          left: 8,
+          opacity: isHovered && canScrollLeft ? 1 : 0,
+          pointerEvents: isHovered && canScrollLeft ? 'auto' : 'none',
+        }}
+      >
+        <SvgIcon sx={{ width: 22, height: 22 }}>
+          <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
+        </SvgIcon>
+      </IconButton>
+
+      {/* Scrollable row */}
+      <Box
+        ref={scrollRef}
+        onScroll={checkScroll}
+        sx={{
+          display: 'flex',
+          gap: '12px',
+          overflowX: 'auto',
+          px: '4px',
+          pb: '6px',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
+        }}
+      >
+        {children}
+      </Box>
+
+      {/* Right arrow */}
+      <IconButton
+        onClick={() => scroll('right')}
+        aria-label="Прокрутить вправо"
+        sx={{
+          ...arrowSx,
+          right: 8,
+          opacity: isHovered && canScrollRight ? 1 : 0,
+          pointerEvents: isHovered && canScrollRight ? 'auto' : 'none',
+        }}
+      >
+        <SvgIcon sx={{ width: 22, height: 22 }}>
+          <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="currentColor" />
+        </SvgIcon>
+      </IconButton>
+    </Box>
+  )
+}
+
+/**
+ * Shared wrapper — exactly 4 cards fill the slider's visible width.
+ * Formula: width = (100% − 3 × gap) / 4 = 25% − (3 × 12px / 4) = 25% − 9px
+ * On smaller screens two cards fill the view.
+ */
+function SliderCard({ children }: { children: React.ReactNode }) {
+  return (
+    <Box sx={{
+      flexShrink: 0,
+      width: {
+        xs: 'calc(50% - 6px)',   // 2 cards on phones
+        sm: 'calc(33.333% - 8px)', // 3 cards on tablet
+        md: 'calc(25% - 9px)',   // 4 cards on desktop
+      },
+      minWidth: {
+        xs: 'calc(50% - 6px)',
+        sm: 'calc(33.333% - 8px)',
+        md: 'calc(25% - 9px)',
+      },
+    }}>
+      {children}
+    </Box>
+  )
+}
+
+/** Character card for home sliders — uses CharacterShowcaseCard (has DeferredImage inside) */
+function HomeCharacterCard({ item, onClick }: { item: StoryCommunityCharacterSummary; onClick: () => void }) {
+  const authorName = item.author_name.trim() || 'Неизвестный автор'
+  return (
+    <CharacterShowcaseCard
+      title={item.name}
+      description={item.description}
+      imageUrl={item.avatar_url}
+      imageScale={item.avatar_scale}
+      eyebrow={item.note.trim() || null}
+      heroHeader={
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+          <ProgressiveAvatar
+            src={item.author_avatar_url}
+            fallbackLabel={authorName}
+            size={34}
+            sx={{ border: 'var(--morius-border-width) solid rgba(214,225,239,0.3)', backgroundColor: 'rgba(6,10,16,0.76)' }}
+          />
+          <Typography
+            sx={{ color: 'rgba(233,241,252,0.97)', fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+          >
+            {authorName}
+          </Typography>
+        </Stack>
+      }
+      footerHint={`Автор: ${authorName}`}
+      metaPrimary={`+${item.community_additions_count}`}
+      metaSecondary={`${item.community_rating_avg.toFixed(1)} ★`}
+      onClick={onClick}
+      minHeight={300}
+      descriptionLineClamp={2}
+    />
+  )
+}
+
+/** Rule (instruction template) card for home sliders */
+function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTemplateSummary; onClick: () => void }) {
+  const authorName = item.author_name.trim() || 'Неизвестный автор'
+  const heroBackground = buildWorldFallbackArtwork(item.id + 100000)
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick() } }}
+      sx={{
+        borderRadius: 'var(--morius-radius)',
+        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+        backgroundColor: APP_CARD_BACKGROUND,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        cursor: 'pointer',
+        minHeight: 300,
+        transition: 'transform 180ms ease, border-color 180ms ease',
+        '&:hover': { transform: 'translateY(-2px)', borderColor: 'rgba(203,216,234,0.36)' },
+        '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.62)', outlineOffset: '2px' },
+      }}
+    >
+      {/* Hero */}
+      <Box sx={{ position: 'relative', height: 130, flexShrink: 0, overflow: 'hidden' }}>
+        <Box sx={{ position: 'absolute', inset: 0, ...heroBackground }} />
+        <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.46) 50%, rgba(0,0,0,0) 100%)' }} />
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 12, right: 12, minWidth: 0 }}>
+          <ProgressiveAvatar
+            src={item.author_avatar_url}
+            fallbackLabel={authorName}
+            size={34}
+            sx={{ border: 'var(--morius-border-width) solid rgba(205,220,242,0.3)', backgroundColor: 'rgba(6,10,16,0.72)' }}
+          />
+          <Typography sx={{ color: 'rgba(233,241,252,0.97)', fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
+            {authorName}
+          </Typography>
+        </Stack>
+      </Box>
+      {/* Body */}
+      <Stack sx={{ flex: 1, px: '16px', py: '14px', backgroundColor: APP_CARD_BACKGROUND }} spacing={0.8}>
+        <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.02rem', fontWeight: 800, lineHeight: 1.2, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+          {item.title}
+        </Typography>
+        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', lineHeight: 1.44, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>
+          {item.content}
+        </Typography>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 'auto', pt: 1 }}>
+          <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.8rem' }}>{item.community_additions_count} +</Typography>
+          <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.82rem', fontWeight: 700 }}>{item.community_rating_avg.toFixed(1)} ★</Typography>
+        </Stack>
+      </Stack>
+    </Box>
+  )
+}
+
+const MOBILE_CARD_HEIGHT = 130
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const DASHBOARD_RECENT_GAME_LIMIT = 12
-const HOME_COMMUNITY_WORLD_LIMIT = 10
 const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -261,6 +536,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isLaunchingCommunityWorld, setIsLaunchingCommunityWorld] = useState(false)
   const [isCommunityReportSubmitting, setIsCommunityReportSubmitting] = useState(false)
   const [favoriteWorldActionById, setFavoriteWorldActionById] = useState<Record<number, boolean>>({})
+  const [communityCharacters, setCommunityCharacters] = useState<StoryCommunityCharacterSummary[]>([])
+  const [isCommunityCharactersLoading, setIsCommunityCharactersLoading] = useState(false)
+  const [communityCharactersError, setCommunityCharactersError] = useState('')
+  const [communityRules, setCommunityRules] = useState<StoryCommunityInstructionTemplateSummary[]>([])
+  const [isCommunityRulesLoading, setIsCommunityRulesLoading] = useState(false)
+  const [communityRulesError, setCommunityRulesError] = useState('')
   const [storyGames, setStoryGames] = useState<StoryGameSummary[]>([])
   const [isDashboardDataLoading, setIsDashboardDataLoading] = useState(true)
   const [isDashboardContinueResolving, setIsDashboardContinueResolving] = useState(false)
@@ -401,9 +682,47 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }, [authToken])
 
+  const loadCommunityCharacters = useCallback(async () => {
+    setIsCommunityCharactersLoading(true)
+    setCommunityCharactersError('')
+    try {
+      const characters = await listCommunityCharacters(authToken, { limit: HOME_COMMUNITY_WORLD_LIMIT })
+      setCommunityCharacters(characters)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
+      setCommunityCharactersError(detail)
+      setCommunityCharacters([])
+    } finally {
+      setIsCommunityCharactersLoading(false)
+    }
+  }, [authToken])
+
+  const loadCommunityRules = useCallback(async () => {
+    setIsCommunityRulesLoading(true)
+    setCommunityRulesError('')
+    try {
+      const rules = await listCommunityInstructionTemplates(authToken, { limit: HOME_COMMUNITY_WORLD_LIMIT })
+      setCommunityRules(rules)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить правила'
+      setCommunityRulesError(detail)
+      setCommunityRules([])
+    } finally {
+      setIsCommunityRulesLoading(false)
+    }
+  }, [authToken])
+
   useEffect(() => {
     void loadCommunityWorlds()
   }, [loadCommunityWorlds])
+
+  useEffect(() => {
+    void loadCommunityCharacters()
+  }, [loadCommunityCharacters])
+
+  useEffect(() => {
+    void loadCommunityRules()
+  }, [loadCommunityRules])
 
   useEffect(() => {
     const refreshTimerId = window.setInterval(() => {
@@ -1735,102 +2054,155 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           </Box>
 
+          {/* ── Миры (worlds slider) ────────────────────────────────────── */}
           <Box data-tour-id="home-community-section" sx={{ scrollMarginTop: '120px' }}>
-            <Stack
-              direction={{ xs: 'column', md: 'row' }}
-              justifyContent="space-between"
-              alignItems={{ xs: 'flex-start', md: 'flex-end' }}
-              spacing={1}
-              sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}
-            >
-              <Stack spacing={0.45}>
-                <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-                  Сообщество
-                </Typography>
-                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.01rem' }}>
-                  Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры.
-                </Typography>
-              </Stack>
-              <Stack direction="row" alignItems="center" sx={{ gap: 0.9 }}>
-                <Button
-                  onClick={() => onNavigate('/games/all')}
-                  sx={{
-                    minHeight: 'var(--morius-action-size)',
-                    px: 1.35,
-                    borderRadius: 'var(--morius-radius)',
-                    textTransform: 'none',
-                    fontWeight: 700,
-                    border: 'var(--morius-border-width) solid transparent',
-                    backgroundColor: 'transparent',
-                    color: 'var(--morius-accent)',
-                    '&:hover': {
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_BUTTON_HOVER,
-                    },
-                    '&:active': {
-                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                      backgroundColor: APP_BUTTON_ACTIVE,
-                    },
-                  }}
-                >
-                  Показать все
-                </Button>
-              </Stack>
-            </Stack>
-
+            <HomeSliderHeader
+              title="Миры"
+              subtitle="Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры."
+              onShowAll={() => onNavigate('/games/all?tab=worlds')}
+            />
             {communityWorldsError ? (
-              <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>
-                {communityWorldsError}
-              </Alert>
+              <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>{communityWorldsError}</Alert>
             ) : null}
+            {/* Desktop slider */}
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <HomeCardSlider cardCount={communityWorldsPreview.length}>
+                {isCommunityWorldsLoading && communityWorlds.length === 0
+                  ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                      <SliderCard key={key}><CommunityWorldCardSkeleton showFavoriteButton /></SliderCard>
+                    ))
+                  : communityWorldsPreview.map((world) => (
+                      <SliderCard key={world.id}>
+                        <CommunityWorldCard
+                          world={world}
+                          onClick={() => void handleOpenCommunityWorld(world.id)}
+                          onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                          disabled={isCommunityWorldDialogLoading}
+                          showFavoriteButton
+                          isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                          onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                        />
+                      </SliderCard>
+                    ))}
+              </HomeCardSlider>
+            </Box>
+            {/* Mobile horizontal slider */}
+            <MobileCardSlider>
+              {isCommunityWorldsLoading && communityWorlds.length === 0
+                ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                  ))
+                : communityWorldsPreview.map((world) => (
+                    <MobileCardItem
+                      key={world.id}
+                      imageUrl={resolveApiResourceUrl(world.cover_image_url)}
+                      fallbackBackground={buildWorldFallbackArtwork(world.id) as Record<string, unknown>}
+                      title={world.title}
+                      description={world.description}
+                      authorName={world.author_name.trim() || 'Неизвестный автор'}
+                      authorAvatarUrl={world.author_avatar_url}
+                      stat1={`${world.community_launches} ▶`}
+                      stat2={`${world.community_rating_avg.toFixed(1)} ★`}
+                      onClick={() => void handleOpenCommunityWorld(world.id)}
+                    />
+                  ))}
+            </MobileCardSlider>
+          </Box>
 
-            {isCommunityWorldsLoading && communityWorlds.length === 0 ? (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
-                {HOME_COMMUNITY_SKELETON_CARD_KEYS.map((cardKey) => (
-                  <Box key={cardKey}>
-                    <CommunityWorldCardSkeleton showFavoriteButton />
-                  </Box>
-                ))}
-              </Box>
-            ) : communityWorlds.length === 0 ? (
-              <Box
-                sx={{
-                  borderRadius: 'var(--morius-radius)',
-                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                  background: APP_CARD_BACKGROUND,
-                  p: 1.4,
-                }}
-              >
-                <Typography sx={{ color: APP_TEXT_SECONDARY }}>Пока нет публичных миров от игроков.</Typography>
-              </Box>
-            ) : (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: HOME_COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
-                {communityWorldsPreview.map((world) => (
-                  <CommunityWorldCard
-                    key={world.id}
-                    world={world}
-                    onClick={() => void handleOpenCommunityWorld(world.id)}
-                    onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                    disabled={isCommunityWorldDialogLoading}
-                    showFavoriteButton
-                    isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                    onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                  />
-                ))}
-              </Box>
-            )}
+          {/* ── Персонажи (characters slider) ───────────────────────────── */}
+          <Box sx={{ mt: 'var(--morius-cards-title-gap)' }}>
+            <HomeSliderHeader
+              title="Персонажи"
+              subtitle="Публичные персонажи игроков"
+              onShowAll={() => onNavigate('/games/all?tab=characters')}
+            />
+            {communityCharactersError ? (
+              <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>{communityCharactersError}</Alert>
+            ) : null}
+            {/* Desktop slider */}
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <HomeCardSlider cardCount={communityCharacters.length}>
+                {isCommunityCharactersLoading && communityCharacters.length === 0
+                  ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                      <SliderCard key={key}>
+                        <Skeleton variant="rectangular" sx={{ borderRadius: 'var(--morius-radius)', height: 300, bgcolor: 'rgba(184,201,226,0.12)' }} />
+                      </SliderCard>
+                    ))
+                  : communityCharacters.map((item) => (
+                      <SliderCard key={item.id}>
+                        <HomeCharacterCard item={item} onClick={() => onNavigate('/games/all?tab=characters')} />
+                      </SliderCard>
+                    ))}
+              </HomeCardSlider>
+            </Box>
+            {/* Mobile horizontal slider */}
+            <MobileCardSlider>
+              {isCommunityCharactersLoading && communityCharacters.length === 0
+                ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                  ))
+                : communityCharacters.map((item) => (
+                    <MobileCardItem
+                      key={item.id}
+                      imageUrl={resolveApiResourceUrl(item.avatar_url)}
+                      title={item.name}
+                      description={item.description}
+                      authorName={item.author_name.trim() || 'Неизвестный автор'}
+                      authorAvatarUrl={item.author_avatar_url}
+                      stat1={`+${item.community_additions_count}`}
+                      stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      onClick={() => onNavigate('/games/all?tab=characters')}
+                    />
+                  ))}
+            </MobileCardSlider>
+          </Box>
+
+          {/* ── Правила (rules slider) ───────────────────────────────────── */}
+          <Box sx={{ mt: 'var(--morius-cards-title-gap)' }}>
+            <HomeSliderHeader
+              title="Правила"
+              subtitle="Публичные правила игроков"
+              onShowAll={() => onNavigate('/games/all?tab=rules')}
+            />
+            {communityRulesError ? (
+              <Alert severity="error" sx={{ mb: 1.4, borderRadius: '12px' }}>{communityRulesError}</Alert>
+            ) : null}
+            {/* Desktop slider */}
+            <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+              <HomeCardSlider cardCount={communityRules.length}>
+                {isCommunityRulesLoading && communityRules.length === 0
+                  ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                      <SliderCard key={key}>
+                        <Skeleton variant="rectangular" sx={{ borderRadius: 'var(--morius-radius)', height: 300, bgcolor: 'rgba(184,201,226,0.12)' }} />
+                      </SliderCard>
+                    ))
+                  : communityRules.map((item) => (
+                      <SliderCard key={item.id}>
+                        <HomeRuleCard item={item} onClick={() => onNavigate('/games/all?tab=rules')} />
+                      </SliderCard>
+                    ))}
+              </HomeCardSlider>
+            </Box>
+            {/* Mobile horizontal slider */}
+            <MobileCardSlider>
+              {isCommunityRulesLoading && communityRules.length === 0
+                ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                  ))
+                : communityRules.map((item) => (
+                    <MobileCardItem
+                      key={item.id}
+                      fallbackBackground={buildWorldFallbackArtwork(item.id + 100000) as Record<string, unknown>}
+                      title={item.title}
+                      description={item.content}
+                      authorName={item.author_name.trim() || 'Неизвестный автор'}
+                      authorAvatarUrl={item.author_avatar_url}
+                      stat1={`+${item.community_additions_count}`}
+                      stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      onClick={() => onNavigate('/games/all?tab=rules')}
+                    />
+                  ))}
+            </MobileCardSlider>
           </Box>
 
 

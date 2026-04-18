@@ -163,7 +163,7 @@ def _fallback_world_card_to_prompt_payload(card: Any) -> dict[str, Any] | None:
     return {
         "id": int(getattr(card, "id", 0) or 0),
         "title": title[:120],
-        "content": content[:6_000],
+        "content": content[:8_000],
         "triggers": triggers[:20],
         "kind": str(getattr(card, "kind", "") or "").strip().lower(),
     }

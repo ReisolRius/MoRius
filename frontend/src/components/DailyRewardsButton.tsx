@@ -202,14 +202,17 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           height: size,
           borderRadius: '50%',
           p: 0,
-          color: canClaim ? 'var(--morius-accent)' : 'var(--morius-title-text)',
-          backgroundColor: 'transparent',
-          boxShadow: 'none',
-          transition: 'background-color 160ms ease, color 160ms ease',
+          color: canClaim ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 92%, transparent)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
+          transition: 'background-color 160ms ease, color 160ms ease, border-color 160ms ease',
           position: 'relative',
           overflow: 'visible',
           '&:hover': {
-            backgroundColor: 'rgba(255,255,255,0.04)',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 96%, white 4%)',
+            borderColor: 'rgba(255,255,255,0.18)',
+            boxShadow: '0 6px 20px rgba(0,0,0,0.32)',
           },
         }}
       >

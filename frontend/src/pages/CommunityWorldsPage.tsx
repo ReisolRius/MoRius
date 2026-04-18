@@ -86,6 +86,10 @@ import type {
 import { moriusThemeTokens } from '../theme'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
+import { MobileCardItem } from '../components/mobile/MobileCardSlider'
+import { resolveApiResourceUrl } from '../services/httpClient'
+
+
 
 type CommunityWorldsPageProps = {
   user: AuthUser
@@ -435,7 +439,13 @@ function CommunityInstructionCard({ item, currentUserId, disabled = false, onCli
 }
 
 function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogout }: CommunityWorldsPageProps) {
-  const [activeSection, setActiveSection] = useState<CommunitySection>('worlds')
+  const [activeSection, setActiveSection] = useState<CommunitySection>(() => {
+    if (typeof window === 'undefined') return 'worlds'
+    const tabParam = new URLSearchParams(window.location.search).get('tab')
+    if (tabParam === 'characters') return 'characters'
+    if (tabParam === 'rules') return 'rules'
+    return 'worlds'
+  })
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -2323,14 +2333,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   <Typography sx={{ color: APP_TEXT_SECONDARY }}>По выбранным фильтрам миры не найдены.</Typography>
                 </Box>
               ) : (
-                <>
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gap: 1.4,
-                      gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                    }}
-                  >
+              <>
+                  {/* Desktop: portrait cards */}
+                  <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                     {visibleCommunityWorlds.map((world) => (
                       <CommunityWorldCard
                         key={world.id}
@@ -2344,6 +2349,23 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                       />
                     ))}
                   </Box>
+                  {/* Mobile: landscape card list */}
+                  <Stack spacing={1.6} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                    {visibleCommunityWorlds.map((world) => (
+                      <MobileCardItem
+                        key={world.id}
+                        imageUrl={resolveApiResourceUrl(world.cover_image_url)}
+                        fallbackBackground={buildWorldFallbackArtwork(world.id) as Record<string, unknown>}
+                        title={world.title}
+                        description={world.description}
+                        authorName={world.author_name.trim() || 'Неизвестный автор'}
+                        authorAvatarUrl={world.author_avatar_url}
+                        stat1={`${world.community_launches} ▶`}
+                        stat2={`${world.community_rating_avg.toFixed(1)} ★`}
+                        onClick={() => void handleOpenCommunityWorld(world.id)}
+                      />
+                    ))}
+                  </Stack>
                   {hasMoreCommunityWorlds ? <Box ref={loadMoreCommunityWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
                   {isCommunityWorldsLoadingMore ? (
                     <Stack alignItems="center" justifyContent="center" sx={{ pt: 0.8 }}>
@@ -2392,13 +2414,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               </Box>
             ) : (
               <>
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gap: 1.4,
-                    gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                  }}
-                >
+                {/* Desktop: portrait cards */}
+                <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                   {visibleCommunityCharacters.map((item) => (
                     <CommunityCharacterCard
                       key={item.id}
@@ -2409,6 +2426,23 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     />
                   ))}
                 </Box>
+                {/* Mobile: landscape card list — no play button for characters */}
+                <Stack spacing={1.6} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                  {visibleCommunityCharacters.map((item) => (
+                    <MobileCardItem
+                      key={item.id}
+                      imageUrl={resolveApiResourceUrl(item.avatar_url)}
+                      title={item.name}
+                      description={item.description}
+                      authorName={item.author_name.trim() || 'Неизвестный автор'}
+                      authorAvatarUrl={item.author_avatar_url}
+                      stat1={`+${item.community_additions_count}`}
+                      stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      showPlayButton={false}
+                      onClick={() => void handleOpenCommunityCharacter(item.id)}
+                    />
+                  ))}
+                </Stack>
                 {hasMoreCommunityCharacters ? (
                   <Box ref={loadMoreCommunityCharactersRef} sx={{ height: 1, width: '100%' }} />
                 ) : null}
@@ -2459,13 +2493,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             </Box>
           ) : (
             <>
-              <Box
-                sx={{
-                  display: 'grid',
-                  gap: 1.4,
-                  gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS,
-                }}
-              >
+              {/* Desktop: portrait cards */}
+              <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                 {visibleCommunityInstructionTemplates.map((item) => (
                   <CommunityInstructionCard
                     key={item.id}
@@ -2476,6 +2505,23 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   />
                 ))}
               </Box>
+              {/* Mobile: landscape card list — no play button for rules */}
+              <Stack spacing={1.6} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                {visibleCommunityInstructionTemplates.map((item) => (
+                  <MobileCardItem
+                    key={item.id}
+                    fallbackBackground={buildWorldFallbackArtwork(item.id + 100000) as Record<string, unknown>}
+                    title={item.title}
+                    description={item.content}
+                    authorName={item.author_name.trim() || 'Неизвестный автор'}
+                    authorAvatarUrl={item.author_avatar_url}
+                    stat1={`+${item.community_additions_count}`}
+                    stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                    showPlayButton={false}
+                    onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
+                  />
+                ))}
+              </Stack>
               {hasMoreCommunityInstructionTemplates ? (
                 <Box ref={loadMoreCommunityInstructionTemplatesRef} sx={{ height: 1, width: '100%' }} />
               ) : null}

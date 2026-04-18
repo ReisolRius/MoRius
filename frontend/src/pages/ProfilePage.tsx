@@ -555,6 +555,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     (tab === 'instructions' && isOwnProfile && isLoadingContent && templates.length === 0) ||
     (tab === 'favorites' && isOwnProfile && isFavoriteWorldsLoading && !hasLoadedFavoriteWorlds) ||
     (tab === 'notifications' && isOwnProfile && isNotificationsLoading && !hasLoadedNotifications)
+  const isProfileShellBlocked = !isOwnProfile && isProfileBootstrapLoading && !profileView
+  const isCurrentTabWaitingForProfileView =
+    isProfileBootstrapLoading &&
+    !profileView &&
+    (!isOwnProfile || tab === 'publications' || tab === 'subscriptions')
   const tabs = useMemo(() => {
     const subscriptionsLabel = `${isOwnProfile ? 'Мои подписки' : 'Подписки'} (${subscriptionsCount})`
     if (isOwnProfile) {
@@ -2501,7 +2506,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }
 
   const renderTabContent = () => {
-    if (isProfileBootstrapLoading || isCurrentTabContentLoading) {
+    if (isCurrentTabWaitingForProfileView || isCurrentTabContentLoading) {
       return (
         <Stack spacing={1.05} sx={{ py: 0.4 }}>
           <Skeleton variant="text" width={220} height={34} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
@@ -2636,7 +2641,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               pb: { xs: 1.2, md: 1.4 },
             }}
           >
-            <Stack spacing={1.2} sx={{ display: isProfileBootstrapLoading ? 'flex' : 'none' }}>
+            <Stack spacing={1.2} sx={{ display: isProfileShellBlocked ? 'flex' : 'none' }}>
               <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                 <Skeleton variant="text" width={180} height={36} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
                 <Skeleton variant="rounded" width={136} height={34} sx={{ borderRadius: '999px', bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
@@ -3047,7 +3052,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </Stack>
             </Stack>
 
-            <Box sx={{ display: isProfileBootstrapLoading ? 'none' : undefined }}>
+            <Box sx={{ display: isProfileShellBlocked ? 'none' : undefined }}>
               <Stack spacing={{ xs: 1.2, md: 1.45 }}>
                 <Stack
                   direction={{ xs: 'column', lg: 'row' }}
@@ -3661,7 +3666,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               }}
             >
               <Stack spacing={1.35}>
-                {isProfileBootstrapLoading
+                {isProfileShellBlocked
                   ? PROFILE_TAB_BUTTON_SKELETON_KEYS.map((itemKey) => (
                       <Skeleton
                         key={itemKey}

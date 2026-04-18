@@ -54,6 +54,11 @@ import { moriusThemeTokens } from '../theme'
 import type { AuthUser } from '../types/auth'
 import type { StoryCommunityWorldSummary, StoryGameSummary } from '../types/story'
 import { buildUnifiedMobileQuickActions, rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
+import { MobileCardItem } from '../components/mobile/MobileCardSlider'
+import { resolveApiResourceUrl } from '../services/httpClient'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+
+
 
 type MyGamesPageProps = {
   user: AuthUser
@@ -1023,17 +1028,20 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           </Box>
 
           {isLoadingGames && games.length === 0 ? (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS,
-              }}
-            >
-              {MY_GAMES_SKELETON_CARD_KEYS.map((cardKey) => (
-                <CommunityWorldCardSkeleton key={cardKey} />
-              ))}
-            </Box>
+            <>
+              {/* Desktop skeleton */}
+              <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS }}>
+                {MY_GAMES_SKELETON_CARD_KEYS.map((cardKey) => (
+                  <CommunityWorldCardSkeleton key={cardKey} />
+                ))}
+              </Box>
+              {/* Mobile skeleton */}
+              <Stack spacing={1.6} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                {MY_GAMES_SKELETON_CARD_KEYS.slice(0, 4).map((cardKey) => (
+                  <Box key={cardKey} sx={{ height: 130, borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.10)' }} />
+                ))}
+              </Stack>
+            </>
           ) : visibleGames.length === 0 ? (
             <Box
               sx={{
@@ -1050,13 +1058,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
               </Typography>
             </Box>
           ) : (
-            <Box
-              sx={{
-                display: 'grid',
-                gap: 1.4,
-                gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS,
-              }}
-            >
+            <>
+              {/* ── Desktop: portrait cards grid ─── */}
+              <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: CARD_GRID_TEMPLATE_COLUMNS }}>
               {visibleGames.map((game) => {
                 const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
                 const hasCover = Boolean(game.cover_image_url)
@@ -1167,7 +1171,33 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   </Box>
                 )
               })}
-            </Box>
+              </Box>
+
+              {/* ── Mobile: landscape cards vertical list ─── */}
+              <Stack spacing={1.6} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+                {visibleGames.map((game) => {
+                  const sourceWorld = game.source_world_id ? communityWorldById[game.source_world_id] ?? null : null
+                  const hasCover = Boolean(game.cover_image_url)
+                  const descriptionCandidate = (game.description || '').trim() || (gamePreviews[game.id] ?? '')
+                  const cardDescription = descriptionCandidate.replace(/\s+/g, ' ').trim() || 'Описание пока не указано.'
+                  return (
+                    <MobileCardItem
+                      key={game.id}
+                      imageUrl={hasCover ? resolveApiResourceUrl(game.cover_image_url) : null}
+                      fallbackBackground={buildWorldFallbackArtwork(game.id) as Record<string, unknown>}
+                      title={resolveDisplayTitle(game.id)}
+                      description={cardDescription}
+                      authorName={sourceWorld?.author_name ?? profileName}
+                      authorAvatarUrl={sourceWorld?.author_avatar_url ?? user.avatar_url ?? null}
+                      stat1={`${game.turn_count} ходов`}
+                      stat2={sourceWorld ? `${sourceWorld.community_rating_avg.toFixed(1)} ★` : undefined}
+                      onMenuClick={(e) => handleOpenGameMenu(e as unknown as React.MouseEvent<HTMLButtonElement>, game.id)}
+                      onClick={() => onNavigate(`/home/${game.id}`)}
+                    />
+                  )
+                })}
+              </Stack>
+            </>
           )}
         </Box>
       </Box>

@@ -780,7 +780,7 @@ class StoryInstructionTemplateUpdateRequest(BaseModel):
 
 class StoryWorldCardCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=6_000)
+    content: str = Field(min_length=1, max_length=8_000)
     race: str = Field(default="", max_length=120)
     clothing: str = Field(default="", max_length=1_000)
     inventory: str = Field(default="", max_length=1_000)
@@ -797,7 +797,7 @@ class StoryWorldCardCreateRequest(BaseModel):
 
 class StoryWorldCardUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=6_000)
+    content: str = Field(min_length=1, max_length=8_000)
     race: str = Field(default="", max_length=120)
     clothing: str = Field(default="", max_length=1_000)
     inventory: str = Field(default="", max_length=1_000)
@@ -1372,7 +1372,7 @@ class StoryWorldDetailTypeCreateRequest(BaseModel):
 
 class StoryWorldCardTemplateCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=6_000)
+    content: str = Field(min_length=1, max_length=8_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     kind: str | None = Field(default=None, max_length=16)
     detail_type: str = Field(default="", max_length=120)
@@ -1384,7 +1384,7 @@ class StoryWorldCardTemplateCreateRequest(BaseModel):
 
 class StoryWorldCardTemplateUpdateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=6_000)
+    content: str = Field(min_length=1, max_length=8_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
     detail_type: str = Field(default="", max_length=120)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -1432,7 +1432,7 @@ class AdminModerationPlotCardUpdateRequest(BaseModel):
 class AdminModerationWorldCardUpdateRequest(BaseModel):
     id: int = Field(ge=1)
     title: str = Field(min_length=1, max_length=120)
-    content: str = Field(min_length=1, max_length=6_000)
+    content: str = Field(min_length=1, max_length=8_000)
     triggers: list[str] = Field(default_factory=list, max_length=80)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
