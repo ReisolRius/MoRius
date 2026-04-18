@@ -100,13 +100,15 @@ def _ensure_user_account_columns_exist() -> None:
     if "show_subscriptions" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN show_subscriptions INTEGER NOT NULL DEFAULT 0")
     if "show_public_worlds" not in user_columns:
-        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_worlds INTEGER NOT NULL DEFAULT 0")
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_worlds INTEGER NOT NULL DEFAULT 1")
     if "show_private_worlds" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN show_private_worlds INTEGER NOT NULL DEFAULT 0")
     if "show_public_characters" not in user_columns:
-        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_characters INTEGER NOT NULL DEFAULT 0")
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_characters INTEGER NOT NULL DEFAULT 1")
     if "show_public_instruction_templates" not in user_columns:
-        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_instruction_templates INTEGER NOT NULL DEFAULT 0")
+        alter_statements.append("ALTER TABLE users ADD COLUMN show_public_instruction_templates INTEGER NOT NULL DEFAULT 1")
+    if "publication_visibility_initialized" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN publication_visibility_initialized INTEGER NOT NULL DEFAULT 0")
     if "google_sub" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN google_sub VARCHAR(255)")
     if "auth_provider" not in user_columns:
@@ -528,6 +530,34 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
                     f"WHERE kind = '{defaults.main_hero_kind}'"
                 )
             )
+
+
+def _initialize_user_publication_visibility_defaults() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(User.__tablename__):
+        return
+
+    user_columns = {column["name"] for column in inspector.get_columns(User.__tablename__)}
+    required_columns = {
+        "publication_visibility_initialized",
+        "show_public_worlds",
+        "show_public_characters",
+        "show_public_instruction_templates",
+    }
+    if not required_columns.issubset(user_columns):
+        return
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f"UPDATE {User.__tablename__} "
+                "SET show_public_worlds = 1, "
+                "show_public_characters = 1, "
+                "show_public_instruction_templates = 1, "
+                "publication_visibility_initialized = 1 "
+                "WHERE COALESCE(publication_visibility_initialized, 0) = 0"
+            )
+        )
 
 
 def _ensure_story_instruction_card_extended_columns_exist() -> None:
@@ -1235,6 +1265,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
 
     Base.metadata.create_all(bind=engine)
     _ensure_user_account_columns_exist()
+    _initialize_user_publication_visibility_defaults()
     _enforce_privileged_roles()
     _ensure_story_game_context_limit_column_exists(defaults.context_limit_tokens)
     _ensure_story_game_community_columns_exist(

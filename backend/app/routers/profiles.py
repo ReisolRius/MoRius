@@ -7,10 +7,16 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import (
+    StoryCharacter,
+    StoryCommunityCharacterRating,
+    StoryCommunityCharacterReport,
+    StoryCommunityInstructionTemplateRating,
+    StoryCommunityInstructionTemplateReport,
     StoryCommunityWorldFavorite,
     StoryCommunityWorldRating,
     StoryCommunityWorldReport,
     StoryGame,
+    StoryInstructionTemplate,
     StoryWorldCardTemplate,
     User,
     UserFollow,
@@ -22,10 +28,20 @@ from app.schemas import (
     ProfileSubscriptionUserOut,
     ProfileUserOut,
     ProfileViewOut,
+    StoryCommunityCharacterSummaryOut,
+    StoryCommunityInstructionTemplateSummaryOut,
 )
 from app.services.auth_identity import get_current_user
 from app.services.media import normalize_media_scale, resolve_media_display_url
-from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, story_author_name, story_community_world_summary_to_out, story_game_summary_to_out
+from app.services.story_cards import STORY_TEMPLATE_VISIBILITY_PUBLIC, story_instruction_template_to_out
+from app.services.story_characters import STORY_CHARACTER_VISIBILITY_PUBLIC, story_character_to_out
+from app.services.story_games import (
+    STORY_GAME_VISIBILITY_PUBLIC,
+    story_author_avatar_url,
+    story_author_name,
+    story_community_world_summary_to_out,
+    story_game_summary_to_out,
+)
 try:
     from app.services.notifications import (
         NOTIFICATION_KIND_NEW_FOLLOWER,
@@ -196,6 +212,74 @@ def _load_favorited_world_ids(db: Session, *, viewer_user_id: int, world_ids: li
     return {row.world_id for row in favorite_rows}
 
 
+def _load_character_rating_by_id(db: Session, *, viewer_user_id: int, character_ids: list[int]) -> dict[int, int]:
+    rating_rows = db.scalars(
+        select(StoryCommunityCharacterRating).where(
+            StoryCommunityCharacterRating.user_id == viewer_user_id,
+            StoryCommunityCharacterRating.character_id.in_(character_ids),
+        )
+    ).all()
+    return {row.character_id: int(row.rating) for row in rating_rows}
+
+
+def _load_reported_character_ids(db: Session, *, viewer_user_id: int, character_ids: list[int]) -> set[int]:
+    report_rows = db.scalars(
+        select(StoryCommunityCharacterReport).where(
+            StoryCommunityCharacterReport.reporter_user_id == viewer_user_id,
+            StoryCommunityCharacterReport.character_id.in_(character_ids),
+        )
+    ).all()
+    return {row.character_id for row in report_rows}
+
+
+def _load_added_character_source_ids(db: Session, *, viewer_user_id: int, character_ids: list[int]) -> set[int]:
+    source_ids = db.scalars(
+        select(StoryCharacter.source_character_id).where(
+            StoryCharacter.user_id == viewer_user_id,
+            StoryCharacter.source_character_id.in_(character_ids),
+        )
+    ).all()
+    return {
+        int(source_character_id)
+        for source_character_id in source_ids
+        if isinstance(source_character_id, int)
+    }
+
+
+def _load_instruction_template_rating_by_id(db: Session, *, viewer_user_id: int, template_ids: list[int]) -> dict[int, int]:
+    rating_rows = db.scalars(
+        select(StoryCommunityInstructionTemplateRating).where(
+            StoryCommunityInstructionTemplateRating.user_id == viewer_user_id,
+            StoryCommunityInstructionTemplateRating.template_id.in_(template_ids),
+        )
+    ).all()
+    return {row.template_id: int(row.rating) for row in rating_rows}
+
+
+def _load_reported_instruction_template_ids(db: Session, *, viewer_user_id: int, template_ids: list[int]) -> set[int]:
+    report_rows = db.scalars(
+        select(StoryCommunityInstructionTemplateReport).where(
+            StoryCommunityInstructionTemplateReport.reporter_user_id == viewer_user_id,
+            StoryCommunityInstructionTemplateReport.template_id.in_(template_ids),
+        )
+    ).all()
+    return {row.template_id for row in report_rows}
+
+
+def _load_added_instruction_template_source_ids(db: Session, *, viewer_user_id: int, template_ids: list[int]) -> set[int]:
+    source_ids = db.scalars(
+        select(StoryInstructionTemplate.source_template_id).where(
+            StoryInstructionTemplate.user_id == viewer_user_id,
+            StoryInstructionTemplate.source_template_id.in_(template_ids),
+        )
+    ).all()
+    return {
+        int(source_template_id)
+        for source_template_id in source_ids
+        if isinstance(source_template_id, int)
+    }
+
+
 def _list_published_worlds(
     db: Session,
     *,
@@ -240,6 +324,142 @@ def _list_published_worlds(
     ]
 
 
+def _list_published_characters(
+    db: Session,
+    *,
+    owner_user: User,
+    viewer_user_id: int,
+) -> list[StoryCommunityCharacterSummaryOut]:
+    characters = db.scalars(
+        select(StoryCharacter)
+        .where(
+            StoryCharacter.user_id == owner_user.id,
+            StoryCharacter.visibility == STORY_CHARACTER_VISIBILITY_PUBLIC,
+        )
+        .order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
+        .limit(PROFILE_LIST_LIMIT)
+    ).all()
+    if not characters:
+        return []
+
+    character_ids = [character.id for character in characters]
+    user_rating_by_character_id = _load_character_rating_by_id(
+        db,
+        viewer_user_id=viewer_user_id,
+        character_ids=character_ids,
+    )
+    reported_character_ids = _load_reported_character_ids(
+        db,
+        viewer_user_id=viewer_user_id,
+        character_ids=character_ids,
+    )
+    added_character_source_ids = _load_added_character_source_ids(
+        db,
+        viewer_user_id=viewer_user_id,
+        character_ids=character_ids,
+    )
+    author_name = story_author_name(owner_user)
+    author_avatar_url = story_author_avatar_url(owner_user)
+
+    summaries: list[StoryCommunityCharacterSummaryOut] = []
+    for character in characters:
+        character_out = story_character_to_out(character, include_emotion_assets=False)
+        summaries.append(
+            StoryCommunityCharacterSummaryOut(
+                id=character_out.id,
+                name=character_out.name,
+                description=character_out.description,
+                race=character_out.race,
+                clothing=character_out.clothing,
+                inventory=character_out.inventory,
+                health_status=character_out.health_status,
+                note=character_out.note,
+                triggers=character_out.triggers,
+                avatar_url=character_out.avatar_url,
+                avatar_original_url=character_out.avatar_original_url,
+                avatar_scale=character_out.avatar_scale,
+                emotion_assets=character_out.emotion_assets,
+                emotion_model=character_out.emotion_model,
+                emotion_prompt_lock=character_out.emotion_prompt_lock,
+                visibility=character_out.visibility,
+                author_id=owner_user.id,
+                author_name=author_name,
+                author_avatar_url=author_avatar_url,
+                community_rating_avg=character_out.community_rating_avg,
+                community_rating_count=character_out.community_rating_count,
+                community_additions_count=character_out.community_additions_count,
+                user_rating=user_rating_by_character_id.get(character.id),
+                is_added_by_user=character.id in added_character_source_ids,
+                is_reported_by_user=character.id in reported_character_ids,
+                created_at=character_out.created_at,
+                updated_at=character_out.updated_at,
+            )
+        )
+    return summaries
+
+
+def _list_published_instruction_templates(
+    db: Session,
+    *,
+    owner_user: User,
+    viewer_user_id: int,
+) -> list[StoryCommunityInstructionTemplateSummaryOut]:
+    templates = db.scalars(
+        select(StoryInstructionTemplate)
+        .where(
+            StoryInstructionTemplate.user_id == owner_user.id,
+            StoryInstructionTemplate.visibility == STORY_TEMPLATE_VISIBILITY_PUBLIC,
+        )
+        .order_by(StoryInstructionTemplate.updated_at.desc(), StoryInstructionTemplate.id.desc())
+        .limit(PROFILE_LIST_LIMIT)
+    ).all()
+    if not templates:
+        return []
+
+    template_ids = [template.id for template in templates]
+    user_rating_by_template_id = _load_instruction_template_rating_by_id(
+        db,
+        viewer_user_id=viewer_user_id,
+        template_ids=template_ids,
+    )
+    reported_template_ids = _load_reported_instruction_template_ids(
+        db,
+        viewer_user_id=viewer_user_id,
+        template_ids=template_ids,
+    )
+    added_template_source_ids = _load_added_instruction_template_source_ids(
+        db,
+        viewer_user_id=viewer_user_id,
+        template_ids=template_ids,
+    )
+    author_name = story_author_name(owner_user)
+    author_avatar_url = story_author_avatar_url(owner_user)
+
+    summaries: list[StoryCommunityInstructionTemplateSummaryOut] = []
+    for template in templates:
+        template_out = story_instruction_template_to_out(template)
+        summaries.append(
+            StoryCommunityInstructionTemplateSummaryOut(
+                id=template_out.id,
+                title=template_out.title,
+                content=template_out.content,
+                visibility=template_out.visibility,
+                author_id=owner_user.id,
+                author_name=author_name,
+                author_avatar_url=author_avatar_url,
+                community_rating_avg=template_out.community_rating_avg,
+                community_rating_count=template_out.community_rating_count,
+                community_additions_count=template_out.community_additions_count,
+                user_rating=user_rating_by_template_id.get(template.id),
+                is_added_by_user=template.id in added_template_source_ids,
+                is_reported_by_user=template.id in reported_template_ids,
+                created_at=template_out.created_at,
+                updated_at=template_out.updated_at,
+            )
+        )
+    return summaries
+
+
 def _list_unpublished_worlds(db: Session, *, owner_user_id: int) -> list:
     worlds = db.scalars(
         select(StoryGame)
@@ -259,6 +479,8 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
 
     can_view_subscriptions = is_self or privacy.show_subscriptions
     can_view_public_worlds = is_self or privacy.show_public_worlds
+    can_view_public_characters = is_self or privacy.show_public_characters
+    can_view_public_instruction_templates = is_self or privacy.show_public_instruction_templates
     can_view_private_worlds = is_self or privacy.show_private_worlds
 
     is_following = False
@@ -276,6 +498,16 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
 
     subscriptions = _list_subscriptions(db, user_id=target_user.id) if can_view_subscriptions else []
     published_worlds = _list_published_worlds(db, owner_user=target_user, viewer_user_id=viewer_user.id) if can_view_public_worlds else []
+    published_characters = (
+        _list_published_characters(db, owner_user=target_user, viewer_user_id=viewer_user.id)
+        if can_view_public_characters
+        else []
+    )
+    published_instruction_templates = (
+        _list_published_instruction_templates(db, owner_user=target_user, viewer_user_id=viewer_user.id)
+        if can_view_public_instruction_templates
+        else []
+    )
     unpublished_worlds = _list_unpublished_worlds(db, owner_user_id=target_user.id) if can_view_private_worlds else []
 
     return ProfileViewOut(
@@ -288,9 +520,13 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
         privacy=privacy,
         can_view_subscriptions=can_view_subscriptions,
         can_view_public_worlds=can_view_public_worlds,
+        can_view_public_characters=can_view_public_characters,
+        can_view_public_instruction_templates=can_view_public_instruction_templates,
         can_view_private_worlds=can_view_private_worlds,
         subscriptions=subscriptions,
         published_worlds=published_worlds,
+        published_characters=published_characters,
+        published_instruction_templates=published_instruction_templates,
         unpublished_worlds=unpublished_worlds,
     )
 

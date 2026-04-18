@@ -112,6 +112,53 @@ function sortByUpdatedDesc<T extends { id: number; updated_at: string }>(items: 
   return [...items].sort((left, right) => parseDate(right.updated_at) - parseDate(left.updated_at) || right.id - left.id)
 }
 
+function selectVisiblePublicationItems<
+  T extends {
+    id: number
+    visibility: 'private' | 'public'
+    publication: StoryPublicationState
+    updated_at: string
+  },
+>(
+  items: T[],
+  getSourceId: (item: T) => number | null,
+): {
+  visibleItems: T[]
+  publicationCopySourceIds: number[]
+} {
+  const ownItemIds = new Set(items.map((item) => item.id))
+  const publicationCopySourceIds = Array.from(
+    new Set(
+      items
+        .map(getSourceId)
+        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0),
+    ),
+  )
+  const publicationCopySourceIdSet = new Set(publicationCopySourceIds)
+
+  const visibleItems = sortByUpdatedDesc(
+    items.filter((item) => {
+      const sourceId = getSourceId(item)
+      if (sourceId === null) {
+        return resolvePublicationDisplayState(
+          item.publication,
+          item.visibility,
+          publicationCopySourceIdSet.has(item.id),
+        ).status !== 'none'
+      }
+      if (item.visibility !== 'public') {
+        return false
+      }
+      return !ownItemIds.has(sourceId)
+    }),
+  )
+
+  return {
+    visibleItems,
+    publicationCopySourceIds,
+  }
+}
+
 function normalizePublicationStatus(
   publication: StoryPublicationState | null | undefined,
   visibility: 'private' | 'public',
@@ -495,30 +542,12 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     setLoadingSections((previous) => ({ ...previous, worlds: true }))
     try {
       const games = await listStoryGames(authToken, { compact: true })
-      const publicationCopySourceIds = Array.from(
-        new Set(
-          games
-            .map((item) => item.source_world_id)
-            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0),
-        ),
+      const { visibleItems, publicationCopySourceIds } = selectVisiblePublicationItems(
+        games,
+        (item) => item.source_world_id,
       )
       setPublicationWorldCopySourceIds(publicationCopySourceIds)
-      setPublicationGames(
-        sortByUpdatedDesc(
-          games.filter(
-            (item) => {
-              if (item.source_world_id !== null) {
-                return false
-              }
-              return resolvePublicationDisplayState(
-                item.publication,
-                item.visibility,
-                publicationCopySourceIds.includes(item.id),
-              ).status !== 'none'
-            },
-          ),
-        ),
-      )
+      setPublicationGames(visibleItems)
       setLoadedSections((previous) => ({ ...previous, worlds: true }))
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованные миры'
@@ -540,30 +569,12 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     setLoadingSections((previous) => ({ ...previous, characters: true }))
     try {
       const characters = await listStoryCharacters(authToken)
-      const publicationCopySourceIds = Array.from(
-        new Set(
-          characters
-            .map((item) => item.source_character_id)
-            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0),
-        ),
+      const { visibleItems, publicationCopySourceIds } = selectVisiblePublicationItems(
+        characters,
+        (item) => item.source_character_id,
       )
       setPublicationCharacterCopySourceIds(publicationCopySourceIds)
-      setPublicationCharacters(
-        sortByUpdatedDesc(
-          characters.filter(
-            (item) => {
-              if (item.source_character_id !== null) {
-                return false
-              }
-              return resolvePublicationDisplayState(
-                item.publication,
-                item.visibility,
-                publicationCopySourceIds.includes(item.id),
-              ).status !== 'none'
-            },
-          ),
-        ),
-      )
+      setPublicationCharacters(visibleItems)
       setLoadedSections((previous) => ({ ...previous, characters: true }))
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованных персонажей'
@@ -585,30 +596,12 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     setLoadingSections((previous) => ({ ...previous, instructions: true }))
     try {
       const templates = await listStoryInstructionTemplates(authToken)
-      const publicationCopySourceIds = Array.from(
-        new Set(
-          templates
-            .map((item) => item.source_template_id)
-            .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0),
-        ),
+      const { visibleItems, publicationCopySourceIds } = selectVisiblePublicationItems(
+        templates,
+        (item) => item.source_template_id,
       )
       setPublicationTemplateCopySourceIds(publicationCopySourceIds)
-      setPublicationTemplates(
-        sortByUpdatedDesc(
-          templates.filter(
-            (item) => {
-              if (item.source_template_id !== null) {
-                return false
-              }
-              return resolvePublicationDisplayState(
-                item.publication,
-                item.visibility,
-                publicationCopySourceIds.includes(item.id),
-              ).status !== 'none'
-            },
-          ),
-        ),
-      )
+      setPublicationTemplates(visibleItems)
       setLoadedSections((previous) => ({ ...previous, instructions: true }))
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить опубликованные инструкции'

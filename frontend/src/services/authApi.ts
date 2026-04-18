@@ -1,6 +1,8 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
+  StoryCommunityCharacterSummary,
+  StoryCommunityInstructionTemplateSummary,
   StoryCommunityWorldSummary,
   StoryGamePayload,
   StoryGameSummary,
@@ -143,9 +145,13 @@ export type ProfileView = {
   privacy: ProfilePrivacySettings
   can_view_subscriptions: boolean
   can_view_public_worlds: boolean
+  can_view_public_characters: boolean
+  can_view_public_instruction_templates: boolean
   can_view_private_worlds: boolean
   subscriptions: ProfileSubscriptionUser[]
   published_worlds: StoryCommunityWorldSummary[]
+  published_characters: StoryCommunityCharacterSummary[]
+  published_instruction_templates: StoryCommunityInstructionTemplateSummary[]
   unpublished_worlds: StoryGameSummary[]
 }
 
@@ -472,9 +478,13 @@ function normalizeProfileViewPayload(rawView: ProfileView): ProfileView {
     privacy: normalizeProfilePrivacySettings(view.privacy ?? null),
     can_view_subscriptions: Boolean(view.can_view_subscriptions),
     can_view_public_worlds: Boolean(view.can_view_public_worlds),
+    can_view_public_characters: Boolean(view.can_view_public_characters),
+    can_view_public_instruction_templates: Boolean(view.can_view_public_instruction_templates),
     can_view_private_worlds: Boolean(view.can_view_private_worlds),
     subscriptions: normalizeProfileSubscriptionUsers(view.subscriptions ?? []),
     published_worlds: Array.isArray(view.published_worlds) ? view.published_worlds : [],
+    published_characters: Array.isArray(view.published_characters) ? view.published_characters : [],
+    published_instruction_templates: Array.isArray(view.published_instruction_templates) ? view.published_instruction_templates : [],
     unpublished_worlds: Array.isArray(view.unpublished_worlds) ? view.unpublished_worlds : [],
   }
 }

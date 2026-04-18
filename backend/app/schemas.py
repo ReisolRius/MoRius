@@ -155,10 +155,14 @@ class ProfileViewOut(BaseModel):
     privacy: ProfilePrivacyOut
     can_view_subscriptions: bool
     can_view_public_worlds: bool
+    can_view_public_characters: bool = False
+    can_view_public_instruction_templates: bool = False
     can_view_private_worlds: bool
     subscriptions: list[ProfileSubscriptionUserOut]
-    published_worlds: list["StoryCommunityWorldSummaryOut"]
-    unpublished_worlds: list["StoryGameSummaryOut"]
+    published_worlds: list["StoryCommunityWorldSummaryOut"] = Field(default_factory=list)
+    published_characters: list["StoryCommunityCharacterSummaryOut"] = Field(default_factory=list)
+    published_instruction_templates: list["StoryCommunityInstructionTemplateSummaryOut"] = Field(default_factory=list)
+    unpublished_worlds: list["StoryGameSummaryOut"] = Field(default_factory=list)
 
 
 class ProfileFollowStateOut(BaseModel):

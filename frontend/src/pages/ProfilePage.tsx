@@ -78,6 +78,8 @@ import {
 import type { AuthUser } from '../types/auth'
 import type {
   StoryCharacter,
+  StoryCommunityCharacterSummary,
+  StoryCommunityInstructionTemplateSummary,
   StoryCommunityWorldSummary,
   StoryGameSummary,
   StoryInstructionTemplate,
@@ -185,13 +187,13 @@ const PROFILE_TAB_DEFAULT_SORT_MODE: Partial<Record<TabId, ProfileContentSortMod
   subscriptions: 'name_asc',
 }
 
-type ProfileSortableCommunityCard = Pick<
-  StoryCharacter,
+type ProfileSortableCharacterCard = Pick<
+  StoryCharacter | StoryCommunityCharacterSummary,
   'id' | 'updated_at' | 'name' | 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'
 >
 
 type ProfileSortableTemplateCard = Pick<
-  StoryInstructionTemplate,
+  StoryInstructionTemplate | StoryCommunityInstructionTemplateSummary,
   'id' | 'updated_at' | 'title' | 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'
 >
 
@@ -207,8 +209,8 @@ function compareProfileText(left: string, right: string): number {
 }
 
 function compareProfilePopularity(
-  left: Pick<ProfileSortableCommunityCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
-  right: Pick<ProfileSortableCommunityCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
+  left: Pick<ProfileSortableCharacterCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
+  right: Pick<ProfileSortableCharacterCard | ProfileSortableTemplateCard, 'community_additions_count' | 'community_rating_avg' | 'community_rating_count'>,
 ): number {
   if (right.community_additions_count !== left.community_additions_count) {
     return right.community_additions_count - left.community_additions_count
@@ -238,7 +240,7 @@ function compareProfileWorldPopularity(left: ProfileSortableWorldCard, right: Pr
   return 0
 }
 
-function sortProfileCharacters(items: StoryCharacter[], mode: ProfileContentSortMode): StoryCharacter[] {
+function sortProfileCharacters<T extends ProfileSortableCharacterCard>(items: T[], mode: ProfileContentSortMode): T[] {
   return [...items].sort((left, right) => {
     if (mode === 'name_asc') {
       return compareProfileText(left.name, right.name) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
@@ -249,6 +251,15 @@ function sortProfileCharacters(items: StoryCharacter[], mode: ProfileContentSort
     if (mode === 'updated_asc') {
       return parseSortDate(left.updated_at) - parseSortDate(right.updated_at) || left.id - right.id
     }
+    if (mode === 'rating_desc') {
+      if (right.community_rating_count !== left.community_rating_count) {
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (right.community_rating_avg !== left.community_rating_avg) {
+        return right.community_rating_avg - left.community_rating_avg
+      }
+      return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
+    }
     if (mode === 'popular_desc') {
       return compareProfilePopularity(left, right) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
     }
@@ -256,7 +267,7 @@ function sortProfileCharacters(items: StoryCharacter[], mode: ProfileContentSort
   })
 }
 
-function sortProfileTemplates(items: StoryInstructionTemplate[], mode: ProfileContentSortMode): StoryInstructionTemplate[] {
+function sortProfileTemplates<T extends ProfileSortableTemplateCard>(items: T[], mode: ProfileContentSortMode): T[] {
   return [...items].sort((left, right) => {
     if (mode === 'name_asc') {
       return compareProfileText(left.title, right.title) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
@@ -266,6 +277,15 @@ function sortProfileTemplates(items: StoryInstructionTemplate[], mode: ProfileCo
     }
     if (mode === 'updated_asc') {
       return parseSortDate(left.updated_at) - parseSortDate(right.updated_at) || left.id - right.id
+    }
+    if (mode === 'rating_desc') {
+      if (right.community_rating_count !== left.community_rating_count) {
+        return right.community_rating_count - left.community_rating_count
+      }
+      if (right.community_rating_avg !== left.community_rating_avg) {
+        return right.community_rating_avg - left.community_rating_avg
+      }
+      return parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
     }
     if (mode === 'popular_desc') {
       return compareProfilePopularity(left, right) || parseSortDate(right.updated_at) - parseSortDate(left.updated_at) || right.id - left.id
@@ -452,6 +472,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     show_subscriptions: false,
     show_public_worlds: false,
     show_private_worlds: false,
+    show_public_characters: false,
+    show_public_instruction_templates: false,
   })
 
   const [isLoadingContent, setIsLoadingContent] = useState(false)
@@ -535,8 +557,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const subscriptionsCount = Math.max(0, profileView?.subscriptions_count ?? 0)
   const canViewSubscriptions = Boolean(profileView?.can_view_subscriptions)
   const canViewPublicWorlds = Boolean(profileView?.can_view_public_worlds)
+  const canViewPublicCharacters = Boolean(profileView?.can_view_public_characters)
+  const canViewPublicInstructionTemplates = Boolean(profileView?.can_view_public_instruction_templates)
   const canViewPrivateWorlds = Boolean(profileView?.can_view_private_worlds)
   const visiblePublicationWorlds = profileView?.published_worlds ?? []
+  const visiblePublicationCharacters = profileView?.published_characters ?? []
+  const visiblePublicationTemplates = profileView?.published_instruction_templates ?? []
   const visibleUnpublishedWorlds = useMemo(
     () =>
       (profileView?.unpublished_worlds ?? []).map((game) =>
@@ -724,6 +750,33 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [normalizedContentSearchQuery, publicationSortMode, visiblePublicationWorlds],
   )
+  const filteredVisiblePublicationCharacters = useMemo(
+    () =>
+      sortProfileCharacters(
+        visiblePublicationCharacters.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [
+            item.name,
+            item.race,
+            item.description,
+            item.note,
+            item.author_name,
+            item.triggers.join(' '),
+          ]),
+        ),
+        publicationSortMode,
+      ),
+    [normalizedContentSearchQuery, publicationSortMode, visiblePublicationCharacters],
+  )
+  const filteredVisiblePublicationTemplates = useMemo(
+    () =>
+      sortProfileTemplates(
+        visiblePublicationTemplates.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content, item.author_name]),
+        ),
+        publicationSortMode,
+      ),
+    [normalizedContentSearchQuery, publicationSortMode, visiblePublicationTemplates],
+  )
   const filteredVisibleUnpublishedWorlds = useMemo(
     () =>
       sortProfileWorlds(
@@ -801,13 +854,35 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     step: PROFILE_CARD_BATCH_SIZE,
     resetKey: `${normalizedContentSearchQuery}|unpublished|${filteredVisibleUnpublishedWorlds.length}`,
   })
+  const {
+    visibleItems: visiblePublishedCharacterCards,
+    hasMore: hasMorePublishedCharacterCards,
+    loadMoreRef: loadMorePublishedCharacterCardsRef,
+  } = useIncrementalList(filteredVisiblePublicationCharacters, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|published-characters|${filteredVisiblePublicationCharacters.length}`,
+  })
+  const {
+    visibleItems: visiblePublishedInstructionCards,
+    hasMore: hasMorePublishedInstructionCards,
+    loadMoreRef: loadMorePublishedInstructionCardsRef,
+  } = useIncrementalList(filteredVisiblePublicationTemplates, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|published-instructions|${filteredVisiblePublicationTemplates.length}`,
+  })
   const activeContentHeading = tab === 'notifications' ? PROFILE_NOTIFICATIONS_LABEL : PROFILE_TAB_LABELS[tab]
   const profileSidebarItems = useMemo(() => {
     const items: Array<{ id: TabId; label: string; count: number }> = [
       {
         id: 'publications',
         label: PROFILE_TAB_LABELS.publications,
-        count: visiblePublicationWorlds.length + (isOwnProfile && canViewPrivateWorlds ? visibleUnpublishedWorlds.length : 0),
+        count:
+          visiblePublicationWorlds.length
+          + visiblePublicationCharacters.length
+          + visiblePublicationTemplates.length
+          + (isOwnProfile && canViewPrivateWorlds ? visibleUnpublishedWorlds.length : 0),
       },
     ]
     if (isOwnProfile) {
@@ -829,6 +904,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     notificationCounts.total_count,
     sortedTemplates.length,
     subscriptionsCount,
+    visiblePublicationCharacters.length,
+    visiblePublicationTemplates.length,
     visiblePublicationWorlds.length,
     visibleUnpublishedWorlds.length,
     worldCardTemplateCount,
@@ -836,7 +913,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const profileSidebarSubscriptions = useMemo(() => visibleSubscriptions.slice(0, 6), [visibleSubscriptions])
   const mobileContentTabs = useMemo(
     () => [
-      { id: 'publications' as TabId, label: 'Миры' },
+      { id: 'publications' as TabId, label: 'Публикации' },
       { id: 'instructions' as TabId, label: 'Инструкции' },
       { id: 'characters' as TabId, label: 'Персонажи' },
       { id: 'world_cards' as TabId, label: 'Карточки мира' },
@@ -1168,6 +1245,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         show_subscriptions: response.privacy.show_subscriptions,
         show_public_worlds: response.privacy.show_public_worlds,
         show_private_worlds: response.privacy.show_private_worlds,
+        show_public_characters: response.privacy.show_public_characters ?? false,
+        show_public_instruction_templates: response.privacy.show_public_instruction_templates ?? false,
       })
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить профиль'
@@ -1602,6 +1681,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       show_subscriptions: profileView.privacy.show_subscriptions,
       show_public_worlds: profileView.privacy.show_public_worlds,
       show_private_worlds: profileView.privacy.show_private_worlds,
+      show_public_characters: profileView.privacy.show_public_characters ?? false,
+      show_public_instruction_templates: profileView.privacy.show_public_instruction_templates ?? false,
     })
     setPrivacyDialogOpen(true)
   }, [isOwnProfile, profileView])
@@ -1618,6 +1699,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         show_subscriptions: privacyDraft.show_subscriptions,
         show_public_worlds: privacyDraft.show_public_worlds,
         show_private_worlds: privacyDraft.show_private_worlds,
+        show_public_characters: privacyDraft.show_public_characters,
+        show_public_instruction_templates: privacyDraft.show_public_instruction_templates,
       })
       setProfileView((previous) => {
         if (!previous) {
@@ -1628,6 +1711,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           privacy: nextPrivacy,
           can_view_subscriptions: true,
           can_view_public_worlds: true,
+          can_view_public_characters: true,
+          can_view_public_instruction_templates: true,
           can_view_private_worlds: true,
         }
       })
@@ -2461,6 +2546,133 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </Box>
               {hasMorePublishedWorldCards ? (
                 <Box ref={loadMorePublishedWorldCardsRef} sx={{ height: 1, width: '100%' }} />
+              ) : null}
+            </>
+          )}
+        </Stack>
+
+        <Stack spacing={0.75}>
+          <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>Опубликованные персонажи</Typography>
+          {!canViewPublicCharacters ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пользователь скрыл опубликованных персонажей.</Typography>
+          ) : filteredVisiblePublicationCharacters.length === 0 ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет опубликованных персонажей.</Typography>
+          ) : (
+            <>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' },
+                  width: '100%',
+                  minWidth: 0,
+                }}
+              >
+                {visiblePublishedCharacterCards.map((item) => (
+                  <CharacterShowcaseCard
+                    key={item.id}
+                    title={item.name}
+                    description={item.description || 'Описание не заполнено.'}
+                    imageUrl={item.avatar_url}
+                    imageScale={clampAvatarScale(item.avatar_scale)}
+                    eyebrow={item.triggers.length ? `Триггеры: ${item.triggers.join(', ')}` : item.note || 'Опубликованный персонаж'}
+                    footerHint={`Автор: ${item.author_name}`}
+                    metaPrimary="Публикация"
+                    metaSecondary={item.community_rating_count > 0 ? `${item.community_rating_avg.toFixed(1)} ★` : null}
+                    onClick={() => onNavigate('/games/all?tab=characters')}
+                  />
+                ))}
+              </Box>
+              {hasMorePublishedCharacterCards ? (
+                <Box ref={loadMorePublishedCharacterCardsRef} sx={{ height: 1, width: '100%' }} />
+              ) : null}
+            </>
+          )}
+        </Stack>
+
+        <Stack spacing={0.75}>
+          <Typography sx={{ fontSize: '1rem', fontWeight: 800 }}>Опубликованные инструкции</Typography>
+          {!canViewPublicInstructionTemplates ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пользователь скрыл опубликованные инструкции.</Typography>
+          ) : filteredVisiblePublicationTemplates.length === 0 ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет опубликованных инструкций.</Typography>
+          ) : (
+            <>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gap: 1,
+                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                }}
+              >
+                {visiblePublishedInstructionCards.map((item) => (
+                  <ButtonBase
+                    key={item.id}
+                    onClick={() => onNavigate('/games/all?tab=rules')}
+                    sx={{
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
+                      minHeight: CARD_MIN_HEIGHT,
+                      p: 1.1,
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      textAlign: 'left',
+                      alignItems: 'stretch',
+                      overflow: 'hidden',
+                      transition: 'background-color 180ms ease, border-color 180ms ease, transform 180ms ease',
+                      '&:hover': {
+                        backgroundColor: 'transparent',
+                        borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, transparent)',
+                        transform: 'translateY(-1px)',
+                      },
+                    }}
+                  >
+                    <Stack spacing={0.8} sx={{ width: '100%', height: '100%' }}>
+                      <Stack direction="row" spacing={0.8} alignItems="flex-start" justifyContent="space-between">
+                        <Typography
+                          sx={{
+                            fontWeight: 700,
+                            fontSize: '0.95rem',
+                            minWidth: 0,
+                            flex: 1,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.title}
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(182, 200, 222, 0.8)', fontSize: '0.74rem', fontWeight: 700 }}>
+                          {item.community_rating_count > 0 ? `${item.community_rating_avg.toFixed(1)} ★` : 'Публикация'}
+                        </Typography>
+                      </Stack>
+                      <Typography
+                        sx={{
+                          color: 'var(--morius-text-secondary)',
+                          fontSize: '0.84rem',
+                          lineHeight: 1.36,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 6,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          wordBreak: 'break-word',
+                          overflowWrap: 'anywhere',
+                          flex: 1,
+                        }}
+                      >
+                        {item.content}
+                      </Typography>
+                      <Typography sx={{ color: 'rgba(182, 200, 222, 0.8)', fontSize: '0.74rem', fontWeight: 700 }}>
+                        {`Автор: ${item.author_name}`}
+                      </Typography>
+                    </Stack>
+                  </ButtonBase>
+                ))}
+              </Box>
+              {hasMorePublishedInstructionCards ? (
+                <Box ref={loadMorePublishedInstructionCardsRef} sx={{ height: 1, width: '100%' }} />
               ) : null}
             </>
           )}
@@ -3861,6 +4073,34 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 />
               }
               label="Показывать неопубликованные миры"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={privacyDraft.show_public_characters}
+                  onChange={(event) =>
+                    setPrivacyDraft((previous) => ({
+                      ...previous,
+                      show_public_characters: event.target.checked,
+                    }))
+                  }
+                />
+              }
+              label="Показывать опубликованных персонажей"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={privacyDraft.show_public_instruction_templates}
+                  onChange={(event) =>
+                    setPrivacyDraft((previous) => ({
+                      ...previous,
+                      show_public_instruction_templates: event.target.checked,
+                    }))
+                  }
+                />
+              }
+              label="Показывать опубликованные инструкции"
             />
           </Stack>
         </DialogContent>
