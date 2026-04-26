@@ -1,0 +1,6620 @@
+*** Begin Patch
+*** Update File: frontend/src/pages/PublicLandingPage.tsx
+@@ -138,25 +138,25 @@
+ const tariffPlans = [
+
+   {
+
+     id: 'pathfinder',
+
+-    title: 'РџСѓС‚РЅРёРє',
+
+-    price: '390 Р Р†РІР‚С™Р вЂ¦',
+
+-    coins: 'РЎРѕР»С‹: 400',
+
++    title: 'Путник',
+
++    price: '390 Р Р†РІР‚С™Р …',
+
++    coins: 'Солы: 400',
+
+     details: ['До 15к контекста (~70к символов)', '~ 100 генерируемых картинок', '~ 250 ходов'],
+
+     image: pkgPutnikImg,
+
+   },
+
+   {
+
+     id: 'seeker',
+
+     title: 'Искатель',
+
+-    price: '1090 Р Р†РІР‚С™Р вЂ¦',
+
+-    coins: 'РЎРѕР»С‹: 1300',
+
++    price: '1090 Р Р†РІР‚С™Р …',
+
++    coins: 'Солы: 1300',
+
+     details: ['До 15к контекста (~70к символов)', '~ 350 генерируемых картинок', '~ 750 ходов'],
+
+     image: pkgIskateltImg,
+
+   },
+
+   {
+
+     id: 'chronicler',
+
+     title: 'Хронист',
+
+-    price: '2990 Р Р†РІР‚С™Р вЂ¦',
+
+-    coins: 'РЎРѕР»С‹: 3500',
+
++    price: '2990 Р Р†РІР‚С™Р …',
+
++    coins: 'Солы: 3500',
+
+     details: ['До 15к контекста (~70к символов)', '~ 900 генерируемых картинок', '~2700 ходов'],
+
+     image: pkgKhronistImg,
+
+   },
+
+@@ -503,7 +503,7 @@
+                 minHeight: { md: 560 },
+
+               }}
+
+             >
+
+-              {/* Character image Р Р†Р вЂљРІР‚Сњ full height with bottom fade */}
+
++              {/* Character image РІР‚” full height with bottom fade */}
+
+               <Box
+
+                 sx={{
+
+                   flex: { md: '0 0 48%' },
+
+@@ -1329,7 +1329,7 @@
+                 }}
+
+               >
+
+                 <Stack spacing={0.6}>
+
+-                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>~50 С…РѕРґРѕРІ</Typography>
+
++                  <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>~50 ходов</Typography>
+
+                   <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>Доступ ко всем функциям и рассказчикам</Typography>
+
+                   <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>Отличная возможность опробовать сайт и принять решение о покупке</Typography>
+
+                 </Stack>
+
+@@ -1343,7 +1343,7 @@
+                     lineHeight: 1,
+
+                   }}
+
+                 >
+
+-                  0 Р Р†РІР‚С™Р вЂ¦
+
++                  0 Р Р†РІР‚С™Р …
+
+                 </Typography>
+
+               </Box>
+
+             </Box>
+
+*** Update File: frontend/src/pages/StoryGamePage.tsx
+@@ -406,20 +406,20 @@
+   'Р С–Р С–',
+
+   'главный герой',
+
+   'герой',
+
+-  'РЎвЂљРЎвЂ№',
+
++  'ты',
+
+   'тебя',
+
+-  'РЎвЂљР ВµР В±Р Вµ',
+
++  'тебе',
+
+   'тобой',
+
+-  'Р Р†РЎвЂ№',
+
+-  'Р Р†Р В°РЎРѓ',
+
++  'вы',
+
++  'вас',
+
+   'Р Р†Р В°Р С',
+
+   'Р Р†Р В°Р СР С‘',
+
+-  'РЎРЏ',
+
++  'я',
+
+   'меня',
+
+   'Р СР Р…Р Вµ',
+
+-  'Р СР Р…Р С•Р в„–',
+
++  'Р СР Р…Р С•Р №',
+
+   'Р СРЎвЂ№',
+
+-  'Р Р…Р В°РЎРѓ',
+
++  'нас',
+
+   'Р Р…Р В°Р С',
+
+   'Р Р…Р В°Р СР С‘',
+
+   'you',
+
+@@ -1009,7 +1009,7 @@
+ const PLAIN_SPEAKER_LINE_PATTERN = /^\s*([A-Z\u0410-\u042f\u0401][^:\n]{0,80}?)(?:\s*\(((?:\u0432 \u0433\u043e\u043b\u043e\u0432\u0435|\u043c\u044b\u0441\u043b\u0435\u043d\u043d\u043e|\u043c\u044b\u0441\u043b\u0438))\))?\s*:\s*([\s\S]+?)\s*$/iu
+
+ const ASSISTANT_SPEAKER_NAME_MAX_WORDS = 4
+
+ const ASSISTANT_SPEAKER_NAME_DISALLOWED_PUNCTUATION_PATTERN = /[,;.!?]/u
+
+-const ASSISTANT_SPEAKER_NAME_TOKEN_PATTERN = /^[0-9A-Za-z\u0410-\u042f\u0430-\u044f\u0401\u0451'РІР‚в„ў-]+$/u
+
++const ASSISTANT_SPEAKER_NAME_TOKEN_PATTERN = /^[0-9A-Za-z\u0410-\u042f\u0430-\u044f\u0401\u0451'’-]+$/u
+
+ const ASSISTANT_SPEAKER_NAME_VERB_PATTERN =
+
+   /(?:\u0435\u0448\u044c|\u0438\u0448\u044c|\u0435\u0442\u0435|\u0438\u0442\u0435|\u0435\u0442\u0441\u044f|\u0451\u0442\u0441\u044f|\u0438\u0442\u0441\u044f|\u044e\u0442\u0441\u044f|\u0430\u0442\u0441\u044f|\u044f\u0442\u0441\u044f|\u0430\u043b\u0441\u044f|\u0430\u043b\u0430\u0441\u044c|\u0430\u043b\u043e\u0441\u044c|\u0430\u043b\u0438\u0441\u044c|\u0438\u043b\u0441\u044f|\u0438\u043b\u0430\u0441\u044c|\u0438\u043b\u043e\u0441\u044c|\u0438\u043b\u0438\u0441\u044c|\u0430\u043b|\u0430\u043b\u0430|\u0430\u043b\u043e|\u0430\u043b\u0438|\u0438\u043b|\u0438\u043b\u0430|\u0438\u043b\u043e|\u0438\u043b\u0438|\u0443\u0442|\u044e\u0442|\u0430\u0442|\u044f\u0442|\u0435\u0442|\u0451\u0442|\u0438\u0442)$/iu
+
+ const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'Р СњР СџР РЋ'
+
+@@ -1038,16 +1038,16 @@
+ const STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP: Record<string, string> = {
+
+   a: 'Р В°',
+
+   b: 'Р Р†',
+
+-  c: 'РЎРѓ',
+
++  c: 'с',
+
+   e: 'Р Вµ',
+
+   h: 'Р Р…',
+
+   k: 'Р С”',
+
+   m: 'Р С',
+
+   o: 'Р С•',
+
+-  p: 'РЎР‚',
+
+-  t: 'РЎвЂљ',
+
+-  x: 'РЎвЂ¦',
+
+-  y: 'РЎС“',
+
++  p: 'р',
+
++  t: 'т',
+
++  x: 'РЎ…',
+
++  y: 'у',
+
+ }
+
+ const STORY_RUSSIAN_INFLECTION_ENDINGS = [
+
+   'иями',
+
+@@ -1060,42 +1060,42 @@
+   'РЎвЂ№Р СР С‘',
+
+   'Р С‘Р СР С‘',
+
+   'иях',
+
+-  'РЎРЏРЎвЂ¦',
+
+-  'Р В°РЎвЂ¦',
+
++  'РЎРЏРЎ…',
+
++  'Р В°РЎ…',
+
+   'Р С•Р Р†',
+
+   'Р ВµР Р†',
+
+-  'Р ВµР в„–',
+
+-  'Р С•Р в„–',
+
+-  'Р С‘Р в„–',
+
+-  'РЎвЂ№Р в„–',
+
+-  'Р В°РЎРЏ',
+
++  'Р ВµР №',
+
++  'Р С•Р №',
+
++  'Р С‘Р №',
+
++  'РЎвЂ№Р №',
+
++  'ая',
+
+   'яя',
+
+   'Р С•Р Вµ',
+
+   'Р ВµР Вµ',
+
+-  'РЎС“РЎР‹',
+
+-  'РЎР‹РЎР‹',
+
+-  'Р С•РЎР‹',
+
+-  'Р ВµРЎР‹',
+
++  'ую',
+
++  'юю',
+
++  'ою',
+
++  'ею',
+
+   'Р В°Р С',
+
+   'РЎРЏР С',
+
+   'Р С•Р С',
+
+   'Р ВµР С',
+
+-  'Р С‘РЎРЏ',
+
++  'ия',
+
+   'ья',
+
+   'Р С‘Р Вµ',
+
+-  'РЎРЉР Вµ',
+
+-  'Р С‘РЎР‹',
+
+-  'РЎРЉРЎР‹',
+
++  'ье',
+
++  'ию',
+
++  'ью',
+
+   'Р В°',
+
+-  'РЎРЏ',
+
+-  'РЎвЂ№',
+
++  'я',
+
++  'ы',
+
+   'Р С‘',
+
+-  'РЎС“',
+
+-  'РЎР‹',
+
++  'у',
+
++  'ю',
+
+   'Р Вµ',
+
+   'Р С•',
+
+-  'Р в„–',
+
+-  'РЎРЉ',
+
++  'Р №',
+
++  'ь',
+
+ ] as const
+
+ const INLINE_EDIT_RAIL_COLOR = 'color-mix(in srgb, var(--morius-title-text) 76%, transparent)'
+
+ const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
+
+@@ -1535,7 +1535,7 @@
+ }
+
+ 
+
+ function normalizeAssistantMarkerKey(value: string): string {
+
+-  const normalizedKey = value.toLowerCase().replace(/[\\s-]+/g, '_').replace(/РЎвЂ/g, 'Р Вµ').trim()
+
++  const normalizedKey = value.toLowerCase().replace(/[\\s-]+/g, '_').replace(/РЎ‘/g, 'Р Вµ').trim()
+
+   const compactKey = normalizedKey.replace(/_/g, '')
+
+   const aliasKeyByCompact: Record<string, string> = {
+
+     narrator: 'narrator',
+
+@@ -1770,13 +1770,13 @@
+   ) {
+
+     return {
+
+       kind: 'speech',
+
+-      defaultSpeakerName: 'Р вЂњР вЂњ',
+
++      defaultSpeakerName: 'Р “Р “',
+
+     }
+
+   }
+
+   if (compact === 'ggthought' || compact === 'ggthink') {
+
+     return {
+
+       kind: 'thought',
+
+-      defaultSpeakerName: 'Р вЂњР вЂњ',
+
++      defaultSpeakerName: 'Р “Р “',
+
+     }
+
+   }
+
+   if (
+
+@@ -2314,16 +2314,16 @@
+ }
+
+ 
+
+ const LATIN_TO_CYRILLIC_NAME_DIGRAPHS: Array<[string, string]> = [
+
+-  ['shch', 'РЎвЂ°'],
+
+-  ['sch', 'РЎвЂ°'],
+
+-  ['yo', 'РЎвЂ'],
+
+-  ['yu', 'РЎР‹'],
+
+-  ['ya', 'РЎРЏ'],
+
++  ['shch', 'щ'],
+
++  ['sch', 'щ'],
+
++  ['yo', 'РЎ‘'],
+
++  ['yu', 'ю'],
+
++  ['ya', 'я'],
+
+   ['zh', 'Р В¶'],
+
+-  ['kh', 'РЎвЂ¦'],
+
+-  ['ts', 'РЎвЂ '],
+
+-  ['ch', 'РЎвЂЎ'],
+
+-  ['sh', 'РЎР‚'],
+
++  ['kh', 'РЎ…'],
+
++  ['ts', 'ц'],
+
++  ['ch', 'ч'],
+
++  ['sh', 'р'],
+
+   ['ye', 'Р Вµ'],
+
+ ]
+
+ 
+
+@@ -2333,11 +2333,11 @@
+   c: 'Р С”',
+
+   d: 'Р Т‘',
+
+   e: 'Р Вµ',
+
+-  f: 'РЎвЂћ',
+
++  f: 'ф',
+
+   g: 'Р С–',
+
+-  h: 'РЎвЂ¦',
+
++  h: 'РЎ…',
+
+   i: 'Р С‘',
+
+-  j: 'Р в„–',
+
++  j: 'Р №',
+
+   k: 'Р С”',
+
+   l: 'Р В»',
+
+   m: 'Р С',
+
+@@ -2345,13 +2345,13 @@
+   o: 'Р С•',
+
+   p: 'Р С—',
+
+   q: 'Р С”',
+
+-  r: 'РЎР‚',
+
+-  s: 'РЎРѓ',
+
+-  t: 'РЎвЂљ',
+
+-  u: 'РЎС“',
+
++  r: 'р',
+
++  s: 'с',
+
++  t: 'т',
+
++  u: 'у',
+
+   v: 'Р Р†',
+
+   w: 'Р Р†',
+
+-  x: 'Р С”РЎРѓ',
+
++  x: 'кс',
+
+   y: 'Р С‘',
+
+   z: 'Р В·',
+
+ }
+
+@@ -2966,7 +2966,7 @@
+   { value: '2', label: 'Февраль', season: 'winter' },
+
+   { value: '3', label: 'Март', season: 'spring' },
+
+   { value: '4', label: 'Апрель', season: 'spring' },
+
+-  { value: '5', label: 'Р СљР В°Р в„–', season: 'spring' },
+
++  { value: '5', label: 'Р СљР В°Р №', season: 'spring' },
+
+   { value: '6', label: 'Июнь', season: 'summer' },
+
+   { value: '7', label: 'Июль', season: 'summer' },
+
+   { value: '8', label: 'Август', season: 'summer' },
+
+@@ -2977,7 +2977,7 @@
+ ]
+
+ 
+
+ const ENVIRONMENT_SEASON_OPTIONS: ReadonlyArray<{ value: EnvironmentSeasonValue; label: string }> = [
+
+-  { value: 'winter', label: 'Р вЂ”Р С‘Р СР В°' },
+
++  { value: 'winter', label: 'Р —Р С‘Р СР В°' },
+
+   { value: 'spring', label: 'Весна' },
+
+   { value: 'summer', label: 'Лето' },
+
+   { value: 'autumn', label: 'Осень' },
+
+@@ -3043,7 +3043,7 @@
+   if (normalized.includes('осен') || normalized.includes('autumn') || normalized.includes('fall')) {
+
+     return 'autumn'
+
+   }
+
+-  if (normalized.includes('Р В»Р ВµРЎвЂљ') || normalized.includes('summer')) {
+
++  if (normalized.includes('лет') || normalized.includes('summer')) {
+
+     return 'summer'
+
+   }
+
+   return null
+
+@@ -3202,7 +3202,7 @@
+     ?? (monthValue ? resolveEnvironmentSeasonValueFromMonth(monthValue) : null)
+
+   const seasonLabel = seasonValue ? resolveEnvironmentSeasonLabelByValue(seasonValue) : ''
+
+   const monthLabel = monthValue ? resolveEnvironmentMonthLabel(monthValue) : ''
+
+-  const seasonAndMonth = [seasonLabel, monthLabel].filter(Boolean).join(' РІР‚Сћ ')
+
++  const seasonAndMonth = [seasonLabel, monthLabel].filter(Boolean).join(' • ')
+
+ 
+
+   if (!parsed) {
+
+     return {
+
+@@ -3647,10 +3647,10 @@
+   const mod10 = absValue % 10
+
+   const mod100 = absValue % 100
+
+   if (mod10 === 1 && mod100 !== 11) {
+
+-    return 'РЎвЂ¦Р С•Р Т‘'
+
++    return 'РЎ…Р С•Р Т‘'
+
+   }
+
+   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+
+-    return 'РЎвЂ¦Р С•Р Т‘Р В°'
+
++    return 'РЎ…Р С•Р Т‘Р В°'
+
+   }
+
+   return 'ходов'
+
+ }
+
+@@ -13079,7 +13079,7 @@
+               >
+
+                 {[
+
+                   { key: 'characters' as const, label: 'Персонажи', iconMarkup: cardsCharactersTabIconMarkup },
+
+-                  { key: 'world' as const, label: 'Р СљР С‘РЎР‚', iconMarkup: cardsWorldTabIconMarkup },
+
++                  { key: 'world' as const, label: 'Мир', iconMarkup: cardsWorldTabIconMarkup },
+
+                   { key: 'instructions' as const, label: 'Правила', iconMarkup: cardsRulesTabIconMarkup },
+
+                   { key: 'plot' as const, label: 'Сюжет', iconMarkup: cardsPlotTabIconMarkup },
+
+                 ].map((tab) => {
+
+@@ -13820,15 +13820,15 @@
+             const environmentSummary = readEnvironmentString(environmentCurrentWeather?.summary) || 'Погода уточняется'
+
+             const environmentLocationLabel = latestLocationMemoryLabel
+
+             const environmentTimeMeta = environmentTimeEnabled
+
+-              ? [environmentDateInfo.title, environmentDateInfo.meta].filter(Boolean).join(' РІР‚Сћ ')
+
++              ? [environmentDateInfo.title, environmentDateInfo.meta].filter(Boolean).join(' • ')
+
+               : 'Время отключено'
+
+             const environmentWeatherMeta = environmentWeatherEnabled
+
+-              ? [environmentDateInfo.seasonAndMonth ?? environmentDateInfo.season, environmentSummary].filter(Boolean).join(' РІР‚Сћ ')
+
++              ? [environmentDateInfo.seasonAndMonth ?? environmentDateInfo.season, environmentSummary].filter(Boolean).join(' • ')
+
+               : 'Погода отключена'
+
+             const environmentHeaderMeta = environmentTimeEnabled
+
+               ? [environmentDateInfo.meta, environmentWeatherEnabled ? environmentSummary : 'Погода отключена']
+
+                 .filter(Boolean)
+
+-                .join(' РІР‚Сћ ')
+
++                .join(' • ')
+
+               : environmentWeatherMeta
+
+ 
+
+             return (
+
+@@ -15916,7 +15916,7 @@
+               {displayedWorldCards.length === 0 ? (
+
+                 <RightPanelEmptyState
+
+                   iconSrc={icons.world}
+
+-                  title="Р СљР С‘РЎР‚"
+
++                  title="Мир"
+
+                   description="Добавляйте новых NPC, а также важные предметы. Например: Ключ. Виктория передала ГГ ключ от потайной комнаты в замке."
+
+                 />
+
+               ) : (
+
+@@ -18423,7 +18423,7 @@
+                     }}
+
+                   >
+
+                     <option value="off">Отключено</option>
+
+-                    <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                    <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                     <option value="5">5 ходов</option>
+
+                     <option value="10">10 ходов</option>
+
+                     <option value="always">Помнить всегда</option>
+
+@@ -18713,7 +18713,7 @@
+                     }}
+
+                   >
+
+                     <option value="off">Отключено</option>
+
+-                    <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                    <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                     <option value="5">5 ходов</option>
+
+                     <option value="10">10 ходов</option>
+
+                     <option value="always">Помнить всегда</option>
+
+@@ -18829,8 +18829,8 @@
+                 }}
+
+               >
+
+                 <option value="off">Выключить</option>
+
+-                <option value="2">2 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
+-                <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                <option value="2">2 РЎ…Р С•Р Т‘Р В°</option>
+
++                <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                 <option value="5">5 ходов</option>
+
+                 <option value="10">10 ходов</option>
+
+                 <option value="15">15 ходов</option>
+
+@@ -19055,7 +19055,7 @@
+                     }}
+
+                   >
+
+                     <option value="off">Отключено</option>
+
+-                    <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                    <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                     <option value="5">5 ходов</option>
+
+                     <option value="10">10 ходов</option>
+
+                     <option value="always">Помнить всегда</option>
+
+@@ -19381,7 +19381,7 @@
+                 renderInput={(params) => (
+
+                   <TextField
+
+                     {...params}
+
+-                    label="Р В Р В°РЎРѓР В°"
+
++                    label="Р Р°СЃР°"
+
+                     placeholder="Выберите или добавьте расу"
+
+                     inputProps={{
+
+                       ...params.inputProps,
+
+@@ -19727,7 +19727,7 @@
+                       }}
+
+                     >
+
+                       <option value="off">Отключено</option>
+
+-                      <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                      <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                       <option value="5">5 ходов</option>
+
+                       <option value="10">10 ходов</option>
+
+                       <option value="always">Помнить всегда</option>
+
+@@ -19828,7 +19828,7 @@
+                 }}
+
+               >
+
+                 <option value="off">Отключено</option>
+
+-                <option value="3">3 РЎвЂ¦Р С•Р Т‘Р В°</option>
+
++                <option value="3">3 РЎ…Р С•Р Т‘Р В°</option>
+
+                 <option value="5">5 ходов</option>
+
+                 <option value="10">10 ходов</option>
+
+                 <option value="always">Помнить всегда</option>
+
+@@ -20241,7 +20241,7 @@
+                       outline: 'none',
+
+                     }}
+
+                   >
+
+-                    <option value="all">Р вЂ™РЎРѓР Вµ</option>
+
++                    <option value="all">Р ’РЎРѓР Вµ</option>
+
+                     <option value="added">Сохраненные</option>
+
+                     <option value="not_added">Не сохраненные</option>
+
+                   </Box>
+
+*** Update File: backend/app/main.py
+@@ -294,7 +294,7 @@
+ STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
+
+ STORY_PLOT_CARD_MEMORY_MODEL = "x-ai/grok-4.1-fast"
+
+ STORY_OUTPUT_TRANSLATION_MODEL = "meta-llama/llama-3.2-1b-instruct"
+
+-STORY_MEMORY_LOCATION_TITLE = "РњРµСЃС‚Рѕ"
+
++STORY_MEMORY_LOCATION_TITLE = "Место"
+
+ STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
+
+ STORY_MEMORY_LOCATION_REQUEST_MAX_TOKENS = 240
+
+ STORY_MEMORY_WEATHER_TITLE = "Погода и время"
+
+@@ -302,24 +302,24 @@
+ STORY_MEMORY_POSTPROCESS_REQUEST_MAX_TOKENS = 1_600
+
+ STORY_ENVIRONMENT_ANALYSIS_MODEL = "x-ai/grok-4.1-fast"
+
+ STORY_ENVIRONMENT_ANALYSIS_REQUEST_MAX_TOKENS = 520
+
+-STORY_ENVIRONMENT_TIME_CARD_TITLE = "Р’СЂРµРјСЏ"
+
++STORY_ENVIRONMENT_TIME_CARD_TITLE = "Время"
+
+ STORY_ENVIRONMENT_WEEKDAY_SHORT_NAMES_RU = (
+
+-    "РїРЅ",
+
+-    "РІС‚",
+
+-    "СЃСЂ",
+
+-    "С‡С‚",
+
+-    "РїС‚",
+
++    "пн",
+
++    "вт",
+
++    "ср",
+
++    "чт",
+
++    "пт",
+
+     "СЃР±",
+
+-    "РІСЃ",
+
++    "вс",
+
+ )
+
+ STORY_ENVIRONMENT_MONTH_NAMES_RU = (
+
+     "января",
+
+     "февраля",
+
+-    "РјР°СЂС‚Р°",
+
++    "марта",
+
+     "апреля",
+
+-    "РјР°СЏ",
+
+-    "РёСЋРЅСЏ",
+
+-    "РёСЋР»СЏ",
+
++    "мая",
+
++    "июня",
+
++    "июля",
+
+     "августа",
+
+     "сентября",
+
+     "октября",
+
+@@ -327,10 +327,10 @@
+     "декабря",
+
+ )
+
+ STORY_ENVIRONMENT_SEASON_LABELS_RU = {
+
+-    "winter": "Р—РёРјР°",
+
+-    "spring": "Р’РµСЃРЅР°",
+
+-    "summer": "Р›РµС‚Рѕ",
+
+-    "autumn": "РћСЃРµРЅСЊ",
+
++    "winter": "Зима",
+
++    "spring": "Весна",
+
++    "summer": "Лето",
+
++    "autumn": "Осень",
+
+ }
+
+ STORY_MEMORY_LAYER_RAW_BUDGET_SHARE = 0.50
+
+ STORY_MEMORY_LAYER_COMPRESSED_BUDGET_SHARE = 0.30
+
+@@ -390,25 +390,25 @@
+ STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 78
+
+ STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY = 0.72
+
+ STORY_MEMORY_KEY_EVENT_STRONG_TOKENS = (
+
+-    "РєРІРµСЃС‚",
+
+-    "С†РµР»СЊ",
+
+-    "СЃРјРµСЂС‚",
+
+-    "РїРѕРіРёР±",
+
+-    "СѓР±РёС‚",
+
+-    "РїСЂРµРґР°Р»",
+
++    "квест",
+
++    "цель",
+
++    "смерт",
+
++    "погиб",
+
++    "убит",
+
++    "предал",
+
+     "предатель",
+
+-    "С‚Р°Р№РЅ",
+
++    "тайн",
+
+     "раскрыл",
+
+     "артефакт",
+
+-    "РєР»СЋС‡",
+
+-    "РїР»РµРЅ",
+
+-    "РїРѕР±РµРґ",
+
++    "ключ",
+
++    "плен",
+
++    "побед",
+
+     "поражен",
+
+-    "СѓРіСЂРѕР·",
+
+-    "РїРѕС‚РµСЂ",
+
++    "угроз",
+
++    "потер",
+
+     "РЅР°С€РµР»",
+
+-    "СЂРёС‚СѓР°Р»",
+
+-    "РІРѕР№РЅ",
+
++    "ритуал",
+
++    "войн",
+
+     "quest",
+
+     "goal",
+
+     "death",
+
+@@ -429,7 +429,7 @@
+ STORY_MEMORY_RAW_MIN_IMPORTANT_HITS = 1
+
+ STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE = 7
+
+ STORY_MEMORY_LOW_SIGNAL_TOKENS = (
+
+-    "РїСЂРёРІРµС‚",
+
++    "привет",
+
+     "здравствуй",
+
+     "добро пожаловать",
+
+     "hello",
+
+@@ -437,7 +437,7 @@
+     "thanks",
+
+     "thank you",
+
+     "улыбнулся",
+
+-    "РєРёРІРЅСѓР»",
+
++    "кивнул",
+
+     "коротко ответил",
+
+ )
+
+ STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS = (
+
+@@ -448,7 +448,7 @@
+     "свежая память",
+
+     "сжатая память",
+
+     "суперсжатая память",
+
+-    "dev РїР°РјСЏС‚СЊ",
+
++    "dev память",
+
+     "user turn",
+
+     "narrator reply",
+
+     "dry facts",
+
+@@ -517,25 +517,25 @@
+ STORY_SCENE_EMOTION_ANALYSIS_MODEL = "x-ai/grok-4.1-fast"
+
+ STORY_SCENE_EMOTION_ANALYSIS_REQUEST_MAX_TOKENS = 180
+
+ STORY_SCENE_EMOTION_MAIN_HERO_ALIASES = (
+
+-    "РіРі",
+
++    "гг",
+
+     "главный герой",
+
+-    "РіРµСЂРѕР№",
+
+-    "С‚С‹",
+
+-    "С‚РµР±СЏ",
+
++    "герой",
+
++    "ты",
+
++    "тебя",
+
+     "С‚РµР±Рµ",
+
+-    "С‚РѕР±РѕР№",
+
+-    "РІС‹",
+
+-    "РІР°СЃ",
+
+-    "РІР°Рј",
+
+-    "РІР°РјРё",
+
++    "тобой",
+
++    "вы",
+
++    "вас",
+
++    "вам",
+
++    "вами",
+
+     "СЏ",
+
+-    "РјРµРЅСЏ",
+
+-    "РјРЅРµ",
+
+-    "РјРЅРѕР№",
+
+-    "РјС‹",
+
+-    "РЅР°СЃ",
+
+-    "РЅР°Рј",
+
+-    "РЅР°РјРё",
+
++    "меня",
+
++    "мне",
+
++    "мной",
+
++    "мы",
+
++    "нас",
+
++    "нам",
+
++    "нами",
+
+     "you",
+
+     "your",
+
+     "yours",
+
+@@ -554,63 +554,63 @@
+ STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
+
+ STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
+
+ STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
+
+-    (r"\bРїРѕР»\s*[:=-]?\s*Р¶РµРЅ\w*\b", 10),
+
++    (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
+
+     (r"\bgender\s*[:=-]?\s*female\b", 10),
+
+     (r"\bsex\s*[:=-]?\s*female\b", 10),
+
+-    (r"\bР¶РµРЅС‰РёРЅ\w*\b", 6),
+
+-    (r"\bРґРµРІСѓС€Рє\w*\b", 6),
+
+-    (r"\bРґРµРІРѕС‡Рє\w*\b", 6),
+
+-    (r"\bР¶РµРЅСЃРє\w*\b", 4),
+
+-    (r"\bРіРµСЂРѕРёРЅ\w*\b", 4),
+
++    (r"\bженщин\w*\b", 6),
+
++    (r"\bдевушк\w*\b", 6),
+
++    (r"\bдевочк\w*\b", 6),
+
++    (r"\bженск\w*\b", 4),
+
++    (r"\bгероин\w*\b", 4),
+
+     (r"\bfemale\b", 6),
+
+     (r"\bwoman\b", 6),
+
+     (r"\bgirl\b", 6),
+
+     (r"\bshe\b", 2),
+
+     (r"\bher\b", 1),
+
+-    (r"\bРѕРЅР°\b", 2),
+
++    (r"\bона\b", 2),
+
+     (r"\bРµ[РµС‘]\b", 1),
+
+ )
+
+ STORY_TURN_IMAGE_GENDER_PATTERNS_MALE: tuple[tuple[str, int], ...] = (
+
+-    (r"\bРїРѕР»\s*[:=-]?\s*РјСѓР¶\w*\b", 10),
+
++    (r"\bпол\s*[:=-]?\s*муж\w*\b", 10),
+
+     (r"\bgender\s*[:=-]?\s*male\b", 10),
+
+     (r"\bsex\s*[:=-]?\s*male\b", 10),
+
+-    (r"\bРјСѓР¶С‡РёРЅ\w*\b", 6),
+
+-    (r"\bРїР°СЂРЅ\w*\b", 6),
+
+-    (r"\bСЋРЅРѕС€\w*\b", 6),
+
+-    (r"\bРјР°Р»СЊС‡РёРє\w*\b", 6),
+
+-    (r"\bРјР°Р»СЊС‡РёС€\w*\b", 6),
+
+-    (r"\bРјСѓР¶СЃРє\w*\b", 4),
+
++    (r"\bмужчин\w*\b", 6),
+
++    (r"\bпарн\w*\b", 6),
+
++    (r"\bюнош\w*\b", 6),
+
++    (r"\bмальчик\w*\b", 6),
+
++    (r"\bмальчиш\w*\b", 6),
+
++    (r"\bмужск\w*\b", 4),
+
+     (r"\bmale\b", 6),
+
+     (r"\bman\b", 6),
+
+     (r"\bboy\b", 6),
+
+     (r"\bhe\b", 2),
+
+     (r"\bhim\b", 1),
+
+     (r"\bhis\b", 1),
+
+-    (r"\bРѕРЅ\b", 2),
+
+-    (r"\bРµРіРѕ\b", 1),
+
+-    (r"\bРµРјСѓ\b", 1),
+
++    (r"\bон\b", 2),
+
++    (r"\bего\b", 1),
+
++    (r"\bему\b", 1),
+
+ )
+
+ STORY_TURN_IMAGE_APPEARANCE_LOCK_KEYWORDS: tuple[str, ...] = (
+
+-    "РІРЅРµС€",
+
+-    "Р»РёС†",
+
++    "внеш",
+
++    "лиц",
+
+     "черты лица",
+
+-    "РІРѕР»РѕСЃ",
+
++    "волос",
+
+     "цвет волос",
+
+     "длина волос",
+
+     "причес",
+
+     "РіР»Р°Р·",
+
+     "цвет глаз",
+
+-    "Р±СЂРѕРІ",
+
++    "бров",
+
+     "ресниц",
+
+-    "РіСѓР±",
+
+-    "РЅРѕСЃ",
+
+-    "С‡РµР»СЋСЃС‚",
+
+-    "СЃРєСѓР»",
+
+-    "РєРѕР¶Р°",
+
+-    "СЂРѕРґРёРЅРє",
+
+-    "РІРµСЃРЅСѓС€",
+
+-    "С€СЂР°Рј",
+
+-    "С‚Р°С‚Сѓ",
+
++    "губ",
+
++    "нос",
+
++    "челюст",
+
++    "скул",
+
++    "кожа",
+
++    "родинк",
+
++    "веснуш",
+
++    "шрам",
+
++    "тату",
+
+     "piercing",
+
+     "appearance",
+
+     "face",
+
+@@ -635,13 +635,13 @@
+     "длина волос",
+
+     "ниже лопаток",
+
+     "до лопаток",
+
+-    "РґРѕ РїР»РµС‡",
+
+-    "РґРѕ С‚Р°Р»РёРё",
+
++    "до плеч",
+
++    "до талии",
+
+     "ниже плеч",
+
+     "длинные волосы",
+
+     "короткие волосы",
+
+     "очень короткие волосы",
+
+-    "РєР°СЂРµ",
+
++    "каре",
+
+     "hair length",
+
+     "below the shoulder blades",
+
+     "to shoulder blades",
+
+@@ -654,31 +654,31 @@
+ STORY_NPC_PROFILE_CONTEXT_MAX_EXISTING_CARDS = 40
+
+ STORY_NPC_PROFILE_CONTEXT_CARD_CONTENT_MAX_CHARS = 260
+
+ STORY_PLOT_CARD_MEMORY_IMPORTANT_TOKENS = (
+
+-    "С†РµР»СЊ",
+
+-    "Р·Р°РґР°С‡",
+
+-    "РїР»Р°РЅ",
+
+-    "РЅСѓР¶РЅРѕ",
+
+-    "РґРѕР»Р¶",
+
++    "цель",
+
++    "задач",
+
++    "план",
+
++    "нужно",
+
++    "долж",
+
+     "конфликт",
+
+-    "СѓРіСЂРѕР·",
+
+-    "РѕРїР°СЃ",
+
+-    "РІСЂР°Рі",
+
+-    "РїСЂРѕС‚РёРІ",
+
+-    "Р±РѕР№",
+
+-    "СЂР°РЅР°",
+
+-    "СЃРјРµСЂС‚",
+
+-    "РїР»РµРЅ",
+
+-    "РѕС‚РЅРѕС€РµРЅ",
+
+-    "СЃРѕСЋР·",
+
+-    "РґРѕРІРµСЂ",
+
+-    "РїСЂРµРґР°Р»",
+
+-    "С‚Р°Р№РЅ",
+
+-    "СѓР»РёРє",
+
++    "угроз",
+
++    "опас",
+
++    "враг",
+
++    "против",
+
++    "бой",
+
++    "рана",
+
++    "смерт",
+
++    "плен",
+
++    "отношен",
+
++    "союз",
+
++    "довер",
+
++    "предал",
+
++    "тайн",
+
++    "улик",
+
+     "артефакт",
+
+-    "РєР»СЋС‡",
+
+-    "СЂРёСЃРє",
+
++    "ключ",
+
++    "риск",
+
+     "последств",
+
+-    "РґР°Р»СЊС€Рµ",
+
++    "дальше",
+
+     "следующ",
+
+     "незакрыт",
+
+ )
+
+@@ -737,58 +737,58 @@
+     "event",
+
+ }
+
+ STORY_WORLD_CARD_MUNDANE_TITLE_TOKENS = {
+
+-    "РєРѕС„Рµ",
+
+-    "С‡Р°С€РєР°",
+
+-    "РєСЂСѓР¶РєР°",
+
+-    "С‡Р°Р№",
+
+-    "РІРѕРґР°",
+
+-    "СЃС‚РѕР»",
+
+-    "СЃС‚СѓР»",
+
++    "кофе",
+
++    "чашка",
+
++    "кружка",
+
++    "чай",
+
++    "вода",
+
++    "стол",
+
++    "стул",
+
+     "завтрак",
+
+-    "СѓС‚СЂРѕ",
+
+-    "РѕРєРЅРѕ",
+
++    "утро",
+
++    "окно",
+
+ }
+
+ STORY_WORLD_CARD_EPHEMERAL_TITLE_TOKENS = {
+
+-    "РІРёР·РёС‚",
+
++    "визит",
+
+     "встреча",
+
+-    "РїСЂРёС…РѕРґ",
+
+-    "СЃС†РµРЅР°",
+
+-    "СЌРїРёР·РѕРґ",
+
+-    "РґРёР°Р»РѕРі",
+
++    "приход",
+
++    "сцена",
+
++    "эпизод",
+
++    "диалог",
+
+     "разговор",
+
+ }
+
+ STORY_NPC_GENERIC_NAME_TOKENS = {
+
+-    "РЅРїСЃ",
+
++    "нпс",
+
+     "npc",
+
+-    "Р±Р°РЅРґРёС‚",
+
+-    "Р±Р°РЅРґРёС‚С‹",
+
++    "бандит",
+
++    "бандиты",
+
+     "разбойник",
+
+     "разбойники",
+
+     "головорез",
+
+     "головорезы",
+
+-    "РЅР°РµРјРЅРёРє",
+
++    "наемник",
+
+     "наемники",
+
+     "охранник",
+
+     "охранники",
+
+-    "РѕС…СЂР°РЅР°",
+
++    "охрана",
+
+     "стражник",
+
+     "стражники",
+
+-    "СЃРѕР»РґР°С‚",
+
++    "солдат",
+
+     "солдаты",
+
+-    "РІРѕРёРЅ",
+
+-    "РІРѕРёРЅС‹",
+
+-    "Р¶РёС‚РµР»СЊ",
+
+-    "Р¶РёС‚РµР»Рё",
+
++    "воин",
+
++    "воины",
+
++    "житель",
+
++    "жители",
+
+     "горожанин",
+
+     "горожане",
+
+     "крестьянин",
+
+     "крестьяне",
+
+-    "РґРµРІСѓС€РєР°",
+
++    "девушка",
+
+     "девчонка",
+
+-    "Р¶РµРЅС‰РёРЅР°",
+
+-    "РїР°СЂРµРЅСЊ",
+
+-    "РјСѓР¶С‡РёРЅР°",
+
+-    "СЋРЅРѕС€Р°",
+
++    "женщина",
+
++    "парень",
+
++    "мужчина",
+
++    "юноша",
+
+     "старик",
+
+     "старуха",
+
+     "ребенок",
+
+@@ -817,20 +817,20 @@
+     "villagers",
+
+ }
+
+ STORY_NPC_NON_NAME_TOKENS = {
+
+-    "РѕРЅ",
+
+-    "РѕРЅР°",
+
+-    "РѕРЅРѕ",
+
+-    "РѕРЅРё",
+
+-    "РµРіРѕ",
+
+-    "Р В Р’ВµР В Р’Вµ",
+
++    "он",
+
++    "она",
+
++    "оно",
+
++    "они",
+
++    "его",
+
++    "Р ВµР Вµ",
+
+     "РµС‘",
+
+-    "РµРјСѓ",
+
+-    "Р В Р’ВµР В РІвЂћвЂ“",
+
+-    "РёРј",
+
+-    "РёРјРё",
+
+-    "РёС…",
+
+-    "РєС‚Рѕ",
+
+-    "С‡С‚Рѕ",
+
++    "ему",
+
++    "Р В Р’ВµР В РІвЂћ–",
+
++    "им",
+
++    "ими",
+
++    "их",
+
++    "кто",
+
++    "что",
+
+     "который",
+
+     "которая",
+
+     "которое",
+
+@@ -841,82 +841,82 @@
+     "которым",
+
+     "которыми",
+
+     "которых",
+
+-    "СЌС‚РѕС‚",
+
+-    "СЌС‚Р°",
+
+-    "СЌС‚Рѕ",
+
+-    "СЌС‚Рё",
+
+-    "С‚РѕС‚",
+
++    "этот",
+
++    "эта",
+
++    "это",
+
++    "эти",
+
++    "тот",
+
+     "С‚Р°",
+
+     "С‚Рµ",
+
+     "СЏ",
+
+-    "С‚С‹",
+
+-    "РјС‹",
+
+-    "РІС‹",
+
+-    "РјРЅРµ",
+
+-    "РјРµРЅСЏ",
+
+-    "РјРЅРѕР№",
+
+-    "РЅР°Рј",
+
+-    "РЅР°СЃ",
+
++    "ты",
+
++    "мы",
+
++    "вы",
+
++    "мне",
+
++    "меня",
+
++    "мной",
+
++    "нам",
+
++    "нас",
+
+     "С‚РµР±Рµ",
+
+-    "С‚РµР±СЏ",
+
+-    "С‚РѕР±РѕР№",
+
+-    "РІР°Рј",
+
+-    "РІР°СЃ",
+
+-    "РІР°РјРё",
+
+-    "СЃРµР±СЏ",
+
+-    "СЃРѕР±РѕР№",
+
+-    "СЃРІРѕР№",
+
+-    "СЃРІРѕСЏ",
+
+-    "СЃРІРѕРё",
+
+-    "СЃРІРѕРµ",
+
+-    "РјРѕР№",
+
+-    "РјРѕСЏ",
+
+-    "РјРѕРё",
+
+-    "РјРѕРµ",
+
+-    "С‚РІРѕР№",
+
+-    "С‚РІРѕСЏ",
+
+-    "С‚РІРѕРё",
+
+-    "С‚РІРѕРµ",
+
++    "тебя",
+
++    "тобой",
+
++    "вам",
+
++    "вас",
+
++    "вами",
+
++    "себя",
+
++    "собой",
+
++    "свой",
+
++    "своя",
+
++    "свои",
+
++    "свое",
+
++    "мой",
+
++    "моя",
+
++    "мои",
+
++    "мое",
+
++    "твой",
+
++    "твоя",
+
++    "твои",
+
++    "твое",
+
+     "РЅР°С€",
+
+     "РЅР°С€Р°",
+
+-    "РЅР°С€Рё",
+
++    "наши",
+
+     "РІР°С€",
+
+     "РІР°С€Р°",
+
+-    "РІР°С€Рё",
+
+-    "С‚РёС…Рѕ",
+
+-    "РіСЂРѕРјРєРѕ",
+
++    "ваши",
+
++    "тихо",
+
++    "громко",
+
+     "быстро",
+
+     "медленно",
+
+     "просто",
+
+-    "РґР°Р»СЊС€Рµ",
+
+-    "РїРѕР·Р¶Рµ",
+
++    "дальше",
+
++    "позже",
+
+     "сейчас",
+
+     "согласен",
+
+     "согласна",
+
+-    "Р·РЅР°СЏ",
+
+-    "Р·РЅР°РµС‚",
+
+-    "Р·РЅР°СЋ",
+
+-    "Р·РЅР°РµС€СЊ",
+
+-    "Р·РЅР°СЋС‚",
+
++    "зная",
+
++    "знает",
+
++    "знаю",
+
++    "знаешь",
+
++    "знают",
+
+     "говорит",
+
+-    "СЃРєР°Р·Р°Р»",
+
++    "сказал",
+
+     "сказала",
+
+     "сказали",
+
+-    "РѕС‚РІРµС‚РёР»",
+
++    "ответил",
+
+     "ответила",
+
+ }
+
+ STORY_NPC_SINGLE_TOKEN_NON_NAME_SUFFIXES = {
+
+     "Р°СЏ",
+
+-    "СЏСЏ",
+
+-    "Р В РЎвЂўР В Р’Вµ",
+
+-    "Р В Р’ВµР В Р’Вµ",
+
+-    "РѕРіРѕ",
+
+-    "РµРјСѓ",
+
+-    "РѕРјСѓ",
+
+-    "С‹РјРё",
+
+-    "РёРјРё",
+
+-    "СѓСЋ",
+
+-    "СЋСЋ",
+
++    "яя",
+
++    "Р С•Р Вµ",
+
++    "Р ВµР Вµ",
+
++    "ого",
+
++    "ему",
+
++    "ому",
+
++    "ыми",
+
++    "ими",
+
++    "ую",
+
++    "юю",
+
+ }
+
+ STORY_GENERIC_CHANGED_TEXT_FRAGMENTS = (
+
+     "обновлены важные детали",
+
+@@ -924,11 +924,11 @@
+     "карточка удалена как неактуальная",
+
+     "deleted as irrelevant",
+
+ )
+
+-STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+", re.IGNORECASE)
+
+-STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+|[^\s]", re.IGNORECASE)
+
+-STORY_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?Р Р†Р вЂљР’В¦])\s+")
+
+-STORY_BULLET_PREFIX_PATTERN = re.compile(r"^\s*[-Р Р†Р вЂљРЎС›*]+\s*")
+
+-STORY_CYRILLIC_TOKEN_PATTERN = re.compile(r"^[Р°-СЏС‘]+$", re.IGNORECASE)
+
++STORY_MATCH_TOKEN_PATTERN = re.compile(r"[0-9a-zа-яё]+", re.IGNORECASE)
+
++STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
+
++STORY_SENTENCE_SPLIT_PATTERN = re.compile(r"(?<=[.!?…])\s+")
+
++STORY_BULLET_PREFIX_PATTERN = re.compile(r"^\s*[-•*]+\s*")
+
++STORY_CYRILLIC_TOKEN_PATTERN = re.compile(r"^[а-яё]+$", re.IGNORECASE)
+
+ STORY_MARKUP_MARKER_PATTERN = re.compile(r"\[\[[^\]]+\]\]")
+
+ STORY_MARKUP_INLINE_SPLIT_PATTERN = re.compile(r"\[\[\s*[A-Za-z\u0400-\u04FF_ -]+(?:\s*:\s*[^\]]+?)?\s*\]\]")
+
+ STORY_CJK_CHARACTER_PATTERN = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+
+@@ -1023,7 +1023,7 @@
+     re.IGNORECASE,
+
+ )
+
+ STORY_NPC_ROLE_SUFFIX_PATTERN = re.compile(
+
+-    r"\s*\((?:Рі|СЂ|gg|mc|npc|pc|hero|player|main_hero|mainhero)\)\s*$",
+
++    r"\s*\((?:г|р|gg|mc|npc|pc|hero|player|main_hero|mainhero)\)\s*$",
+
+     re.IGNORECASE,
+
+ )
+
+ STORY_NPC_NARRATIVE_NAME_BEFORE_VERB_PATTERN = re.compile(
+
+@@ -1040,8 +1040,8 @@
+     r"\b([А-ЯЁ][а-яё]{2,}(?:\s+[А-ЯЁ][а-яё]{2,})?)\b",
+
+ )
+
+ STORY_NPC_NAME_EXCLUDED_TOKENS = {
+
+-    "РёРіСЂРѕРє",
+
+-    "РёРё",
+
++    "игрок",
+
++    "ии",
+
+     "мастер",
+
+     "рассказчик",
+
+     "narrator",
+
+@@ -1177,60 +1177,60 @@
+ STORY_RUSSIAN_INFLECTION_ENDINGS = tuple(
+
+     sorted(
+
+         {
+
+-            "РёСЏРјРё",
+
+-            "СЏРјРё",
+
+-            "Р°РјРё",
+
+-            "РµРіРѕ",
+
+-            "РѕРіРѕ",
+
+-            "РµРјСѓ",
+
+-            "РѕРјСѓ",
+
+-            "С‹РјРё",
+
+-            "РёРјРё",
+
+-            "РёСЏС…",
+
+-            "СЏС…",
+
++            "иями",
+
++            "ями",
+
++            "ами",
+
++            "его",
+
++            "ого",
+
++            "ему",
+
++            "ому",
+
++            "ыми",
+
++            "ими",
+
++            "иях",
+
++            "ях",
+
+             "Р°С…",
+
+-            "РѕРІ",
+
+-            "Р В Р’ВµР В Р вЂ ",
+
+-            "Р В Р’ВµР В РІвЂћвЂ“",
+
++            "ов",
+
++            "Р ВµР Р†",
+
++            "Р В Р’ВµР В РІвЂћ–",
+
+             "ой",
+
+             "ий",
+
+-            "С‹Р№",
+
++            "ый",
+
+             "Р°СЏ",
+
+-            "СЏСЏ",
+
+-            "Р В РЎвЂўР В Р’Вµ",
+
+-            "Р В Р’ВµР В Р’Вµ",
+
+-            "СѓСЋ",
+
+-            "СЋСЋ",
+
+-            "РѕСЋ",
+
++            "яя",
+
++            "Р С•Р Вµ",
+
++            "Р ВµР Вµ",
+
++            "ую",
+
++            "юю",
+
++            "ою",
+
+             "РµСЋ",
+
+             "Р В Р’В°Р В РЎВ",
+
+-            "СЏРј",
+
+-            "РѕРј",
+
++            "ям",
+
++            "ом",
+
+             "Р В Р’ВµР В РЎВ",
+
+-            "СѓСЋ",
+
+-            "СЋСЋ",
+
+-            "РёСЏ",
+
+-            "СЊСЏ",
+
+-            "Р В РЎвЂР В Р’Вµ",
+
++            "ую",
+
++            "юю",
+
++            "ия",
+
++            "ья",
+
++            "Р В РЎ‘Р В Р’Вµ",
+
+             "СЊРµ",
+
+-            "РёСЋ",
+
+-            "СЊСЋ",
+
+-            "РёСЋ",
+
++            "ию",
+
++            "ью",
+
++            "ию",
+
+             "Р°СЏ",
+
+-            "СЏСЏ",
+
++            "яя",
+
+             "Р В Р’В°Р В РЎВ",
+
+-            "СЏРј",
+
++            "ям",
+
+             "Р°С…",
+
+-            "СЏС…",
+
++            "ях",
+
+             "Р В Р’В°",
+
+             "СЏ",
+
+-            "Р РЋРІР‚в„–",
+
+-            "Р В РЎвЂ",
+
+-            "Р РЋРЎвЂњ",
+
++            "Р РЋРІР‚№",
+
++            "Р В РЎ‘",
+
++            "Р РЋРЎ“",
+
+             "Р РЋР вЂ№",
+
+             "Р В Р’Вµ",
+
+-            "Р В РЎвЂў",
+
+-            "Р В РІвЂћвЂ“",
+
++            "Р С•",
+
++            "Р В РІвЂћ–",
+
+             "СЊ",
+
+         },
+
+         key=len,
+
+@@ -1243,61 +1243,61 @@
+         "b": "Р В Р вЂ ",
+
+         "c": "Р РЋР С“",
+
+         "e": "Р В Р’Вµ",
+
+-        "h": "Р В Р вЂ¦",
+
+-        "k": "Р В РЎвЂќ",
+
++        "h": "Р В Р …",
+
++        "k": "Р В РЎ”",
+
+         "m": "Р В РЎВ",
+
+-        "o": "Р В РЎвЂў",
+
++        "o": "Р С•",
+
+         "p": "Р РЋР вЂљ",
+
+-        "t": "Р РЋРІР‚С™",
+
+-        "x": "Р РЋРІР‚В¦",
+
+-        "y": "Р РЋРЎвЂњ",
+
++        "t": "т",
+
++        "x": "РЎ…",
+
++        "y": "Р РЋРЎ“",
+
+     }
+
+ )
+
+ STORY_LATIN_TO_CYRILLIC_NAME_DIGRAPHS: tuple[tuple[str, str], ...] = (
+
+-    ("shch", "Р РЋРІР‚В°"),
+
+-    ("sch", "Р РЋРІР‚В°"),
+
++    ("shch", "щ"),
+
++    ("sch", "щ"),
+
+     ("yo", "Р РЋРІР‚В"),
+
+     ("yu", "Р РЋР вЂ№"),
+
+     ("ya", "СЏ"),
+
+     ("zh", "Р В Р’В¶"),
+
+-    ("kh", "Р РЋРІР‚В¦"),
+
+-    ("ts", "Р РЋРІР‚В "),
+
++    ("kh", "РЎ…"),
+
++    ("ts", "ц"),
+
+     ("ch", "С‡"),
+
+-    ("sh", "Р РЋРІвЂљВ¬"),
+
++    ("sh", "С€"),
+
+     ("ye", "Р В Р’Вµ"),
+
+ )
+
+ STORY_LATIN_TO_CYRILLIC_NAME_CHAR_MAP = {
+
+     "a": "Р В Р’В°",
+
+     "b": "Р В Р’В±",
+
+-    "c": "Р В РЎвЂќ",
+
+-    "d": "Р В РўвЂ",
+
++    "c": "Р В РЎ”",
+
++    "d": "Р В Рў‘",
+
+     "e": "Р В Р’Вµ",
+
+-    "f": "Р РЋРІР‚С›",
+
+-    "g": "Р В РЎвЂ“",
+
+-    "h": "Р РЋРІР‚В¦",
+
+-    "i": "Р В РЎвЂ",
+
+-    "j": "Р В РІвЂћвЂ“",
+
+-    "k": "Р В РЎвЂќ",
+
++    "f": "ф",
+
++    "g": "Р В РЎ–",
+
++    "h": "РЎ…",
+
++    "i": "Р В РЎ‘",
+
++    "j": "Р В РІвЂћ–",
+
++    "k": "Р В РЎ”",
+
+     "l": "Р В Р’В»",
+
+     "m": "Р В РЎВ",
+
+-    "n": "Р В Р вЂ¦",
+
+-    "o": "Р В РЎвЂў",
+
+-    "p": "Р В РЎвЂ”",
+
+-    "q": "Р В РЎвЂќ",
+
++    "n": "Р В Р …",
+
++    "o": "Р С•",
+
++    "p": "Р В РЎ—",
+
++    "q": "Р В РЎ”",
+
+     "r": "Р РЋР вЂљ",
+
+     "s": "Р РЋР С“",
+
+-    "t": "Р РЋРІР‚С™",
+
+-    "u": "Р РЋРЎвЂњ",
+
++    "t": "т",
+
++    "u": "Р РЋРЎ“",
+
+     "v": "Р В Р вЂ ",
+
+     "w": "Р В Р вЂ ",
+
+-    "x": "РєСЃ",
+
+-    "y": "Р В РЎвЂ",
+
+-    "z": "Р В Р’В·",
+
++    "x": "кс",
+
++    "y": "Р В РЎ‘",
+
++    "z": "Р·",
+
+ }
+
+ STORY_RESPONSE_BUDGET_TARGET_FACTOR = 0.85
+
+ STORY_RESPONSE_MIN_TARGET_TOKENS = 120
+
+-STORY_OUTPUT_SENTENCE_END_CHARS = ".!?Р Р†Р вЂљР’В¦"
+
+-STORY_OUTPUT_CLOSING_CHARS = "\"'вЂќВ»)]}"
+
++STORY_OUTPUT_SENTENCE_END_CHARS = ".!?…"
+
++STORY_OUTPUT_CLOSING_CHARS = "\"'”В»)]}"
+
+ STORY_OUTPUT_TERMINAL_CHARS = STORY_OUTPUT_SENTENCE_END_CHARS + STORY_OUTPUT_CLOSING_CHARS
+
+ STORY_MORPH_ANALYZER: Any | bool | None = None
+
+ STORY_PLOT_CARD_DEFAULT_TITLE = "Суть текущего эпизода"
+
+@@ -1759,7 +1759,7 @@
+         genre = _normalize_story_quick_start_fallback_text(
+
+             payload.genre,
+
+             max_length=80,
+
+-            fallback="Р¤СЌРЅС‚РµР·Рё",
+
++            fallback="Фэнтези",
+
+         )
+
+         hero_class = _normalize_story_quick_start_fallback_text(
+
+             payload.hero_class,
+
+@@ -1778,9 +1778,9 @@
+             if start_mode == "calm"
+
+             else "История стартует прямо в центре нарастающего конфликта и требует мгновенной реакции."
+
+         )
+
+-        game_title = f"{protagonist_name} вЂ” {genre}"[:160].strip(" -вЂ”,:;") or STORY_DEFAULT_TITLE
+
++        game_title = f"{protagonist_name} — {genre}"[:160].strip(" -—,:;") or STORY_DEFAULT_TITLE
+
+         game_description = (
+
+-            f"{genre}. {protagonist_name} Р Р†Р вЂљРІР‚Сњ {hero_class.lower()}. {opening_scene_intro}"
+
++            f"{genre}. {protagonist_name} РІР‚” {hero_class.lower()}. {opening_scene_intro}"
+
+         )[:4000]
+
+         hero_description = (
+
+             f"{protagonist_name} — {hero_class.lower()} в жанре {genre.lower()}. "
+
+@@ -2491,13 +2491,13 @@
+         return ""
+
+ 
+
+     known_prefixes = (
+
+-        "РїРѕР»",
+
++        "пол",
+
+         "gender",
+
+         "возраст",
+
+         "age",
+
+         "внешность",
+
+         "appearance",
+
+-        "РѕР±Р»РёРє",
+
++        "облик",
+
+         "черты и роль",
+
+         "traits_role",
+
+         "traits",
+
+@@ -2506,9 +2506,9 @@
+         "связи и важное",
+
+         "relations_important",
+
+         "important",
+
+-        "РІР°Р¶РЅРѕРµ",
+
+-        "СЃРІСЏР·Рё",
+
+-        "СЂРѕР»СЊ",
+
++        "важное",
+
++        "связи",
+
++        "роль",
+
+     )
+
+     previous = ""
+
+     current = compact
+
+@@ -2538,7 +2538,7 @@
+         "неизвестно",
+
+         "unknown",
+
+         "n/a",
+
+-        "РЅРµС‚",
+
++        "нет",
+
+         "none",
+
+     }
+
+ 
+
+@@ -2554,8 +2554,8 @@
+         compact,
+
+         flags=re.IGNORECASE,
+
+     ).strip(" -")
+
+-    compact = re.sub(r"^[Р Р†Р вЂљРІР‚Сњ-]+\s*", "", compact).strip()
+
+-    compact = re.sub(r"\s*[Р Р†Р вЂљРІР‚Сњ-]{2,}\s*", ". ", compact).strip()
+
++    compact = re.sub(r"^[РІР‚”-]+\s*", "", compact).strip()
+
++    compact = re.sub(r"\s*[РІР‚”-]{2,}\s*", ". ", compact).strip()
+
+     if not compact:
+
+         return ""
+
+     return compact
+
+@@ -2565,22 +2565,22 @@
+     compact = " ".join(value.split()).strip()
+
+     if not compact:
+
+         return False
+
+-    if re.match(r"^[^:]{1,40}:\s*[вЂ”\-\"В«*]", compact):
+
++    if re.match(r"^[^:]{1,40}:\s*[—\-\"В«*]", compact):
+
+         return True
+
+-    if re.match(r"^[^:]{1,40}\([^)]{1,30}\)\s*:\s*[*\"В«вЂ”\-]", compact):
+
++    if re.match(r"^[^:]{1,40}\([^)]{1,30}\)\s*:\s*[*\"В«—\-]", compact):
+
+         return True
+
+-    if compact.count("Р Р†Р вЂљРІР‚Сњ") >= 2:
+
++    if compact.count("РІР‚”") >= 2:
+
+         return True
+
+     if "*" in compact and ":" in compact:
+
+         return True
+
+     if "сказал" in compact.casefold() or "сказала" in compact.casefold():
+
+         return True
+
+-    if re.search(r"[!?]\s*[Р Р†Р вЂљРІР‚Сњ-]", compact):
+
++    if re.search(r"[!?]\s*[РІР‚”-]", compact):
+
+         return True
+
+     if re.search(r"\b(привет|привеет|эй|слушай|алло|постой)\b", compact, flags=re.IGNORECASE):
+
+-        if "Р Р†Р вЂљРІР‚Сњ" in compact or "!" in compact or "?" in compact:
+
++        if "РІР‚”" in compact or "!" in compact or "?" in compact:
+
+             return True
+
+-    if "(РІ РіРѕР»РѕРІРµ)" in compact.casefold():
+
++    if "(в голове)" in compact.casefold():
+
+         return True
+
+     return False
+
+ 
+
+@@ -2595,7 +2595,7 @@
+     cleaned_lines = [_clean_story_npc_profile_fragment(line, name=name) for line in raw_lines]
+
+     cleaned_lines = [line for line in cleaned_lines if line]
+
+ 
+
+-    gender_value = _sanitize_story_npc_profile_value(_extract_story_npc_profile_field(cleaned_lines, ("РїРѕР»", "gender")))
+
++    gender_value = _sanitize_story_npc_profile_value(_extract_story_npc_profile_field(cleaned_lines, ("пол", "gender")))
+
+     age_value = _sanitize_story_npc_profile_value(_extract_story_npc_profile_field(cleaned_lines, ("возраст", "age")))
+
+     appearance_value = _sanitize_story_npc_profile_value(
+
+         _extract_story_npc_profile_field(cleaned_lines, ("внешность", "appearance", "облик"))
+
+@@ -2673,7 +2673,7 @@
+ 
+
+     return _normalize_story_world_card_content(
+
+         (
+
+-            f"РџРѕР»: {gender_value}\n"
+
++            f"Пол: {gender_value}\n"
+
+             f"Возраст: {age_value}\n"
+
+             f"Внешность: {appearance_value}\n"
+
+             f"Черты и роль: {traits_value}\n"
+
+@@ -3196,7 +3196,7 @@
+     return _normalize_story_npc_profile_content(
+
+         name,
+
+         (
+
+-            f"РџРѕР»: {inferred_gender}\n"
+
++            f"Пол: {inferred_gender}\n"
+
+             "Возраст: не указан\n"
+
+             f"Внешность: {appearance}\n"
+
+             f"Черты и роль: {traits_role}\n"
+
+@@ -3262,7 +3262,7 @@
+     base_system_content = (
+
+         "Ты создаешь профиль ИМЕНОВАННОГО NPC для RPG. "
+
+         "Верни только текст и только 5 строк в строгом шаблоне:\n"
+
+-        "РџРѕР»: ...\n"
+
++        "Пол: ...\n"
+
+         "Возраст: ...\n"
+
+         "Внешность: ...\n"
+
+         "Черты и роль: ...\n"
+
+@@ -3849,7 +3849,7 @@
+             candidate = candidate[: len(candidate) - len(ending)]
+
+             if candidate:
+
+                 stems.add(candidate)
+
+-                compact_candidate = candidate.rstrip("СЊР№")
+
++                compact_candidate = candidate.rstrip("ьй")
+
+                 if len(compact_candidate) >= 3:
+
+                     stems.add(compact_candidate)
+
+             stripped = True
+
+@@ -4378,7 +4378,7 @@
+             elif card_kind == STORY_WORLD_CARD_KIND_NPC:
+
+                 kind_label = "npc"
+
+             else:
+
+-                kind_label = "РјРёСЂ"
+
++                kind_label = "мир"
+
+             if compact_mode:
+
+                 title = _normalize_story_prompt_text(raw_title, max_chars=STORY_PROMPT_COMPACT_TITLE_MAX_CHARS)
+
+                 content = _normalize_story_prompt_text(
+
+@@ -4425,7 +4425,7 @@
+                 if card_kind == STORY_WORLD_CARD_KIND_WORLD:
+
+                     lines.append(f"Тип детали: {raw_detail_type or 'not specified'}")
+
+                 lines.append(f"Триггеры: {trigger_line or 'нет'}")
+
+-                lines.append(f"РўРёРї: {kind_label}")
+
++                lines.append(f"Тип: {kind_label}")
+
+ 
+
+         lines.extend(
+
+             [
+
+@@ -4960,25 +4960,25 @@
+     return "\n\n".join(paragraph for paragraph in normalized_paragraphs if paragraph.strip())
+
+ 
+
+ 
+
+-STORY_DIRECT_SPEECH_QUOTE_PATTERN = re.compile(r"[\"'В«В»вЂњвЂќ]")
+
++STORY_DIRECT_SPEECH_QUOTE_PATTERN = re.compile(r"[\"'В«В»“”]")
+
+ STORY_DIRECT_SPEECH_PERSON_PATTERN = re.compile(
+
+     r"\b(?:я|мне|меня|мной|мы|нас|нам|нами|мой|моя|мои|мое|ты|тебя|тебе|тобой|вы|вас|вам|вами|ваш|ваша|ваши|ваше|i|me|my|mine|we|us|our|ours|you|your|yours)\b",
+
+     re.IGNORECASE,
+
+ )
+
+ STORY_DIRECT_SPEECH_LEADING_TOKENS = {
+
+-    "Р В РЎвЂў",
+
+-    "СЌР№",
+
+-    "СЃР»СѓС€Р°Р№",
+
++    "Р С•",
+
++    "эй",
+
++    "слушай",
+
+     "послушай",
+
+-    "РЅСѓ",
+
+-    "РЅРµС‚",
+
+-    "Р В РўвЂР В Р’В°",
+
+-    "Р»Р°РґРЅРѕ",
+
++    "ну",
+
++    "нет",
+
++    "Р В Рў‘Р В Р’В°",
+
++    "ладно",
+
+     "please",
+
+     "hey",
+
+ }
+
+ STORY_DIRECT_SPEECH_NEGATION_TOKENS = {
+
+-    "Р В Р вЂ¦Р В Р’Вµ",
+
++    "Р В Р …Р В Р’Вµ",
+
+     "don't",
+
+     "dont",
+
+ }
+
+@@ -4995,7 +4995,7 @@
+     if STORY_DIRECT_SPEECH_QUOTE_PATTERN.search(compact):
+
+         return True
+
+ 
+
+-    stripped = compact.lstrip("вЂ”-\"'В«В»вЂњвЂќ ").strip()
+
++    stripped = compact.lstrip("—-\"'В«В»“” ").strip()
+
+     if not stripped or _is_story_sentence_likely_narrative_followup(stripped):
+
+         return False
+
+ 
+
+@@ -5150,7 +5150,7 @@
+             normalized_paragraphs.append(block_text)
+
+             continue
+
+         if block_kind == "thought":
+
+-            normalized_paragraphs.append(f"{speaker_name} (РІ РіРѕР»РѕРІРµ): {block_text}")
+
++            normalized_paragraphs.append(f"{speaker_name} (в голове): {block_text}")
+
+         else:
+
+             normalized_paragraphs.append(f"{speaker_name}: {block_text}")
+
+ 
+
+@@ -5194,7 +5194,7 @@
+             normalized_paragraphs.append(text_body)
+
+             continue
+
+         if compact_key in {"npcthought", "npcthink", "ggthought", "ggthink"} and raw_speaker:
+
+-            normalized_paragraphs.append(f"{raw_speaker} (РІ РіРѕР»РѕРІРµ): {text_body}")
+
++            normalized_paragraphs.append(f"{raw_speaker} (в голове): {text_body}")
+
+             continue
+
+         if compact_key in {
+
+             "npc",
+
+@@ -5262,9 +5262,9 @@
+         seen_speakers.add(card_key)
+
+         known_speakers.append(card_title)
+
+ 
+
+-    known_speakers_preview = ", ".join(known_speakers[:40]) if known_speakers else "РЅРµС‚"
+
++    known_speakers_preview = ", ".join(known_speakers[:40]) if known_speakers else "нет"
+
+     scene_names = _extract_story_explicit_person_names_from_text(text_value)
+
+-    scene_names_preview = ", ".join(scene_names[:20]) if scene_names else "РЅРµС‚"
+
++    scene_names_preview = ", ".join(scene_names[:20]) if scene_names else "нет"
+
+     return [
+
+         {
+
+             "role": "system",
+
+@@ -5779,7 +5779,7 @@
+     ]
+
+     normalized_values = [value for value in normalized_values if value]
+
+     if not normalized_values:
+
+-        return "РЅРµС‚"
+
++        return "нет"
+
+     return ", ".join(normalized_values[:max_items])
+
+ 
+
+ 
+
+@@ -6049,7 +6049,7 @@
+     search_limit = min(len(buffer), max_chars)
+
+     cut_index = -1
+
+     for index in range(search_limit - 1, -1, -1):
+
+-        if buffer[index] in {".", "!", "?", "Р Р†Р вЂљР’В¦", "\n"}:
+
++        if buffer[index] in {".", "!", "?", "…", "\n"}:
+
+             cut_index = index + 1
+
+             break
+
+ 
+
+@@ -6201,7 +6201,7 @@
+     cleaned = re.sub(r"\b[A-Za-z][A-Za-z0-9'-]{0,48}\b", " ", cleaned)
+
+     cleaned = re.sub(r"[A-Za-z]+", " ", cleaned)
+
+     cleaned = STORY_NON_RUSSIAN_SYMBOL_PATTERN.sub(" ", cleaned)
+
+-    cleaned = re.sub(r"([.,!?;:])(?![\s\nВ»вЂќ\"')\]])", r"\1 ", cleaned)
+
++    cleaned = re.sub(r"([.,!?;:])(?![\s\nВ»”\"')\]])", r"\1 ", cleaned)
+
+     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+
+     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+
+     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+
+@@ -6964,7 +6964,7 @@
+         for title in existing_titles[: (24 if compact_mode else 40)]
+
+     ]
+
+     existing_title_items = [title for title in existing_title_items if title]
+
+-    existing_titles_preview = ", ".join(existing_title_items) if existing_title_items else "РЅРµС‚"
+
++    existing_titles_preview = ", ".join(existing_title_items) if existing_title_items else "нет"
+
+     prompt_preview = prompt.strip()
+
+     assistant_preview = assistant_text.strip()
+
+     prompt_preview = _normalize_story_prompt_text(
+
+@@ -7166,7 +7166,7 @@
+             "content": (
+
+                 f"Ход игрока:\n{prompt_preview}\n\n"
+
+                 f"Ответ мастера:\n{assistant_preview}\n\n"
+
+-                f"РўРµРєСѓС‰РёРµ world cards JSON:\n{existing_cards_json}\n\n"
+
++                f"Текущие world cards JSON:\n{existing_cards_json}\n\n"
+
+                 "Верни только JSON-массив."
+
+             ) if compact_mode else (
+
+                 f"Player action:\n{prompt_preview}\n\n"
+
+@@ -8223,11 +8223,11 @@
+     if not normalized and not preferred_lines:
+
+         return ""
+
+ 
+
+-    lines = [line.strip(" -Р Р†Р вЂљРЎС›\t") for line in (preferred_lines or []) if isinstance(line, str) and line.strip()]
+
++    lines = [line.strip(" -•\t") for line in (preferred_lines or []) if isinstance(line, str) and line.strip()]
+
+     if not lines and normalized:
+
+-        lines = [line.strip(" -Р Р†Р вЂљРЎС›\t") for line in normalized.split("\n") if line.strip()]
+
++        lines = [line.strip(" -•\t") for line in normalized.split("\n") if line.strip()]
+
+     if len(lines) <= 1:
+
+-        sentence_candidates = re.split(r"(?<=[.!?Р Р†Р вЂљР’В¦])\s+", re.sub(r"\s+", " ", normalized or ""))
+
++        sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", normalized or ""))
+
+         lines = [candidate.strip() for candidate in sentence_candidates if candidate.strip()]
+
+ 
+
+     cleaned_lines: list[tuple[int, str]] = []
+
+@@ -8301,7 +8301,7 @@
+         return STORY_PLOT_CARD_DEFAULT_TITLE
+
+ 
+
+     for line in line_candidates:
+
+-        compact = re.sub(r"\s+", " ", line).strip(" -Р Р†Р вЂљРЎС›\t")
+
++        compact = re.sub(r"\s+", " ", line).strip(" -•\t")
+
+         if not compact:
+
+             continue
+
+         compact = STORY_PLOT_CARD_POINT_PREFIX_PATTERN.sub("", compact).strip(" ,;:-.")
+
+@@ -8336,7 +8336,7 @@
+         raw_payload.get("content")
+
+         or raw_payload.get("summary")
+
+         or raw_payload.get("text")
+
+-        or raw_payload.get("С‚РµРєСЃС‚")
+
++        or raw_payload.get("текст")
+
+     )
+
+     raw_points = _extract_story_plot_memory_points(raw_payload)
+
+     if not isinstance(raw_title, str) or not isinstance(raw_content, str):
+
+@@ -8451,7 +8451,7 @@
+ 
+
+ 
+
+ def _normalize_story_plot_memory_line(value: str) -> str:
+
+-    compact = re.sub(r"\s+", " ", value).strip(" -Р Р†Р вЂљРЎС›\t")
+
++    compact = re.sub(r"\s+", " ", value).strip(" -•\t")
+
+     if not compact:
+
+         return ""
+
+     if len(compact) > STORY_PLOT_CARD_MEMORY_TARGET_LINE_MAX_CHARS:
+
+@@ -8737,7 +8737,7 @@
+         compact,
+
+         flags=re.IGNORECASE,
+
+     ).strip()
+
+-    compact = re.sub(r"^[,.;:()\[\]\-вЂ“вЂ”]+\s*", "", compact).strip()
+
++    compact = re.sub(r"^[,.;:()\[\]\-–—]+\s*", "", compact).strip()
+
+     if not compact:
+
+         return ""
+
+ 
+
+@@ -8757,7 +8757,7 @@
+     if len(compact) < 18:
+
+         return ""
+
+ 
+
+-    if compact[-1] not in ".!?Р Р†Р вЂљР’В¦":
+
++    if compact[-1] not in ".!?…":
+
+         compact = f"{compact}."
+
+     return compact[:1].upper() + compact[1:]
+
+ 
+
+@@ -9024,7 +9024,7 @@
+     (re.compile(r"\b(?:в|во)\s+(?:самой\s+)?столиц[еыуа]\b", re.IGNORECASE), lambda _match: "Столица"),
+
+     (
+
+         re.compile(r"\b(?:в|во)\s+город[еау]?\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})", re.IGNORECASE),
+
+-        lambda match: f"Р“РѕСЂРѕРґ {' '.join(str(match.group('name') or '').split()).strip()}",
+
++        lambda match: f"Город {' '.join(str(match.group('name') or '').split()).strip()}",
+
+     ),
+
+     (
+
+         re.compile(r"\b(?:в|во)\s+деревн[еиу]\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})", re.IGNORECASE),
+
+@@ -9032,7 +9032,7 @@
+     ),
+
+ )
+
+ 
+
+-_STORY_LOCATION_SCENE_NAME_STRIP_CHARS = "\"Р вЂ™Р’В«Р вЂ™Р’В»"
+
++_STORY_LOCATION_SCENE_NAME_STRIP_CHARS = "\"Р ’Р’В«Р ’Р’В»"
+
+ 
+
+ 
+
+ _STORY_LOCATION_SCENE_CONTEXT_PATTERNS = (
+
+@@ -9110,28 +9110,28 @@
+ 
+
+ _STORY_LOCATION_FALLBACK_TOKEN_STOPWORDS = {
+
+     "Р В Р вЂ ",
+
+-    "РІРѕ",
+
+-    "Р В Р вЂ¦Р В Р’В°",
+
+-    "Р РЋРЎвЂњ",
+
+-    "Р В РЎвЂќ",
+
+-    "РІРЅСѓС‚СЂРё",
+
++    "во",
+
++    "Р В Р …Р В Р’В°",
+
++    "Р РЋРЎ“",
+
++    "Р В РЎ”",
+
++    "внутри",
+
+     "действие",
+
+     "происходит",
+
+     "события",
+
+     "происходят",
+
+     "столица",
+
+-    "РіРѕСЂРѕРґ",
+
++    "город",
+
+     "деревня",
+
+-    "СѓР»РёС†Р°",
+
++    "улица",
+
+     "переулок",
+
+-    "РїР»РѕС‰Р°РґСЊ",
+
+-    "СЂС‹РЅРѕРє",
+
+-    "РїРѕСЂС‚",
+
+-    "РґРІРѕСЂРµС†",
+
+-    "Р·Р°РјРѕРє",
+
++    "площадь",
+
++    "рынок",
+
++    "порт",
+
++    "дворец",
+
++    "замок",
+
+     "Р»РµСЃ",
+
+-    "Р±РµСЂРµРі",
+
+-    "РЅРѕС‡СЊСЋ",
+
++    "берег",
+
++    "ночью",
+
+ }
+
+ 
+
+ 
+
+@@ -9165,36 +9165,36 @@
+ 
+
+ _STORY_LOCATION_NAME_STOPWORDS = {
+
+     "Р В Р вЂ ",
+
+-    "РІРѕ",
+
+-    "Р В Р вЂ¦Р В Р’В°",
+
+-    "Р РЋРЎвЂњ",
+
+-    "Р В РЎвЂќ",
+
+-    "Р В РЎвЂР В Р’В·",
+
+-    "РѕС‚",
+
+-    "Р В РўвЂР В РЎвЂў",
+
+-    "РїРѕ",
+
+-    "РїРѕРґ",
+
+-    "РЅР°Рґ",
+
+-    "РїРµСЂРµРґ",
+
+-    "Р В Р’В·Р В Р’В°",
+
+-    "Р В РЎвЂ",
+
+-    "РёР»Рё",
+
+-    "РЅРѕ",
+
++    "во",
+
++    "Р В Р …Р В Р’В°",
+
++    "Р РЋРЎ“",
+
++    "Р В РЎ”",
+
++    "Р В РЎ‘Р В Р’В·",
+
++    "от",
+
++    "Р В Рў‘Р В РЎвЂў",
+
++    "по",
+
++    "под",
+
++    "над",
+
++    "перед",
+
++    "Р·Р°",
+
++    "Р В РЎ‘",
+
++    "или",
+
++    "но",
+
+     "Р В Р’В°",
+
+-    "Р В Р’В¶Р В Р’Вµ",
+
+-    "С‡С‚Рѕ",
+
+-    "РєРѕРіРґР°",
+
+-    "РµСЃР»Рё",
+
+-    "РєР°Рє",
+
+-    "РіРґРµ",
+
+-    "РїРѕС‚РѕРј",
+
++    "Р В¶Р Вµ",
+
++    "что",
+
++    "когда",
+
++    "если",
+
++    "как",
+
++    "где",
+
++    "потом",
+
+     "сейчас",
+
+-    "РЅРѕС‡СЊСЋ",
+
+-    "СѓС‚СЂРѕРј",
+
+-    "РґРЅРµРј",
+
++    "ночью",
+
++    "утром",
+
++    "днем",
+
+     "вечером",
+
+     "столице",
+
+-    "РіРѕСЂРѕРґРµ",
+
++    "городе",
+
+ }
+
+ 
+
+ 
+
+@@ -9220,11 +9220,11 @@
+     for keyword_position in reversed(keyword_positions):
+
+         word_end = keyword_position
+
+         while word_end < len(normalized_text) and (
+
+-            normalized_text[word_end].isalnum() or normalized_text[word_end] in {"-", "С‘", "РЃ"}
+
++            normalized_text[word_end].isalnum() or normalized_text[word_end] in {"-", "ё", "Ё"}
+
+         ):
+
+             word_end += 1
+
+ 
+
+-        tail = normalized_text[word_end:].lstrip(" \t\r\n\"Р вЂ™Р’В«'")
+
++        tail = normalized_text[word_end:].lstrip(" \t\r\n\"Р ’Р’В«'")
+
+         if not tail:
+
+             continue
+
+ 
+
+@@ -9274,8 +9274,8 @@
+             marker in lowered_text
+
+             for marker in (
+
+                 f"Р В Р вЂ  {keyword_root}",
+
+-                f"РІРѕ {keyword_root}",
+
+-                f"РІРЅСѓС‚СЂРё {keyword_root}",
+
++                f"во {keyword_root}",
+
++                f"внутри {keyword_root}",
+
+                 f"за стойкой {keyword_root}",
+
+             )
+
+         ):
+
+@@ -9377,7 +9377,7 @@
+     def _clean_named_place(raw_value: str) -> str:
+
+         normalized_value = str(raw_value or "").replace("\r", " ").replace("\n", " ")
+
+         normalized_value = re.split(r"[,.!?:;]", normalized_value, maxsplit=1)[0]
+
+-        normalized_value = normalized_value.strip(" \"Р вЂ™Р’В«Р вЂ™Р’В»'")
+
++        normalized_value = normalized_value.strip(" \"Р ’Р’В«Р ’Р’В»'")
+
+         if not normalized_value:
+
+             return ""
+
+ 
+
+@@ -9389,25 +9389,25 @@
+ 
+
+         stop_tokens = {
+
+             "Р В Р вЂ ",
+
+-            "РІРѕ",
+
+-            "Р В Р вЂ¦Р В Р’В°",
+
+-            "Р РЋРЎвЂњ",
+
+-            "Р В РЎвЂќ",
+
+-            "Р В РЎвЂ",
+
+-            "РЅРѕ",
+
++            "во",
+
++            "Р В Р …Р В Р’В°",
+
++            "Р РЋРЎ“",
+
++            "Р В РЎ”",
+
++            "Р В РЎ‘",
+
++            "но",
+
+             "Р В Р’В°",
+
+-            "С‡С‚Рѕ",
+
+-            "РєРѕРіРґР°",
+
+-            "РіРґРµ",
+
+-            "РїРѕРєР°",
+
+-            "РїРѕСЃР»Рµ",
+
+-            "РїРµСЂРµРґ",
+
+-            "РІРЅСѓС‚СЂРё",
+
++            "что",
+
++            "когда",
+
++            "где",
+
++            "пока",
+
++            "после",
+
++            "перед",
+
++            "внутри",
+
+             "снаружи",
+
+-            "РІРµС‡РµСЂ",
+
+-            "РЅРѕС‡СЊ",
+
+-            "СѓС‚СЂРѕ",
+
+-            "РґРµРЅСЊ",
+
++            "вечер",
+
++            "ночь",
+
++            "утро",
+
++            "день",
+
+         }
+
+         candidate_tokens = [tokens[0]]
+
+         for token in tokens[1:]:
+
+@@ -9429,7 +9429,7 @@
+         if city_match:
+
+             city_name = _clean_named_place(str(city_match.group("name") or ""))
+
+             if city_name:
+
+-                return f"Р“РѕСЂРѕРґ {city_name}"
+
++                return f"Город {city_name}"
+
+         village_match = re.search(
+
+             r"\b(?:в|во)\s+деревн[ееиу]\s+(?P<name>[A-ZА-ЯЁ][^,.!?:;\n]{1,40})",
+
+             text_value,
+
+@@ -9536,7 +9536,7 @@
+         str(getattr(game, "current_location_label", "") or ""),
+
+         memory_blocks,
+
+     )
+
+-    resolved_location_label = _strip_story_location_time_context(resolved_location_label).strip(" .,:;!?Р Р†Р вЂљР’В¦")
+
++    resolved_location_label = _strip_story_location_time_context(resolved_location_label).strip(" .,:;!?…")
+
+     if resolved_location_label:
+
+         context_cards.append(
+
+             {
+
+@@ -9648,8 +9648,8 @@
+             layer = _normalize_story_memory_layer(block.layer)
+
+             if layer in {STORY_MEMORY_LAYER_LOCATION, STORY_MEMORY_LAYER_WEATHER}:
+
+                 continue
+
+-            title_prefix = layer_label.get(layer, "РџР°РјСЏС‚СЊ")
+
+-            full_title = " ".join(f"{title_prefix}: {title or 'Р‘Р»РѕРє'}".split()).strip()
+
++            title_prefix = layer_label.get(layer, "Память")
+
++            full_title = " ".join(f"{title_prefix}: {title or 'Блок'}".split()).strip()
+
+             if len(full_title) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
+
+                 full_title = full_title[:STORY_PLOT_CARD_MAX_TITLE_LENGTH].rstrip()
+
+             combined_cards.append(
+
+@@ -10943,7 +10943,7 @@
+     lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
+
+ 
+
+     profile_gender = _sanitize_story_npc_profile_value(
+
+-        _extract_story_npc_profile_field(lines, ("РїРѕР»", "gender"))
+
++        _extract_story_npc_profile_field(lines, ("пол", "gender"))
+
+     )
+
+     profile_gender_hint = _extract_story_turn_image_gender_hint_from_text(profile_gender)
+
+     if profile_gender_hint:
+
+@@ -11018,20 +11018,20 @@
+ 
+
+ def _extract_story_turn_image_visual_sentences(plain_content: str) -> list[str]:
+
+     visual_keywords = (
+
+-        "РІРЅРµС€",
+
+-        "РІРѕР»РѕСЃ",
+
++        "внеш",
+
++        "волос",
+
+         "РіР»Р°Р·",
+
+-        "РѕРґРµР¶Рґ",
+
+-        "РєСѓСЂС‚Рє",
+
+-        "СЂСѓР±Р°С€",
+
+-        "РїР»Р°С‚СЊ",
+
+-        "СЋР±Рє",
+
+-        "Р±СЂСЋРє",
+
+-        "С„СѓС‚Р±РѕР»",
+
++        "одежд",
+
++        "куртк",
+
++        "рубаш",
+
++        "плать",
+
++        "юбк",
+
++        "брюк",
+
++        "футбол",
+
+         "телослож",
+
+-        "СЂРѕСЃС‚",
+
+-        "Р»РёС†",
+
+-        "С€СЂР°Рј",
+
++        "рост",
+
++        "лиц",
+
++        "шрам",
+
+         "причес",
+
+         "цвет волос",
+
+         "hair",
+
+@@ -11093,7 +11093,7 @@
+         ("глаза", "цвет глаз", "eyes", "eye color"),
+
+         ("телосложение", "рост", "build", "body type", "height"),
+
+         ("особые приметы", "приметы", "шрам", "тату", "marks", "scar", "tattoo"),
+
+-        ("РѕРґРµР¶РґР°", "style", "outfit", "clothes"),
+
++        ("одежда", "style", "outfit", "clothes"),
+
+     )
+
+     for prefixes in profile_field_groups:
+
+         field_value = _extract_story_npc_profile_field(lines, prefixes)
+
+@@ -12611,23 +12611,23 @@
+     non_hero_entries = [entry for entry in mentioned_entries if not entry.get("is_main_hero")]
+
+ 
+
+     original_assistant_text = latest_assistant_text or ""
+
+-    has_dialogue = any(token in original_assistant_text for token in ("вЂ”", "В«", "В»", "\""))
+
++    has_dialogue = any(token in original_assistant_text for token in ("—", "В«", "В»", "\""))
+
+     interaction_markers = (
+
+         " рядом с ",
+
+-        " РІРјРµСЃС‚Рµ ",
+
++        " вместе ",
+
+         " говорит ",
+
+-        " СЃРєР°Р·Р°Р» ",
+
++        " сказал ",
+
+         " сказала ",
+
+         " отвечает ",
+
+-        " РѕС‚РІРµС‚РёР» ",
+
++        " ответил ",
+
+         " ответила ",
+
+         " встрет",
+
+         " смотрит на ",
+
+-        " РёРґРµС‚ СЃ ",
+
+-        " РёРґРµС€СЊ СЃ ",
+
+-        " РїРѕС€РµР» СЃ ",
+
+-        " РїРѕС€Р»Р° СЃ ",
+
+-        " РјС‹ РѕР±Р° ",
+
++        " идет с ",
+
++        " идешь с ",
+
++        " пошел с ",
+
++        " пошла с ",
+
++        " мы оба ",
+
+         " РѕР±Р° ",
+
+     )
+
+     has_interaction = has_dialogue or any(marker in f" {combined_text} " for marker in interaction_markers)
+
+*** Update File: backend/app/routers/story_games.py
+@@ -361,7 +361,7 @@
+ STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
+
+ STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8_000
+
+ STORY_GAME_TITLE_MAX_LENGTH = 160
+
+-STORY_CLONE_TITLE_SUFFIX = " (РєРѕРїРёСЏ)"
+
++STORY_CLONE_TITLE_SUFFIX = " (копия)"
+
+ PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
+
+ STORY_LIST_PREVIEW_MAX_CHARS = 145
+
+ STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
+
+@@ -526,9 +526,9 @@
+         ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "Р›СРіРєР°СЏ РґС‹РРєР°", "РћР±Р»Р°С‡РЅРѕ", "РџСЂРѕС…Р»Р°РґРЅС‹Р№ РІРµС‡РµСЂ"),
+
+     ),
+
+     "autumn": (
+
+-        ("РџСЂРѕС…Р»Р°РґРЅР°СЏ РЅРѕС‡СЊ", "РЎРІРµС‚Р»РѕРµ РѕСЃРµРЅРЅРµРµ СѓС‚СЂРѕ", "РЎСѓС…РѕР№ РѕСЃРµРЅРЅРёР№ РґРµРЅСЊ", "РЎРІРµР¶РёР№ РѕСЃРµРЅРЅРёР№ РІРµС‡РµСЂ"),
+
++        ("Прохладная ночь", "Светлое осеннее утро", "Сухой осенний день", "Свежий осенний вечер"),
+
+         ("РћР±Р»Р°С‡РЅР°СЏ РЅРѕС‡СЊ", "РџР°СЃРСѓСЂРЅРѕРµ СѓС‚СЂРѕ", "РҐРСѓСЂС‹Р№ РґРµРЅСЊ", "РћР±Р»Р°С‡РЅС‹Р№ РІРµС‡РµСЂ"),
+
+-        ("РЎС‹СЂР°СЏ РЅРѕС‡СЊ", "Р”РѕР¶РґР»РёРІРѕРµ СѓС‚СЂРѕ", "РњРѕСЂРѕСЃСЊ", "Р’РµС‚СЂРµРЅС‹Р№ РґРѕР¶РґР»РёРІС‹Р№ РІРµС‡РµСЂ"),
+
++        ("Сырая ночь", "Дождливое утро", "Морось", "Ветреный дождливый вечер"),
+
+         ("РўСѓРР°РЅРЅР°СЏ РЅРѕС‡СЊ", "РҐРѕР»РѕРґРЅРѕРµ СѓС‚СЂРѕ СЃ РґС‹РРєРѕР№", "РЎС‹СЂРѕР№ СЃРµСЂС‹Р№ РґРµРЅСЊ", "Р—СЏР±РєРёР№ РІРµС‡РµСЂ"),
+
+     ),
+
+ }
+
+@@ -587,7 +587,7 @@
+     tomorrow_pattern_index = (pattern_index + 1) % pattern_count
+
+     base_temps = _STORY_ENVIRONMENT_EMERGENCY_BASE_TEMPS[season_key]
+
+     daily_shift = (int(getattr(game, "id", 0) or 0) % 5) - 2
+
+-    humidity_by_pattern = ("Р’С‹СЃРѕРєР°СЏ", "РЎСЂРµРґРЅСЏСЏ", "Р’С‹СЃРѕРєР°СЏ", "Р’С‹СЃРѕРєР°СЏ")
+
++    humidity_by_pattern = ("Высокая", "Средняя", "Высокая", "Высокая")
+
+     wind_by_pattern = ("РЎР»Р°Р±С‹Р№", "Р›СРіРєРёР№", "РЈРРµСЂРµРЅРЅС‹Р№", "РЎР»Р°Р±С‹Р№")
+
+     fog_by_pattern = ("РќРµС‚", "РќРµС‚", "РќРµС‚", "Р›СРіРєРёР№")
+
+ 
+
+@@ -603,7 +603,7 @@
+                     "end_time": end_time,
+
+                     "summary": summaries[slot_index],
+
+                     "temperature_c": base_temps[slot_index] + daily_shift + (selected_pattern_index - 1),
+
+-                    "fog": fog_by_pattern[selected_pattern_index] if slot_index in {0, 1} else "РќРµС‚",
+
++                    "fog": fog_by_pattern[selected_pattern_index] if slot_index in {0, 1} else "Нет",
+
+                     "humidity": humidity_by_pattern[selected_pattern_index],
+
+                     "wind": wind_by_pattern[selected_pattern_index],
+
+                 }
+
+@@ -614,9 +614,9 @@
+         payload: dict[str, Any] = {
+
+             "summary": str(active_entry.get("summary") or ""),
+
+             "temperature_c": int(active_entry.get("temperature_c") or 0),
+
+-            "fog": str(active_entry.get("fog") or "РќРµС‚"),
+
+-            "humidity": str(active_entry.get("humidity") or "РЎСЂРµРґРЅСЏСЏ"),
+
+-            "wind": str(active_entry.get("wind") or "РЎР»Р°Р±С‹Р№"),
+
++            "fog": str(active_entry.get("fog") or "Нет"),
+
++            "humidity": str(active_entry.get("humidity") or "Средняя"),
+
++            "wind": str(active_entry.get("wind") or "Слабый"),
+
+             "day_date": day_datetime.date().isoformat(),
+
+         }
+
+         if include_timeline:
+
+@@ -672,22 +672,22 @@
+     protagonist_name: str,
+
+     start_mode: str,
+
+ ) -> dict[str, object]:
+
+-    normalized_genre = " ".join(genre.split()).strip() or "РџСЂРёРєР»СЋС‡РµРЅРёРµ"
+
+-    normalized_class = " ".join(hero_class.split()).strip() or "РіРµСЂРѕР№"
+
+-    normalized_name = " ".join(protagonist_name.split()).strip() or "Р“РµСЂРѕР№"
+
+-    opening_mode_label = "СЃРїРѕРєРѕР№РЅС‹Р№ РІС…РѕРґ" if start_mode == "calm" else "СЃСЂР°Р·Сѓ РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№"
+
+-    game_title = f"{normalized_name} вЂ” {normalized_genre}"[:60].rstrip(" -вЂ”,:;") or normalized_name or STORY_DEFAULT_TITLE
+
++    normalized_genre = " ".join(genre.split()).strip() or "Приключение"
+
++    normalized_class = " ".join(hero_class.split()).strip() or "герой"
+
++    normalized_name = " ".join(protagonist_name.split()).strip() or "Герой"
+
++    opening_mode_label = "спокойный вход" if start_mode == "calm" else "сразу в гуще событий"
+
++    game_title = f"{normalized_name} — {normalized_genre}"[:60].rstrip(" -—,:;") or normalized_name or STORY_DEFAULT_TITLE
+
+     return {
+
+         "game_title": game_title,
+
+         "game_description": f"{normalized_genre}. РСЃС‚РѕСЂРёСЏ Рѕ РіРµСЂРѕРµ {normalized_name}.",
+
+         "hero_description": (
+
+-            f"{normalized_name} вЂ” {normalized_class.lower()}, РРѕР»РѕРґРѕР№ РіРµСЂРѕР№ СЌС‚РѕРіРѕ РРёСЂР°. "
+
++            f"{normalized_name} — {normalized_class.lower()}, РРѕР»РѕРґРѕР№ РіРµСЂРѕР№ СЌС‚РѕРіРѕ РРёСЂР°. "
+
+             "Р•РіРѕ РІРЅРµС€РЅРѕСЃС‚СЊ Рё РѕРґРµР¶РґР° СЃСЂР°Р·Сѓ РІС‹РґР°СЋС‚ РІС‹Р±СЂР°РЅРЅСѓСЋ СЂРѕР»СЊ, Р° С…Р°СЂР°РєС‚РµСЂ СЃРѕС‡РµС‚Р°РµС‚ СЂРµС€РёРРѕСЃС‚СЊ Рё СЃРєСЂС‹С‚СѓСЋ СѓСЏР·РІРёРРѕСЃС‚СЊ. "
+
+             "РЈ РЅРµРіРѕ СѓР¶Рµ РµСЃС‚СЊ Р»РёС‡РЅР°СЏ РїСЂРёС‡РёРЅР° РёРґС‚Рё РІРїРµСЂСРґ, Рё РёРРµРЅРЅРѕ РѕРЅР° РІС‚СЏРіРёРІР°РµС‚ РµРіРѕ РІ СЃСЋР¶РµС‚."
+
+         ),
+
+-        "hero_triggers": [normalized_name, normalized_class, normalized_genre, "РіР»Р°РІРЅС‹Р№ РіРµСЂРѕР№"],
+
++        "hero_triggers": [normalized_name, normalized_class, normalized_genre, "главный герой"],
+
+         "opening_scene": (
+
+-            f"{normalized_name} РґРµР»Р°РµС‚ РїРµСЂРІС‹Р№ С€Р°Рі РІ РЅРѕРІСѓСЋ РёСЃС‚РѕСЂРёСЋ. "
+
++            f"{normalized_name} делает первый шаг в новую историю. "
+
+             f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {opening_mode_label}. "
+
+             "РЎС†РµРЅР° РґРѕР»Р¶РЅР° СЃСЂР°Р·Сѓ РїРѕРґРІРµСЃС‚Рё РёРіСЂРѕРєР° Рє РїРµСЂРІРѕРСѓ СЂРµС€РµРЅРёСЋ."
+
+         ),
+
+@@ -706,7 +706,7 @@
+     normalized_genre = " ".join(genre.split()).strip()
+
+     normalized_class = " ".join(hero_class.split()).strip()
+
+     normalized_name = " ".join(protagonist_name.split()).strip()
+
+-    start_mode_label = "СЃРїРѕРєРѕР№РЅС‹Р№" if start_mode == "calm" else "РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№"
+
++    start_mode_label = "спокойный" if start_mode == "calm" else "в гуще событий"
+
+     fallback_payload = _build_story_quick_start_fallback_payload(
+
+         genre=genre,
+
+         hero_class=hero_class,
+
+@@ -732,15 +732,15 @@
+         {
+
+             "role": "user",
+
+             "content": (
+
+-                "РЎРѕР±РµСЂРё РїСЂРѕС„РёР»СЊ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ СЃС‚Р°СЂС‚Р° С‚РµРєСЃС‚РѕРІРѕР№ RPG.\n"
+
+-                f"Р–Р°РЅСЂ: {normalized_genre}\n"
+
+-                f"РљР»Р°СЃСЃ РіРµСЂРѕСЏ: {normalized_class}\n"
+
++                "Собери профиль для быстрого старта текстовой RPG.\n"
+
++                f"Жанр: {normalized_genre}\n"
+
++                f"Класс героя: {normalized_class}\n"
+
+                 f"РРСЏ РіР»Р°РІРЅРѕРіРѕ РіРµСЂРѕСЏ: {normalized_name}\n"
+
+                 f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {start_mode_label}\n\n"
+
+-                "РўСЂРµР±РѕРІР°РЅРёСЏ:\n"
+
++                "Требования:\n"
+
+                 "1. game_title: РєРѕСЂРѕС‚РєРѕРµ РЅР°Р·РІР°РЅРёРµ РґРѕ 60 СЃРёРРІРѕР»РѕРІ.\n"
+
+                 "2. game_description: 1-2 РїСЂРµРґР»РѕР¶РµРЅРёСЏ РґР»СЏ РєР°СЂС‚РѕС‡РєРё РРёСЂР°.\n"
+
+-                "3. hero_description: 4-6 РїСЂРµРґР»РѕР¶РµРЅРёР№, РєРѕРЅРєСЂРµС‚РЅРѕ Рё Р±РµР· С€Р°Р±Р»РѕРЅРЅРѕР№ РІРѕРґС‹.\n"
+
++                "3. hero_description: 4-6 предложений, конкретно и без шаблонной воды.\n"
+
+                 "4. hero_description РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ РґРѕР»Р¶РµРЅ СЃРѕРґРµСЂР¶Р°С‚СЊ РїРѕР» РёР»Рё РіРµРЅРґРµСЂРЅСѓСЋ РїРѕРґР°С‡Сѓ, СЂР°СЃСѓ/РїСЂРѕРёСЃС…РѕР¶РґРµРЅРёРµ, РІРѕР·СЂР°СЃС‚, РѕРґРµР¶РґСѓ, Р·Р°РРµС‚РЅС‹Рµ С‡РµСЂС‚С‹ РІРЅРµС€РЅРѕСЃС‚Рё Рё СЃР°Р РєР»Р°СЃСЃ РіРµСЂРѕСЏ.\n"
+
+                 "5. РЎРґРµР»Р°Р№ РѕРїРёСЃР°РЅРёРµ С‚Р°РєРёР, Р±СѓРґС‚Рѕ РµРіРѕ РїСЂРёРґСѓРР°Р» Р°РІС‚РѕСЂ РРёСЂР°, Р° РЅРµ Р°РЅРєРµС‚Р°-РєРѕРЅСЃС‚СЂСѓРєС‚РѕСЂ.\n"
+
+                 "6. hero_triggers: РР°СЃСЃРёРІ РёР· 4-6 РєРѕСЂРѕС‚РєРёС… С‚СЂРёРіРіРµСЂРѕРІ.\n"
+
+@@ -764,13 +764,13 @@
+         {
+
+             "role": "user",
+
+             "content": (
+
+-                "РќР°РїРёС€Рё С‚РѕР»СЊРєРѕ СЃС‚Р°СЂС‚РѕРІСѓСЋ СЃС†РµРЅСѓ РґР»СЏ Р±С‹СЃС‚СЂРѕРіРѕ СЃС‚Р°СЂС‚Р° С‚РµРєСЃС‚РѕРІРѕР№ RPG.\n"
+
+-                f"Р–Р°РЅСЂ: {normalized_genre}\n"
+
+-                f"РљР»Р°СЃСЃ РіРµСЂРѕСЏ: {normalized_class}\n"
+
++                "Напиши только стартовую сцену для быстрого старта текстовой RPG.\n"
+
++                f"Жанр: {normalized_genre}\n"
+
++                f"Класс героя: {normalized_class}\n"
+
+                 f"РРСЏ РіР»Р°РІРЅРѕРіРѕ РіРµСЂРѕСЏ: {normalized_name}\n"
+
+                 f"Р РµР¶РёР СЃС‚Р°СЂС‚Р°: {start_mode_label}\n\n"
+
+-                "РўСЂРµР±РѕРІР°РЅРёСЏ:\n"
+
+-                "1. opening_scene: 2-4 Р°Р±Р·Р°С†Р° Р¶РёРІРѕРіРѕ С‚РµРєСЃС‚Р° Р±РµР· markdown.\n"
+
++                "Требования:\n"
+
++                "1. opening_scene: 2-4 абзаца живого текста без markdown.\n"
+
+                 "2. Р•СЃР»Рё СЂРµР¶РёР СЃРїРѕРєРѕР№РЅС‹Р№, РЅР°С‡РЅРё СЃ РСЏРіРєРѕРіРѕ РІС…РѕРґР°, Р·РЅР°РєРѕРСЃС‚РІР° СЃ РРµСЃС‚РѕР Рё СЃСЂР°Р·Сѓ РґР°Р№ РєСЂСЋС‡РѕРє РґР»СЏ РїРµСЂРІРѕРіРѕ РґРµР№СЃС‚РІРёСЏ.\n"
+
+                 "3. Р•СЃР»Рё СЂРµР¶РёР РІ РіСѓС‰Рµ СЃРѕР±С‹С‚РёР№, РЅР°С‡РЅРё СЃСЂР°Р·Сѓ СЃ Р°РєС‚РёРІРЅРѕР№ РёР»Рё РѕРїР°СЃРЅРѕР№ СЃС†РµРЅС‹, Р±РµР· РґРѕР»РіРѕРіРѕ СЂР°Р·РіРѕРЅР°.\n"
+
+                 "4. Р­С‚Рѕ СѓР¶Рµ РґРѕР»Р¶РµРЅ Р±С‹С‚СЊ РїРµСЂРІС‹Р№ РѕС‚РІРµС‚ РР РІ РёРіСЂРµ РґРѕ РїРµСЂРІРѕРіРѕ С…РѕРґР° РёРіСЂРѕРєР°.\n"
+
+@@ -871,20 +871,20 @@
+     ("18:00", "00:00"),
+
+ )
+
+ _STORY_INTERIOR_LOCATION_KEYWORDS: tuple[str, ...] = (
+
+-    "С‚Р°РІРµСЂРЅ",
+
+-    "С‚СЂР°РєС‚РёСЂ",
+
+-    "РїРѕСЃС‚РѕСЏР»",
+
++    "таверн",
+
++    "трактир",
+
++    "постоял",
+
+     "РєРѕСЂС‡Р",
+
+-    "РіРѕСЃС‚РёРЅ",
+
++    "гостин",
+
+     "РєР°Р±Р°",
+
+-    "С…Р°СЂС‡РµРІРЅ",
+
++    "харчевн",
+
+     "Р·Р°Р»",
+
+     "РєРѕРРЅР°С‚",
+
+     "РЅРѕРРµСЂ",
+
+-    "РєР°Р±РёРЅРµС‚",
+
++    "кабинет",
+
+     "С…СЂР°Р",
+
+-    "СЃРІСЏС‚РёР»РёС‰",
+
+-    "РіРёР»СЊРґРё",
+
++    "святилищ",
+
++    "гильди",
+
+ )
+
+ 
+
+ 
+
+@@ -953,9 +953,9 @@
+             raw_entry.get("temperature_c"),
+
+             fallback=fallback_temperature,
+
+         ),
+
+-        "fog": " ".join(str(raw_entry.get("fog") or "РЅРµС‚").split()).strip()[:80] or "РЅРµС‚",
+
+-        "humidity": " ".join(str(raw_entry.get("humidity") or "СЃСЂРµРґРЅСЏСЏ").split()).strip()[:80] or "СЃСЂРµРґРЅСЏСЏ",
+
+-        "wind": " ".join(str(raw_entry.get("wind") or "СЃР»Р°Р±С‹Р№").split()).strip()[:80] or "СЃР»Р°Р±С‹Р№",
+
++        "fog": " ".join(str(raw_entry.get("fog") or "нет").split()).strip()[:80] or "нет",
+
++        "humidity": " ".join(str(raw_entry.get("humidity") or "средняя").split()).strip()[:80] or "средняя",
+
++        "wind": " ".join(str(raw_entry.get("wind") or "слабый").split()).strip()[:80] or "слабый",
+
+     }
+
+ 
+
+ 
+
+@@ -1001,12 +1001,12 @@
+             active_entry.get("temperature_c"),
+
+             fallback=base_temperature,
+
+         ),
+
+-        "fog": " ".join(str(active_entry.get("fog") or raw_payload.get("fog") or "РЅРµС‚").split()).strip()[:80] or "РЅРµС‚",
+
++        "fog": " ".join(str(active_entry.get("fog") or raw_payload.get("fog") or "нет").split()).strip()[:80] or "нет",
+
+         "humidity": (
+
+-            " ".join(str(active_entry.get("humidity") or raw_payload.get("humidity") or "СЃСЂРµРґРЅСЏСЏ").split()).strip()[:80]
+
+-            or "СЃСЂРµРґРЅСЏСЏ"
+
++            " ".join(str(active_entry.get("humidity") or raw_payload.get("humidity") or "средняя").split()).strip()[:80]
+
++            or "средняя"
+
+         ),
+
+-        "wind": " ".join(str(active_entry.get("wind") or raw_payload.get("wind") or "СЃР»Р°Р±С‹Р№").split()).strip()[:80] or "СЃР»Р°Р±С‹Р№",
+
++        "wind": " ".join(str(active_entry.get("wind") or raw_payload.get("wind") or "слабый").split()).strip()[:80] or "слабый",
+
+         "day_date": day_date,
+
+     }
+
+     if include_timeline:
+
+@@ -1022,7 +1022,7 @@
+         return True
+
+     generic_markers = (
+
+         "РїРµСЂРµРРµРЅРЅР°СЏ РѕР±Р»Р°С‡РЅРѕСЃС‚СЊ",
+
+-        "РѕР±Р»Р°С‡РЅРѕ",
+
++        "облачно",
+
+         "РїР°СЃРСѓСЂРЅРѕ",
+
+     )
+
+     timeline = payload.get("timeline")
+
+@@ -1065,20 +1065,20 @@
+         return ""
+
+ 
+
+     broader_location = ""
+
+-    if re.search(r"\bСЃС‚РѕР»РёС†[Р°РµРёС‹СѓРµРѕР№]+\b|\bРІ СЃС‚РѕР»РёС†Рµ\b", normalized_text, flags=re.IGNORECASE):
+
+-        broader_location = "РЎС‚РѕР»РёС†Р°"
+
++    if re.search(r"\bстолиц[аеиыуеой]+\b|\bв столице\b", normalized_text, flags=re.IGNORECASE):
+
++        broader_location = "Столица"
+
+     elif re.search(r"\bРіРѕСЂРѕРґ[Р°РµСѓРѕР]?\b|\bРІ РіРѕСЂРѕРґРµ\b", normalized_text, flags=re.IGNORECASE):
+
+-        broader_location = "Р“РѕСЂРѕРґ"
+
+-    elif re.search(r"\bРґРµСЂРµРІРЅ[СЏРµРёРѕСѓС‹]\b|\bРІ РґРµСЂРµРІРЅРµ\b", normalized_text, flags=re.IGNORECASE):
+
+-        broader_location = "Р”РµСЂРµРІРЅСЏ"
+
++        broader_location = "Город"
+
++    elif re.search(r"\bдеревн[яеиоуы]\b|\bв деревне\b", normalized_text, flags=re.IGNORECASE):
+
++        broader_location = "Деревня"
+
+     elif re.search(r"\bРїРѕСЂС‚[Р°СѓРµРѕР]?\b|\bРІ РїРѕСЂС‚Сѓ\b", normalized_text, flags=re.IGNORECASE):
+
+-        broader_location = "РџРѕСЂС‚"
+
++        broader_location = "Порт"
+
+ 
+
+     named_location_patterns: tuple[tuple[str, str], ...] = (
+
+-        (r"\bС‚Р°РІРµСЂРЅ[Р°РµРёРѕСѓС‹]\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РўР°РІРµСЂРЅР°"),
+
+-        (r"\bС‚СЂР°РєС‚РёСЂ[Р°РµРёРѕСѓС‹]?\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РўСЂР°РєС‚РёСЂ"),
+
++        (r"\bтаверн[аеиоуы]\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Таверна"),
+
++        (r"\bтрактир[аеиоуы]?\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Трактир"),
+
+         (r"\bРїРѕСЃС‚РѕСЏР»(?:С‹Р№|РѕРіРѕ|РѕР|РѕР РґРІРѕСЂРµ|С‹Р№ РґРІРѕСЂ)\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "РџРѕСЃС‚РѕСЏР»С‹Р№ РґРІРѕСЂ"),
+
+-        (r"\bРіРёР»СЊРґРё[СЏРµРёРѕСѓС‹]\s+[В«\"]?([Рђ-РЇРЃA-Z][^\"В»\n,.;:]{1,60})", "Р“РёР»СЊРґРёСЏ"),
+
++        (r"\bгильди[яеиоуы]\s+[«\"]?([А-ЯЁA-Z][^\"»\n,.;:]{1,60})", "Гильдия"),
+
+     )
+
+ 
+
+     venue_label = ""
+
+@@ -1088,7 +1088,7 @@
+             continue
+
+         raw_name = " ".join(str(match.group(1) or "").split()).strip(" .,:;!?-\"'В«В»")
+
+         raw_name = re.split(
+
+-            r"\s+(?:РІ|РЅР°|Сѓ|РІРѕР·Р»Рµ|РѕРєРѕР»Рѕ|РіРґРµ|РєРѕРіРґР°|РїРѕРєР°)\b",
+
++            r"\s+(?:в|на|у|возле|около|где|когда|пока)\b",
+
+             raw_name,
+
+             maxsplit=1,
+
+             flags=re.IGNORECASE,
+
+@@ -1100,12 +1100,12 @@
+ 
+
+     if not venue_label:
+
+         generic_patterns: tuple[tuple[str, str], ...] = (
+
+-            (r"\bС‚Р°РІРµСЂРЅ[Р°РµРёРѕСѓС‹]\b", "РўР°РІРµСЂРЅР°"),
+
+-            (r"\bС‚СЂР°РєС‚РёСЂ[Р°РµРёРѕСѓС‹]?\b", "РўСЂР°РєС‚РёСЂ"),
+
++            (r"\bтаверн[аеиоуы]\b", "Таверна"),
+
++            (r"\bтрактир[аеиоуы]?\b", "Трактир"),
+
+             (r"\bРїРѕСЃС‚РѕСЏР»(?:С‹Р№|РѕРіРѕ|РѕР|С‹Р№ РґРІРѕСЂ)\b", "РџРѕСЃС‚РѕСЏР»С‹Р№ РґРІРѕСЂ"),
+
+-            (r"\bРіРёР»СЊРґРё[СЏРµРёРѕСѓС‹]\b", "Р“РёР»СЊРґРёСЏ"),
+
++            (r"\bгильди[яеиоуы]\b", "Гильдия"),
+
+             (r"\bРєРѕРРЅР°С‚[Р°РµСѓС‹]\b", "РљРѕРРЅР°С‚Р°"),
+
+-            (r"\bР·Р°Р»[Р°РµСѓС‹]\b", "Р—Р°Р»"),
+
++            (r"\bзал[аеуы]\b", "Зал"),
+
+             (r"\bС…СЂР°Р[Р°РµСѓС‹]\b", "РҐСЂР°Р"),
+
+         )
+
+         for pattern, label in generic_patterns:
+
+@@ -1123,10 +1123,10 @@
+     normalized_label = _normalize_story_environment_location_label(label).casefold()
+
+     if not normalized_label:
+
+         return True
+
+-    if normalized_label in {"СѓР»РёС†Р°", "СЃС‚РѕР»РёС†Р°", "РіРѕСЂРѕРґ", "РґРµСЂРµРІРЅСЏ", "РїРѕСЂС‚", "СЃС‚РѕР»РёС†Р°, СѓР»РёС†Р°", "РіРѕСЂРѕРґ, СѓР»РёС†Р°"}:
+
++    if normalized_label in {"улица", "столица", "город", "деревня", "порт", "столица, улица", "город, улица"}:
+
+         return True
+
+     interior_mentioned = any(keyword in combined_text.casefold() for keyword in _STORY_INTERIOR_LOCATION_KEYWORDS)
+
+-    if interior_mentioned and "СѓР»РёС†Р°" in normalized_label:
+
++    if interior_mentioned and "улица" in normalized_label:
+
+         return True
+
+     return False
+
+ 
+
+@@ -1230,15 +1230,15 @@
+     user_prompt = (
+
+         f"РРіСЂРѕРІС‹Рµ РґР°С‚Р° Рё РІСЂРµРСЏ СЃРµР№С‡Р°СЃ:\n{current_datetime_iso}\n\n"
+
+         f"РўРµРєСѓС‰РµРµ СЃРѕС…СЂР°РЅРµРЅРЅРѕРµ РРµСЃС‚Рѕ:\n{current_location_label or 'РЅРµС‚'}\n\n"
+
+-        f"РЎРѕС…СЂР°РЅРµРЅРЅР°СЏ РїРѕРіРѕРґР° РЅР° СЃРµРіРѕРґРЅСЏ:\n{json.dumps(existing_current_weather, ensure_ascii=False) if isinstance(existing_current_weather, dict) else 'РЅРµС‚'}\n\n"
+
+-        f"РЎРѕС…СЂР°РЅРµРЅРЅС‹Р№ РїСЂРѕРіРЅРѕР· РЅР° Р·Р°РІС‚СЂР°:\n{json.dumps(existing_tomorrow_weather, ensure_ascii=False) if isinstance(existing_tomorrow_weather, dict) else 'РЅРµС‚'}\n\n"
+
+-        f"РћС‚РєСЂС‹РІР°СЋС‰Р°СЏ СЃС†РµРЅР°:\n{opening_scene_text or 'РЅРµС‚'}\n\n"
+
+-        f"РџРѕСЃР»РµРґРЅРёР№ С…РѕРґ РёРіСЂРѕРєР°:\n{latest_user_prompt or 'РЅРµС‚'}\n\n"
+
+-        f"РџСЂРµРґС‹РґСѓС‰РёР№ РѕС‚РІРµС‚ СЂР°СЃСЃРєР°Р·С‡РёРєР°:\n{previous_assistant_text or 'РЅРµС‚'}\n\n"
+
+-        f"РќРѕРІС‹Р№ РѕС‚РІРµС‚ СЂР°СЃСЃРєР°Р·С‡РёРєР°:\n{latest_assistant_text or 'РЅРµС‚'}\n\n"
+
+-        "РќСѓР¶РЅРѕ РІРµСЂРЅСѓС‚СЊ С‚РѕР»СЊРєРѕ JSON. "
+
++        f"Сохраненная погода на сегодня:\n{json.dumps(existing_current_weather, ensure_ascii=False) if isinstance(existing_current_weather, dict) else 'нет'}\n\n"
+
++        f"Сохраненный прогноз на завтра:\n{json.dumps(existing_tomorrow_weather, ensure_ascii=False) if isinstance(existing_tomorrow_weather, dict) else 'нет'}\n\n"
+
++        f"Открывающая сцена:\n{opening_scene_text or 'нет'}\n\n"
+
++        f"Последний ход игрока:\n{latest_user_prompt or 'нет'}\n\n"
+
++        f"Предыдущий ответ рассказчика:\n{previous_assistant_text or 'нет'}\n\n"
+
++        f"Новый ответ рассказчика:\n{latest_assistant_text or 'нет'}\n\n"
+
++        "Нужно вернуть только JSON. "
+
+         f"РўСЂРµР±СѓРµС‚СЃСЏ РѕРїСЂРµРґРµР»РёС‚СЊ РРµСЃС‚Рѕ: {'РґР°' if include_location else 'РЅРµС‚'}. "
+
+-        f"РўСЂРµР±СѓРµС‚СЃСЏ РѕРїСЂРµРґРµР»РёС‚СЊ РїРѕРіРѕРґСѓ: {'РґР°' if include_weather else 'РЅРµС‚'}."
+
++        f"Требуется определить погоду: {'да' if include_weather else 'нет'}."
+
+     )
+
+ 
+
+     retry_note = ""
+
+@@ -1331,7 +1331,7 @@
+                 normalized_payload["location"] = {
+
+                     "action": "update",
+
+                     "label": resolved_location_label,
+
+-                    "content": f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {resolved_location_label}.",
+
++                    "content": f"Действие происходит {resolved_location_label}.",
+
+                 }
+
+             if include_weather:
+
+                 normalized_payload["environment"] = {
+
+@@ -1375,10 +1375,10 @@
+             game.current_location_label = location_label
+
+             content = (
+
+                 normalize_story_memory_block_content(
+
+-                    str(location_payload.get("content") or f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {location_label}.")
+
++                    str(location_payload.get("content") or f"Действие происходит {location_label}.")
+
+                 )
+
+                 if str(location_payload.get("content") or "").strip()
+
+-                else f"Р”РµР№СЃС‚РІРёРµ РїСЂРѕРёСЃС…РѕРґРёС‚ {location_label}."
+
++                else f"Действие происходит {location_label}."
+
+             )
+
+             location_block = db.scalar(
+
+                 select(StoryMemoryBlock)
+
+@@ -1395,14 +1395,14 @@
+                         game_id=game.id,
+
+                         assistant_message_id=getattr(assistant_message, "id", None),
+
+                         layer=STORY_MEMORY_LAYER_LOCATION,
+
+-                        title=normalize_story_memory_block_title("РњРµСЃС‚Рѕ"),
+
++                        title=normalize_story_memory_block_title("Место"),
+
+                         content=content,
+
+                         token_count=0,
+
+                     )
+
+                 )
+
+             else:
+
+                 location_block.assistant_message_id = getattr(assistant_message, "id", None)
+
+-                location_block.title = normalize_story_memory_block_title("РњРµСЃС‚Рѕ")
+
++                location_block.title = normalize_story_memory_block_title("Место")
+
+                 location_block.content = content
+
+                 location_block.token_count = 0
+
+ 
+
+@@ -2581,7 +2581,7 @@
+     hero_description = normalize_story_world_card_content(
+
+         raw_hero_description
+
+         or (
+
+-            f"{protagonist_name} вЂ” {hero_class.lower()} РІ Р¶Р°РЅСЂРµ {genre}. "
+
++            f"{protagonist_name} — {hero_class.lower()} РІ Р¶Р°РЅСЂРµ {genre}. "
+
+             "РЈ РіРµСЂРѕСЏ СѓР¶Рµ РµСЃС‚СЊ Р·Р°РРµС‚РЅР°СЏ РІРЅРµС€РЅРѕСЃС‚СЊ, СЃРІРѕСЏ РР°РЅРµСЂР° РґРµСЂР¶Р°С‚СЊСЃСЏ Рё РїСЂРёС‡РёРЅР° РѕРєР°Р·Р°С‚СЊСЃСЏ РІ С†РµРЅС‚СЂРµ СЌС‚РѕР№ РёСЃС‚РѕСЂРёРё."
+
+         )
+
+     )
+
+@@ -3064,7 +3064,7 @@
+         if current_location_label:
+
+             current_location_content = (
+
+                 story_memory_pipeline._normalize_story_location_memory_content(
+
+-                    f"Р вЂќР ВµР в„–РЎРѓРЎвЂљР Р†Р СР Вµ Р С—РЎР‚Р С•Р СРЎРѓРЎвЂ¦Р С•Р ТР СРЎвЂљ {current_location_label}."
+
++                    f"Р ”Р ВµР №РЎРѓРЎвЂљР Р†Р СР Вµ Р С—РЎР‚Р С•Р СРЎРѓРЎ…Р С•Р ТР СРЎвЂљ {current_location_label}."
+
+                 )
+
+                 or current_location_label
+
+             )
+
+@@ -3154,7 +3154,7 @@
+         if not isinstance(next_current_weather, dict) or not isinstance(next_tomorrow_weather, dict):
+
+             raise HTTPException(
+
+                 status_code=status.HTTP_502_BAD_GATEWAY,
+
+-                detail="Р СњР Вµ РЎС“Р ТР В°Р В»Р С•РЎРѓРЎРЉ Р С—Р С•Р В»РЎС“РЎвЂЎР СРЎвЂљРЎРЉ Р С—Р С•Р В»Р Р…РЎвЂ№Р в„– Р С—РЎР‚Р С•Р С–Р Р…Р С•Р В· Р Р…Р В° РЎРѓР ВµР С–Р С•Р ТР Р…РЎРЏ Р С Р В·Р В°Р Р†РЎвЂљРЎР‚Р В°",
+
++                detail="Р СњР Вµ РЎС“Р ТР В°Р В»Р С•РЎРѓРЎРЉ Р С—Р С•Р В»РЎС“РЎвЂЎР СРЎвЂљРЎРЉ Р С—Р С•Р В»Р Р…РЎвЂ№Р № Р С—РЎР‚Р С•Р С–Р Р…Р С•Р В· Р Р…Р В° РЎРѓР ВµР С–Р С•Р ТР Р…РЎРЏ Р С Р В·Р В°Р Р†РЎвЂљРЎР‚Р В°",
+
+             )
+
+ 
+
+         game.environment_current_weather = serialize_story_environment_weather(next_current_weather)
+
+@@ -3329,7 +3329,7 @@
+     if not isinstance(seeded_payload, dict):
+
+         raise HTTPException(
+
+             status_code=status.HTTP_502_BAD_GATEWAY,
+
+-            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРµСЂРµРіРµРЅРµСЂРёСЂРѕРІР°С‚СЊ РїСЂРѕРіРЅРѕР·",
+
++            detail="Не удалось перегенерировать прогноз",
+
+         )
+
+ 
+
+     current_datetime = story_memory_pipeline._deserialize_story_environment_datetime(
+
+@@ -3391,7 +3391,7 @@
+     if not isinstance(next_current_weather, dict) or not isinstance(next_tomorrow_weather, dict):
+
+         raise HTTPException(
+
+             status_code=status.HTTP_502_BAD_GATEWAY,
+
+-            detail="РќРµ СѓРґР°Р»РѕСЃСЊ РїРѕР»СѓС‡РёС‚СЊ РїРѕР»РЅС‹Р№ РїСЂРѕРіРЅРѕР· РЅР° СЃРµРіРѕРґРЅСЏ Рё Р·Р°РІС‚СЂР°",
+
++            detail="Не удалось получить полный прогноз на сегодня и завтра",
+
+         )
+
+ 
+
+     game.environment_current_weather = serialize_story_environment_weather(next_current_weather)
+
+*** Update File: backend/app/services/story_memory_pipeline.py
+@@ -157,7 +157,7 @@
+ 
+
+ def _normalize_story_environment_weather_text(value: Any, *, max_chars: int = 80) -> str:
+
+ 
+
+-    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,;:-.!?вЂ¦")
+
++    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,;:-.!?…")
+
+ 
+
+     if not normalized:
+
+ 
+
+@@ -165,7 +165,7 @@
+ 
+
+     if len(normalized) > max_chars:
+
+ 
+
+-        normalized = normalized[: max_chars - 1].rstrip(" ,;:-.!?РІР‚В¦") + "РІР‚В¦"
+
++        normalized = normalized[: max_chars - 1].rstrip(" ,;:-.!?…") + "…"
+
+ 
+
+     if normalized and normalized[0].islower():
+
+ 
+
+@@ -657,7 +657,7 @@
+                 "end_time": end_time,
+
+                 "summary": pattern_summaries[slot_index],
+
+                 "temperature_c": base_temperatures[slot_index] + pattern_temperature_shifts[slot_index] + daily_shift + climate_shift,
+
+-                "fog": fog_by_pattern[pattern_index] if slot_index in {0, 1} else "Р СњР ВµРЎвЂљ",
+
++                "fog": fog_by_pattern[pattern_index] if slot_index in {0, 1} else "Нет",
+
+                 "humidity": humidity_by_pattern[pattern_index],
+
+                 "wind": wind_by_pattern[pattern_index],
+
+             }
+
+@@ -974,9 +974,9 @@
+ 
+
+     if len(normalized) > STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS:
+
+ 
+
+-        normalized = normalized[: STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?вЂ¦") + "."
+
+-
+
+-    if normalized[-1] not in ".!?вЂ¦":
+
++        normalized = normalized[: STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?…") + "."
+
++
+
++    if normalized[-1] not in ".!?…":
+
+ 
+
+         normalized = f"{normalized}."
+
+ 
+
+@@ -1003,7 +1003,7 @@
+ 
+
+ def _legacy__normalize_story_location_memory_label_v1(value: str) -> str:
+
+ 
+
+-    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip(" .,:;!?вЂ¦")
+
++    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip(" .,:;!?…")
+
+ 
+
+     if not normalized:
+
+ 
+
+@@ -1015,7 +1015,7 @@
+ 
+
+         if normalized_casefold.startswith(prefix):
+
+ 
+
+-            normalized = normalized[len(prefix):].strip(" .,:;!?вЂ¦")
+
++            normalized = normalized[len(prefix):].strip(" .,:;!?…")
+
+ 
+
+             break
+
+ 
+
+@@ -1025,7 +1025,7 @@
+ 
+
+     if len(normalized) > 160:
+
+ 
+
+-        normalized = normalized[:159].rstrip(" ,;:-.!?РІР‚В¦") + "РІР‚В¦"
+
++        normalized = normalized[:159].rstrip(" ,;:-.!?…") + "…"
+
+ 
+
+     if normalized and normalized[0].islower():
+
+ 
+
+@@ -1061,67 +1061,67 @@
+     return True
+
+ 
+
+ STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS = (
+
+-    "С‚Р°РІРµСЂРЅ",
+
++    "таверн",
+
+     "трактир",
+
+     "постоял",
+
+-    "РіРѕСЃС‚РёРЅ",
+
+-    "Р»Р°РіРµСЂ",
+
++    "гостин",
+
++    "лагер",
+
+     "Р»РµСЃ",
+
+-    "СЂРѕС‰",
+
+-    "РїРѕР»СЏРЅ",
+
+-    "РїРµС‰РµСЂ",
+
+-    "С€Р°С…С‚",
+
++    "рощ",
+
++    "полян",
+
++    "пещер",
+
++    "шахт",
+
+     "катакомб",
+
+-    "Р±РѕР»РѕС‚",
+
+-    "РґРѕСЂРѕРі",
+
+-    "С‚СЂР°РєС‚",
+
+-    "РіРѕСЂРѕРґ",
+
+-    "РґРµСЂРµРІРЅ",
+
++    "болот",
+
++    "дорог",
+
++    "тракт",
+
++    "город",
+
++    "деревн",
+
+     "СЃРµР»",
+
+     "квартал",
+
+-    "СѓР»РёС†",
+
+-    "РїР»РѕС‰Р°Рґ",
+
+-    "СЂС‹РЅРѕРє",
+
++    "улиц",
+
++    "площад",
+
++    "рынок",
+
+     "Р Т‘Р С•Р С",
+
+-    "РєРѕРјРЅР°С‚",
+
+-    "РєР°РјРµСЂ",
+
++    "комнат",
+
++    "камер",
+
+     "Р·Р°Р»",
+
+     "коридор",
+
+-    "РґРІРѕСЂ",
+
+-    "РїРѕРґРІР°Р»",
+
+-    "С‡РµСЂРґР°Рє",
+
+-    "РєСЂС‹С€Р°",
+
++    "двор",
+
++    "подвал",
+
++    "чердак",
+
++    "крыша",
+
+     "Р±Р°С€РЅ",
+
+-    "Р·Р°РјРѕРє",
+
++    "замок",
+
+     "крепост",
+
+-    "С…СЂР°Рј",
+
++    "храм",
+
+     "святилищ",
+
+-    "РїРѕСЂС‚",
+
+-    "РєРѕСЂР°Р±",
+
+-    "Р±РµСЂРµРі",
+
++    "порт",
+
++    "кораб",
+
++    "берег",
+
+     "пристан",
+
+-    "РєРѕРЅСЋС€",
+
+-    "РєСѓР·РЅРёС†",
+
+-    "Р»Р°РІРє",
+
+-    "РјР°РіР°Р·РёРЅ",
+
++    "конюш",
+
++    "кузниц",
+
++    "лавк",
+
++    "магазин",
+
+     "мастерск",
+
+-    "РєР°Р±РёРЅРµС‚",
+
++    "кабинет",
+
+     "библиотек",
+
+-    "СЃР°Рґ",
+
+-    "РєР»Р°РґР±РёС‰",
+
++    "сад",
+
++    "кладбищ",
+
+     "Р°Р»Р»Рµ",
+
+-    "РіР°РІР°РЅСЊ",
+
+-    "СЂРµРєР°",
+
+-    "РѕР·РµСЂ",
+
++    "гавань",
+
++    "река",
+
++    "озер",
+
+     "остров",
+
+     "переулк",
+
+-    "РјРѕСЃС‚",
+
+-    "С‚РѕРЅРЅРµР»",
+
++    "мост",
+
++    "тоннел",
+
+     "платформ",
+
+-    "СЃС‚Р°РЅС†",
+
+-    "РІР°РіРѕРЅ",
+
+-    "С€Р°С‚РµСЂ",
+
+-    "РїР°Р»Р°С‚Рє",
+
++    "станц",
+
++    "вагон",
+
++    "шатер",
+
++    "палатк",
+
+ )
+
+ STORY_LOCATION_FALLBACK_PLAYER_TURN_PATTERN = re.compile(
+
+     r"\b(?:иду|идем|идём|пойду|подхожу|подойду|захожу|зайду|вхожу|войду|вбегаю|вбегу|"
+
+@@ -1152,21 +1152,21 @@
+ 
+
+     if lowered.startswith(
+
+         (
+
+-            "РІ РЅРµРіРѕ",
+
+-            "РІ РЅРµРµ",
+
+-            "РІ РЅРµС‘",
+
+-            "РІ РЅРёС…",
+
+-            "РІ СЌС‚Рѕ",
+
+-            "РІ СЌС‚РѕРј",
+
+-            "РЅР° РЅРµРіРѕ",
+
+-            "РЅР° РЅРµРµ",
+
+-            "РЅР° РЅРµС‘",
+
+-            "РЅР° РЅРёС…",
+
+-            "РЅР° СЌС‚Рѕ",
+
+-            "Сѓ РЅРµРіРѕ",
+
+-            "Сѓ РЅРµРµ",
+
+-            "Сѓ РЅРµС‘",
+
+-            "Сѓ РЅРёС…",
+
++            "в него",
+
++            "в нее",
+
++            "в неё",
+
++            "в них",
+
++            "в это",
+
++            "в этом",
+
++            "на него",
+
++            "на нее",
+
++            "на неё",
+
++            "на них",
+
++            "на это",
+
++            "у него",
+
++            "у нее",
+
++            "у неё",
+
++            "у них",
+
+             "рядом с ним",
+
+             "рядом с ней",
+
+         )
+
+@@ -1178,7 +1178,7 @@
+ 
+
+         return True
+
+ 
+
+-    if re.search(r"[Р’В«\"'][^Р’В«Р’В»\"']{1,80}[Р’В»\"']", normalized):
+
++    if re.search(r"[В«\"'][^В«В»\"']{1,80}[В»\"']", normalized):
+
+ 
+
+         return True
+
+ 
+
+@@ -1235,8 +1235,8 @@
+     if not normalized:
+
+         return ""
+
+     if len(normalized) > STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS:
+
+-        normalized = normalized[: STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?вЂ¦") + "."
+
+-    if normalized[-1] not in ".!?вЂ¦":
+
++        normalized = normalized[: STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?…") + "."
+
++    if normalized[-1] not in ".!?…":
+
+         normalized = f"{normalized}."
+
+ 
+
+     normalized_casefold = normalized.casefold()
+
+@@ -1251,20 +1251,20 @@
+ 
+
+ 
+
+ def _legacy__normalize_story_location_memory_label_v2(value: str) -> str:
+
+-    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip(" .,:;!?вЂ¦")
+
++    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip(" .,:;!?…")
+
+     if not normalized:
+
+         return ""
+
+ 
+
+     normalized_casefold = normalized.casefold()
+
+     for prefix in ("действие происходит ", "события происходят "):
+
+         if normalized_casefold.startswith(prefix):
+
+-            normalized = normalized[len(prefix) :].strip(" .,:;!?вЂ¦")
+
++            normalized = normalized[len(prefix) :].strip(" .,:;!?…")
+
+             break
+
+ 
+
+     if not normalized:
+
+         return ""
+
+     if len(normalized) > 160:
+
+-        normalized = normalized[:159].rstrip(" ,;:-.!?РІР‚В¦") + "РІР‚В¦"
+
++        normalized = normalized[:159].rstrip(" ,;:-.!?…") + "…"
+
+     if normalized and normalized[0].islower():
+
+         normalized = normalized[:1].upper() + normalized[1:]
+
+     return normalized
+
+@@ -1287,68 +1287,68 @@
+ 
+
+ 
+
+ STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS = (
+
+-    "С‚Р°РІРµСЂРЅ",
+
++    "таверн",
+
+     "трактир",
+
+     "постоял",
+
+-    "РіРѕСЃС‚РёРЅ",
+
+-    "Р»Р°РіРµСЂ",
+
++    "гостин",
+
++    "лагер",
+
+     "Р»РµСЃ",
+
+-    "СЂРѕС‰",
+
+-    "РїРѕР»СЏРЅ",
+
+-    "РїРµС‰РµСЂ",
+
+-    "С€Р°С…С‚",
+
++    "рощ",
+
++    "полян",
+
++    "пещер",
+
++    "шахт",
+
+     "катакомб",
+
+-    "Р±РѕР»РѕС‚",
+
+-    "РґРѕСЂРѕРі",
+
+-    "С‚СЂР°РєС‚",
+
+-    "РіРѕСЂРѕРґ",
+
+-    "СЃС‚РѕР»РёС†",
+
+-    "РґРµСЂРµРІРЅ",
+
++    "болот",
+
++    "дорог",
+
++    "тракт",
+
++    "город",
+
++    "столиц",
+
++    "деревн",
+
+     "СЃРµР»",
+
+     "квартал",
+
+-    "СѓР»РёС†",
+
+-    "РїР»РѕС‰Р°Рґ",
+
+-    "СЂС‹РЅРѕРє",
+
++    "улиц",
+
++    "площад",
+
++    "рынок",
+
+     "Р Т‘Р С•Р С",
+
+-    "РєРѕРјРЅР°С‚",
+
+-    "РєР°РјРµСЂ",
+
++    "комнат",
+
++    "камер",
+
+     "Р·Р°Р»",
+
+     "коридор",
+
+-    "РґРІРѕСЂ",
+
+-    "РїРѕРґРІР°Р»",
+
+-    "С‡РµСЂРґР°Рє",
+
+-    "РєСЂС‹С€Р°",
+
++    "двор",
+
++    "подвал",
+
++    "чердак",
+
++    "крыша",
+
+     "Р±Р°С€РЅ",
+
+-    "Р·Р°РјРѕРє",
+
++    "замок",
+
+     "крепост",
+
+-    "С…СЂР°Рј",
+
++    "храм",
+
+     "святилищ",
+
+-    "РїРѕСЂС‚",
+
+-    "РєРѕСЂР°Р±",
+
+-    "Р±РµСЂРµРі",
+
++    "порт",
+
++    "кораб",
+
++    "берег",
+
+     "пристан",
+
+-    "РєРѕРЅСЋС€",
+
+-    "РєСѓР·РЅРёС†",
+
+-    "Р»Р°РІРє",
+
+-    "РјР°РіР°Р·РёРЅ",
+
++    "конюш",
+
++    "кузниц",
+
++    "лавк",
+
++    "магазин",
+
+     "мастерск",
+
+-    "РєР°Р±РёРЅРµС‚",
+
++    "кабинет",
+
+     "библиотек",
+
+-    "СЃР°Рґ",
+
+-    "РєР»Р°РґР±РёС‰",
+
++    "сад",
+
++    "кладбищ",
+
+     "Р°Р»Р»Рµ",
+
+-    "РіР°РІР°РЅСЊ",
+
+-    "СЂРµРєР°",
+
+-    "РѕР·РµСЂ",
+
++    "гавань",
+
++    "река",
+
++    "озер",
+
+     "остров",
+
+     "переулк",
+
+-    "РјРѕСЃС‚",
+
+-    "С‚РѕРЅРЅРµР»",
+
++    "мост",
+
++    "тоннел",
+
+     "платформ",
+
+-    "СЃС‚Р°РЅС†",
+
+-    "РІР°РіРѕРЅ",
+
+-    "С€Р°С‚РµСЂ",
+
+-    "РїР°Р»Р°С‚Рє",
+
++    "станц",
+
++    "вагон",
+
++    "шатер",
+
++    "палатк",
+
+ )
+
+ STORY_LOCATION_FALLBACK_PLAYER_TURN_PATTERN = re.compile(
+
+     r"\b(?:иду|идем|идём|пойду|подхожу|подойду|захожу|зайду|вхожу|войду|вбегаю|вбегу|"
+
+@@ -1373,21 +1373,21 @@
+     lowered = normalized.casefold()
+
+     if lowered.startswith(
+
+         (
+
+-            "РІ РЅРµРіРѕ",
+
+-            "РІ РЅРµРµ",
+
+-            "РІ РЅРµС‘",
+
+-            "РІ РЅРёС…",
+
+-            "РІ СЌС‚Рѕ",
+
+-            "РІ СЌС‚РѕРј",
+
+-            "РЅР° РЅРµРіРѕ",
+
+-            "РЅР° РЅРµРµ",
+
+-            "РЅР° РЅРµС‘",
+
+-            "РЅР° РЅРёС…",
+
+-            "РЅР° СЌС‚Рѕ",
+
+-            "Сѓ РЅРµРіРѕ",
+
+-            "Сѓ РЅРµРµ",
+
+-            "Сѓ РЅРµС‘",
+
+-            "Сѓ РЅРёС…",
+
++            "в него",
+
++            "в нее",
+
++            "в неё",
+
++            "в них",
+
++            "в это",
+
++            "в этом",
+
++            "на него",
+
++            "на нее",
+
++            "на неё",
+
++            "на них",
+
++            "на это",
+
++            "у него",
+
++            "у нее",
+
++            "у неё",
+
++            "у них",
+
+             "рядом с ним",
+
+             "рядом с ней",
+
+         )
+
+@@ -1396,7 +1396,7 @@
+ 
+
+     if any(fragment in lowered for fragment in STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS):
+
+         return True
+
+-    if re.search(r"[Р’В«\"'][^Р’В«Р’В»\"']{1,80}[Р’В»\"']", normalized):
+
++    if re.search(r"[В«\"'][^В«В»\"']{1,80}[В»\"']", normalized):
+
+         return True
+
+     return bool(re.search(r"\b[A-ZА-ЯЁ][A-Za-zА-Яа-яЁё'-]{2,}\b", normalized))
+
+ 
+
+@@ -1522,7 +1522,7 @@
+ 
+
+                 "\"В школьной библиотеке\" or \"В лагере разбойников в лесу\". "
+
+ 
+
+-                "Do not use pronouns, placeholders, or vague labels like \"Р·РґРµСЃСЊ\"."
+
++                "Do not use pronouns, placeholders, or vague labels like \"здесь\"."
+
+             ),
+
+ 
+
+         },
+
+@@ -1738,7 +1738,7 @@
+                 "For action=update, label must be a short Russian UI label without a final period, "
+
+                 "2-12 words, max 160 chars, with the explicit place and immediate context, for example "
+
+                 "\"В школьной библиотеке\" or \"В лагере разбойников в лесу\". "
+
+-                "Do not use pronouns, placeholders, or vague labels like \"Р·РґРµСЃСЊ\"."
+
++                "Do not use pronouns, placeholders, or vague labels like \"здесь\"."
+
+             ),
+
+         },
+
+         {
+
+@@ -2026,7 +2026,7 @@
+         return False
+
+     if any(fragment in lowered for fragment in STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS):
+
+         return True
+
+-    if re.search(r"[Р’В«\"'][^Р’В«Р’В»\"']{1,80}[Р’В»\"']", normalized):
+
++    if re.search(r"[В«\"'][^В«В»\"']{1,80}[В»\"']", normalized):
+
+         return True
+
+     return bool(
+
+         re.search(
+
+@@ -2103,25 +2103,25 @@
+ _STORY_LOCATION_NAMED_TOKEN_STOPWORDS = {
+
+     "действие",
+
+     "события",
+
+-    "Р В Р’В Р В РІР‚В ",
+
++    "Р В Р вЂ ",
+
+     "Р Р†Р С•",
+
+     "РЅР°",
+
+     "Сѓ",
+
+-    "РѕРєРѕР»Рѕ",
+
+-    "РІРѕР·Р»Рµ",
+
+-    "СЂСЏРґРѕРј",
+
++    "около",
+
++    "возле",
+
++    "рядом",
+
+     "СЃ",
+
+-    "РІРЅСѓС‚СЂРё",
+
++    "внутри",
+
+     "посреди",
+
+     "Р·Р°",
+
+-    "РїРµСЂРµРґ",
+
++    "перед",
+
+     "напротив",
+
+-    "РіРѕСЂРѕРґРµ",
+
+-    "РіРѕСЂРѕРґ",
+
++    "городе",
+
++    "город",
+
+     "столице",
+
+     "столица",
+
+-    "СЂР°Р№РѕРЅРµ",
+
+-    "СЂР°Р№РѕРЅ",
+
++    "районе",
+
++    "район",
+
+     "квартале",
+
+     "квартал",
+
+     "стране",
+
+@@ -2666,17 +2666,17 @@
+ 
+
+     if 5 <= hour < 12:
+
+ 
+
+-        return "СѓС‚СЂРѕ"
+
++        return "утро"
+
+ 
+
+     if 12 <= hour < 18:
+
+ 
+
+-        return "РґРµРЅСЊ"
+
++        return "день"
+
+ 
+
+     if 18 <= hour < 23:
+
+ 
+
+-        return "РІРµС‡РµСЂ"
+
+-
+
+-    return "РЅРѕС‡СЊ"
+
++        return "вечер"
+
++
+
++    return "ночь"
+
+ 
+
+ 
+
+ 
+
+@@ -2744,15 +2744,15 @@
+ 
+
+     season_label = _story_environment_season_label(value)
+
+ 
+
+-    meta_prefix = " Р В РІР‚в„ўР вЂ™Р’В· ".join(part for part in [weekday_label, season_label] if part)
+
++    meta_prefix = " Р В РІР‚в„ўР ’Р’В· ".join(part for part in [weekday_label, season_label] if part)
+
+ 
+
+     return (
+
+ 
+
+         f"{meta_prefix + '. ' if meta_prefix else ''}"
+
+ 
+
+-        f"{value.day} {month_label} {value.year} РіРѕРґР°, {time_of_day}. "
+
+-
+
+-        f"Р’СЂРµРјСЏ: {value.strftime('%H:%M')}."
+
++        f"{value.day} {month_label} {value.year} года, {time_of_day}. "
+
++
+
++        f"Время: {value.strftime('%H:%M')}."
+
+ 
+
+     )
+
+ 
+
+@@ -2774,11 +2774,11 @@
+ 
+
+     return (
+
+ 
+
+-        f"РЎРµР·РѕРЅ: {season_label}. "
+
+-
+
+-        f"РњРµСЃСЏС†: {month_label}. "
+
+-
+
+-        f"Р’СЂРµРјСЏ: {value.strftime('%H:%M')}. "
+
++        f"Сезон: {season_label}. "
+
++
+
++        f"Месяц: {month_label}. "
+
++
+
++        f"Время: {value.strftime('%H:%M')}. "
+
+ 
+
+         f"Часть суток: {time_of_day}."
+
+ 
+
+@@ -2939,9 +2939,9 @@
+         right_value = int(explicit_range_match.group(2))
+
+         unit_value = explicit_range_match.group(3)
+
+         average_value = (left_value + right_value) / 2
+
+-        if unit_value.startswith("С‡Р°СЃ"):
+
++        if unit_value.startswith("час"):
+
+             return _clamp_elapsed_minutes(average_value * 60)
+
+-        if unit_value.startswith("РґРЅ") or unit_value.startswith("СЃСѓС‚"):
+
++        if unit_value.startswith("дн") or unit_value.startswith("сут"):
+
+             return _clamp_elapsed_minutes(average_value * 24 * 60)
+
+         return _clamp_elapsed_minutes(average_value)
+
+ 
+
+@@ -2970,9 +2970,9 @@
+     if explicit_numeric_match:
+
+         numeric_value = int(explicit_numeric_match.group(1))
+
+         unit_value = explicit_numeric_match.group(2)
+
+-        if unit_value.startswith("С‡Р°СЃ"):
+
++        if unit_value.startswith("час"):
+
+             return _clamp_elapsed_minutes(numeric_value * 60)
+
+-        if unit_value.startswith("РґРЅ") or unit_value.startswith("СЃСѓС‚"):
+
++        if unit_value.startswith("дн") or unit_value.startswith("сут"):
+
+             return _clamp_elapsed_minutes(numeric_value * 24 * 60)
+
+         return _clamp_elapsed_minutes(numeric_value)
+
+ 
+
+@@ -4065,7 +4065,7 @@
+ 
+
+         elif isinstance(temperature_c, int):
+
+ 
+
+-            segment_parts.append(f"{temperature_c:+d}Р В РІР‚в„ўР вЂ™Р’В°C")
+
++            segment_parts.append(f"{temperature_c:+d}Р В РІР‚в„ўР ’Р’В°C")
+
+ 
+
+         rendered_segments.append(" ".join(segment_parts).strip())
+
+ 
+
+@@ -4371,13 +4371,13 @@
+ 
+
+     if isinstance(temperature_c, int):
+
+ 
+
+-        parts.append(f"{temperature_c:+d}Р В РІР‚в„ўР вЂ™Р’В°C")
+
++        parts.append(f"{temperature_c:+d}Р В РІР‚в„ўР ’Р’В°C")
+
+ 
+
+     fog = str(normalized_weather.get("fog") or "").strip()
+
+ 
+
+     if fog:
+
+ 
+
+-        parts.append(f"С‚СѓРјР°РЅ: {fog}")
+
++        parts.append(f"туман: {fog}")
+
+ 
+
+     humidity = str(normalized_weather.get("humidity") or "").strip()
+
+ 
+
+@@ -4389,7 +4389,7 @@
+ 
+
+     if wind:
+
+ 
+
+-        parts.append(f"РІРµС‚РµСЂ: {wind}")
+
++        parts.append(f"ветер: {wind}")
+
+ 
+
+ 
+
+ 
+
+@@ -4421,7 +4421,7 @@
+ 
+
+             _format_story_environment_weather_timeline_line(label="Сегодня по времени", weather_payload=current_weather),
+
+ 
+
+-            _format_story_environment_weather_line(label="Р—Р°РІС‚СЂР°", weather_payload=tomorrow_weather),
+
++            _format_story_environment_weather_line(label="Завтра", weather_payload=tomorrow_weather),
+
+ 
+
+         )
+
+ 
+
+@@ -4436,7 +4436,7 @@
+     normalized = "\n".join(lines).strip()
+
+ 
+
+     if len(normalized) > STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS:
+
+-        normalized = normalized[: STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?вЂ¦") + "."
+
++        normalized = normalized[: STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?…") + "."
+
+     return normalized
+
+ 
+
+ 
+
+@@ -4448,7 +4448,7 @@
+     normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+
+     normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+
+     if len(normalized) > STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS:
+
+-        normalized = normalized[: STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?вЂ¦") + "."
+
++        normalized = normalized[: STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS - 1].rstrip(" ,;:-.!?…") + "."
+
+     return normalized
+
+ 
+
+ 
+
+@@ -4639,13 +4639,13 @@
+ 
+
+         if isinstance(temperature_c, int):
+
+ 
+
+-            facts.append(f"{temperature_c:+d}Р В РІР‚в„ўР вЂ™Р’В°C")
+
++            facts.append(f"{temperature_c:+d}Р В РІР‚в„ўР ’Р’В°C")
+
+ 
+
+         fog = str(normalized_weather.get("fog") or "").strip()
+
+ 
+
+         if fog:
+
+ 
+
+-            facts.append(f"С‚СѓРјР°РЅ: {fog}")
+
++            facts.append(f"туман: {fog}")
+
+ 
+
+         humidity = str(normalized_weather.get("humidity") or "").strip()
+
+ 
+
+@@ -4657,7 +4657,7 @@
+ 
+
+         if wind:
+
+ 
+
+-            facts.append(f"РІРµС‚РµСЂ: {wind}")
+
++            facts.append(f"ветер: {wind}")
+
+ 
+
+         if not facts:
+
+ 
+
+@@ -4675,7 +4675,7 @@
+ 
+
+             _render_compact_weather_line("Сейчас", current_weather),
+
+ 
+
+-            _render_compact_weather_line("Р—Р°РІС‚СЂР°", tomorrow_weather),
+
++            _render_compact_weather_line("Завтра", tomorrow_weather),
+
+ 
+
+         )
+
+ 
+
+@@ -4722,7 +4722,7 @@
+         line
+
+         for line in (
+
+             _render_compact_weather_line("Сейчас", current_weather),
+
+-            _render_compact_weather_line("Р—Р°РІС‚СЂР°", tomorrow_weather),
+
++            _render_compact_weather_line("Завтра", tomorrow_weather),
+
+         )
+
+         if line
+
+     ]
+
+@@ -4788,7 +4788,7 @@
+ 
+
+         return None
+
+ 
+
+-    return {"title": f"РџРѕРіРѕРґР°: {STORY_MEMORY_WEATHER_TITLE}", "content": content}
+
++    return {"title": f"Погода: {STORY_MEMORY_WEATHER_TITLE}", "content": content}
+
+ 
+
+ 
+
+ 
+
+@@ -4848,7 +4848,7 @@
+ 
+
+         "none",
+
+ 
+
+-        "Р Р…Р ВµРЎвЂљ",
+
++        "нет",
+
+ 
+
+     }
+
+ 
+
+@@ -4874,11 +4874,11 @@
+ 
+
+         flags=re.IGNORECASE,
+
+ 
+
+-    ).rstrip(" .!?вЂ¦")
+
++    ).rstrip(" .!?…")
+
+ 
+
+     compact = " ".join(compact.split()).strip()
+
+ 
+
+-    return compact or normalized.rstrip(" .!?вЂ¦")
+
++    return compact or normalized.rstrip(" .!?…")
+
+ 
+
+ 
+
+ 
+
+@@ -5571,94 +5571,94 @@
+     if not sentence_candidates:
+
+         sentence_candidates = [
+
+             " ".join(str(part or "").split()).strip()
+
+-            for part in re.split(r"(?<=[.!?вЂ¦])\s+|\n+", normalized_user_prompt)
+
++            for part in re.split(r"(?<=[.!?…])\s+|\n+", normalized_user_prompt)
+
+             if str(part or "").strip()
+
+         ]
+
+ 
+
+     first_person_markers = (
+
+-        " РЎРЏ ",
+
++        " я ",
+
+         " Р СР Р…Р Вµ ",
+
+-        " РјРµРЅСЏ ",
+
+-        " Р СР С•Р в„– ",
+
+-        " РјРѕСЏ ",
+
+-        " Р СР С•РЎвЂ ",
+
++        " меня ",
+
++        " Р СР С•Р № ",
+
++        " моя ",
+
++        " Р СР С•РЎ‘ ",
+
+         " Р СР С•Р Вµ ",
+
+         " Р СР С•Р С‘ ",
+
+-        " Сѓ РјРµРЅСЏ ",
+
+-        " СЃРѕ РјРЅРѕР№ ",
+
+-        " РјРѕРёС… ",
+
++        " у меня ",
+
++        " со мной ",
+
++        " моих ",
+
+         " Р СР С•РЎР‹ ",
+
+-        " РјРѕРµРј ",
+
+-        " РјРѕС‘Рј ",
+
+-        " РјРѕРµРјСѓ ",
+
+-        " РјРѕРµР№ ",
+
++        " моем ",
+
++        " моём ",
+
++        " моему ",
+
++        " моей ",
+
+     )
+
+     explicit_state_markers = (
+
+         "Р±РѕР»РµР·",
+
+-        "Р±РѕР»РµРЅ",
+
+-        "Р±РѕР»СЊРЅР°",
+
+-        "Р±РѕР»РµСЋ",
+
+-        "РїРѕРґС†РµРї",
+
+-        "РїРѕРґС…РІР°С‚",
+
++        "болен",
+
++        "больна",
+
++        "болею",
+
++        "подцеп",
+
++        "подхват",
+
+         "Р·Р°Р±РѕР»",
+
+         "симптом",
+
+-        "С‚РµСЂРЅРёС†",
+
++        "терниц",
+
+         "тремор",
+
+-        "РґСЂРѕР¶",
+
+-        "РѕР·РЅРѕР±",
+
++        "дрож",
+
++        "озноб",
+
+         "Р¶Р°СЂ",
+
+         "лихорад",
+
+         "слабост",
+
+         "обессил",
+
+-        "РёСЃС‚РѕС‰",
+
+-        "С‚РѕС€РЅРѕС‚",
+
+-        "СЂРІРѕС‚",
+
+-        "Р±РѕР»СЊ",
+
+-        "Р±РѕР»РёС‚",
+
++        "истощ",
+
++        "тошнот",
+
++        "рвот",
+
++        "боль",
+
++        "болит",
+
+         "головокруж",
+
+         "РєР°С€Р»",
+
+-        "СЂР°РЅ",
+
++        "ран",
+
+         "кровотеч",
+
+-        "РѕС‚СЂР°РІ",
+
++        "отрав",
+
+         "РЎРЏР Т‘",
+
+         "проклят",
+
+-        "РѕРґРµС‚",
+
+-        "РѕРґРµС‚Р°",
+
+-        "РЅР° РјРЅРµ",
+
+-        "СЃРЅСЏР»",
+
+-        "СЃРЅСЏР»Р°",
+
+-        "РЅР°РґРµР»",
+
+-        "РЅР°РґРµР»Р°",
+
+-        "РїРµСЂРµРѕРґ",
+
+-        "РґРµСЂР¶Сѓ",
+
+-        "РЅРµСЃСѓ",
+
+-        "РІРѕРѕСЂСѓР¶",
+
++        "одет",
+
++        "одета",
+
++        "на мне",
+
++        "снял",
+
++        "сняла",
+
++        "надел",
+
++        "надела",
+
++        "переод",
+
++        "держу",
+
++        "несу",
+
++        "вооруж",
+
+         "Р СР ВµРЎвЂЎ",
+
+-        "РєРёРЅР¶Р°Р»",
+
+-        "РєР»РёРЅРѕРє",
+
+-        "Р В»РЎС“Р С”",
+
++        "кинжал",
+
++        "клинок",
+
++        "лук",
+
+         "арбалет",
+
+         "щит",
+
+-        "РїРѕСЃРѕС…",
+
+-        "СЃСѓРјРє",
+
+-        "СЂСЋРєР·Р°Рє",
+
+-        "РїР»Р°С‰",
+
+-        "РєСѓСЂС‚Рє",
+
+-        "СЃР°РїРѕРі",
+
+-        "Р±РѕС‚РёРЅ",
+
+-        "РїРµСЂС‡Р°С‚",
+
+-        "СЂСѓР±Р°С…",
+
++        "посох",
+
++        "сумк",
+
++        "рюкзак",
+
++        "плащ",
+
++        "куртк",
+
++        "сапог",
+
++        "ботин",
+
++        "перчат",
+
++        "рубах",
+
+         "корсет",
+
+-        "Р±СЂСЋРє",
+
+-        "РіРѕР»РѕРґ",
+
+-        "СѓСЃС‚Р°Р»",
+
++        "брюк",
+
++        "голод",
+
++        "устал",
+
+         "раздраж",
+
+-        "Р В·Р С•Р В»",
+
++        "зол",
+
+         "сердит",
+
+         "спокоен",
+
+-        "РЅР°РїСѓРіР°РЅ",
+
++        "напуган",
+
+         "взволнован",
+
+-        "С‚СЂРµРІРѕР¶",
+
++        "тревож",
+
+     )
+
+ 
+
+     evidence_sentences: list[str] = []
+
+@@ -5738,20 +5738,20 @@
+         r"\b(?:из-за|от)\s+([^,.!?:;\n]*(?:тремор|дрож\w*|озноб|жар|лихорад\w*|слабост\w*|тошнот\w*|боль\w*|головокруж\w*|кашл\w*)[^,.!?:;\n]*)",
+
+     )
+
+     token_patterns = (
+
+-        r"\bС‚РµСЂРЅРёС†\w*\b",
+
++        r"\bтерниц\w*\b",
+
+         r"\bтремор(?:\s+\w+){0,2}",
+
+-        r"\bРґСЂРѕР¶\w*(?:\s+\w+){0,2}",
+
+-        r"\bРѕР·РЅРѕР±(?:\s+\w+){0,2}",
+
++        r"\bдрож\w*(?:\s+\w+){0,2}",
+
++        r"\bозноб(?:\s+\w+){0,2}",
+
+         r"\bР¶Р°СЂ(?:\s+\w+){0,2}",
+
+         r"\bлихорад\w*(?:\s+\w+){0,2}",
+
+         r"\bслабост\w*(?:\s+\w+){0,2}",
+
+-        r"\bС‚РѕС€РЅРѕС‚\w*(?:\s+\w+){0,2}",
+
++        r"\bтошнот\w*(?:\s+\w+){0,2}",
+
+         r"\bголовокруж\w*(?:\s+\w+){0,2}",
+
+-        r"\bРєР°С€[РµС‘]Р»\w*(?:\s+\w+){0,2}",
+
+-        r"\bРѕС‚СЂР°РІ\w*(?:\s+\w+){0,2}",
+
++        r"\bкаш[её]л\w*(?:\s+\w+){0,2}",
+
++        r"\bотрав\w*(?:\s+\w+){0,2}",
+
+         r"\bРЎРЏР Т‘\w*(?:\s+\w+){0,2}",
+
+         r"\bпроклят\w*(?:\s+\w+){0,2}",
+
+-        r"\bСЂР°РЅ\w*(?:\s+\w+){0,2}",
+
++        r"\bран\w*(?:\s+\w+){0,2}",
+
+         r"\bкровотеч\w*(?:\s+\w+){0,2}",
+
+     )
+
+ 
+
+@@ -9296,7 +9296,7 @@
+ 
+
+     normalized_player_turn_label = _normalize_story_memory_turn_actor_label(
+
+         player_turn_label,
+
+-        fallback="РіСЂРѕРє",
+
++        fallback="грок",
+
+     )
+
+     prompt_label, prompt_body = _build_detailed_turn_summary(
+
+         normalized_prompt,
+
+@@ -9371,7 +9371,7 @@
+     seen_names: set[str] = set()
+
+ 
+
+     def _append_name(raw_value: Any) -> None:
+
+-        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?Р’В«Р’В»")
+
++        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?В«В»")
+
+         if not normalized_value:
+
+             return
+
+         normalized_key = normalized_value.casefold()
+
+@@ -9461,7 +9461,7 @@
+ 
+
+     normalized_content = _normalize_story_memory_block_content(content_for_storage)
+
+     normalized_raw_title = str(title or "").replace("\r\n", " ").strip()
+
+-    title_candidate = _normalize_story_memory_sentence_candidate(normalized_raw_title).rstrip(".!?вЂ¦").strip()
+
++    title_candidate = _normalize_story_memory_sentence_candidate(normalized_raw_title).rstrip(".!?…").strip()
+
+     title_for_storage = title_candidate or normalized_raw_title
+
+     normalized_title = _normalize_story_memory_block_title(
+
+         title_for_storage,
+
+@@ -10680,7 +10680,7 @@
+ 
+
+             continue
+
+ 
+
+-        sentence_candidates = re.split(r"(?<=[.!?вЂ¦])\s+", re.sub(r"\s+", " ", compact_line))
+
++        sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", compact_line))
+
+ 
+
+         for sentence in sentence_candidates:
+
+ 
+
+@@ -10720,16 +10720,16 @@
+         return []
+
+ 
+
+     stopwords = {
+
+-        "РҐРѕРґ",
+
++        "Ход",
+
+         "РРіСЂРѕРє",
+
+         "РРіСЂРѕРєР°",
+
+-        "РћС‚РІРµС‚",
+
++        "Ответ",
+
+         "Рассказчик",
+
+         "Рассказчика",
+
+-        "РџРѕР»РЅС‹Р№",
+
++        "Полный",
+
+         "Подробный",
+
+         "Пересказ",
+
+-        "РўРµРєСЃС‚",
+
++        "Текст",
+
+         "Fresh",
+
+         "Memory",
+
+     }
+
+@@ -11037,8 +11037,8 @@
+     joined = " ".join(normalized_sentences)
+
+     joined = re.sub(r"\s+", " ", joined).strip()
+
+     if len(joined) > max(int(max_chars), 1):
+
+-        joined = joined[: max(int(max_chars), 1) - 1].rstrip(" ,;:-.!?РІР‚В¦") + "РІР‚В¦"
+
+-    if joined and joined[-1] not in ".!?вЂ¦":
+
++        joined = joined[: max(int(max_chars), 1) - 1].rstrip(" ,;:-.!?…") + "…"
+
++    if joined and joined[-1] not in ".!?…":
+
+         joined = f"{joined}."
+
+     return joined
+
+ 
+
+@@ -11188,7 +11188,7 @@
+             if sentence_name_mentions.get(entry[0])
+
+             or not re.search(r"[!?]", entry[1])
+
+ 
+
+-            and not any(token in entry[1] for token in ('"', "Р’В«", "Р’В»", "РІР‚вЂќ"))
+
++            and not any(token in entry[1] for token in ('"', "Р’В«", "Р’В»", "РІР‚”"))
+
+ 
+
+         ]
+
+ 
+
+@@ -11480,7 +11480,7 @@
+ 
+
+     for line in sentence_candidates:
+
+ 
+
+-        compact = re.sub(r"\s+", " ", line.strip(" -РІР‚Сћ\t\"'Р’В«Р’В»")).strip()
+
++        compact = re.sub(r"\s+", " ", line.strip(" -•\t\"'«»")).strip()
+
+ 
+
+         if not compact:
+
+ 
+
+@@ -11498,7 +11498,7 @@
+ 
+
+         ).strip()
+
+ 
+
+-        compact = re.sub(r"^[,.;:()\[\]\-РІР‚вЂњРІР‚вЂќ]+\s*", "", compact).strip()
+
++        compact = re.sub(r"^[,.;:()\[\]\-РІР‚“РІР‚”]+\s*", "", compact).strip()
+
+ 
+
+         if not compact:
+
+ 
+
+@@ -11522,7 +11522,7 @@
+ 
+
+             continue
+
+ 
+
+-        if compact[-1] not in ".!?вЂ¦":
+
++        if compact[-1] not in ".!?…":
+
+ 
+
+             compact = f"{compact}."
+
+ 
+
+@@ -11665,9 +11665,9 @@
+ )
+
+ 
+
+ _STORY_IMPORTANT_EVENT_CHANGE_MARKERS: tuple[str, ...] = (
+
+-    "СЂРµС€РёР»",
+
+-    "СЂРµС€РёР»Р°",
+
+-    "СЂРµС€РёР»Рё",
+
++    "решил",
+
++    "решила",
+
++    "решили",
+
+     "решение",
+
+     "пообещал",
+
+     "пообещала",
+
+@@ -11680,29 +11680,29 @@
+     "призналась",
+
+     "раскрыл",
+
+     "раскрыла",
+
+-    "СѓР·РЅР°Р»",
+
+-    "СѓР·РЅР°Р»Р°",
+
++    "узнал",
+
++    "узнала",
+
+     "выяснил",
+
+     "выяснила",
+
+     "договорились",
+
+     "заключил",
+
+     "заключила",
+
+-    "РїСЂРµРґР°Р»",
+
++    "предал",
+
+     "предала",
+
+     "РЅР°С€РµР»",
+
+     "РЅР°С€Р»Р°",
+
+-    "РїРѕР»СѓС‡РёР»",
+
++    "получил",
+
+     "получила",
+
+     "потерял",
+
+     "потеряла",
+
+-    "СЃРїР°СЃ",
+
++    "спас",
+
+     "спасла",
+
+-    "РїРѕРіРёР±",
+
+-    "СѓРјРµСЂ",
+
++    "погиб",
+
++    "умер",
+
+     "атаковал",
+
+     "атаковала",
+
+-    "РЅР°РїР°Р»",
+
+-    "РЅР°РїР°Р»Р°",
+
++    "напал",
+
++    "напала",
+
+     "захватил",
+
+     "захватила",
+
+     "арестовал",
+
+@@ -11929,7 +11929,7 @@
+     )
+
+ 
+
+     title = _normalize_story_memory_block_title(
+
+-        f"Р’Р°Р¶РЅРѕ: {_derive_story_plot_card_title_from_content(content)}",
+
++        f"Важно: {_derive_story_plot_card_title_from_content(content)}",
+
+         fallback="Важно: Важное событие",
+
+     )
+
+     if not _should_accept_story_important_event_candidate(
+
+@@ -12075,13 +12075,13 @@
+             )
+
+             if token
+
+             not in {
+
+-                "РёРіСЂРѕРє",
+
+-                "РёРіСЂРѕРєР°",
+
+-                "РѕС‚РІРµС‚",
+
++                "игрок",
+
++                "игрока",
+
++                "ответ",
+
+                 "мастера",
+
+                 "рассказчика",
+
+-                "СЃСѓС…РёРµ",
+
+-                "С„Р°РєС‚С‹",
+
++                "сухие",
+
++                "факты",
+
+                 "краткий",
+
+                 "пересказ",
+
+             }
+
+@@ -12967,7 +12967,7 @@
+ 
+
+                 "title must be a short Russian event label without generic phrases like \"Важный момент\". "
+
+ 
+
+-                "Assume the final memory title will start with \"Р’Р°Р¶РЅРѕ:\" and keep only the core event essence. "
+
++                "Assume the final memory title will start with \"Важно:\" and keep only the core event essence. "
+
+ 
+
+                 "content must be 1-2 short factual Russian sentences in past tense, "
+
+ 
+
+@@ -13238,9 +13238,9 @@
+ ) -> bool:
+
+ 
+
+     normalized_title = _normalize_story_memory_block_title(title, fallback="Важно: Важное событие")
+
+-    if not normalized_title.casefold().startswith("РІР°Р¶РЅРѕ:"):
+
++    if not normalized_title.casefold().startswith("важно:"):
+
+         normalized_title = _normalize_story_memory_block_title(
+
+-            f"Р’Р°Р¶РЅРѕ: {normalized_title}",
+
++            f"Важно: {normalized_title}",
+
+             fallback="Важно: Важное событие",
+
+         )
+
+ 
+
+*** Update File: backend/app/services/story_runtime.py
+@@ -47,7 +47,7 @@
+ 
+
+ def _is_sqlite_database_url(database_url: str | None) -> bool:
+
+     return str(database_url or "").strip().startswith("sqlite")
+
+-STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zР°-СЏС‘]+|[^\s]", re.IGNORECASE)
+
++STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
+
+ 
+
+ 
+
+ @dataclass(frozen=True)
+
+@@ -320,9 +320,9 @@
+         if compact_title_seed:
+
+             normalized_title = compact_title_seed[:120].rstrip(" ,;:-.!?")
+
+         else:
+
+-            normalized_title = f"РҐРѕРґ {assistant_id}"
+
++            normalized_title = f"Ход {assistant_id}"
+
+         if not normalized_title:
+
+-            normalized_title = f"РҐРѕРґ {assistant_id}"
+
++            normalized_title = f"Ход {assistant_id}"
+
+ 
+
+         raw_blocks = list(
+
+             db.scalars(
+
+*** Update File: frontend/src/assets/icons/landing-controls.svg
+@@ -1,4 +1,4 @@
+-<svg viewBox="0 0 175.2708 33.0833" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="d130c8c8" x="0" y="0"><g id="presentation page" data-node-id="22:2158" clip-path="url(#clip0_22_2158)"><g id="ÐÑÐ¸ÐºÐ»ÑÑÐµÐ½Ð¸Ðµ Ð·Ð´ÐµÑÑ" data-node-id="63:71"><g id="Frame 1294756086" data-node-id="68:178"><g id="Frame 1294756085" data-node-id="68:177"><g id="Component 5" data-node-id="103:78"><g id="Frame 1294756133" data-node-id="103:79"><g id="Frame 1294755816" data-node-id="103:86">
+
++<svg viewBox="0 0 175.2708 33.0833" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="d130c8c8" x="0" y="0"><g id="presentation page" data-node-id="22:2158" clip-path="url(#clip0_22_2158)"><g id="Приключение здесь" data-node-id="63:71"><g id="Frame 1294756086" data-node-id="68:178"><g id="Frame 1294756085" data-node-id="68:177"><g id="Component 5" data-node-id="103:78"><g id="Frame 1294756133" data-node-id="103:79"><g id="Frame 1294755816" data-node-id="103:86">
+
+ <rect x="-0.364583" y="0.364583" width="31.3542" height="31.3542" rx="8.38542" transform="matrix(-1, 0, 0, 1, 31.489599999999996, 0.5)" fill="#171716"/>
+
+ <rect x="-0.364583" y="0.364583" width="31.3542" height="31.3542" rx="8.38542" transform="matrix(-1, 0, 0, 1, 31.489599999999996, 0.5)" stroke="#31302E" stroke-width="0.729167"/>
+
+ <path id="Vector_27" data-node-id="103:87" d="M12.6116,16.79c0.491,-0.83 1.241,-1.48 2.134,-1.84c0.894,-0.36 1.881,-0.42 2.811,-0.16c0.929,0.25 1.749,0.81 2.334,1.57c0.584,0.77 0.901,1.71 0.9,2.67c0,0.16 0.062,0.3 0.172,0.41c0.11,0.11 0.259,0.18 0.415,0.18c0.155,0 0.304,-0.07 0.414,-0.18c0.11,-0.11 0.172,-0.25 0.172,-0.41c0,-1.18 -0.374,-2.33 -1.069,-3.28c-0.694,-0.95 -1.673,-1.66 -2.795,-2.02c-1.123,-0.36 -2.331,-0.36 -3.45,0.01c-1.12,0.37 -2.093,1.09 -2.78,2.04l-0.315,-1.78c-0.027,-0.15 -0.114,-0.29 -0.241,-0.38c-0.128,-0.09 -0.285,-0.12 -0.438,-0.1c-0.153,0.03 -0.29,0.12 -0.379,0.24c-0.089,0.13 -0.124,0.29 -0.097,0.44l0.611,3.47c0.027,0.15 0.114,0.29 0.241,0.37c0.083,0.06 0.178,0.1 0.277,0.11c0.1,0.01 0.2,0 0.295,-0.03l3.329,-0.59c0.154,-0.03 0.29,-0.11 0.379,-0.24c0.089,-0.13 0.124,-0.28 0.097,-0.44c-0.027,-0.15 -0.114,-0.29 -0.241,-0.38c-0.127,-0.09 -0.285,-0.12 -0.438,-0.09z" fill="#808080"/>
+
+*** End Patch

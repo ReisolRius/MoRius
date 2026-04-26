@@ -21,6 +21,7 @@ from app.schemas import (
     StoryWorldCardUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
+from app.services.media import resolve_media_storage_value
 from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
@@ -150,8 +151,8 @@ def create_story_world_card_template(
         triggers=payload.triggers,
         kind=payload.kind,
         detail_type=payload.detail_type,
-        avatar_url=payload.avatar_url,
-        avatar_original_url=payload.avatar_original_url,
+        avatar_url=resolve_media_storage_value(db, payload.avatar_url),
+        avatar_original_url=resolve_media_storage_value(db, payload.avatar_original_url),
         avatar_scale=payload.avatar_scale,
         memory_turns=payload.memory_turns,
         memory_turns_explicit="memory_turns" in payload.model_fields_set,
@@ -189,8 +190,8 @@ def update_story_world_card_template(
         triggers=payload.triggers,
         kind=normalized_kind,
         detail_type=payload.detail_type,
-        avatar_url=payload.avatar_url,
-        avatar_original_url=payload.avatar_original_url,
+        avatar_url=resolve_media_storage_value(db, payload.avatar_url),
+        avatar_original_url=resolve_media_storage_value(db, payload.avatar_original_url),
         avatar_scale=payload.avatar_scale,
         memory_turns=payload.memory_turns,
         memory_turns_explicit="memory_turns" in payload.model_fields_set,
@@ -300,6 +301,7 @@ def select_story_main_hero(
         character=character,
         kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
         lock_card=False,
+        db=db,
     )
     db.add(main_hero_card)
     sync_story_character_state_payload_from_world_cards(
@@ -364,6 +366,7 @@ def create_story_npc_from_character(
         character=character,
         kind=STORY_WORLD_CARD_KIND_NPC,
         lock_card=False,
+        db=db,
     )
     db.add(npc_card)
     sync_story_character_state_payload_from_world_cards(
@@ -397,10 +400,18 @@ def update_story_world_card_avatar(
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
 
-    normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
-    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+    normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url, db=db)
+    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     world_card.avatar_url = normalized_avatar
-    world_card.avatar_original_url = normalized_avatar_original if normalized_avatar else None
+    if "avatar_original_url" in payload.model_fields_set:
+        world_card.avatar_original_url = (normalized_avatar_original or normalized_avatar) if normalized_avatar else None
+    elif normalized_avatar is None:
+        world_card.avatar_original_url = None
+    else:
+        world_card.avatar_original_url = normalize_story_character_avatar_original_url(
+            getattr(world_card, "avatar_original_url", None) or normalized_avatar,
+            db=db,
+        )
     if payload.avatar_scale is not None:
         world_card.avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     touch_story_game(game)
@@ -469,8 +480,8 @@ def create_story_world_card(
         )
     if normalized_kind == STORY_WORLD_CARD_KIND_NPC:
         normalized_content = normalize_story_npc_profile_content(normalized_title, normalized_content)
-    normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url)
-    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+    normalized_avatar = normalize_story_character_avatar_url(payload.avatar_url, db=db)
+    normalized_avatar_original = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     normalized_avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
     linked_character = (
         get_story_character_for_user_or_404(db, user.id, payload.character_id)
@@ -517,7 +528,7 @@ def create_story_world_card(
         kind=normalized_kind,
         detail_type=normalized_detail_type,
         avatar_url=normalized_avatar,
-        avatar_original_url=normalized_avatar_original if normalized_avatar else None,
+        avatar_original_url=(normalized_avatar_original or normalized_avatar) if normalized_avatar else None,
         avatar_scale=normalized_avatar_scale,
         character_id=linked_character.id if linked_character is not None else None,
         memory_turns=normalized_memory_turns,

@@ -262,6 +262,15 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
 
   useEffect(() => {
     try {
+      const root = document.documentElement
+      root.setAttribute('data-morius-theme', activeTheme.id)
+    } catch {
+      // Ignore in case of SSR or other restrictions
+    }
+  }, [activeTheme.id])
+
+  useEffect(() => {
+    try {
       if (!customTheme) {
         window.localStorage.removeItem(MORIUS_CUSTOM_THEME_STORAGE_KEY)
         return

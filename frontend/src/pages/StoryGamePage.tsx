@@ -1,4 +1,4 @@
-import {
+﻿import {
   forwardRef,
   useCallback,
   useEffect,
@@ -344,17 +344,17 @@ const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
-const STORY_DEFAULT_TOP_K = 50
+const STORY_DEFAULT_TOP_K = 55
 const STORY_REPETITION_PENALTY_MIN = 1
 const STORY_REPETITION_PENALTY_MAX = 2
-const STORY_DEFAULT_REPETITION_PENALTY = 1.08
+const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const STORY_TOP_R_MIN = 0.1
 const STORY_TOP_R_MAX = 1
 const STORY_DEFAULT_TOP_R = 0.85
 const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
-const STORY_DEFAULT_TEMPERATURE = 0.82
-const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-v3.2'
+const STORY_DEFAULT_TEMPERATURE = 0.85
+const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
@@ -402,6 +402,48 @@ const STORY_CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, string> = 
   confused: 'Растерянность',
   thoughtful: 'Задумчивость',
 }
+/* const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
+  'главный герой',
+  'герой',
+  'ты',
+  'тебя',
+  'С‚РµР±Рµ',
+  'тобой',
+  'вас',
+  'СЏ',
+  'нас',
+  'you',
+  'yours',
+  'player',
+  'protagonist',
+  'hero',
+  'mc',
+] as const
+const EMOTION_STAGE_DEFAULT_HEIGHT_RATIO = 0.54
+const EMOTION_STAGE_MAX_HEIGHT_RATIO = 0.72
+type StoryNarratorStat = {
+  label: string
+  value: number
+}
+type StoryNarratorSamplingDefaults = {
+  storyTemperature: number
+  storyRepetitionPenalty: number
+  storyTopK: number
+}
+
+type StoryNarratorModelOption = {
+  id: StoryNarratorModelId
+  title: string
+  description: string
+  portraitSrc: string
+  portraitAlt: string
+  stats: StoryNarratorStat[]
+}
+
+const NARRATOR_STAT_DOT_COUNT = 5
+
+*/
+
 const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
   'гг',
   'главный герой',
@@ -430,6 +472,7 @@ const STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES = [
   'hero',
   'mc',
 ] as const
+const MAIN_HERO_SPEAKER_ALIASES = STORY_STAGE_MAIN_HERO_LOOKUP_ALIASES
 const EMOTION_STAGE_MIN_HEIGHT_PX = 260
 const EMOTION_STAGE_DEFAULT_HEIGHT_RATIO = 0.54
 const EMOTION_STAGE_MAX_HEIGHT_RATIO = 0.72
@@ -696,22 +739,24 @@ const STORY_SETTINGS_INFO_TEXT = {
   narrator:
     'Выберите модель рассказчика. DeepSeek V3.2 быстрее и агрессивнее двигает сюжет, GLM 5.0 стабильнее держит инструкции и язык, MiMo V2 Flash легче и быстрее для простых сцен, а Grok 4.1 Fast отвечает очень быстро, но может быть поверхностнее.',
   artist:
-    'Выберите ИИ-модель генерации изображения. У каждой своя цена, в зависимости от дороговизны модели.',
+    'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
-    'Ограничение памяти истории ИИ. Чем больше лимит, тем дороже ход. Новый максимум — 32000, а стоимость теперь зависит и от диапазона контекста, и от выбранного рассказчика.',
-  responseTokens: 'Ограничьте объем ответа ИИ точечно в токенах.',
+    'Ограничение памяти истории для ИИ. Чем выше лимит, тем дороже ход. Новый максимум — 32000, а стоимость зависит и от диапазона контекста, и от выбранного рассказчика.',
+  responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
   memoryOptimization:
     'Помогает дольше помнить старые события, ужимая память без потери смысла и важных деталей.',
   memoryOptimizationMode:
-    'Вы можете изменить уровень оптимизации памяти, чтобы замедлить заполнение контекста. ВАЖНО: чем выше уровень, тем раньше могут начать пропадать детали.',
+    'Вы можете изменить уровень оптимизации памяти, чтобы замедлить заполнение контекста. Важно: чем выше уровень, тем раньше могут начать пропадать детали.',
   ambient:
-    'БЕТА. Подсветка вокруг поля ввода меняется по окружению сцены (фон, свет, погода, локация) и использует 2-3 цвета. Включение стоит +1 сол за каждый ход, а ответ может генерироваться дольше.',
+    'Бета. Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация. Включение стоит +1 сол за ход, а ответ может генерироваться дольше.',
   temperature:
-    'ТОЛЬКО ДЛЯ ОПЫТНЫХ. Настройка того, насколько креативно и смело будет отвечать ИИ.',
+    'Только для опытных. Настройка того, насколько креативно и смело будет отвечать ИИ.',
   contextUsage: 'Следите за тем, сколько у вас осталось места в памяти истории для ИИ.',
 } as const
+
+const NARRATOR_STAT_MOJIBAKE_MARKER_REGEX = /[\u0420\u040E\u0402]/u
 
 function formatStoryImageModelLabel(option: { title: string; priceLabel: string }): string {
   return `${option.title} (${option.priceLabel})`
@@ -722,7 +767,7 @@ function resolveNarratorStatLabel(label: string, index: number): string {
   if (!normalizedLabel) {
     return NARRATOR_STAT_FALLBACK_LABELS[index] ?? 'Параметр'
   }
-  if (/[РЎЂ]/u.test(normalizedLabel)) {
+  if (NARRATOR_STAT_MOJIBAKE_MARKER_REGEX.test(normalizedLabel)) {
     return NARRATOR_STAT_FALLBACK_LABELS[index] ?? normalizedLabel
   }
   return normalizedLabel
@@ -1070,26 +1115,32 @@ const STRUCTURED_TAG_PATTERN = /^<\s*([A-Za-z\u0400-\u04FF_ -]+)(?:\s*:\s*([^>]+
 const PLAIN_SPEAKER_LINE_PATTERN = /^\s*([A-Z\u0410-\u042f\u0401][^:\n]{0,80}?)(?:\s*\(((?:\u0432 \u0433\u043e\u043b\u043e\u0432\u0435|\u043c\u044b\u0441\u043b\u0435\u043d\u043d\u043e|\u043c\u044b\u0441\u043b\u0438))\))?\s*:\s*([\s\S]+?)\s*$/iu
 const ASSISTANT_SPEAKER_NAME_MAX_WORDS = 4
 const ASSISTANT_SPEAKER_NAME_DISALLOWED_PUNCTUATION_PATTERN = /[,;.!?]/u
-const ASSISTANT_SPEAKER_NAME_TOKEN_PATTERN = /^[0-9A-Za-z\u0410-\u042f\u0430-\u044f\u0401\u0451'’-]+$/u
+const ASSISTANT_SPEAKER_NAME_TOKEN_PATTERN = /^[0-9A-Za-z\u0410-\u042f\u0430-\u044f\u0401\u0451'\u2019-]+$/u
 const ASSISTANT_SPEAKER_NAME_VERB_PATTERN =
   /(?:\u0435\u0448\u044c|\u0438\u0448\u044c|\u0435\u0442\u0435|\u0438\u0442\u0435|\u0435\u0442\u0441\u044f|\u0451\u0442\u0441\u044f|\u0438\u0442\u0441\u044f|\u044e\u0442\u0441\u044f|\u0430\u0442\u0441\u044f|\u044f\u0442\u0441\u044f|\u0430\u043b\u0441\u044f|\u0430\u043b\u0430\u0441\u044c|\u0430\u043b\u043e\u0441\u044c|\u0430\u043b\u0438\u0441\u044c|\u0438\u043b\u0441\u044f|\u0438\u043b\u0430\u0441\u044c|\u0438\u043b\u043e\u0441\u044c|\u0438\u043b\u0438\u0441\u044c|\u0430\u043b|\u0430\u043b\u0430|\u0430\u043b\u043e|\u0430\u043b\u0438|\u0438\u043b|\u0438\u043b\u0430|\u0438\u043b\u043e|\u0438\u043b\u0438|\u0443\u0442|\u044e\u0442|\u0430\u0442|\u044f\u0442|\u0435\u0442|\u0451\u0442|\u0438\u0442)$/iu
 const GENERIC_DIALOGUE_SPEAKER_DEFAULT = 'НПС'
-const MAIN_HERO_SPEAKER_ALIASES = ['ГГ', 'Главный герой', 'Главный Герой', 'Main hero', 'Main character', 'MC', 'Hero'] as const
 const MAIN_HERO_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const MAIN_HERO_FALLBACK_NAME = 'Главный Герой'
 const SPEAKER_REFERENCE_PREFIX_PATTERN = /^(?:char|character|\u043f\u0435\u0440\u0441\u043e\u043d\u0430\u0436)\s*:\s*/iu
 const STORY_TOKEN_ESTIMATE_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+|[^\s]/gi
-const STORY_SENTENCE_MATCH_PATTERN = /[^.!?…]+[.!?…]?/gu
-const STORY_BULLET_PREFIX_PATTERN = /^\s*[-•*]+\s*/u
+const STORY_SENTENCE_MATCH_PATTERN = /[^.!?\u2026]+[.!?\u2026]?/gu
+const STORY_BULLET_PREFIX_PATTERN = /^\s*[-\u2022*]+\s*/u
 const STORY_MATCH_TOKEN_PATTERN = /[0-9a-z\u0430-\u044f\u0451]+/gi
 const STORY_CYRILLIC_TOKEN_PATTERN = /^[\u0430-\u044f\u0451]+$/i
 const DIALOGUE_QUOTE_CUE_PATTERN = /["'\u00ab\u00bb\u201e\u201c\u201d]/u
 const DIALOGUE_DASH_START_CUE_PATTERN = /^\s*(?:\u2014|-)\s*\S/u
 const DIALOGUE_DASH_AFTER_PUNCT_CUE_PATTERN = /[.!?\u2026]\s*(?:\u2014|-)\s*\S/u
+const LOOSE_DIALOGUE_DASH_LINE_PATTERN = /^\s*(?:\u2014|-)\s+([\s\S]+?)\s*$/u
+const LOOSE_DIALOGUE_QUOTE_LINE_PATTERN = /^\s*["\u00ab\u201e\u201c]([\s\S]+?)["\u00bb\u201d]*\s*$/u
+const LOOSE_THOUGHT_LINE_PATTERN =
+  /^\s*(?:\(|\[)?(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\)?\s*[:\-]\s*([\s\S]+?)\s*$/iu
+const LOOSE_ASSISTANT_CUE_BREAK_PATTERN =
+  /([.!?\u2026])\s+(?=(?:["\u00ab\u201e\u201c]|(?:\u2014|-)\s*\S|(?:\(?\s*(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\s*[:\-])))/giu
 const FIRST_OR_SECOND_PERSON_PRONOUN_PATTERN =
   /\b(?:\u044f|\u043c\u0435\u043d\u044f|\u043c\u043d\u0435|\u043c\u043d\u043e\u0439|\u043c\u044b|\u043d\u0430\u0441|\u043d\u0430\u043c|\u043d\u0430\u0448|\u043d\u0430\u0448\u0430|\u043d\u0430\u0448\u0435|\u043d\u0430\u0448\u0438|\u0442\u044b|\u0442\u0435\u0431\u044f|\u0442\u0435\u0431\u0435|\u0442\u043e\u0431\u043e\u0439|\u0432\u044b|\u0432\u0430\u0441|\u0432\u0430\u043c|\u0432\u0430\u043c\u0438|\u0432\u0430\u0448|\u0432\u0430\u0448\u0430|\u0432\u0430\u0448\u0435|\u0432\u0430\u0448\u0438|i|me|my|mine|we|us|our|ours|you|your|yours)\b/iu
 const THIRD_PERSON_NARRATIVE_START_PATTERN =
   /^(?:\u043e\u043d|\u043e\u043d\u0430|\u043e\u043d\u0438|\u0435\u0433\u043e|\u0435\u0451|\u0435\u0435|\u0438\u0445|\u043a\u0442\u043e-\u0442\u043e|\u043a\u0442\u043e \u0442\u043e|he|she|they|his|her|their)\b/iu
+
 const STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP: Record<string, string> = {
   a: 'а',
   b: 'в',
@@ -1152,6 +1203,7 @@ const STORY_RUSSIAN_INFLECTION_ENDINGS = [
   'й',
   'ь',
 ] as const
+
 const INLINE_EDIT_RAIL_COLOR = 'color-mix(in srgb, var(--morius-title-text) 76%, transparent)'
 const WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 const NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 3
@@ -1168,9 +1220,9 @@ const WORLD_CARD_EVENT_STATUS_LABEL: Record<'added' | 'updated' | 'deleted', str
   deleted: 'Удалено',
 }
 const AI_MEMORY_LAYER_LABEL: Record<'raw' | 'compressed' | 'super', string> = {
-  raw: 'Свежие блоки В· 50%',
-  compressed: 'Сжатые блоки В· 30%',
-  super: 'Суперсжатые блоки В· 20%',
+  raw: 'Свежие блоки · 50%',
+  compressed: 'Сжатые блоки · 30%',
+  super: 'Суперсжатые блоки · 20%',
 }
 const STORY_MEMORY_OPTIMIZATION_MODE_OPTIONS: Array<{
   value: StoryMemoryOptimizationMode
@@ -1178,7 +1230,7 @@ const STORY_MEMORY_OPTIMIZATION_MODE_OPTIONS: Array<{
 }> = [
   { value: 'standard', label: 'Стандартный' },
   { value: 'enhanced', label: 'Усиленный' },
-  { value: 'maximum', label: 'Максимальные' },
+  { value: 'maximum', label: 'Максимальный' },
 ]
 const STORY_MEMORY_LAYER_TITLE: Record<'raw' | 'compressed' | 'super', string> = {
   raw: 'Свежие блоки',
@@ -1219,6 +1271,7 @@ const STORY_AMBIENT_DEFAULT_PROFILE: StoryAmbientProfile = {
   background_mix: 0.18,
   vignette_strength: 0.34,
 }
+
 const STORY_AMBIENT_YAMI_PROFILE: StoryAmbientProfile = {
   scene: 'unknown',
   lighting: 'dim',
@@ -1590,24 +1643,24 @@ function estimateDataUrlBytes(dataUrl: string): number {
 }
 
 function normalizeAssistantMarkerKey(value: string): string {
-  const normalizedKey = value.toLowerCase().replace(/[\s-]+/g, '_').replace(/ё/g, 'е').trim()
+  const normalizedKey = value.toLowerCase().replace(/[\s-]+/g, '_').replace(/С‘/g, 'Рµ').trim()
   const compactKey = normalizedKey.replace(/_/g, '')
   const aliasKeyByCompact: Record<string, string> = {
     narrator: 'narrator',
     narration: 'narration',
     narrative: 'narrative',
-    '\u0440\u0430\u0441\u0441\u043a\u0430\u0437\u0447\u0438\u043a': 'narrator',
-    '\u043d\u0430\u0440\u0440\u0430\u0442\u043e\u0440': 'narrator',
-    '\u043f\u043e\u0432\u0435\u0441\u0442\u0432\u043e\u0432\u0430\u043d\u0438\u0435': 'narration',
+    'рассказчик': 'narrator',
+    'нарратор': 'narrator',
+    'повествование': 'narration',
     npc: 'npc',
-    '\u043d\u043f\u0441': 'npc',
-    '\u043d\u043f\u043a': 'npc',
+    'нпс': 'npc',
+    'нпк': 'npc',
     npcreplick: 'npc',
     npcreplica: 'npc',
     npcspeech: 'npc',
     npcdialogue: 'npc',
     gg: 'gg',
-    '\u0433\u0433': 'gg',
+    'гг': 'gg',
     ggreplick: 'gg',
     ggreplica: 'gg',
     ggspeech: 'gg',
@@ -1623,12 +1676,12 @@ function normalizeAssistantMarkerKey(value: string): string {
     ggthink: 'gg_thought',
     thought: 'thought',
     think: 'think',
-    '\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u044c': 'npc_thought',
-    '\u043d\u043f\u0441\u043c\u044b\u0441\u043b\u0438': 'npc_thought',
-    '\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u044c': 'npc_thought',
-    '\u043d\u043f\u043a\u043c\u044b\u0441\u043b\u0438': 'npc_thought',
-    '\u0433\u0433\u043c\u044b\u0441\u043b\u044c': 'gg_thought',
-    '\u0433\u0433\u043c\u044b\u0441\u043b\u0438': 'gg_thought',
+    'нпсмысль': 'npc_thought',
+    'нпсмысли': 'npc_thought',
+    'нпкмысль': 'npc_thought',
+    'нпкмысли': 'npc_thought',
+    'ггмысль': 'gg_thought',
+    'ггмысли': 'gg_thought',
   }
   return aliasKeyByCompact[compactKey] ?? normalizedKey
 }
@@ -2051,6 +2104,153 @@ function parseTaggedAssistantContent(content: string | null | undefined): Assist
   return blocks
 }
 
+function splitLooseAssistantParagraphFragments(paragraph: string | null | undefined): string[] {
+  const normalized = toStoryText(paragraph).replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return []
+  }
+  const fragments = normalized
+    .replace(LOOSE_ASSISTANT_CUE_BREAK_PATTERN, '$1\n')
+    .split('\n')
+    .map((value) => value.trim())
+    .filter(Boolean)
+  return fragments.length > 0 ? fragments : [normalized]
+}
+
+function stripLooseDialogueWrapper(value: string | null | undefined): string {
+  return stripStructuredMarkerArtifacts(value)
+    .replace(/^\s*(?:\u2014|-)\s*/u, '')
+    .replace(/^\s*["\u00ab\u201e\u201c]+/u, '')
+    .replace(/["\u00bb\u201d]+\s*$/u, '')
+    .trim()
+}
+
+function resolveLooseThoughtSpeakerName(value: string): string {
+  return FIRST_OR_SECOND_PERSON_PRONOUN_PATTERN.test(value)
+    ? MAIN_HERO_FALLBACK_NAME
+    : GENERIC_DIALOGUE_SPEAKER_DEFAULT
+}
+
+function parseLooseAssistantFragment(fragment: string | null | undefined): AssistantMessageBlock | null {
+  const normalized = toStoryText(fragment).replace(/\r\n/g, '\n').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const thoughtMatch = normalized.match(LOOSE_THOUGHT_LINE_PATTERN)
+  if (thoughtMatch) {
+    const bodyText = stripLooseDialogueWrapper(thoughtMatch[1])
+    if (!bodyText) {
+      return null
+    }
+    return {
+      type: 'character',
+      speakerName: resolveLooseThoughtSpeakerName(bodyText),
+      text: bodyText,
+      delivery: 'thought',
+    }
+  }
+
+  const dashDialogueMatch = normalized.match(LOOSE_DIALOGUE_DASH_LINE_PATTERN)
+  if (dashDialogueMatch) {
+    const bodyText = stripLooseDialogueWrapper(dashDialogueMatch[1])
+    if (!bodyText) {
+      return null
+    }
+    return {
+      type: 'character',
+      speakerName: GENERIC_DIALOGUE_SPEAKER_DEFAULT,
+      text: bodyText,
+      delivery: 'speech',
+    }
+  }
+
+  const quotedDialogueMatch = normalized.match(LOOSE_DIALOGUE_QUOTE_LINE_PATTERN)
+  if (quotedDialogueMatch) {
+    const bodyText = stripLooseDialogueWrapper(quotedDialogueMatch[1])
+    if (!bodyText) {
+      return null
+    }
+    return {
+      type: 'character',
+      speakerName: GENERIC_DIALOGUE_SPEAKER_DEFAULT,
+      text: bodyText,
+      delivery: 'speech',
+    }
+  }
+
+  return null
+}
+
+function parseLooseAssistantParagraph(paragraph: string | null | undefined): AssistantMessageBlock[] | null {
+  const fragments = splitLooseAssistantParagraphFragments(paragraph)
+  if (fragments.length === 0) {
+    return null
+  }
+
+  const blocks: AssistantMessageBlock[] = []
+  let hasCharacterBlock = false
+  const pushBlock = (block: AssistantMessageBlock) => {
+    const previousBlock = blocks[blocks.length - 1]
+    if (!previousBlock) {
+      blocks.push(block)
+      return
+    }
+    if (previousBlock.type === 'narrative' && block.type === 'narrative') {
+      previousBlock.text = `${previousBlock.text}\n${block.text}`.trim()
+      return
+    }
+    if (
+      previousBlock.type === 'character' &&
+      block.type === 'character' &&
+      previousBlock.delivery === block.delivery &&
+      previousBlock.speakerName === block.speakerName
+    ) {
+      previousBlock.text = `${previousBlock.text}\n${block.text}`.trim()
+      return
+    }
+    blocks.push(block)
+  }
+
+  fragments.forEach((fragment) => {
+    const taggedBlock = parseTaggedAssistantParagraph(fragment)
+    if (taggedBlock) {
+      hasCharacterBlock = hasCharacterBlock || taggedBlock.type === 'character'
+      pushBlock(taggedBlock)
+      return
+    }
+
+    const structuredBlock = parseStructuredAssistantParagraph(fragment)
+    if (structuredBlock) {
+      hasCharacterBlock = hasCharacterBlock || structuredBlock.type === 'character'
+      pushBlock(structuredBlock)
+      return
+    }
+
+    const plainSpeakerBlock = parsePlainSpeakerAssistantParagraph(fragment)
+    if (plainSpeakerBlock) {
+      hasCharacterBlock = true
+      pushBlock(plainSpeakerBlock)
+      return
+    }
+
+    const looseBlock = parseLooseAssistantFragment(fragment)
+    if (looseBlock) {
+      hasCharacterBlock = true
+      pushBlock(looseBlock)
+      return
+    }
+
+    const cleanedText = stripStructuredMarkerArtifacts(fragment)
+    if (!cleanedText) {
+      return
+    }
+    pushBlock({ type: 'narrative', text: cleanedText })
+  })
+
+  return hasCharacterBlock && blocks.length > 0 ? blocks : null
+}
+
 function parseAssistantMessageBlocks(content: string | null | undefined): AssistantMessageBlock[] {
   const normalized = normalizeAssistantStructuredParagraphs(content)
   if (!normalized) {
@@ -2079,6 +2279,12 @@ function parseAssistantMessageBlocks(content: string | null | undefined): Assist
     const plainSpeakerBlock = parsePlainSpeakerAssistantParagraph(paragraph)
     if (plainSpeakerBlock) {
       blocks.push(plainSpeakerBlock)
+      return
+    }
+
+    const looseBlocks = parseLooseAssistantParagraph(paragraph)
+    if (looseBlocks) {
+      blocks.push(...looseBlocks)
       return
     }
 
@@ -2215,6 +2421,7 @@ function filterAssistantMessageBlocksForDisplay(
   return displayBlocks
 }
 
+
 const LATIN_TO_CYRILLIC_NAME_DIGRAPHS: Array<[string, string]> = [
   ['shch', 'щ'],
   ['sch', 'щ'],
@@ -2225,7 +2432,7 @@ const LATIN_TO_CYRILLIC_NAME_DIGRAPHS: Array<[string, string]> = [
   ['kh', 'х'],
   ['ts', 'ц'],
   ['ch', 'ч'],
-  ['sh', 'р'],
+  ['sh', 'ш'],
   ['ye', 'е'],
 ]
 
@@ -2853,16 +3060,166 @@ function readEnvironmentString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function readEnvironmentNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
+type EnvironmentSeasonValue = 'winter' | 'spring' | 'summer' | 'autumn'
+type EnvironmentDateInfo = {
+  title: string
+  meta: string
+  season: string
+  month: string
+  seasonAndMonth: string
 }
 
-function formatEnvironmentTemperature(value: unknown): string {
-  const temperature = readEnvironmentNumber(value)
-  if (temperature === null) {
-    return ''
+const ENVIRONMENT_MONTH_OPTIONS: ReadonlyArray<{ value: string; label: string; season: EnvironmentSeasonValue }> = [
+  { value: '1', label: 'Январь', season: 'winter' },
+  { value: '2', label: 'Февраль', season: 'winter' },
+  { value: '3', label: 'Март', season: 'spring' },
+  { value: '4', label: 'Апрель', season: 'spring' },
+  { value: '5', label: 'Май', season: 'spring' },
+  { value: '6', label: 'Июнь', season: 'summer' },
+  { value: '7', label: 'Июль', season: 'summer' },
+  { value: '8', label: 'Август', season: 'summer' },
+  { value: '9', label: 'Сентябрь', season: 'autumn' },
+  { value: '10', label: 'Октябрь', season: 'autumn' },
+  { value: '11', label: 'Ноябрь', season: 'autumn' },
+  { value: '12', label: 'Декабрь', season: 'winter' },
+]
+
+const ENVIRONMENT_SEASON_OPTIONS: ReadonlyArray<{ value: EnvironmentSeasonValue; label: string }> = [
+  { value: 'winter', label: 'Зима' },
+  { value: 'spring', label: 'Весна' },
+  { value: 'summer', label: 'Лето' },
+  { value: 'autumn', label: 'Осень' },
+]
+
+function parseEnvironmentDateTimeValue(value: string | null | undefined): Date | null {
+  if (!value) {
+    return null
   }
-  return `${temperature > 0 ? '+' : ''}${Math.round(temperature)}`
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function resolveEnvironmentSeasonValueFromMonth(monthValue: string): EnvironmentSeasonValue {
+  const normalizedMonth = Number(monthValue)
+  const matchedOption = ENVIRONMENT_MONTH_OPTIONS.find((option) => Number(option.value) === normalizedMonth)
+  return matchedOption?.season ?? 'summer'
+}
+
+function resolveEnvironmentMonthOptionsForSeason(
+  seasonValue: EnvironmentSeasonValue,
+): ReadonlyArray<{ value: string; label: string; season: EnvironmentSeasonValue }> {
+  return ENVIRONMENT_MONTH_OPTIONS.filter((option) => option.season === seasonValue)
+}
+
+function resolveEnvironmentMonthLabel(monthValue: string): string {
+  return ENVIRONMENT_MONTH_OPTIONS.find((option) => option.value === monthValue)?.label ?? 'Июнь'
+}
+
+function resolveEnvironmentSeasonLabelByValue(seasonValue: EnvironmentSeasonValue): string {
+  return ENVIRONMENT_SEASON_OPTIONS.find((option) => option.value === seasonValue)?.label ?? 'Лето'
+}
+
+function resolveEnvironmentTimeDraftValue(value: string | null | undefined): string {
+  const parsed = parseEnvironmentDateTimeValue(value)
+  if (!parsed) {
+    return '09:00'
+  }
+  const hours = String(parsed.getHours()).padStart(2, '0')
+  const minutes = String(parsed.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function resolveEnvironmentMonthDraftValue(value: string | null | undefined): string {
+  const parsed = parseEnvironmentDateTimeValue(value)
+  if (!parsed) {
+    return '6'
+  }
+  return String(parsed.getMonth() + 1)
+}
+
+function resolveEnvironmentSeasonValueFromLabel(value: unknown): EnvironmentSeasonValue | null {
+  const normalized = readEnvironmentString(value).toLocaleLowerCase()
+  if (!normalized) {
+    return null
+  }
+  if (normalized.includes('зим') || normalized.includes('winter')) {
+    return 'winter'
+  }
+  if (normalized.includes('весн') || normalized.includes('spring')) {
+    return 'spring'
+  }
+  if (normalized.includes('осен') || normalized.includes('autumn') || normalized.includes('fall')) {
+    return 'autumn'
+  }
+  if (normalized.includes('Р»РµС‚') || normalized.includes('summer')) {
+    return 'summer'
+  }
+  return null
+}
+function resolveEnvironmentMonthValueFromLabel(value: unknown): string | null {
+  const normalized = readEnvironmentString(value).toLocaleLowerCase()
+  if (!normalized) {
+    return null
+  }
+  const matchedOption = ENVIRONMENT_MONTH_OPTIONS.find((option) => {
+    const optionLabel = option.label.toLocaleLowerCase()
+    return normalized === option.value || normalized === optionLabel
+  })
+  return matchedOption?.value ?? null
+}
+
+function resolveEnvironmentMonthDraftValueFromState(
+  value: string | null | undefined,
+  weatherValue: Record<string, unknown> | null | undefined,
+): string {
+  const monthFromWeather = resolveEnvironmentMonthValueFromLabel(weatherValue?.month)
+  if (monthFromWeather) {
+    return monthFromWeather
+  }
+  return resolveEnvironmentMonthDraftValue(value)
+}
+
+function resolveEnvironmentSeasonDraftValueFromState(
+  value: string | null | undefined,
+  weatherValue: Record<string, unknown> | null | undefined,
+): EnvironmentSeasonValue {
+  const seasonFromWeather = resolveEnvironmentSeasonValueFromLabel(weatherValue?.season)
+  if (seasonFromWeather) {
+    return seasonFromWeather
+  }
+  return resolveEnvironmentSeasonValueFromMonth(resolveEnvironmentMonthDraftValueFromState(value, weatherValue))
+}
+
+function buildEnvironmentDateTimeFromDraft(
+  currentValue: string | null | undefined,
+  monthValue: string,
+  timeValue: string,
+): string | null {
+  const timeMatch = /^(\d{1,2}):(\d{2})$/.exec(timeValue.trim())
+  if (!timeMatch) {
+    return null
+  }
+  const parsedMonth = Number(monthValue)
+  const parsedHours = Number(timeMatch[1])
+  const parsedMinutes = Number(timeMatch[2])
+  if (
+    !Number.isInteger(parsedMonth)
+    || parsedMonth < 1
+    || parsedMonth > 12
+    || !Number.isInteger(parsedHours)
+    || parsedHours < 0
+    || parsedHours > 23
+    || !Number.isInteger(parsedMinutes)
+    || parsedMinutes < 0
+    || parsedMinutes > 59
+  ) {
+    return null
+  }
+  const baseDate = parseEnvironmentDateTimeValue(currentValue) ?? new Date()
+  const year = baseDate.getFullYear()
+  const day = Math.min(baseDate.getDate(), new Date(year, parsedMonth, 0).getDate())
+  const normalized = `${String(year).padStart(4, '0')}-${String(parsedMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(parsedHours).padStart(2, '0')}:${String(parsedMinutes).padStart(2, '0')}`
+  return normalizeEnvironmentDateTimeInputValue(normalized)
 }
 
 function resolveEnvironmentSummaryIcon(summaryValue: unknown): string {
@@ -2924,44 +3281,61 @@ function normalizeEnvironmentTimeline(value: unknown): Array<Record<string, unkn
   if (!Array.isArray(value)) {
     return []
   }
-  return value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+  return value
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object')
+    .sort(
+      (leftEntry, rightEntry) =>
+        resolveEnvironmentTimelineSortWeight(leftEntry, 0) - resolveEnvironmentTimelineSortWeight(rightEntry, 0),
+    )
 }
 
-function resolveEnvironmentSeasonLabel(value: Date): string {
-  const month = value.getMonth()
-  if (month <= 1 || month === 11) {
-    return 'Зима'
-  }
-  if (month <= 4) {
-    return 'Весна'
-  }
-  if (month <= 7) {
-    return 'Лето'
-  }
-  return 'Осень'
+function formatEnvironmentDateInfo(
+  value: string | null | undefined,
+  weatherValue: Record<string, unknown> | null | undefined,
+): EnvironmentDateInfo {
+  return formatEnvironmentDisplayInfo(value, weatherValue)
 }
 
-function formatEnvironmentDateInfo(value: string | null | undefined): { title: string; meta: string; season: string } {
-  if (!value) {
-    return { title: 'Дата неизвестна', meta: 'Время не указано', season: '' }
+function formatEnvironmentDisplayInfo(
+  value: string | null | undefined,
+  weatherValue: Record<string, unknown> | null | undefined,
+): EnvironmentDateInfo {
+  const parsed = parseEnvironmentDateTimeValue(value)
+  const monthValue =
+    resolveEnvironmentMonthValueFromLabel(weatherValue?.month)
+    ?? (parsed ? String(parsed.getMonth() + 1) : '')
+  const seasonValue =
+    resolveEnvironmentSeasonValueFromLabel(weatherValue?.season)
+    ?? (monthValue ? resolveEnvironmentSeasonValueFromMonth(monthValue) : null)
+  const seasonLabel = seasonValue ? resolveEnvironmentSeasonLabelByValue(seasonValue) : ''
+  const monthLabel = monthValue ? resolveEnvironmentMonthLabel(monthValue) : ''
+  const seasonAndMonth = [seasonLabel, monthLabel].filter(Boolean).join(' • ')
+
+  if (!parsed) {
+    return {
+      title: readEnvironmentString(value) || 'Дата неизвестна',
+      meta: readEnvironmentString(weatherValue?.time_of_day) || 'Часть суток не определена',
+      season: seasonLabel,
+      month: monthLabel,
+      seasonAndMonth,
+    }
   }
 
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return { title: value, meta: '', season: '' }
-  }
-
+  const activeTimelineIndex = resolveEnvironmentTimelineActiveIndex(parsed.toISOString())
   return {
-    title: parsed.toLocaleDateString('ru-RU', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    }),
-    meta: parsed.toLocaleTimeString('ru-RU', {
+    title: parsed.toLocaleTimeString('ru-RU', {
       hour: '2-digit',
       minute: '2-digit',
     }),
-    season: resolveEnvironmentSeasonLabel(parsed),
+    meta:
+      readEnvironmentString(weatherValue?.time_of_day)
+      || resolveEnvironmentTimelineLabel(
+        createDefaultEnvironmentTimeline()[activeTimelineIndex] ?? {},
+        activeTimelineIndex,
+      ),
+    season: seasonLabel,
+    month: monthLabel,
+    seasonAndMonth,
   }
 }
 
@@ -3027,22 +3401,6 @@ function resolveEnvironmentTimelineActiveIndex(currentDateTimeValue: string | nu
     return 3
   }
   return 0
-}
-
-function toEnvironmentDateTimeInputValue(value: string | null | undefined): string {
-  if (!value) {
-    return ''
-  }
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return ''
-  }
-  const year = String(parsed.getFullYear()).padStart(4, '0')
-  const month = String(parsed.getMonth() + 1).padStart(2, '0')
-  const day = String(parsed.getDate()).padStart(2, '0')
-  const hours = String(parsed.getHours()).padStart(2, '0')
-  const minutes = String(parsed.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
 }
 
 function normalizeEnvironmentDateTimeInputValue(value: string): string | null {
@@ -3407,7 +3765,6 @@ function formatTurnsWord(value: number): string {
 function countStoryCompletedTurns(messages: StoryMessage[]): number {
   let completedTurns = 0
   let hasPendingUserTurn = false
-
   messages.forEach((message) => {
     if (message.role === 'user') {
       hasPendingUserTurn = true
@@ -3535,9 +3892,9 @@ function formatWorldCardContextStatus(state: WorldCardContextState | undefined):
   }
   const memoryTurns = state.memoryTurns ?? WORLD_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
-    return `активна В· +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
+    return `активна В? +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
   }
-  return `активна В· ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
+  return `активна В? ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
 }
 
 function formatPlotCardContextStatus(state: PlotCardContextState | undefined): string {
@@ -3549,9 +3906,9 @@ function formatPlotCardContextStatus(state: PlotCardContextState | undefined): s
   }
   const memoryTurns = state.memoryTurns ?? PLOT_CARD_TRIGGER_ACTIVE_TURNS
   if (state.isTriggeredThisTurn) {
-    return `активна В· +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
+    return `активна В? +${memoryTurns} ${formatTurnsWord(memoryTurns)}`
   }
-  return `активна В· ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
+  return `активна В? ${state.turnsRemaining} ${formatTurnsWord(state.turnsRemaining)}`
 }
 
 function buildWorldCardContextStateById(worldCards: StoryWorldCard[], messages: StoryMessage[]): Map<number, WorldCardContextState> {
@@ -4082,16 +4439,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [activeGameSummary, setActiveGameSummary] = useState<StoryGameSummary | null>(null)
   const [activeGameId, setActiveGameId] = useState<number | null>(null)
   const [environmentEditorOpen, setEnvironmentEditorOpen] = useState(false)
-  const [environmentDateTimeDraft, setEnvironmentDateTimeDraft] = useState('')
   const [environmentLocationDraft, setEnvironmentLocationDraft] = useState('')
+  const [environmentSeasonDraft, setEnvironmentSeasonDraft] = useState<EnvironmentSeasonValue>('summer')
+  const [environmentMonthDraft, setEnvironmentMonthDraft] = useState('6')
+  const [environmentTimeDraft, setEnvironmentTimeDraft] = useState('09:00')
   const [environmentCurrentSummaryDraft, setEnvironmentCurrentSummaryDraft] = useState('')
-  const [environmentCurrentTemperatureDraft, setEnvironmentCurrentTemperatureDraft] = useState('')
-  const [environmentWindDraft, setEnvironmentWindDraft] = useState('')
-  const [environmentHumidityDraft, setEnvironmentHumidityDraft] = useState('')
-  const [environmentFogDraft, setEnvironmentFogDraft] = useState('')
-  const [environmentTomorrowSummaryDraft, setEnvironmentTomorrowSummaryDraft] = useState('')
-  const [environmentTomorrowTemperatureDraft, setEnvironmentTomorrowTemperatureDraft] = useState('')
-  const [environmentTimelineDraft, setEnvironmentTimelineDraft] = useState<Array<Record<string, unknown>>>([])
   const [isSavingEnvironmentPanel, setIsSavingEnvironmentPanel] = useState(false)
   const [isRegeneratingEnvironmentWeather, setIsRegeneratingEnvironmentWeather] = useState(false)
   const [messages, setMessages] = useState<StoryMessage[]>([])
@@ -4800,57 +5152,46 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       : rightPanelMode === 'world'
         ? `world-${activeWorldPanelTab}`
         : `memory-${activeMemoryPanelTab}`
-  const environmentDateInfo = useMemo(
-    () => formatEnvironmentDateInfo(activeGameSummary?.environment_current_datetime),
-    [activeGameSummary?.environment_current_datetime],
+  const environmentTimeEnabled = Boolean(
+    activeGameSummary?.environment_time_enabled ?? activeGameSummary?.environment_enabled,
+  )
+  const environmentWeatherEnabled = Boolean(
+    activeGameSummary?.environment_weather_enabled ?? activeGameSummary?.environment_enabled,
   )
   const environmentCurrentWeather = activeGameSummary?.environment_current_weather ?? null
-  const environmentTomorrowWeather = activeGameSummary?.environment_tomorrow_weather ?? null
+  const environmentDateInfo = useMemo(
+    () => formatEnvironmentDateInfo(activeGameSummary?.environment_current_datetime, environmentCurrentWeather),
+    [activeGameSummary?.environment_current_datetime, environmentCurrentWeather],
+  )
   const environmentTimeline = useMemo(
     () => normalizeEnvironmentTimeline(environmentCurrentWeather?.timeline),
     [environmentCurrentWeather],
   )
-  const environmentTimelineBlocks = useMemo(() => {
-    const defaults = createDefaultEnvironmentTimeline()
-    const normalized = environmentTimeline.length > 0 ? environmentTimeline.slice(0, 4) : defaults
-    const sortedTimeline = [...normalized].sort((leftEntry, rightEntry) => {
-      const leftIndex = normalized.indexOf(leftEntry)
-      const rightIndex = normalized.indexOf(rightEntry)
-      return resolveEnvironmentTimelineSortWeight(leftEntry, leftIndex) - resolveEnvironmentTimelineSortWeight(rightEntry, rightIndex)
-    })
-    return sortedTimeline.length >= 4
-      ? sortedTimeline.slice(0, 4)
-      : [...sortedTimeline, ...defaults.slice(sortedTimeline.length, 4)]
-  }, [environmentTimeline])
   const activeEnvironmentTimelineIndex = useMemo(
     () => resolveEnvironmentTimelineActiveIndex(activeGameSummary?.environment_current_datetime),
     [activeGameSummary?.environment_current_datetime],
   )
+  const activeEnvironmentTimelineEntry = useMemo(
+    () => environmentTimeline[activeEnvironmentTimelineIndex] ?? createDefaultEnvironmentTimeline()[activeEnvironmentTimelineIndex] ?? null,
+    [activeEnvironmentTimelineIndex, environmentTimeline],
+  )
 
   const openEnvironmentEditor = useCallback(() => {
     const currentWeather = activeGameSummary?.environment_current_weather ?? null
-    const tomorrowWeather = activeGameSummary?.environment_tomorrow_weather ?? null
-    setEnvironmentDateTimeDraft(toEnvironmentDateTimeInputValue(activeGameSummary?.environment_current_datetime))
+    const currentMonthDraft = resolveEnvironmentMonthDraftValueFromState(
+      activeGameSummary?.environment_current_datetime,
+      currentWeather,
+    )
+    const activeTimelineSummary = readEnvironmentString(activeEnvironmentTimelineEntry?.summary)
+    setEnvironmentSeasonDraft(
+      resolveEnvironmentSeasonDraftValueFromState(activeGameSummary?.environment_current_datetime, currentWeather),
+    )
+    setEnvironmentMonthDraft(currentMonthDraft)
+    setEnvironmentTimeDraft(resolveEnvironmentTimeDraftValue(activeGameSummary?.environment_current_datetime))
     setEnvironmentLocationDraft(readEnvironmentString(activeGameSummary?.current_location_label))
-    setEnvironmentCurrentSummaryDraft(readEnvironmentString(currentWeather?.summary))
-    setEnvironmentCurrentTemperatureDraft(
-      currentWeather && typeof currentWeather.temperature_c === 'number' ? String(currentWeather.temperature_c) : '',
-    )
-    setEnvironmentWindDraft(readEnvironmentString(currentWeather?.wind))
-    setEnvironmentHumidityDraft(readEnvironmentString(currentWeather?.humidity))
-    setEnvironmentFogDraft(readEnvironmentString(currentWeather?.fog))
-    setEnvironmentTomorrowSummaryDraft(readEnvironmentString(tomorrowWeather?.summary))
-    setEnvironmentTomorrowTemperatureDraft(
-      tomorrowWeather && typeof tomorrowWeather.temperature_c === 'number' ? String(tomorrowWeather.temperature_c) : '',
-    )
-    setEnvironmentTimelineDraft(environmentTimelineBlocks.map((entry, index) => ({
-      start_time: readEnvironmentString(entry.start_time) || createDefaultEnvironmentTimeline()[index]?.start_time || '',
-      end_time: readEnvironmentString(entry.end_time) || createDefaultEnvironmentTimeline()[index]?.end_time || '',
-      summary: readEnvironmentString(entry.summary),
-      temperature_c: readEnvironmentNumber(entry.temperature_c),
-    })))
+    setEnvironmentCurrentSummaryDraft(readEnvironmentString(currentWeather?.summary) || activeTimelineSummary)
     setEnvironmentEditorOpen(true)
-  }, [activeGameSummary, environmentTimelineBlocks])
+  }, [activeEnvironmentTimelineEntry, activeGameSummary])
   useEffect(() => {
     if (activeAiPanelTab === 'instructions') {
       setActiveAiPanelTab('settings')
@@ -5848,6 +6189,58 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [speakerCardsForAvatar],
   )
+  const findSpeakerEntryByTextContext = useCallback(
+    (textFragments: string[]): SpeakerAvatarEntry | null => {
+      const searchSpace = normalizeCharacterIdentity(textFragments.filter(Boolean).join(' '))
+      if (!searchSpace) {
+        return null
+      }
+
+      let bestEntry: SpeakerAvatarEntry | null = null
+      let bestScore = 0
+      let ambiguous = false
+      for (const entry of speakerCardsForAvatar) {
+        const normalizedDisplayName = normalizeCharacterIdentity(entry.displayName)
+        let entryScore = 0
+        if (normalizedDisplayName && searchSpace.includes(normalizedDisplayName)) {
+          entryScore = 120
+        }
+
+        entry.names.forEach((name) => {
+          const normalizedName = normalizeCharacterIdentity(name)
+          if (!normalizedName) {
+            return
+          }
+          if (!normalizedName.includes(' ') && normalizedName.length < 4) {
+            return
+          }
+          if (!searchSpace.includes(normalizedName)) {
+            return
+          }
+          entryScore = Math.max(entryScore, normalizedName === normalizedDisplayName ? 110 : 100)
+        })
+
+        if (entryScore <= 0) {
+          continue
+        }
+        if (entryScore > bestScore) {
+          bestEntry = entry
+          bestScore = entryScore
+          ambiguous = false
+          continue
+        }
+        if (entryScore === bestScore && bestEntry) {
+          const bestDisplayName = normalizeCharacterIdentity(bestEntry.displayName)
+          if (bestDisplayName !== normalizedDisplayName) {
+            ambiguous = true
+          }
+        }
+      }
+
+      return bestScore > 0 && !ambiguous ? bestEntry : null
+    },
+    [speakerCardsForAvatar],
+  )
   const findSceneEmotionEntryByName = useCallback(
     (rawSpeakerName: string): SceneEmotionCharacterEntry | null => {
       const lookupValues = extractSpeakerLookupValues(rawSpeakerName)
@@ -5882,9 +6275,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [findSpeakerEntryByName],
   )
   const resolveDialogueSpeakerName = useCallback(
-    (speakerName: string, _dialogueText: string, _nearbyNarrativeText = ''): string => {
-      void _dialogueText
-      void _nearbyNarrativeText
+    (speakerName: string, dialogueText: string, nearbyNarrativeText = ''): string => {
       const speakerLookupValues = extractSpeakerLookupValues(speakerName)
       const speakerDisplayName = speakerLookupValues[0] ?? speakerName.trim()
       const normalizedSpeaker = normalizeCharacterIdentity(speakerDisplayName)
@@ -5902,13 +6293,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
 
+      if (normalizedSpeaker && genericDialogueSpeakerNames.has(normalizedSpeaker)) {
+        const contextualEntry = findSpeakerEntryByTextContext([
+          speakerDisplayName,
+          dialogueText,
+          nearbyNarrativeText,
+        ])
+        if (contextualEntry) {
+          return contextualEntry.displayName
+        }
+      }
+
       if (normalizedSpeaker && !genericDialogueSpeakerNames.has(normalizedSpeaker)) {
         return speakerDisplayName || speakerName
       }
 
       return speakerDisplayName || speakerName
     },
-    [findSpeakerEntryByName, genericDialogueSpeakerNames],
+    [findSpeakerEntryByName, findSpeakerEntryByTextContext, genericDialogueSpeakerNames],
   )
   const currentSceneEmotionCue = useMemo(() => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -9402,7 +9804,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         type: 'instruction',
         targetId: targetCardId,
         title: 'Удалить инструкцию?',
-        message: `Инструкция «${normalizedTitle}» будет удалена только из этой игры. Если исходный шаблон есть в профиле, он останется без изменений.`,
+        message: `Инструкция «${normalizedTitle}» будет удалена только из этой игры. Если исходный шаблон есть в профиле, он останется без изменений.`, 
       })
       return
     }
@@ -11373,7 +11775,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showGgThoughts,
           showNpcThoughts,
           ambientEnabled,
-          environmentEnabled: Boolean(activeGameSummary?.environment_enabled),
+          environmentEnabled: environmentTimeEnabled || environmentWeatherEnabled,
           emotionVisualizationEnabled: isAdministrator ? emotionVisualizationEnabled : false,
           signal: controller.signal,
           onStart: (payload) => {
@@ -11561,117 +11963,130 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           !wasAborted &&
           streamStarted &&
           completedAssistantMessageId !== null
-        if (shouldOptimizeStoryMemory) {
-          pendingContextBudgetCheckRef.current = true
-          try {
-            await optimizeStoryMemorySnapshot(options.gameId, completedAssistantMessageId)
-          } catch (memoryError) {
-            console.error('Story memory optimize after generation failed', memoryError)
-            const detail = memoryError instanceof Error ? memoryError.message : 'Ход создан, но оптимизация памяти не выполнена'
-            setErrorMessage(detail)
-          }
-        }
-
         const shouldReloadGameSnapshot =
           generationFailed ||
           wasAborted ||
           !streamStarted ||
-          completedAssistantMessageId === null ||
-          postprocessPending
+          completedAssistantMessageId === null
         const minimumExpectedAssistantMessageId = completedAssistantMessageId ?? startedAssistantMessageId
-
-        if (shouldReloadGameSnapshot) {
-          await loadGameById(options.gameId, {
-            silent: true,
-            minAssistantMessageId: minimumExpectedAssistantMessageId,
-          })
-        }
-        try {
-          const refreshedGames = await listStoryGames(authToken, { compact: true })
-          setGames(sortGamesByActivity(refreshedGames))
-        } catch {
-          // Keep current games if refresh failed.
-        }
-
+        const shouldRefreshGameList = true
         const shouldRetryGameSyncWithoutDoneEvent =
           !wasAborted && streamStarted && startedAssistantMessageId !== null && completedAssistantMessageId === null
-        if (shouldRetryGameSyncWithoutDoneEvent) {
-          const retryAttempts = 2
-          for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, 800)
-            })
-            if (activeGameIdRef.current !== options.gameId) {
-              break
-            }
-            if (generationAbortRef.current !== null) {
-              break
-            }
-            await loadGameById(options.gameId, {
-              silent: true,
-              minAssistantMessageId: minimumExpectedAssistantMessageId,
-            })
-          }
-        }
-
         const shouldReconcileSuccessfulGeneration =
           !generationFailed &&
           !wasAborted &&
           streamStarted &&
           completedAssistantMessageId !== null &&
           !postprocessPending
-        if (shouldReconcileSuccessfulGeneration) {
-          const reconcileDelaysMs = [450, 1400]
-          for (const delayMs of reconcileDelaysMs) {
-            await new Promise<void>((resolve) => {
-              window.setTimeout(resolve, delayMs)
-            })
-            if (activeGameIdRef.current !== options.gameId) {
-              break
-            }
-            if (generationAbortRef.current !== null) {
-              break
-            }
-            const refreshed = await loadGameById(options.gameId, {
+        const shouldPollPostprocessInBackground = postprocessPending
+        const canContinueDeferredTurnSync = () =>
+          activeGameIdRef.current === options.gameId && generationAbortRef.current === null
+
+        if (shouldReloadGameSnapshot) {
+          try {
+            await loadGameById(options.gameId, {
               silent: true,
-              suppressErrors: true,
-              minAssistantMessageId: completedAssistantMessageId,
+              minAssistantMessageId: minimumExpectedAssistantMessageId,
             })
-            if (refreshed) {
-              break
-            }
+          } catch (syncError) {
+            console.error('Failed to reload story snapshot after generation', syncError)
           }
         }
 
-        if (postprocessPending) {
+        setIsFinalizingStoryTurn(false)
+
+        if (
+          shouldOptimizeStoryMemory ||
+          shouldRefreshGameList ||
+          shouldRetryGameSyncWithoutDoneEvent ||
+          shouldReconcileSuccessfulGeneration ||
+          shouldPollPostprocessInBackground
+        ) {
           void (async () => {
-            const maxAttempts = 20
-            const delayMs = 3000
-            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-              await new Promise<void>((resolve) => {
-                window.setTimeout(resolve, delayMs)
-              })
-              if (activeGameIdRef.current !== options.gameId) {
-                break
-              }
-              if (generationAbortRef.current !== null) {
-                // Another generation started; stop background sync loop.
-                break
-              }
+            if (shouldOptimizeStoryMemory && canContinueDeferredTurnSync()) {
+              pendingContextBudgetCheckRef.current = true
               try {
+                await optimizeStoryMemorySnapshot(options.gameId, completedAssistantMessageId)
+              } catch (memoryError) {
+                console.error('Story memory optimize after generation failed', memoryError)
+                const detail = memoryError instanceof Error ? memoryError.message : 'Ход создан, но оптимизация памяти не выполнена'
+                setErrorMessage(detail)
+              }
+            }
+
+            if (shouldRefreshGameList && canContinueDeferredTurnSync()) {
+              try {
+                const refreshedGames = await listStoryGames(authToken, { compact: true })
+                if (canContinueDeferredTurnSync()) {
+                  setGames(sortGamesByActivity(refreshedGames))
+                }
+              } catch {
+                // Keep current games if refresh failed.
+              }
+            }
+
+            if (shouldRetryGameSyncWithoutDoneEvent) {
+              const retryAttempts = 2
+              for (let attempt = 0; attempt < retryAttempts; attempt += 1) {
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, 800)
+                })
+                if (!canContinueDeferredTurnSync()) {
+                  break
+                }
                 await loadGameById(options.gameId, {
                   silent: true,
                   minAssistantMessageId: minimumExpectedAssistantMessageId,
                 })
-                const refreshedGames = await listStoryGames(authToken, { compact: true })
-                setGames(sortGamesByActivity(refreshedGames))
-              } catch {
-                // Ignore background sync errors; next attempt may succeed.
+              }
+            }
+
+            if (shouldReconcileSuccessfulGeneration) {
+              const reconcileDelaysMs = [450, 1400]
+              for (const delayMs of reconcileDelaysMs) {
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, delayMs)
+                })
+                if (!canContinueDeferredTurnSync()) {
+                  break
+                }
+                const refreshed = await loadGameById(options.gameId, {
+                  silent: true,
+                  suppressErrors: true,
+                  minAssistantMessageId: completedAssistantMessageId,
+                })
+                if (refreshed) {
+                  break
+                }
+              }
+            }
+
+            if (shouldPollPostprocessInBackground) {
+              const maxAttempts = 20
+              const delayMs = 3000
+              for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                await new Promise<void>((resolve) => {
+                  window.setTimeout(resolve, delayMs)
+                })
+                if (!canContinueDeferredTurnSync()) {
+                  break
+                }
+                try {
+                  await loadGameById(options.gameId, {
+                    silent: true,
+                    minAssistantMessageId: minimumExpectedAssistantMessageId,
+                  })
+                  const refreshedGames = await listStoryGames(authToken, { compact: true })
+                  if (canContinueDeferredTurnSync()) {
+                    setGames(sortGamesByActivity(refreshedGames))
+                  }
+                } catch {
+                  // Ignore background sync errors; next attempt may succeed.
+                }
               }
             }
           })()
         }
-        setIsFinalizingStoryTurn(false)
       }
 
       return {
@@ -11684,7 +12099,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       applyPlotCardEvents,
       applyWorldCardEvents,
       ambientEnabled,
-      activeGameSummary?.environment_enabled,
+      environmentTimeEnabled,
+      environmentWeatherEnabled,
       authToken,
       emotionVisualizationEnabled,
       isAdministrator,
@@ -12039,7 +12455,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         const updatedGame = await updateStoryGameSettings({
           token: authToken,
           gameId: activeGameId,
-          environmentEnabled: nextEnabled,
+          environmentEnabled: nextEnabled || environmentWeatherEnabled,
+          environmentTimeEnabled: nextEnabled,
+          environmentWeatherEnabled,
           environmentCurrentDatetime: activeGameSummary?.environment_current_datetime ?? null,
           environmentCurrentWeather: activeGameSummary?.environment_current_weather ?? null,
           environmentTomorrowWeather: activeGameSummary?.environment_tomorrow_weather ?? null,
@@ -12047,7 +12465,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         })
         applyUpdatedGameSummary(updatedGame)
       } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось обновить погоду и время'
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить настройки времени'
         setErrorMessage(detail)
       } finally {
         setIsSavingEnvironmentPanel(false)
@@ -12058,6 +12476,46 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       activeGameSummary,
       applyUpdatedGameSummary,
       authToken,
+      environmentWeatherEnabled,
+      isRegeneratingEnvironmentWeather,
+      isSavingEnvironmentPanel,
+    ],
+  )
+
+  const handleToggleEnvironmentWeatherEnabled = useCallback(
+    async (nextEnabled: boolean) => {
+      if (!activeGameId || isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather) {
+        return
+      }
+
+      setIsSavingEnvironmentPanel(true)
+      setErrorMessage('')
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: activeGameId,
+          environmentEnabled: environmentTimeEnabled || nextEnabled,
+          environmentTimeEnabled,
+          environmentWeatherEnabled: nextEnabled,
+          environmentCurrentDatetime: activeGameSummary?.environment_current_datetime ?? null,
+          environmentCurrentWeather: activeGameSummary?.environment_current_weather ?? null,
+          environmentTomorrowWeather: activeGameSummary?.environment_tomorrow_weather ?? null,
+          currentLocationLabel: activeGameSummary?.current_location_label ?? null,
+        })
+        applyUpdatedGameSummary(updatedGame)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить настройки погоды'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingEnvironmentPanel(false)
+      }
+    },
+    [
+      activeGameId,
+      activeGameSummary,
+      applyUpdatedGameSummary,
+      authToken,
+      environmentTimeEnabled,
       isRegeneratingEnvironmentWeather,
       isSavingEnvironmentPanel,
     ],
@@ -12068,7 +12526,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       !activeGameId
       || isSavingEnvironmentPanel
       || isRegeneratingEnvironmentWeather
-      || !activeGameSummary?.environment_enabled
+      || !environmentWeatherEnabled
     ) {
       return
     }
@@ -12082,16 +12540,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       })
       applyUpdatedGameSummary(updatedGame)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось перегенерировать прогноз'
+      const detail = error instanceof Error ? error.message : 'Не удалось перегенерировать погоду'
       setErrorMessage(detail)
     } finally {
       setIsRegeneratingEnvironmentWeather(false)
     }
   }, [
     activeGameId,
-    activeGameSummary?.environment_enabled,
     applyUpdatedGameSummary,
     authToken,
+    environmentWeatherEnabled,
     isRegeneratingEnvironmentWeather,
     isSavingEnvironmentPanel,
   ])
@@ -12101,33 +12559,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
 
-    const parseTemperature = (value: string): number | null => {
-      const normalized = value.replace(',', '.').trim()
-      if (!normalized) {
-        return null
-      }
-      const parsed = Number(normalized)
-      return Number.isFinite(parsed) ? parsed : null
-    }
-
     const nextCurrentWeather = {
       ...(activeGameSummary?.environment_current_weather ?? {}),
       summary: environmentCurrentSummaryDraft.trim(),
-      temperature_c: parseTemperature(environmentCurrentTemperatureDraft),
-      wind: environmentWindDraft.trim(),
-      humidity: environmentHumidityDraft.trim(),
-      fog: environmentFogDraft.trim(),
-      timeline: environmentTimelineDraft.map((entry, index) => ({
-        start_time: readEnvironmentString(entry.start_time) || createDefaultEnvironmentTimeline()[index]?.start_time || '',
-        end_time: readEnvironmentString(entry.end_time) || createDefaultEnvironmentTimeline()[index]?.end_time || '',
-        summary: readEnvironmentString(entry.summary),
-        temperature_c: parseTemperature(String(entry.temperature_c ?? '')),
+      season: resolveEnvironmentSeasonLabelByValue(environmentSeasonDraft).toLowerCase(),
+      month: resolveEnvironmentMonthLabel(environmentMonthDraft).toLowerCase(),
+      timeline: createDefaultEnvironmentTimeline().map((entry) => ({
+        start_time: readEnvironmentString(entry.start_time),
+        end_time: readEnvironmentString(entry.end_time),
+        summary: environmentCurrentSummaryDraft.trim(),
       })),
-    }
-    const nextTomorrowWeather = {
-      ...(activeGameSummary?.environment_tomorrow_weather ?? {}),
-      summary: environmentTomorrowSummaryDraft.trim(),
-      temperature_c: parseTemperature(environmentTomorrowTemperatureDraft),
     }
 
     setIsSavingEnvironmentPanel(true)
@@ -12136,16 +12577,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const updatedGame = await updateStoryGameSettings({
         token: authToken,
         gameId: activeGameId,
-        environmentEnabled: Boolean(activeGameSummary?.environment_enabled),
-        environmentCurrentDatetime: normalizeEnvironmentDateTimeInputValue(environmentDateTimeDraft),
+        environmentEnabled: environmentTimeEnabled || environmentWeatherEnabled,
+        environmentTimeEnabled,
+        environmentWeatherEnabled,
+        environmentCurrentDatetime: buildEnvironmentDateTimeFromDraft(
+          activeGameSummary?.environment_current_datetime,
+          environmentMonthDraft,
+          environmentTimeDraft,
+        ),
         environmentCurrentWeather: nextCurrentWeather,
-        environmentTomorrowWeather: nextTomorrowWeather,
+        environmentTomorrowWeather: null,
         currentLocationLabel: environmentLocationDraft.trim() || null,
       })
       applyUpdatedGameSummary(updatedGame)
       setEnvironmentEditorOpen(false)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось сохранить погоду и время'
+      const detail = error instanceof Error ? error.message : 'Не удалось сохранить время и погоду'
       setErrorMessage(detail)
     } finally {
       setIsSavingEnvironmentPanel(false)
@@ -12156,15 +12603,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     applyUpdatedGameSummary,
     authToken,
     environmentCurrentSummaryDraft,
-    environmentCurrentTemperatureDraft,
-    environmentDateTimeDraft,
-    environmentFogDraft,
-    environmentHumidityDraft,
     environmentLocationDraft,
-    environmentTimelineDraft,
-    environmentTomorrowSummaryDraft,
-    environmentTomorrowTemperatureDraft,
-    environmentWindDraft,
+    environmentMonthDraft,
+    environmentSeasonDraft,
+    environmentTimeDraft,
+    environmentTimeEnabled,
+    environmentWeatherEnabled,
     isRegeneratingEnvironmentWeather,
     isSavingEnvironmentPanel,
   ])
@@ -13247,7 +13691,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       <RightPanelEmptyState
                         iconSrc={icons.ai}
                         title="Правила пока не заданы"
-                        description="Создайте правила или возьмите шаблон, чтобы зафиксировать стиль, ограничения и важные указания для ИИ."
+                        description="Создайте правила или выберите шаблон, чтобы зафиксировать стиль, ограничения и важные указания для ИИ."
                       />
                     ) : (
                       <>
@@ -13539,29 +13983,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ) : null}
 
           {!shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (() => {
-            const environmentEnabled = Boolean(activeGameSummary?.environment_enabled)
+            const environmentEnabled = environmentTimeEnabled || environmentWeatherEnabled
             const environmentSummary = readEnvironmentString(environmentCurrentWeather?.summary) || 'Погода уточняется'
-            const environmentTemperature = formatEnvironmentTemperature(environmentCurrentWeather?.temperature_c)
-            const environmentWind = readEnvironmentString(environmentCurrentWeather?.wind)
-            const environmentHumidity = readEnvironmentString(environmentCurrentWeather?.humidity)
-            const environmentFog = readEnvironmentString(environmentCurrentWeather?.fog)
             const environmentLocationLabel = latestLocationMemoryLabel
-            const timelineEntries = environmentTimelineBlocks
-            const tomorrowSummary = readEnvironmentString(environmentTomorrowWeather?.summary)
-            const tomorrowTemperature = formatEnvironmentTemperature(environmentTomorrowWeather?.temperature_c)
-            const forecastMetaEntries = [
-              environmentWind
-                ? { key: 'wind', label: 'Ветер', value: environmentWind, icon: environmentFogIcon }
-                : null,
-              environmentHumidity
-                ? { key: 'humidity', label: 'Влажность', value: environmentHumidity, icon: environmentUnderwaterIcon }
-                : null,
-              environmentFog
-                ? { key: 'fog', label: 'Туман', value: environmentFog, icon: environmentCloudIcon }
-                : null,
-            ].filter(
-              (entry): entry is { key: string; label: string; value: string; icon: string } => entry !== null,
-            )
+            const environmentTimeMeta = environmentTimeEnabled
+              ? [environmentDateInfo.title, environmentDateInfo.meta].filter(Boolean).join(' • ')
+              : 'Время отключено'
+            const environmentWeatherMeta = environmentWeatherEnabled
+              ? [environmentDateInfo.seasonAndMonth ?? environmentDateInfo.season, environmentSummary].filter(Boolean).join(' • ')
+              : 'Погода отключена'
+            const environmentHeaderMeta = environmentTimeEnabled
+              ? [environmentDateInfo.meta, environmentWeatherEnabled ? environmentSummary : 'Погода отключена']
+                  .filter(Boolean)
+                  .join(' • ')
+              : environmentWeatherMeta
 
             return (
               <Box
@@ -13583,14 +14018,41 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>
                       Погода и время
                     </Typography>
-                    <Stack direction="row" spacing={0.6} alignItems="center">
-                      <Typography sx={buildStatusChipSx(environmentEnabled)}>
-                        {environmentEnabled ? 'Активно' : 'Выкл'}
+                    <Typography sx={buildStatusChipSx(environmentEnabled)}>
+                      {environmentEnabled ? 'Активно' : 'Выкл'}
+                    </Typography>
+                  </Stack>
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between">
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
+                        Время
                       </Typography>
                       <Switch
-                        checked={environmentEnabled}
+                        checked={environmentTimeEnabled}
                         disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
                         onChange={(event) => void handleToggleEnvironmentEnabled(event.target.checked)}
+                        color="default"
+                        sx={{
+                          mr: -0.5,
+                          '& .MuiSwitch-switchBase.Mui-checked': {
+                            color: 'var(--morius-accent)',
+                          },
+                          '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                            backgroundColor: 'var(--morius-accent)',
+                            opacity: 0.86,
+                          },
+                        }}
+                      />
+                    </Stack>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.8}>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
+                        Погода
+                      </Typography>
+                      <Switch
+                        checked={environmentWeatherEnabled}
+                        disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                        onChange={(event) => void handleToggleEnvironmentWeatherEnabled(event.target.checked)}
                         color="default"
                         sx={{
                           mr: -0.5,
@@ -13610,10 +14072,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     <RightPanelEmptyState
                       iconSrc={environmentCloudIcon}
                       title="Окружение выключено"
-                      description="Включите блок, чтобы история учитывала дату, погоду, прогноз и текущее место сцены."
+                      description="Включите блок, чтобы история учитывала текущее время, часть суток, погоду и место сцены."
                     />
                   ) : (
-                    <Stack spacing={1}>
+                    <Stack spacing={0.85}>
                       <Box
                         role="button"
                         tabIndex={0}
@@ -13633,165 +14095,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           cursor: 'pointer',
                         }}
                       >
-                        {environmentDateInfo.season ? (
+                        {environmentDateInfo.seasonAndMonth ? (
                           <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.8rem', fontWeight: 700 }}>
-                            {environmentDateInfo.season}
+                            {environmentDateInfo.seasonAndMonth}
                           </Typography>
                         ) : null}
                         <Typography sx={{ mt: 0.18, color: 'var(--morius-title-text)', fontSize: '1.14rem', fontWeight: 800 }}>
-                          {environmentDateInfo.title}
+                          {environmentTimeEnabled ? environmentDateInfo.title : 'Время отключено'}
                         </Typography>
                         <Stack direction="row" spacing={0.6} alignItems="center" sx={{ mt: 0.55 }}>
                           <Box component="img" src={resolveEnvironmentSummaryIcon(environmentSummary)} alt="" sx={environmentPanelIconSx} />
                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.35 }}>
-                            {[environmentDateInfo.meta, environmentSummary, environmentTemperature ? `${environmentTemperature}°` : '']
-                              .filter(Boolean)
-                              .join(' • ')}
+                            {environmentHeaderMeta}
                           </Typography>
                         </Stack>
                       </Box>
 
-                      <Box>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>Прогноз</Typography>
-                        <Typography sx={{ mt: 0.12, color: 'var(--morius-accent)', fontSize: '0.9rem', fontWeight: 800 }}>
-                          Сегодня
-                        </Typography>
-                      </Box>
-
-                      {timelineEntries.length > 0 ? (
-                        <Box
-                          sx={{
-                            display: 'grid',
-                            gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                            gap: 0.6,
-                          }}
-                        >
-                          {timelineEntries.map((entry, index) => {
-                            const summary = readEnvironmentString(entry.summary) || 'Стабильно'
-                            const temperature = formatEnvironmentTemperature(entry.temperature_c)
-                            const label = resolveEnvironmentTimelineLabel(entry, index)
-                            const isActiveTimelineBlock = activeEnvironmentTimelineIndex === index
-                            return (
-                              <Box
-                                key={`${label}-${index}`}
-                                role="button"
-                                tabIndex={0}
-                                onClick={openEnvironmentEditor}
-                                onKeyDown={(event) => {
-                                  if (event.key === 'Enter' || event.key === ' ') {
-                                    event.preventDefault()
-                                    openEnvironmentEditor()
-                                  }
-                                }}
-                                sx={{
-                                  minHeight: 102,
-                                  borderRadius: '16px',
-                                  px: 0.5,
-                                  py: 0.65,
-                                  border: isActiveTimelineBlock
-                                    ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
-                                    : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-                                  backgroundColor: 'transparent',
-                                  boxShadow: 'none',
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  justifyContent: 'space-between',
-                                  textAlign: 'center',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <Typography
-                                  sx={{
-                                    color: isActiveTimelineBlock ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                                    fontSize: '0.68rem',
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  {label}
-                                </Typography>
-                                <Box component="img" src={resolveEnvironmentSummaryIcon(summary)} alt="" sx={environmentPanelIconSx} />
-                                <Typography
-                                  sx={{
-                                    color: isActiveTimelineBlock ? 'var(--morius-accent)' : 'var(--morius-title-text)',
-                                    fontSize: '0.96rem',
-                                    fontWeight: 800,
-                                  }}
-                                >
-                                  {temperature ? `${temperature}°` : '—'}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    color: isActiveTimelineBlock ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
-                                    fontSize: '0.66rem',
-                                    lineHeight: 1.2,
-                                    display: '-webkit-box',
-                                    WebkitLineClamp: 2,
-                                    WebkitBoxOrient: 'vertical',
-                                    overflow: 'hidden',
-                                  }}
-                                >
-                                  {summary}
-                                </Typography>
-                              </Box>
-                            )
-                          })}
-                        </Box>
-                      ) : (
-                        <RightPanelEmptyState
-                          iconSrc={environmentCloudIcon}
-                          title="Прогноз уточняется"
-                          description="Погода уже включена, но почасовой прогноз еще не успел заполниться. Он подтянется после следующего хода."
-                        />
-                      )}
-
-                      {forecastMetaEntries.length > 0 ? (
-                        <Box
-                          sx={{
-                            display: 'grid',
-                            gridTemplateColumns: forecastMetaEntries.length >= 3 ? 'repeat(3, minmax(0, 1fr))' : `repeat(${forecastMetaEntries.length}, minmax(0, 1fr))`,
-                            gap: 0.6,
-                          }}
-                        >
-                          {forecastMetaEntries.map((entry) => (
-                            <Stack
-                              key={entry.key}
-                              direction="row"
-                              spacing={0.55}
-                              alignItems="center"
-                              sx={{
-                                borderRadius: '14px',
-                                px: 0.7,
-                                py: 0.62,
-                                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-                                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 85%, transparent)',
-                              }}
-                            >
-                              <Box component="img" src={entry.icon} alt="" sx={environmentPanelIconSx} />
-                              <Stack spacing={0.05} sx={{ minWidth: 0 }}>
-                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.66rem', lineHeight: 1.1 }}>
-                                  {entry.label}
-                                </Typography>
-                                <Typography
-                                  sx={{
-                                    color: 'var(--morius-title-text)',
-                                    fontSize: '0.8rem',
-                                    fontWeight: 700,
-                                    lineHeight: 1.15,
-                                    whiteSpace: 'nowrap',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                  }}
-                                >
-                                  {entry.value}
-                                </Typography>
-                              </Stack>
-                            </Stack>
-                          ))}
-                        </Box>
-                      ) : null}
-
-                      {tomorrowSummary || tomorrowTemperature ? (
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={0.75}
+                      >
                         <Box
                           role="button"
                           tabIndex={0}
@@ -13803,50 +14126,94 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             }
                           }}
                           sx={{
+                            flex: 1,
                             borderRadius: '16px',
                             px: 0.95,
-                            py: 0.78,
+                            py: 0.82,
                             border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
                             backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 84%, transparent)',
                             cursor: 'pointer',
                           }}
                         >
-                          <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.9rem', fontWeight: 800 }}>
-                            Завтра
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 700 }}>
+                            Время
                           </Typography>
-                          <Stack direction="row" spacing={0.55} alignItems="center" sx={{ mt: 0.45 }}>
-                            <Box component="img" src={resolveEnvironmentSummaryIcon(tomorrowSummary || environmentSummary)} alt="" sx={environmentPanelIconSx} />
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', lineHeight: 1.35 }}>
-                              {[tomorrowSummary, tomorrowTemperature ? `${tomorrowTemperature}°` : ''].filter(Boolean).join(' • ')}
-                            </Typography>
-                          </Stack>
+                          <Typography sx={{ mt: 0.25, color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
+                            {environmentTimeMeta}
+                          </Typography>
                         </Box>
-                      ) : null}
 
-                      <Button
-                        onClick={() => void handleRegenerateEnvironmentWeather()}
-                        disabled={!environmentEnabled || isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
-                        startIcon={
-                          isRegeneratingEnvironmentWeather ? (
-                            <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
-                          ) : undefined
-                        }
-                        sx={{
-                          alignSelf: 'flex-start',
-                          minHeight: 34,
-                          px: 1.2,
-                          borderRadius: '12px',
-                          textTransform: 'none',
-                          color: 'var(--morius-title-text)',
-                          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))',
-                          backgroundColor: 'color-mix(in srgb, var(--morius-button-active) 20%, var(--morius-elevated-bg))',
-                          '&:hover': {
-                            backgroundColor: 'color-mix(in srgb, var(--morius-button-active) 28%, var(--morius-elevated-bg))',
-                          },
-                        }}
-                      >
-                        {isRegeneratingEnvironmentWeather ? 'Перегенерация...' : 'Перегенерировать'}
-                      </Button>
+                        <Box
+                          role="button"
+                          tabIndex={0}
+                          onClick={openEnvironmentEditor}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              openEnvironmentEditor()
+                            }
+                          }}
+                          sx={{
+                            flex: 1,
+                            borderRadius: '16px',
+                            px: 0.95,
+                            py: 0.82,
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 84%, transparent)',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 700 }}>
+                            Погода
+                          </Typography>
+                          <Typography sx={{ mt: 0.25, color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
+                            {environmentWeatherMeta}
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+                        <Button
+                          onClick={openEnvironmentEditor}
+                          disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                          sx={{
+                            alignSelf: 'flex-start',
+                            minHeight: 34,
+                            px: 1.2,
+                            borderRadius: '12px',
+                            textTransform: 'none',
+                            color: 'var(--morius-title-text)',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 92%, transparent)',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, transparent)',
+                          }}
+                        >
+                          Настроить
+                        </Button>
+                        <Button
+                          onClick={() => void handleRegenerateEnvironmentWeather()}
+                          disabled={!environmentWeatherEnabled || isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                          startIcon={
+                            isRegeneratingEnvironmentWeather ? (
+                              <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
+                            ) : undefined
+                          }
+                          sx={{
+                            alignSelf: 'flex-start',
+                            minHeight: 34,
+                            px: 1.2,
+                            borderRadius: '12px',
+                            textTransform: 'none',
+                            color: 'var(--morius-title-text)',
+                            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 54%, var(--morius-card-border))',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-button-active) 20%, var(--morius-elevated-bg))',
+                            '&:hover': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-button-active) 28%, var(--morius-elevated-bg))',
+                            },
+                          }}
+                        >
+                          {isRegeneratingEnvironmentWeather ? 'Перегенерация...' : 'Перегенерировать погоду'}
+                        </Button>
+                      </Stack>
                     </Stack>
                   )}
                 </Box>
@@ -13931,7 +14298,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     tourId="story-ai-instructions-empty-state"
                     iconSrc={icons.communityCards}
                     title="Инструкции"
-                    description="Задавайте свои шаблоны и ограничения, которым будет следовать ИИ. Например: отвечай максимум 5 небольшими абзацами, в художественном стиле"
+                    description="Задавайте свои шаблоны и ограничения, которым будет следовать ИИ. Например: отвечай максимум 5 небольшими абзацами, в художественном стиле."
                   />
                 </>
               ) : (
@@ -14573,7 +14940,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                               Авто состояние
                             </Typography>
-                            <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри существующего основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
+                            <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
                           </Stack>
                           <Switch
                             checked={characterStateEnabled}
@@ -15319,7 +15686,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.7 }}>
                 <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 700 }}>
-                  DEV В·  память
+                  DEV В?  память
                 </Typography>
                 {(['raw', 'compressed', 'super'] as const).map((layer) => {
                   const layerBlocks = aiMemoryBlocksByLayer.get(layer) ?? []
@@ -15848,7 +16215,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     flexShrink: 0,
                                   }}
                                 >
-                                  ИИ
+                                  РР
                                 </Typography>
                               ) : null}
                               <IconButton
@@ -16693,7 +17060,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        Г—
+                                        ?
                                       </IconButton>
                                       <IconButton
                                         aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
@@ -16714,7 +17081,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        {isExpanded ? 'Л„' : 'Л…'}
+                                        {isExpanded ? '?' : '?'}
                                       </IconButton>
                                     </Stack>
                                     {isExpanded ? (
@@ -16836,7 +17203,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        Г—
+                                        ?
                                       </IconButton>
                                       <IconButton
                                         aria-label={isExpanded ? 'Свернуть изменения' : 'Развернуть изменения'}
@@ -16857,7 +17224,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                           '&:active': { backgroundColor: 'transparent' },
                                         }}
                                       >
-                                        {isExpanded ? 'Л„' : 'Л…'}
+                                        {isExpanded ? '?' : '?'}
                                       </IconButton>
                                     </Stack>
                                     {isExpanded ? (
@@ -17419,7 +17786,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             />
             <IconButton
               className="morius-composer-send-button"
-              aria-label={isGenerating ? 'Остановить генерацию' : 'Отправить'}
+              aria-label={isGenerating ? 'Остановить генерацию' : isFinalizingStoryTurn ? 'Синхронизируем ход' : 'Отправить'}
               onClick={handleVoiceActionClick}
               disabled={isGenerating ? false : (isFinalizingStoryTurn || (showMicAction ? (!canUseVoiceInput && !isVoiceInputActive) : (isCreatingGame || !hasPromptText)))}
               sx={{
@@ -17480,6 +17847,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     backgroundColor: 'var(--morius-accent)',
                   }}
                 />
+              ) : isFinalizingStoryTurn ? (
+                <CircularProgress size={16} sx={{ color: 'var(--morius-accent)' }} />
               ) : showMicAction ? (
                 <Box
                   sx={{
@@ -17527,7 +17896,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 />
                 <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
-                  дет запись...
+                  Идет запись...
+                </Typography>
+              </Stack>
+            ) : isFinalizingStoryTurn && !isGenerating ? (
+              <Stack
+                direction="row"
+                alignItems="center"
+                spacing={0.65}
+                sx={{
+                  position: 'absolute',
+                  left: 14,
+                  bottom: 10,
+                  color: 'var(--morius-accent)',
+                }}
+              >
+                <CircularProgress size={10} sx={{ color: 'var(--morius-accent)' }} />
+                <Typography sx={{ fontSize: '0.73rem', lineHeight: 1, fontWeight: 700 }}>
+                  Синхронизируем ход...
                 </Typography>
               </Stack>
             ) : null}
@@ -17609,25 +17995,65 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         <DialogContent sx={{ pt: 0.3 }}>
           <Stack spacing={1.2}>
             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.45 }}>
-              Здесь можно вручную поправить текущее место сцены, дату, время и прогноз, если автоматическое определение ещё не успело обновиться.
+              Здесь можно вручную задать место сцены, сезон, месяц, текущее время и текущую погоду. Время и погода работают независимо: можно оставить только одно из них активным.
             </Typography>
+
+            <TextField
+              label="Место"
+              fullWidth
+              value={environmentLocationDraft}
+              onChange={(event) => setEnvironmentLocationDraft(event.target.value.slice(0, 160))}
+              sx={environmentEditorFieldSx}
+            />
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
               <TextField
-                label="Дата и время"
-                type="datetime-local"
+                select
+                label="Сезон"
                 fullWidth
-                value={environmentDateTimeDraft}
-                onChange={(event) => setEnvironmentDateTimeDraft(event.target.value)}
-                InputLabelProps={{ shrink: true }}
+                value={environmentSeasonDraft}
+                onChange={(event) => {
+                  const nextSeason = event.target.value as EnvironmentSeasonValue
+                  setEnvironmentSeasonDraft(nextSeason)
+                  const availableMonths = resolveEnvironmentMonthOptionsForSeason(nextSeason)
+                  if (!availableMonths.some((option) => option.value === environmentMonthDraft)) {
+                    setEnvironmentMonthDraft(availableMonths[0]?.value ?? '6')
+                  }
+                }}
                 sx={environmentEditorFieldSx}
-              />
+              >
+                {ENVIRONMENT_SEASON_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
               <TextField
-                label="Место"
+                select
+                label="Месяц"
                 fullWidth
-                value={environmentLocationDraft}
-                onChange={(event) => setEnvironmentLocationDraft(event.target.value.slice(0, 160))}
+                value={environmentMonthDraft}
+                onChange={(event) => {
+                  const nextMonth = event.target.value
+                  setEnvironmentMonthDraft(nextMonth)
+                  setEnvironmentSeasonDraft(resolveEnvironmentSeasonValueFromMonth(nextMonth))
+                }}
                 sx={environmentEditorFieldSx}
+              >
+                {resolveEnvironmentMonthOptionsForSeason(environmentSeasonDraft).map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                label="Время"
+                type="time"
+                value={environmentTimeDraft}
+                onChange={(event) => setEnvironmentTimeDraft(event.target.value)}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ step: 60 }}
+                sx={{ ...environmentEditorFieldSx, width: { xs: '100%', md: 180 } }}
               />
             </Stack>
 
@@ -17635,129 +18061,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
                 Текущая погода
               </Typography>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                <TextField
-                  label="Описание"
-                  fullWidth
-                  value={environmentCurrentSummaryDraft}
-                  onChange={(event) => setEnvironmentCurrentSummaryDraft(event.target.value)}
-                  sx={environmentEditorFieldSx}
-                />
-                <TextField
-                  label="Температура"
-                  value={environmentCurrentTemperatureDraft}
-                  onChange={(event) => setEnvironmentCurrentTemperatureDraft(event.target.value)}
-                  sx={{ ...environmentEditorFieldSx, width: { xs: '100%', md: 160 } }}
-                />
-              </Stack>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                <TextField
-                  label="Ветер"
-                  fullWidth
-                  value={environmentWindDraft}
-                  onChange={(event) => setEnvironmentWindDraft(event.target.value)}
-                  sx={environmentEditorFieldSx}
-                />
-                <TextField
-                  label="Влажность"
-                  fullWidth
-                  value={environmentHumidityDraft}
-                  onChange={(event) => setEnvironmentHumidityDraft(event.target.value)}
-                  sx={environmentEditorFieldSx}
-                />
-                <TextField
-                  label="Туман"
-                  fullWidth
-                  value={environmentFogDraft}
-                  onChange={(event) => setEnvironmentFogDraft(event.target.value)}
-                  sx={environmentEditorFieldSx}
-                />
-              </Stack>
-            </Stack>
-
-            <Stack spacing={0.8}>
-              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
-                Сегодня по периодам
-              </Typography>
-              <Stack spacing={0.8}>
-                {environmentTimelineDraft.map((entry, index) => {
-                  const label = resolveEnvironmentTimelineLabel(entry, index)
-                  return (
-                    <Box
-                      key={`environment-timeline-draft-${label}-${index}`}
-                      sx={{
-                        borderRadius: '16px',
-                        border: 'none',
-                        backgroundColor: 'transparent',
-                        px: 0,
-                        py: 0,
-                      }}
-                    >
-                      <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.82rem', fontWeight: 800, mb: 0.8 }}>
-                        {label}
-                      </Typography>
-                      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                        <TextField
-                          label="Описание"
-                          fullWidth
-                          value={readEnvironmentString(entry.summary)}
-                          onChange={(event) =>
-                            setEnvironmentTimelineDraft((previous) =>
-                              previous.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      summary: event.target.value,
-                                    }
-                                  : item,
-                              ),
-                            )
-                          }
-                          sx={environmentEditorFieldSx}
-                        />
-                        <TextField
-                          label="Температура"
-                          value={entry.temperature_c === null || entry.temperature_c === undefined ? '' : String(entry.temperature_c)}
-                          onChange={(event) =>
-                            setEnvironmentTimelineDraft((previous) =>
-                              previous.map((item, itemIndex) =>
-                                itemIndex === index
-                                  ? {
-                                      ...item,
-                                      temperature_c: event.target.value,
-                                    }
-                                  : item,
-                              ),
-                            )
-                          }
-                          sx={{ ...environmentEditorFieldSx, width: { xs: '100%', md: 160 } }}
-                        />
-                      </Stack>
-                    </Box>
-                  )
-                })}
-              </Stack>
-            </Stack>
-
-            <Stack spacing={0.8}>
-              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
-                Завтра
-              </Typography>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-                <TextField
-                  label="Описание"
-                  fullWidth
-                  value={environmentTomorrowSummaryDraft}
-                  onChange={(event) => setEnvironmentTomorrowSummaryDraft(event.target.value)}
-                  sx={environmentEditorFieldSx}
-                />
-                <TextField
-                  label="Температура"
-                  value={environmentTomorrowTemperatureDraft}
-                  onChange={(event) => setEnvironmentTomorrowTemperatureDraft(event.target.value)}
-                  sx={{ ...environmentEditorFieldSx, width: { xs: '100%', md: 160 } }}
-                />
-              </Stack>
+              <TextField
+                label="Погода сейчас"
+                fullWidth
+                value={environmentCurrentSummaryDraft}
+                onChange={(event) => setEnvironmentCurrentSummaryDraft(event.target.value)}
+                placeholder="Например: солнечно, дождливо, туманно"
+                sx={environmentEditorFieldSx}
+              />
             </Stack>
           </Stack>
         </DialogContent>
@@ -18203,7 +18514,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 </Box>
               </Stack>
               <TextField
-                label="мя"
+                label="Имя"
                 value={worldCardTitleDraft}
                 onChange={(event) => setWorldCardTitleDraft(event.target.value.slice(0, STORY_CARD_TITLE_MAX_LENGTH))}
                 fullWidth
@@ -18692,7 +19003,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <option value="15">15 ходов</option>
               </Box>
             </Stack>
-          </Stack>
+            </Stack>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.6 }}>
@@ -19241,7 +19552,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     placeholder="Выберите или добавьте расу"
                     inputProps={{
                       ...params.inputProps,
-                      maxLength: STORY_CHARACTER_RACE_MAX_LENGTH,
                     }}
                     helperText={<TextLimitIndicator currentLength={normalizedWorldCardRaceInputDraft.length} maxLength={STORY_CHARACTER_RACE_MAX_LENGTH} />}
                     FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
@@ -19822,7 +20132,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           fontWeight: 700,
                         }}
                       >
-                        ✎
+                        ?
                       </Box>
                     </Box>
                   </Box>
@@ -19831,7 +20141,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <Box
                     component="input"
                     value={characterNameDraft}
-                    placeholder="мя"
+                    placeholder="Имя"
                     maxLength={STORY_CHARACTER_NAME_MAX_LENGTH}
                     onChange={(event: ChangeEvent<HTMLInputElement>) =>
                       setCharacterNameDraft(event.target.value.slice(0, STORY_CHARACTER_NAME_MAX_LENGTH))
@@ -20431,7 +20741,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       >
         <DialogTitle sx={{ pb: 1 }}>
           <Typography sx={{ fontWeight: 700, fontSize: '1.2rem' }}>
-            {openedAiMemoryBlock ? `#${openedAiMemoryBlock.id} В· ${openedAiMemoryBlock.title}` : 'Блок  памяти'}
+            {openedAiMemoryBlock ? `#${openedAiMemoryBlock.id} · ${openedAiMemoryBlock.title}` : 'Блок памяти'}
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.4 }}>
@@ -20503,7 +20813,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>✎</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
             <Box component="span">Редактировать</Box>
           </Stack>
         </MenuItem>
@@ -20517,7 +20827,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
         >
           <Stack direction="row" spacing={0.7} alignItems="center">
-            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>⌦</Box>
+            <Box sx={{ fontSize: '0.92rem', lineHeight: 1 }}>?</Box>
             <Box component="span">Удалить</Box>
           </Stack>
         </MenuItem>

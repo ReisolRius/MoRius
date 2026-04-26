@@ -167,8 +167,8 @@ class StoryGame(Base):
     story_llm_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="deepseek/deepseek-v3.2",
-        server_default="deepseek/deepseek-v3.2",
+        default="deepseek/deepseek-chat-v3-0324",
+        server_default="deepseek/deepseek-chat-v3-0324",
     )
     image_model: Mapped[str] = mapped_column(
         String(120),
@@ -237,6 +237,18 @@ class StoryGame(Base):
         server_default="0",
     )
     environment_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    environment_time_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    environment_weather_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,

@@ -12,6 +12,8 @@ from app.services.story_games import (
     deserialize_story_environment_datetime as _deserialize_story_environment_datetime,
     deserialize_story_environment_weather as _deserialize_story_environment_weather,
     normalize_story_environment_enabled as _normalize_story_environment_enabled,
+    normalize_story_environment_time_enabled as _normalize_story_environment_time_enabled,
+    normalize_story_environment_weather_enabled as _normalize_story_environment_weather_enabled,
     normalize_story_environment_turn_step_minutes as _normalize_story_environment_turn_step_minutes,
     serialize_story_character_state_cards_payload as _serialize_story_character_state_cards_payload,
     serialize_story_environment_datetime as _serialize_story_environment_datetime,
@@ -89,6 +91,24 @@ STORY_CHARACTER_STATE_ATTITUDE_TO_HERO_LABELS = tuple(
 def _normalize_story_environment_datetime(value: str | None) -> str:
 
     return _serialize_story_environment_datetime(_deserialize_story_environment_datetime(value))
+
+
+def _story_environment_time_enabled_for_game(game: StoryGame) -> bool:
+    return _normalize_story_environment_time_enabled(
+        getattr(game, "environment_time_enabled", None),
+        legacy_environment_enabled=getattr(game, "environment_enabled", None),
+    )
+
+
+def _story_environment_weather_enabled_for_game(game: StoryGame) -> bool:
+    return _normalize_story_environment_weather_enabled(
+        getattr(game, "environment_weather_enabled", None),
+        legacy_environment_enabled=getattr(game, "environment_enabled", None),
+    )
+
+
+def _story_environment_any_enabled_for_game(game: StoryGame) -> bool:
+    return _story_environment_time_enabled_for_game(game) or _story_environment_weather_enabled_for_game(game)
 
 
 def _normalize_story_character_state_cards_payload(value: Any) -> list[dict[str, Any]]:
@@ -839,19 +859,23 @@ def _repair_story_environment_weather_payload(
 
 def _normalize_story_assistant_text_for_memory(content: Any) -> str:
     safe_content = str(content or "")
-    normalized = _strip_story_markup_for_memory_text(safe_content).replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(_strip_story_markup_for_memory_text(safe_content))
 
     if normalized:
 
         return normalized
 
-    normalized = _normalize_story_markup_to_plain_text(safe_content).replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(_normalize_story_markup_to_plain_text(safe_content))
 
     if normalized:
 
         return normalized
 
     return safe_content.replace("\r\n", "\n").strip()
+
+
+def _normalize_story_message_content(content: Any) -> str:
+    return str(content or "").replace("\r\n", "\n").strip()
 
 
 
@@ -895,7 +919,7 @@ def _get_story_user_prompt_before_assistant_message(
 
         return ""
 
-    return latest_user_message.content.replace("\r\n", "\n").strip()
+    return _normalize_story_message_content(getattr(latest_user_message, "content", None))
 
 
 
@@ -946,7 +970,7 @@ def _get_story_previous_assistant_text_before_message(
 
 
 def _legacy__normalize_story_location_memory_content_v1(value: str) -> str:
-    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
 
     if not normalized:
 
@@ -958,13 +982,11 @@ def _legacy__normalize_story_location_memory_content_v1(value: str) -> str:
 
     if normalized[-1] not in ".!?…":
 
+
         normalized = f"{normalized}."
 
-    normalized_casefold = normalized.casefold()
 
-    if normalized_casefold.startswith("действие происходит"):
 
-        suffix = normalized[len("действие происходит") :].lstrip()
 
         normalized = f"Действие происходит{f' {suffix}' if suffix else ''}"
 
@@ -982,63 +1004,51 @@ def _legacy__normalize_story_location_memory_content_v1(value: str) -> str:
 
 
 def _legacy__normalize_story_location_memory_label_v1(value: str) -> str:
-
     normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip(" .,:;!?…")
 
     if not normalized:
-
         return ""
 
     normalized_casefold = normalized.casefold()
 
     for prefix in ("действие происходит ", "события происходят "):
-
         if normalized_casefold.startswith(prefix):
-
             normalized = normalized[len(prefix):].strip(" .,:;!?…")
-
             break
 
     if not normalized:
-
         return ""
 
     if len(normalized) > 160:
-
         normalized = normalized[:159].rstrip(" ,;:-.!?…") + "…"
 
     if normalized and normalized[0].islower():
-
         normalized = normalized[:1].upper() + normalized[1:]
 
     return normalized
 
 
 def _legacy__resolve_story_location_memory_label_v1(*, label: str | None = None, content: str | None = None) -> str:
-
     normalized_label = _normalize_story_location_memory_label(label or "")
 
     if normalized_label:
-
         return normalized_label
 
     return _normalize_story_location_memory_label(content or "")
 
 
 def _legacy__sync_story_game_current_location_label_v1(game: StoryGame, label: str | None) -> bool:
-
     normalized_label = _normalize_story_location_memory_label(label or "")
 
     current_label = " ".join(str(getattr(game, "current_location_label", "") or "").split()).strip()
 
     if current_label == normalized_label:
-
-
         return False
 
     game.current_location_label = normalized_label
 
     return True
+
 
 STORY_LOCATION_FALLBACK_KEYWORD_FRAGMENTS = (
     "таверн",
@@ -1477,7 +1487,7 @@ def _legacy__extract_story_location_memory_payload_v1(
                 "for example use 'Действие происходит в лагере разбойников в лесу.' instead of only '...в лагере разбойников.' "
 
                 "Keep immediate enclosing context like forest, cave, district, temple wing, mountain pass, cellar, or shoreline when the narrator explicitly gives it. "
-                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label. "
+                "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label. "
 
                 "If the newest narrator reply does not clearly restate a current place, keep the saved place when it is still valid. "
                 "If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction. "
@@ -1578,7 +1588,7 @@ def _legacy__extract_story_location_memory_payload_v1(
 
 
 
-        normalized_response = raw_response.replace("\r\n", "\n").strip()
+        normalized_response = _normalize_story_message_content(raw_response)
 
         if not normalized_response:
 
@@ -1706,8 +1716,8 @@ def _extract_story_location_memory_payload(
                 "If the newest narrator reply suddenly conflicts with the saved location but there is no explicit transition, travel, arrival, exit, or sustained scene change across the last two narrator replies, return keep. "
                 "If the text only gives a local scene like hot springs near Tokyo, a school corridor, a bench by the library, or a room in an inn, do not replace it with a made-up city, capital, kingdom, tavern, or world label. "
                 "Prefer the closest physical anchor of the current scene when it is explicit: doorway, entrance, threshold, counter, table, corridor, room, hall, yard, alley, stair, gate, platform, carriage, bank, shore, campfire, or similar immediate sublocation. "
-                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label. "
-                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'РЅРѕС‡СЊСЋ', 'РІРµС‡РµСЂРѕРј', 'СѓС‚СЂРѕРј', 'РІ 16:00', or similar time markers. "
+                "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label. "
+                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'ночью', 'вечером', 'утром', 'в 16:00', or similar time markers. "
                 "Return strict JSON only without markdown. "
                 "Valid outputs are exactly: "
                 "{\"action\":\"keep\"} "
@@ -1758,7 +1768,7 @@ def _extract_story_location_memory_payload(
                 continue
             return None
 
-        normalized_response = raw_response.replace("\r\n", "\n").strip()
+        normalized_response = _normalize_story_message_content(raw_response)
         if not normalized_response:
             if attempt_index == 0:
                 time.sleep(0.15)
@@ -2226,7 +2236,7 @@ def _upsert_story_location_memory_block(
 
     resolved_latest_user_prompt = (
 
-        latest_user_prompt.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_user_prompt)
 
         if isinstance(latest_user_prompt, str)
 
@@ -2244,7 +2254,7 @@ def _upsert_story_location_memory_block(
 
     resolved_latest_assistant_text = (
 
-        latest_assistant_text.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_assistant_text)
 
         if isinstance(latest_assistant_text, str)
 
@@ -2254,7 +2264,7 @@ def _upsert_story_location_memory_block(
 
     if not resolved_latest_assistant_text:
 
-        resolved_latest_assistant_text = assistant_message.content.replace("\r\n", "\n").strip()
+        resolved_latest_assistant_text = _normalize_story_message_content(getattr(assistant_message, "content", None))
 
     if not resolved_latest_assistant_text:
 
@@ -2328,7 +2338,7 @@ def _upsert_story_location_memory_block(
 
     )
     resolved_previous_assistant_text = (
-        previous_assistant_text.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(previous_assistant_text)
 
         if isinstance(previous_assistant_text, str)
 
@@ -2728,7 +2738,6 @@ def _format_story_environment_datetime_label(value: datetime | None) -> str:
 
     return (
 
-        f"{meta_prefix + '. ' if meta_prefix else ''}"
 
         f"{value.day} {month_label} {value.year} года, {time_of_day}. "
 
@@ -2740,12 +2749,26 @@ def _format_story_environment_datetime_label(value: datetime | None) -> str:
 
 
 
-def _format_story_environment_datetime_prompt_facts(value: datetime | None) -> str:
 
+def _format_story_environment_time_summary(value: datetime | None) -> str:
     if not isinstance(value, datetime):
-
         return ""
 
+    month_label = STORY_ENVIRONMENT_MONTH_NAMES_RU[max(min(value.month, 12), 1) - 1]
+    season_label = _story_environment_season_label(value) or "не определен"
+    time_of_day = _describe_story_environment_time_of_day(value) or "не определено"
+
+    return (
+        f"Сезон: {season_label}. "
+        f"Месяц: {month_label}. "
+        f"Время: {value.strftime('%H:%M')}. "
+        f"Время суток: {time_of_day}."
+    )
+
+
+def _format_story_environment_datetime_prompt_facts(value: datetime | None) -> str:
+    if not isinstance(value, datetime):
+        return ""
     month_label = STORY_ENVIRONMENT_MONTH_NAMES_RU[max(min(value.month, 12), 1) - 1]
 
     time_of_day = _describe_story_environment_time_of_day(value)
@@ -2898,14 +2921,13 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
             return _clamp_elapsed_minutes(average_value * 60)
         if unit_value.startswith("дн") or unit_value.startswith("сут"):
             return _clamp_elapsed_minutes(average_value * 24 * 60)
-        return _clamp_elapsed_minutes(average_value)
 
     explicit_duration_patterns: tuple[tuple[str, int], ...] = (
         (r"\bпол(?:\s*|-)?час(?:а|ика)?\b", 30),
         (r"\bчетверть\s+часа\b", 15),
-        (r"\bполтора\s+часа\b", 90),
+        (r"\b(?:минут[ау]?\s*(?:или|and)?\s*две|минут[ау]?[-–—]две|одн[ау]?[-–—]две\s+минут[ыуы]?)\b", 2),
         (r"\bпару\s+минут\b|\bпара\s+минут\b|\bминут[уы]?\s+другую\b", 4),
-        (r"\bнесколько\s+минут\b", 8),
+        (r"\bнесколько\s+минут\b", 5),
         (r"\bпару\s+час(?:ов|а)\b|\bпара\s+час(?:ов|а)\b", 120),
         (r"\bнесколько\s+час(?:ов|а)\b", 180),
         (r"\bвсю\s+ночь\b|\bдо\s+утра\b|\bк\s+рассвету\b", 360),
@@ -2928,12 +2950,10 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
             return _clamp_elapsed_minutes(numeric_value * 60)
         if unit_value.startswith("дн") or unit_value.startswith("сут"):
             return _clamp_elapsed_minutes(numeric_value * 24 * 60)
-        return _clamp_elapsed_minutes(numeric_value)
 
     spelled_number_patterns: tuple[tuple[str, int], ...] = (
         (r"\b(?:один|одна|одну)\s+час(?:а|ов)?\b", 60),
         (r"\b(?:два|две)\s+час(?:а|ов)?\b", 120),
-        (r"\b(?:три)\s+час(?:а|ов)?\b", 180),
         (r"\b(?:четыре)\s+час(?:а|ов)?\b", 240),
         (r"\b(?:пять)\s+час(?:а|ов)?\b", 300),
         (r"\b(?:один|одна|одну)\s+минут(?:у|ы)?\b", 1),
@@ -3239,7 +3259,7 @@ def _reconcile_story_environment_datetime_with_coarse_time_mentions(
 
     estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text)
     if _story_environment_has_brief_scene_signal(source_text) and estimated_elapsed_minutes is not None:
-        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 4)
+        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 3)
     fallback_step_minutes = estimated_elapsed_minutes
     if fallback_step_minutes is None:
         fallback_step_minutes = max(
@@ -3295,7 +3315,7 @@ def _reconcile_story_environment_datetime_with_coarse_time_mentions(
 
 def _build_story_environment_time_prompt_card(game: StoryGame) -> dict[str, str] | None:
 
-    if not _normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
+    if not _story_environment_time_enabled_for_game(game):
 
         return None
 
@@ -3309,7 +3329,7 @@ def _build_story_environment_time_prompt_card(game: StoryGame) -> dict[str, str]
 
         return None
 
-    content = _format_story_environment_datetime_prompt_facts(current_datetime).strip()
+    content = _format_story_environment_time_summary(current_datetime).strip()
 
     if not content:
 
@@ -4409,6 +4429,8 @@ def _build_story_environment_snapshot_payload(
     *,
     game: StoryGame,
 ) -> dict[str, Any]:
+    time_enabled = _story_environment_time_enabled_for_game(game)
+    weather_enabled = _story_environment_weather_enabled_for_game(game)
     current_datetime = _normalize_story_environment_datetime(
 
         str(getattr(game, "environment_current_datetime", "") or "")
@@ -4435,17 +4457,16 @@ def _build_story_environment_snapshot_payload(
 
     )
 
-    payload: dict[str, Any] = {
+    payload: dict[str, Any] = {}
 
-        "current_datetime": current_datetime,
+    if time_enabled and current_datetime:
+        payload["current_datetime"] = current_datetime
 
-    }
-
-    if isinstance(current_weather, dict):
+    if weather_enabled and isinstance(current_weather, dict):
 
         payload["current_weather"] = current_weather
 
-    if isinstance(tomorrow_weather, dict):
+    if weather_enabled and isinstance(tomorrow_weather, dict):
         payload["tomorrow_weather"] = tomorrow_weather
     return payload
 
@@ -4654,7 +4675,7 @@ def _build_story_weather_prompt_content_compact(
             facts.append(f"summary={summary}")
         temperature_c = normalized_weather.get("temperature_c")
         if isinstance(temperature_c, int):
-            facts.append(f"temp={temperature_c:+d}В°C")
+            facts.append(f"temp={temperature_c:+d}°C")
         fog = str(normalized_weather.get("fog") or "").strip()
         if fog:
             facts.append(f"fog={fog}")
@@ -4724,17 +4745,13 @@ def _resolve_story_environment_weather_timeline_entry(
 
 
 def _build_story_environment_weather_prompt_card(game: StoryGame) -> dict[str, str] | None:
-    if not _normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
+    if not _story_environment_weather_enabled_for_game(game):
         return None
     content = _build_story_weather_prompt_content_compact(
         current_weather=_deserialize_story_environment_weather(
             str(getattr(game, "environment_current_weather", "") or "")
         ),
-        tomorrow_weather=_deserialize_story_environment_weather(
-
-            str(getattr(game, "environment_tomorrow_weather", "") or "")
-
-        ),
+        tomorrow_weather=None,
 
     )
 
@@ -4832,7 +4849,6 @@ def _story_character_state_location_from_scene(value: str) -> str:
 
     compact = " ".join(compact.split()).strip()
 
-    return compact or normalized.rstrip(" .!?…")
 
 
 
@@ -4841,7 +4857,6 @@ def _story_character_state_location_from_scene(value: str) -> str:
 def _merge_story_character_state_text_field(
     *,
     field_name: str,
-    existing_card: dict[str, Any],
     updated_card: dict[str, Any],
     scene_location_fallback: str,
     consume_manual_override_turns: bool = False,
@@ -6007,11 +6022,15 @@ def _build_story_character_state_recent_context(
 
             if str(getattr(message, "role", "") or "").strip() == STORY_ASSISTANT_ROLE:
 
-                normalized_content = _strip_story_markup_for_memory_text(raw_content).replace("\r\n", "\n").strip()
+                normalized_content = _normalize_story_message_content(
+                    _strip_story_markup_for_memory_text(raw_content)
+                )
 
                 if not normalized_content:
 
-                    normalized_content = _normalize_story_markup_to_plain_text(raw_content).replace("\r\n", "\n").strip()
+                    normalized_content = _normalize_story_message_content(
+                        _normalize_story_markup_to_plain_text(raw_content)
+                    )
 
                 if not normalized_content:
 
@@ -6292,7 +6311,7 @@ def _request_story_character_state_seed_cards(
 
 
 
-        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
         if not isinstance(parsed_payload, dict) or not parsed_payload:
             if attempt_index == 0:
                 time.sleep(0.15)
@@ -6567,7 +6586,7 @@ def _request_story_character_state_missing_location_cards(
 
 
 
-        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
 
         if not isinstance(parsed_payload, dict) or not parsed_payload:
 
@@ -6770,7 +6789,7 @@ def _request_story_character_state_missing_body_field_cards(
                 continue
             return []
 
-        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
         if not isinstance(parsed_payload, dict) or not parsed_payload:
             if attempt_index == 0:
                 time.sleep(0.15)
@@ -7071,6 +7090,12 @@ def _upsert_story_weather_memory_block(
 
     normalized_content = _build_story_weather_memory_content(
 
+        current_datetime=_deserialize_story_environment_datetime(
+
+            str(getattr(game, "environment_current_datetime", "") or "")
+
+        ),
+
         current_weather=_deserialize_story_environment_weather(
 
             str(getattr(game, "environment_current_weather", "") or "")
@@ -7265,7 +7290,9 @@ def _restore_story_environment_state_from_latest_weather_memory_block(
 
 ) -> bool:
 
-    if not _normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
+    time_enabled = _story_environment_time_enabled_for_game(game)
+    weather_enabled = _story_environment_weather_enabled_for_game(game)
+    if not (time_enabled or weather_enabled):
 
         return False
 
@@ -7345,7 +7372,7 @@ def _normalize_story_location_analysis_payload(raw_payload: Any) -> dict[str, st
 
     if isinstance(raw_payload, str):
 
-        normalized_response = raw_payload.replace("\r\n", "\n").strip()
+        normalized_response = _normalize_story_message_content(raw_payload)
 
         if not normalized_response:
 
@@ -8105,14 +8132,14 @@ def _extract_story_postprocess_memory_payload(
                 "Prefer the closest physical anchor of the current scene when it is explicit: doorway, entrance, threshold, counter, table, corridor, room, hall, yard, alley, stair, gate, platform, carriage, bank, shore, campfire, or similar immediate sublocation.",
                 "When the active action is clearly inside a named establishment or room, keep that exact interior place instead of downgrading it to the street, district, or city outside.",
                 "If the narrator shows the hero behind a tavern counter, at an inn table, inside a shop, room, hall, chamber, cabin, or shrine, the location is that interior scene, not the road outside.",
-                "Do not widen a precise scene into a broader area. If the text gives 'Сѓ РІС…РѕРґР° РІ Р·РґР°РЅРёРµ РіРёР»СЊРґРёРё Р°РІР°РЅС‚СЋСЂРёСЃС‚РѕРІ', do not reduce it to 'РЅР° СѓР»РёС†Р°С… РіРѕСЂРѕРґР°', 'Сѓ РіРёР»СЊРґРёРё', or another broader outdoor label.",
+                "Do not widen a precise scene into a broader area. If the text gives 'у входа в здание гильдии авантюристов', do not reduce it to 'на улицах города', 'у гильдии', or another broader outdoor label.",
                 "Preserve named establishments and rooms such as 'таверна Ржавый якорь' whenever the current scene is still happening there.",
                 "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it.",
                 "Use the latest player turn as supporting evidence, and allow it to establish or refine the place when it explicitly states where the hero enters, goes, stands, remains, or moves and the newest narrator reply continues that same scene without contradiction.",
 
                 "If the newest narrator reply does not clearly confirm a new place, keep the saved place when it is still valid. If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction.",
                 "Never return location.action=keep when there is no valid saved place and the newest player turn or narrator reply explicitly names the active current place.",
-                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'РЅРѕС‡СЊСЋ', 'РІРµС‡РµСЂРѕРј', 'СѓС‚СЂРѕРј', 'РІ 16:00', or similar time markers.",
+                "Remove time-of-day wording from the location itself. Keep the place, but drop suffixes like 'ночью', 'вечером', 'утром', 'в 16:00', or similar time markers.",
                 "If you do update, location.content must be exactly one short Russian sentence starting with "
 
                 "\"Действие происходит\" or \"События происходят\".",
@@ -8132,6 +8159,7 @@ def _extract_story_postprocess_memory_payload(
                 "Grok alone manages in-world time progression for environment continuity.",
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous.",
                 "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes.",
+                "Actions that realistically take about one or two minutes should usually stay within a 1-3 minute shift, not jump by ten minutes.",
                 "Do not jump forward by half an hour or more unless the text clearly contains travel, waiting, treatment, work, search, sleep, or another extended process.",
                 "Respect explicit time skips such as 'спустя 2 месяца', 'через полтора часа', travel, sleep, waiting, or scene skips.",
                 "Treat the latest player turn as authoritative for clear current-time context such as lunch time, dinner time, after lessons, after work, dawn, late evening, or similar cues even when no HH:MM is written.",
@@ -8154,8 +8182,9 @@ def _extract_story_postprocess_memory_payload(
 
                 "Without explicit cold-climate evidence, summer weather should not drift into near-freezing values just because the weather field was vague.",
 
-                "For current_weather.timeline, return exactly four broad periods for today in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00.",
+                "For current_weather.timeline, return exactly four broad 6-hour periods for today in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00.",
                 "Do not omit the night block. Do not duplicate sub-periods like late morning or late afternoon.",
+                "Adjacent periods may repeat the same weather summary when the day stays stable. Do not force artificial changes between periods.",
                 "The active current_weather summary/details must match the period containing the current time.",
                 "If the current time is between 00:00 and 05:59, current_weather must describe the night block rather than a daytime placeholder.",
             ]
@@ -8377,7 +8406,7 @@ def _extract_story_postprocess_memory_payload(
                     else ""
                 )
                 + (
-                    f"РљР°СЂС‚РѕС‡РєРё-РёСЃС‚РѕС‡РЅРёРєРё РїРµСЂСЃРѕРЅР°Р¶РµР№ (РѕРїРёСЃР°РЅРёРµ Рё СЏРІРЅС‹Рµ РїРѕР»СЏ):\n{json.dumps(character_state_source_cards, ensure_ascii=False) if character_state_source_cards else 'РЅРµС‚'}\n\n"
+                    f"Карточки-источники персонажей (описание и явные поля):\n{json.dumps(character_state_source_cards, ensure_ascii=False) if character_state_source_cards else 'нет'}\n\n"
                     if character_state_enabled and character_state_source_cards
                     else ""
                 )
@@ -8439,7 +8468,7 @@ def _extract_story_postprocess_memory_payload(
 
 
 
-        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
 
         if not isinstance(parsed_payload, dict) or not parsed_payload:
             return None
@@ -8693,6 +8722,7 @@ def _extract_story_environment_state_payload(
                 "Grok alone manages in-world time progression for environment continuity. "
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous. "
                 "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes. "
+                "Actions that realistically take about one or two minutes should usually stay within a 1-3 minute shift, not jump by ten minutes. "
                 "Do not jump forward by half an hour or more unless the text clearly contains travel, waiting, treatment, work, search, sleep, or another extended process. "
                 "Return keep only when the scene truly stays in the same moment with no meaningful time passage, or when a rewind/flashback makes an update unsafe. "
                 "Return strict JSON only without markdown. "
@@ -8789,7 +8819,7 @@ def _extract_story_environment_state_payload(
 
 
 
-        normalized_response = raw_response.replace("\r\n", "\n").strip()
+        normalized_response = _normalize_story_message_content(raw_response)
 
         if not normalized_response:
 
@@ -8917,7 +8947,9 @@ def _sync_story_environment_state_for_assistant_message(
 
         return False
 
-    if not _normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
+    time_enabled = _story_environment_time_enabled_for_game(game)
+    weather_enabled = _story_environment_weather_enabled_for_game(game)
+    if not (time_enabled or weather_enabled):
 
         return False
 
@@ -8925,7 +8957,7 @@ def _sync_story_environment_state_for_assistant_message(
 
     resolved_latest_user_prompt = (
 
-        latest_user_prompt.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_user_prompt)
 
         if isinstance(latest_user_prompt, str)
 
@@ -8943,7 +8975,7 @@ def _sync_story_environment_state_for_assistant_message(
 
     resolved_latest_assistant_text = (
 
-        latest_assistant_text.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_assistant_text)
 
         if isinstance(latest_assistant_text, str)
 
@@ -8953,7 +8985,7 @@ def _sync_story_environment_state_for_assistant_message(
 
     if not resolved_latest_assistant_text:
 
-        resolved_latest_assistant_text = assistant_message.content.replace("\r\n", "\n").strip()
+        resolved_latest_assistant_text = _normalize_story_message_content(getattr(assistant_message, "content", None))
 
     if not resolved_latest_assistant_text:
 
@@ -8963,7 +8995,7 @@ def _sync_story_environment_state_for_assistant_message(
 
     resolved_previous_assistant_text = (
 
-        previous_assistant_text.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(previous_assistant_text)
 
         if isinstance(previous_assistant_text, str)
 
@@ -8981,7 +9013,7 @@ def _sync_story_environment_state_for_assistant_message(
 
     current_location_content = (
 
-        current_location_content_override.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(current_location_content_override)
 
         if isinstance(current_location_content_override, str)
 
@@ -9024,7 +9056,9 @@ def _sync_story_environment_state_for_assistant_message(
     resolved_current_datetime = _deserialize_story_environment_datetime(next_datetime)
     if resolved_current_datetime is None and isinstance(saved_current_datetime, datetime):
         resolved_current_datetime = saved_current_datetime
-    if not keep_environment_state:
+    if time_enabled and resolved_current_datetime is None:
+        resolved_current_datetime = datetime.now().replace(second=0, microsecond=0, tzinfo=None)
+    if time_enabled and not keep_environment_state:
         resolved_current_datetime = _reconcile_story_environment_datetime_with_coarse_time_mentions(
             game=game,
             saved_datetime=saved_current_datetime,
@@ -9032,12 +9066,15 @@ def _sync_story_environment_state_for_assistant_message(
             latest_user_prompt=resolved_latest_user_prompt,
             latest_assistant_text=resolved_latest_assistant_text,
         )
-    resolved_current_datetime, contextual_time_anchor_applied = _reconcile_story_environment_datetime_with_contextual_time_anchors(
-        saved_datetime=saved_current_datetime,
-        candidate_datetime=resolved_current_datetime,
-        latest_user_prompt=resolved_latest_user_prompt,
-        latest_assistant_text=resolved_latest_assistant_text,
-    )
+    if time_enabled:
+        resolved_current_datetime, contextual_time_anchor_applied = _reconcile_story_environment_datetime_with_contextual_time_anchors(
+            saved_datetime=saved_current_datetime,
+            candidate_datetime=resolved_current_datetime,
+            latest_user_prompt=resolved_latest_user_prompt,
+            latest_assistant_text=resolved_latest_assistant_text,
+        )
+    else:
+        contextual_time_anchor_applied = False
     source_text_for_time_progress = "\n".join(
         part.strip()
         for part in (resolved_latest_user_prompt, resolved_latest_assistant_text)
@@ -9045,8 +9082,10 @@ def _sync_story_environment_state_for_assistant_message(
     )
     estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text_for_time_progress)
     if _story_environment_has_brief_scene_signal(source_text_for_time_progress) and estimated_elapsed_minutes is not None:
-        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 4)
+        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 3)
     should_force_time_progress = (
+        time_enabled
+        and
         isinstance(saved_current_datetime, datetime)
         and bool(source_text_for_time_progress)
         and not contextual_time_anchor_applied
@@ -9069,36 +9108,55 @@ def _sync_story_environment_state_for_assistant_message(
                 microsecond=0,
                 tzinfo=None,
             )
-    next_datetime = _serialize_story_environment_datetime(resolved_current_datetime)
+    next_datetime = (
+        _serialize_story_environment_datetime(resolved_current_datetime)
+        if time_enabled
+        else str(getattr(game, "environment_current_datetime", "") or "")
+    )
 
     changed = False
-    if str(getattr(game, "environment_current_datetime", "") or "") != next_datetime:
+    if time_enabled and str(getattr(game, "environment_current_datetime", "") or "") != next_datetime:
         game.environment_current_datetime = next_datetime
         changed = True
 
-    try:
-        resolved_current_weather, resolved_tomorrow_weather = _resolve_story_environment_weather_state(
-            game=game,
-            current_datetime=resolved_current_datetime,
-            current_location_content=current_location_content,
-            latest_user_prompt=resolved_latest_user_prompt,
-            previous_assistant_text=resolved_previous_assistant_text,
-            latest_assistant_text=resolved_latest_assistant_text,
-            extracted_current_weather=_normalize_story_environment_weather_payload(
-                (resolved_payload or {}).get("current_weather")
-            ),
-            extracted_tomorrow_weather=_normalize_story_environment_weather_payload(
-                (resolved_payload or {}).get("tomorrow_weather")
-            ),
-            allow_weather_seed=allow_weather_seed,
+    if weather_enabled:
+        weather_reference_datetime = (
+            resolved_current_datetime
+            if isinstance(resolved_current_datetime, datetime)
+            else saved_current_datetime
+            if isinstance(saved_current_datetime, datetime)
+            else datetime.now().replace(second=0, microsecond=0, tzinfo=None)
         )
-    except Exception as exc:
-        logger.warning(
-            "Story environment weather resolution failed: game_id=%s assistant_message_id=%s error=%s",
-            game.id,
-            assistant_message.id,
-            exc,
-        )
+        try:
+            resolved_current_weather, resolved_tomorrow_weather = _resolve_story_environment_weather_state(
+                game=game,
+                current_datetime=weather_reference_datetime,
+                current_location_content=current_location_content,
+                latest_user_prompt=resolved_latest_user_prompt,
+                previous_assistant_text=resolved_previous_assistant_text,
+                latest_assistant_text=resolved_latest_assistant_text,
+                extracted_current_weather=_normalize_story_environment_weather_payload(
+                    (resolved_payload or {}).get("current_weather")
+                ),
+                extracted_tomorrow_weather=_normalize_story_environment_weather_payload(
+                    (resolved_payload or {}).get("tomorrow_weather")
+                ),
+                allow_weather_seed=allow_weather_seed,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Story environment weather resolution failed: game_id=%s assistant_message_id=%s error=%s",
+                game.id,
+                assistant_message.id,
+                exc,
+            )
+            resolved_current_weather = _deserialize_story_environment_weather(
+                str(getattr(game, "environment_current_weather", "") or "")
+            )
+            resolved_tomorrow_weather = _deserialize_story_environment_weather(
+                str(getattr(game, "environment_tomorrow_weather", "") or "")
+            )
+    else:
         resolved_current_weather = _deserialize_story_environment_weather(
             str(getattr(game, "environment_current_weather", "") or "")
         )
@@ -9109,10 +9167,10 @@ def _sync_story_environment_state_for_assistant_message(
     next_current_weather = _serialize_story_environment_weather(resolved_current_weather)
     next_tomorrow_weather = _serialize_story_environment_weather(resolved_tomorrow_weather)
 
-    if str(getattr(game, "environment_current_weather", "") or "") != next_current_weather:
+    if weather_enabled and str(getattr(game, "environment_current_weather", "") or "") != next_current_weather:
         game.environment_current_weather = next_current_weather
         changed = True
-    if str(getattr(game, "environment_tomorrow_weather", "") or "") != next_tomorrow_weather:
+    if weather_enabled and str(getattr(game, "environment_tomorrow_weather", "") or "") != next_tomorrow_weather:
 
         game.environment_tomorrow_weather = next_tomorrow_weather
 
@@ -9184,7 +9242,7 @@ def _build_story_raw_memory_block_content(
     preserve_user_text: bool = False,
     preserve_assistant_text: bool = False,
 ) -> str:
-    def _build_detailed_turn_summary(text_value: str, *, preserve_full_text: bool) -> tuple[str, str]:
+    def _build_detailed_turn_summary(text_value: str, *, preserve_full_text: bool = False) -> tuple[str, str]:
         normalized_value = str(text_value or "").replace("\r\n", "\n").strip()
         if not normalized_value:
             return ("", "")
@@ -9286,7 +9344,7 @@ def _collect_story_memory_identity_names(
     seen_names: set[str] = set()
 
     def _append_name(raw_value: Any) -> None:
-        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?В«В»")
+        normalized_value = " ".join(str(raw_value or "").split()).strip(" \t\r\n\"'()[]{}.,:;!?«»")
         if not normalized_value:
             return
         normalized_key = normalized_value.casefold()
@@ -9380,7 +9438,6 @@ def _create_story_memory_block(
     title_for_storage = title_candidate or normalized_raw_title
     normalized_title = _normalize_story_memory_block_title(
         title_for_storage,
-        fallback="Блок памяти",
     )
     block = StoryMemoryBlock(
         game_id=game_id,
@@ -9482,8 +9539,9 @@ def _seed_story_environment_weather_payload(
 
                 "You must infer grounded current weather for today and a stable forecast for tomorrow from the scene location, date, time, season, and recent scene descriptions. "
 
-                "For current_weather.timeline, return exactly four broad periods for the current date in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00. "
+                "For current_weather.timeline, return exactly four broad 6-hour periods for the current date in this order: 00:00-06:00, 06:00-12:00, 12:00-18:00, 18:00-00:00. "
                 "Do not split one part of the day into duplicates such as morning and late morning, or afternoon and late afternoon. "
+                "Adjacent periods may repeat the same weather summary when the day stays stable. Do not invent changes just to make the slots different. "
 
                 "Do not omit the night block and do not default it to a daytime placeholder when the current time is after midnight. "
                 "The final time range must end at 00:00 so the day timeline closes at midnight. "
@@ -9597,7 +9655,7 @@ def _seed_story_environment_weather_payload(
 
 
 
-        parsed_payload = _extract_json_object_from_text(raw_response.replace("\r\n", "\n").strip())
+        parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
 
         if not isinstance(parsed_payload, dict) or not parsed_payload:
 
@@ -9679,7 +9737,9 @@ def _ensure_story_environment_seeded(
 
 ) -> bool:
 
-    if not _normalize_story_environment_enabled(getattr(game, "environment_enabled", None)):
+    time_enabled = _story_environment_time_enabled_for_game(game)
+    weather_enabled = _story_environment_weather_enabled_for_game(game)
+    if not (time_enabled or weather_enabled):
 
         return False
 
@@ -9693,7 +9753,12 @@ def _ensure_story_environment_seeded(
 
     )
 
-    if str(getattr(game, "environment_current_datetime", "") or "") != normalized_datetime:
+    if time_enabled and not normalized_datetime:
+        normalized_datetime = _serialize_story_environment_datetime(
+            datetime.now().replace(second=0, microsecond=0, tzinfo=None)
+        )
+
+    if time_enabled and str(getattr(game, "environment_current_datetime", "") or "") != normalized_datetime:
 
         game.environment_current_datetime = normalized_datetime
 
@@ -9727,7 +9792,7 @@ def _ensure_story_environment_seeded(
 
         for message in reversed(_list_story_messages(db, game.id))
 
-        if message.role == STORY_ASSISTANT_ROLE and message.content.strip()
+        if message.role == STORY_ASSISTANT_ROLE and _normalize_story_message_content(getattr(message, "content", None))
 
     ]
 
@@ -9759,7 +9824,7 @@ def _ensure_story_environment_seeded(
 
             for message in reversed(_list_story_messages(db, game.id))
 
-            if message.role == STORY_USER_ROLE and message.content.strip()
+            if message.role == STORY_USER_ROLE and _normalize_story_message_content(getattr(message, "content", None))
 
         ),
 
@@ -9769,7 +9834,7 @@ def _ensure_story_environment_seeded(
 
     latest_user_prompt = (
 
-        latest_user_message.content.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(getattr(latest_user_message, "content", None))
 
         if isinstance(latest_user_message, StoryMessage)
 
@@ -9787,37 +9852,46 @@ def _ensure_story_environment_seeded(
 
 
 
-    resolved_current_weather, resolved_tomorrow_weather = _resolve_story_environment_weather_state(
+    if weather_enabled:
+        weather_reference_datetime = (
+            resolved_current_datetime
+            if isinstance(resolved_current_datetime, datetime)
+            else datetime.now().replace(second=0, microsecond=0, tzinfo=None)
+        )
+        resolved_current_weather, resolved_tomorrow_weather = _resolve_story_environment_weather_state(
 
-        game=game,
+            game=game,
 
-        current_datetime=resolved_current_datetime,
+            current_datetime=weather_reference_datetime,
 
-        current_location_content=current_location_content,
+            current_location_content=current_location_content,
 
-        latest_user_prompt=latest_user_prompt,
+            latest_user_prompt=latest_user_prompt,
 
-        previous_assistant_text=previous_assistant_text,
+            previous_assistant_text=previous_assistant_text,
 
-        latest_assistant_text=latest_assistant_text,
+            latest_assistant_text=latest_assistant_text,
 
-        extracted_current_weather=current_weather if isinstance(current_weather, dict) else None,
+            extracted_current_weather=current_weather if isinstance(current_weather, dict) else None,
 
-        extracted_tomorrow_weather=tomorrow_weather if isinstance(tomorrow_weather, dict) else None,
+            extracted_tomorrow_weather=tomorrow_weather if isinstance(tomorrow_weather, dict) else None,
 
-    )
+        )
+    else:
+        resolved_current_weather = current_weather if isinstance(current_weather, dict) else None
+        resolved_tomorrow_weather = tomorrow_weather if isinstance(tomorrow_weather, dict) else None
 
     next_current_weather = _serialize_story_environment_weather(resolved_current_weather)
 
     next_tomorrow_weather = _serialize_story_environment_weather(resolved_tomorrow_weather)
 
-    if str(getattr(game, "environment_current_weather", "") or "") != next_current_weather:
+    if weather_enabled and str(getattr(game, "environment_current_weather", "") or "") != next_current_weather:
 
         game.environment_current_weather = next_current_weather
 
         changed = True
 
-    if str(getattr(game, "environment_tomorrow_weather", "") or "") != next_tomorrow_weather:
+    if weather_enabled and str(getattr(game, "environment_tomorrow_weather", "") or "") != next_tomorrow_weather:
 
         game.environment_tomorrow_weather = next_tomorrow_weather
 
@@ -9861,7 +9935,7 @@ def _upsert_story_raw_memory_block(
         game.memory_optimization_enabled = True
 
     resolved_latest_user_prompt = (
-        latest_user_prompt.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_user_prompt)
         if isinstance(latest_user_prompt, str)
         else _get_story_user_prompt_before_assistant_message(
             db,
@@ -9870,12 +9944,12 @@ def _upsert_story_raw_memory_block(
         )
     )
     resolved_latest_assistant_text = (
-        latest_assistant_text.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_assistant_text)
         if isinstance(latest_assistant_text, str)
         else _normalize_story_assistant_text_for_memory(assistant_message.content)
     )
     if not resolved_latest_assistant_text:
-        resolved_latest_assistant_text = assistant_message.content.replace("\r\n", "\n").strip()
+        resolved_latest_assistant_text = _normalize_story_message_content(getattr(assistant_message, "content", None))
 
     turn_memory_blocks = [
         block
@@ -10558,44 +10632,31 @@ def _list_story_latest_assistant_message_ids(
 
 
 
+
 def _extract_story_memory_sentences(raw_content: str) -> list[str]:
-
-    normalized = raw_content.replace("\r\n", "\n").strip()
-
+    normalized = _normalize_story_message_content(raw_content)
     if not normalized:
-
         return []
 
     extracted: list[str] = []
-
     seen_sentences: set[str] = set()
 
     for raw_line in normalized.split("\n"):
-
         compact_line = re.sub(r"^\s*[-•]\s*", "", raw_line).strip()
-
         if not compact_line:
-
             continue
 
         sentence_candidates = re.split(r"(?<=[.!?…])\s+", re.sub(r"\s+", " ", compact_line))
-
         for sentence in sentence_candidates:
-
             compact_sentence = _normalize_story_memory_sentence_candidate(sentence)
-
             if not compact_sentence:
-
                 continue
 
             sentence_key = compact_sentence.casefold()
-
             if sentence_key in seen_sentences:
-
                 continue
 
             seen_sentences.add(sentence_key)
-
             extracted.append(compact_sentence)
 
     return extracted
@@ -11354,127 +11415,73 @@ def _should_store_story_raw_memory_turn(
 
 
 
+
 def _sanitize_story_key_memory_content(raw_content: str) -> str:
-
-    normalized = raw_content.replace("\r\n", "\n").strip()
-
+    normalized = _normalize_story_message_content(raw_content)
     if not normalized:
-
         return ""
 
-
-
     sentence_candidates = _extract_story_memory_sentences(normalized)
-
     if not sentence_candidates:
-
         sentence_candidates = [line for line in normalized.split("\n") if line.strip()]
 
-
-
     cleaned_lines: list[str] = []
-
     seen_lines: set[str] = set()
-
     for line in sentence_candidates:
-
         compact = re.sub(r"\s+", " ", line.strip(" -•\t\"'«»")).strip()
-
         if not compact:
-
             continue
 
         compact = re.sub(
-
             r"^(?:user turn|player turn|narrator reply|assistant reply|ход игрока|ответ рассказчика)\s*:\s*",
-
             "",
-
             compact,
-
             flags=re.IGNORECASE,
-
         ).strip()
-
         compact = re.sub(r"^[,.;:()\[\]\-–—]+\s*", "", compact).strip()
-
         if not compact:
-
             continue
 
         if STORY_CJK_CHARACTER_PATTERN.search(compact):
-
             continue
-
         if len(STORY_CYRILLIC_LETTER_PATTERN.findall(compact)) < 6:
-
             continue
 
         compact_lower = compact.casefold()
-
         if any(token in compact_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
-
             continue
-
         if len(compact) < 18:
-
             continue
 
         if compact[-1] not in ".!?…":
-
             compact = f"{compact}."
 
-        compact = compact[:1].upper() + compact[1:]
-
         compact_key = compact.casefold()
-
         if compact_key in seen_lines:
-
             continue
 
         seen_lines.add(compact_key)
-
         cleaned_lines.append(compact)
-
         if len(cleaned_lines) >= 2:
-
             break
 
-
-
     if not cleaned_lines:
-
         return ""
-
-
 
     normalized_content = "\n".join(cleaned_lines).strip()
-
     normalized_lower = normalized_content.casefold()
-
     if any(token in normalized_lower for token in STORY_MEMORY_KEY_FORBIDDEN_SUBSTRINGS):
-
         return ""
-
-
 
     try:
-
         normalized_summary = _normalize_story_memory_block_content(normalized_content)
-
     except HTTPException:
-
         return ""
-
     return normalized_summary
 
 
-
-
-
 def _is_story_key_memory_content_valid(content: str) -> bool:
-
-    normalized = content.replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(content)
 
     if not normalized:
 
@@ -11831,7 +11838,6 @@ def _extract_story_important_plot_card_payload_locally(
         fallback="Важно: Важное событие",
     )
     if not _should_accept_story_important_event_candidate(
-        latest_user_prompt=normalized_prompt,
         latest_assistant_text=normalized_assistant,
         title=title,
         content=content,
@@ -11917,8 +11923,7 @@ def _compress_story_memory_block_with_model(
     max_attempts: int = 2,
 
 ) -> tuple[str, str]:
-
-    normalized_raw_content = raw_content.replace("\r\n", "\n").strip()
+    normalized_raw_content = _normalize_story_message_content(raw_content)
     memory_identity_names = _collect_story_memory_identity_names(
         player_name=player_name,
         known_character_names=known_character_names,
@@ -11971,22 +11976,18 @@ def _compress_story_memory_block_with_model(
                 r"[0-9A-Za-zА-Яа-яЁё_]{4,}",
                 " ".join(source_sentences).casefold(),
             )
-            if token
-            not in {
+            if token not in {
                 "игрок",
                 "игрока",
                 "ответ",
                 "мастера",
                 "рассказчика",
                 "сухие",
-                "факты",
                 "краткий",
-                "пересказ",
             }
         }
         if not source_tokens:
             return True
-
         output_tokens = set(re.findall(r"[0-9A-Za-zА-Яа-яЁё_]{4,}", normalized_output))
         return bool(source_tokens.intersection(output_tokens))
 
@@ -12869,7 +12870,6 @@ def _extract_story_important_plot_card_payload(
 
                 "content must be 1-2 short factual Russian sentences in past tense, "
 
-                "with concrete actor+event wording and no bullet list. "
 
                 "Never write in first person. "
 
@@ -13141,11 +13141,9 @@ def _create_story_key_memory_block(
             f"Важно: {normalized_title}",
             fallback="Важно: Важное событие",
         )
-
     sanitized_content = _sanitize_story_key_memory_content(content)
 
     if not sanitized_content or not _is_story_key_memory_content_valid(sanitized_content):
-
         return False
 
     candidate_signal = _build_story_key_memory_candidate_signal(
@@ -13179,9 +13177,9 @@ def _create_story_key_memory_block(
 
     for block in reversed(existing_blocks[-40:]):
 
-        existing_title = block.title.replace("\r\n", " ").strip()
+        existing_title = " ".join(str(getattr(block, "title", "") or "").replace("\r\n", " ").split()).strip()
 
-        existing_content = block.content.replace("\r\n", "\n").strip()
+        existing_content = _normalize_story_message_content(getattr(block, "content", None))
 
         if (
 

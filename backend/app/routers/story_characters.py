@@ -361,9 +361,12 @@ def _create_story_character_publication_copy_from_source(
         health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
         note=normalize_story_character_note(source_character.note),
         triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
-        avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
+        avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
         avatar_original_url=(
-            normalize_story_character_avatar_original_url(getattr(source_character, "avatar_original_url", None))
+            normalize_story_character_avatar_original_url(
+                getattr(source_character, "avatar_original_url", None),
+                db=db,
+            )
             if getattr(source_character, "avatar_url", None)
             else None
         ),
@@ -834,9 +837,12 @@ def add_story_community_character_to_account(
                 health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
                 note=normalize_story_character_note(getattr(character, "note", "")),
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
-                avatar_url=normalize_story_character_avatar_url(character.avatar_url),
+                avatar_url=normalize_story_character_avatar_url(character.avatar_url, db=db),
                 avatar_original_url=(
-                    normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None))
+                    normalize_story_character_avatar_original_url(
+                        getattr(character, "avatar_original_url", None),
+                        db=db,
+                    )
                     if getattr(character, "avatar_url", None)
                     else None
                 ),
@@ -941,9 +947,11 @@ def create_story_character(
     normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
-    avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
-    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+    avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
+    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
+    if avatar_url and not avatar_original_url:
+        avatar_original_url = avatar_url
     emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
         db,
         user=user,
@@ -1013,9 +1021,11 @@ def update_story_character(
     normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
-    avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
-    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+    avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
+    avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
+    if avatar_url and not avatar_original_url:
+        avatar_original_url = avatar_url
     emotion_assets, emotion_model, emotion_prompt_lock = _resolve_story_character_emotion_payload_for_write(
         db,
         user=user,

@@ -123,10 +123,16 @@ STORY_SPRITE_REMOVAL_CACHE: dict[str, str] = {}
 STORY_SPRITE_REMOVAL_CACHE_MAX_ITEMS = int(
     getattr(monolith_main, "STORY_SPRITE_REMOVAL_CACHE_MAX_ITEMS", 96) or 96
 )
+
+
+def _normalize_story_message_content(value: Any) -> str:
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
 def _request_story_scene_emotion_payload(
     *,
-    latest_user_prompt: str,
-    latest_assistant_text: str,
+    latest_user_prompt: str | None,
+    latest_assistant_text: str | None,
     world_cards: list[dict[str, Any]],
 ) -> str | None:
     if not settings.openrouter_api_key or not settings.openrouter_chat_url:
@@ -138,8 +144,8 @@ def _request_story_scene_emotion_payload(
             }
         )
 
-    normalized_user_prompt = latest_user_prompt.replace("\r\n", "\n").strip()
-    normalized_assistant_text = latest_assistant_text.replace("\r\n", "\n").strip()
+    normalized_user_prompt = _normalize_story_message_content(latest_user_prompt)
+    normalized_assistant_text = _normalize_story_message_content(latest_assistant_text)
     if not normalized_assistant_text:
         return _serialize_story_scene_emotion_payload(
             {
@@ -1888,7 +1894,7 @@ def _build_story_character_emotion_edit_prompt(
 
 
 def _normalize_story_scene_emotion_lookup_value(value: Any) -> str:
-    normalized = str(value or "").strip().lower().replace("С‘", "Рµ")
+    normalized = str(value or "").strip().lower().replace("ё", "е")
     normalized = re.sub(r"[^0-9a-z\u0400-\u04FF\s-]+", " ", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
 

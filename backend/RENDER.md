@@ -16,9 +16,13 @@ Required env:
 - `APP_TRUST_PROXY_HEADERS=true`
 - `APP_FORWARDED_ALLOW_IPS=*`
 - `APP_ALLOWED_HOSTS=your-render-backend.onrender.com`
-- `DATABASE_URL` (Render Postgres recommended)
+- `DATABASE_URL=postgresql+psycopg://...` (Render Postgres recommended; `postgres://...` is normalized automatically)
 - `JWT_SECRET_KEY`
 - `CORS_ORIGINS=https://your-vercel-domain.vercel.app`
+
+If you are migrating an existing SQLite production database, run the backend migration script once against the new Postgres database before switching traffic:
+
+- `python scripts/migrate_sqlite_to_postgres.py --source-sqlite-url sqlite:///./data/morius.db --target-database-url postgresql+psycopg://...`
 
 ## Split Services on Render (Later)
 

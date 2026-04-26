@@ -35,7 +35,9 @@ from app.services.story_emotions import (
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PUBLIC,
     clone_story_world_cards_to_game,
+    normalize_story_cover_image_url,
     normalize_story_memory_optimization_mode,
+    serialize_story_environment_weather,
     refresh_story_game_public_card_snapshots,
     serialize_story_ambient_profile,
     serialize_story_game_genres,
@@ -76,9 +78,12 @@ def upsert_story_character_publication_copy_from_source(
             health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
             note=normalize_story_character_note(source_character.note),
             triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
-            avatar_url=normalize_story_character_avatar_url(source_character.avatar_url),
+            avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
             avatar_original_url=(
-                normalize_story_character_avatar_original_url(getattr(source_character, "avatar_original_url", None))
+                normalize_story_character_avatar_original_url(
+                    getattr(source_character, "avatar_original_url", None),
+                    db=db,
+                )
                 if getattr(source_character, "avatar_url", None)
                 else None
             ),
@@ -115,9 +120,12 @@ def upsert_story_character_publication_copy_from_source(
     publication.health_status = normalize_story_character_health_status(getattr(source_character, "health_status", ""))
     publication.note = normalize_story_character_note(source_character.note)
     publication.triggers = serialize_triggers(deserialize_triggers(source_character.triggers))
-    publication.avatar_url = normalize_story_character_avatar_url(source_character.avatar_url)
+    publication.avatar_url = normalize_story_character_avatar_url(source_character.avatar_url, db=db)
     publication.avatar_original_url = (
-        normalize_story_character_avatar_original_url(getattr(source_character, "avatar_original_url", None))
+        normalize_story_character_avatar_original_url(
+            getattr(source_character, "avatar_original_url", None),
+            db=db,
+        )
         if getattr(source_character, "avatar_url", None)
         else None
     )
@@ -189,6 +197,9 @@ def upsert_story_game_publication_copy_from_source(
     reviewer_user_id: int | None = None,
 ) -> StoryGame:
     normalized_source = story_game_summary_to_out(source_game)
+    raw_cover_image_url = normalize_story_cover_image_url(getattr(source_game, "cover_image_url", None), db=db)
+    story_narrator_mode = str(getattr(source_game, "story_narrator_mode", "") or "normal").strip() or "normal"
+    story_romance_enabled = bool(getattr(source_game, "story_romance_enabled", False))
     publication = db.scalar(
         select(StoryGame).where(
             StoryGame.user_id == source_game.user_id,
@@ -204,7 +215,7 @@ def upsert_story_game_publication_copy_from_source(
             visibility=STORY_GAME_VISIBILITY_PUBLIC,
             age_rating=normalized_source.age_rating,
             genres=serialize_story_game_genres(normalized_source.genres),
-            cover_image_url=normalized_source.cover_image_url,
+            cover_image_url=raw_cover_image_url,
             cover_scale=normalized_source.cover_scale,
             cover_position_x=normalized_source.cover_position_x,
             cover_position_y=normalized_source.cover_position_y,
@@ -227,11 +238,21 @@ def upsert_story_game_publication_copy_from_source(
             story_top_r=normalized_source.story_top_r,
             story_temperature=normalized_source.story_temperature,
             story_repetition_penalty=normalized_source.story_repetition_penalty,
-            story_narrator_mode=normalized_source.story_narrator_mode,
-            story_romance_enabled=normalized_source.story_romance_enabled,
+            story_narrator_mode=story_narrator_mode,
+            story_romance_enabled=story_romance_enabled,
             show_gg_thoughts=normalized_source.show_gg_thoughts,
             show_npc_thoughts=normalized_source.show_npc_thoughts,
             ambient_enabled=normalized_source.ambient_enabled,
+            environment_enabled=normalized_source.environment_enabled,
+            environment_time_enabled=normalized_source.environment_time_enabled,
+            environment_weather_enabled=normalized_source.environment_weather_enabled,
+            environment_current_datetime=str(normalized_source.environment_current_datetime or ""),
+            environment_current_weather=serialize_story_environment_weather(
+                normalized_source.environment_current_weather
+            ),
+            environment_tomorrow_weather=serialize_story_environment_weather(
+                normalized_source.environment_tomorrow_weather
+            ),
             emotion_visualization_enabled=normalized_source.emotion_visualization_enabled,
             ambient_profile=serialize_story_ambient_profile(normalized_source.ambient_profile),
             last_activity_at=normalized_source.last_activity_at,
@@ -256,7 +277,7 @@ def upsert_story_game_publication_copy_from_source(
     publication.visibility = STORY_GAME_VISIBILITY_PUBLIC
     publication.age_rating = normalized_source.age_rating
     publication.genres = serialize_story_game_genres(normalized_source.genres)
-    publication.cover_image_url = normalized_source.cover_image_url
+    publication.cover_image_url = raw_cover_image_url
     publication.cover_scale = normalized_source.cover_scale
     publication.cover_position_x = normalized_source.cover_position_x
     publication.cover_position_y = normalized_source.cover_position_y
@@ -275,11 +296,21 @@ def upsert_story_game_publication_copy_from_source(
     publication.story_top_r = normalized_source.story_top_r
     publication.story_temperature = normalized_source.story_temperature
     publication.story_repetition_penalty = normalized_source.story_repetition_penalty
-    publication.story_narrator_mode = normalized_source.story_narrator_mode
-    publication.story_romance_enabled = normalized_source.story_romance_enabled
+    publication.story_narrator_mode = story_narrator_mode
+    publication.story_romance_enabled = story_romance_enabled
     publication.show_gg_thoughts = normalized_source.show_gg_thoughts
     publication.show_npc_thoughts = normalized_source.show_npc_thoughts
     publication.ambient_enabled = normalized_source.ambient_enabled
+    publication.environment_enabled = normalized_source.environment_enabled
+    publication.environment_time_enabled = normalized_source.environment_time_enabled
+    publication.environment_weather_enabled = normalized_source.environment_weather_enabled
+    publication.environment_current_datetime = str(normalized_source.environment_current_datetime or "")
+    publication.environment_current_weather = serialize_story_environment_weather(
+        normalized_source.environment_current_weather
+    )
+    publication.environment_tomorrow_weather = serialize_story_environment_weather(
+        normalized_source.environment_tomorrow_weather
+    )
     publication.emotion_visualization_enabled = normalized_source.emotion_visualization_enabled
     publication.ambient_profile = serialize_story_ambient_profile(normalized_source.ambient_profile)
     publication.last_activity_at = normalized_source.last_activity_at

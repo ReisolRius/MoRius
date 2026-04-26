@@ -17,7 +17,11 @@ from app.schemas import (
     StoryMemoryBlockUpdateRequest,
 )
 from app.services.auth_identity import get_current_user
-from app.services.story_game_operation_lock import acquire_story_game_operation_lock
+from app.services.story_game_operation_lock import (
+    STORY_GAME_OPERATION_BUSY_DETAIL,
+    StoryGameOperationBusyError,
+    acquire_story_game_operation_lock,
+)
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_KEY,
     normalize_story_memory_block_content,
@@ -31,6 +35,22 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 _MEMORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9A-Za-zА-Яа-яЁё]+|[^\s]", re.IGNORECASE)
+
+_STORY_OPERATION_LOCK_TIMEOUT_SECONDS = 2.0
+
+
+def _acquire_story_operation_lease_or_409(*, game_id: int, operation: str):
+    try:
+        return acquire_story_game_operation_lock(
+            game_id,
+            operation=operation,
+            wait_timeout_seconds=_STORY_OPERATION_LOCK_TIMEOUT_SECONDS,
+        )
+    except StoryGameOperationBusyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STORY_GAME_OPERATION_BUSY_DETAIL,
+        ) from exc
 
 
 def _estimate_memory_token_count(text_value: str) -> int:
@@ -143,7 +163,7 @@ def optimize_story_memory(
 ) -> list[StoryMemoryBlockOut]:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    with acquire_story_game_operation_lock(game.id, operation="story_memory_optimize"):
+    with _acquire_story_operation_lease_or_409(game_id=game.id, operation="story_memory_optimize"):
         starting_assistant_message_id = _resolve_story_memory_optimize_start_assistant_message_id(
             db=db,
             game_id=game.id,

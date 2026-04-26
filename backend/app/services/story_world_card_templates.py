@@ -135,6 +135,8 @@ def build_story_world_card_template(
     normalized_detail_type = normalize_story_world_detail_type(detail_type) if normalized_kind == STORY_WORLD_CARD_KIND_WORLD else ""
     normalized_avatar = normalize_story_character_avatar_url(avatar_url)
     normalized_avatar_original = normalize_story_character_avatar_original_url(avatar_original_url)
+    if normalized_avatar and not normalized_avatar_original:
+        normalized_avatar_original = normalized_avatar
     normalized_scale = normalize_story_avatar_scale(avatar_scale)
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
         memory_turns,

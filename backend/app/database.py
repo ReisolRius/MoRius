@@ -5,14 +5,10 @@ from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-from app.config import settings
+from app.config import is_sqlite_database_url, settings
 
 
-def _is_sqlite_url(database_url: str) -> bool:
-    return database_url.startswith("sqlite")
-
-
-if _is_sqlite_url(settings.database_url):
+if is_sqlite_database_url(settings.database_url):
     # Ensure sqlite target folder exists when using local file path.
     raw_path = settings.database_url.replace("sqlite:///", "")
     if raw_path and raw_path not in {":memory:", "./:memory:"}:
@@ -25,7 +21,7 @@ engine_kwargs: dict[str, object] = {
 }
 connect_args: dict[str, object] = {}
 
-if _is_sqlite_url(settings.database_url):
+if is_sqlite_database_url(settings.database_url):
     connect_args = {
         "check_same_thread": False,
         "timeout": max(settings.sqlite_busy_timeout_ms, 1000) / 1000,
@@ -46,7 +42,7 @@ engine = create_engine(
     **engine_kwargs,
 )
 
-if _is_sqlite_url(settings.database_url):
+if is_sqlite_database_url(settings.database_url):
 
     @event.listens_for(engine, "connect")
     def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
@@ -77,5 +73,11 @@ def get_db() -> Session:
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         db.close()

@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.models import StoryMemoryBlock
 from app.schemas import StoryMemoryBlockOut
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 STORY_MEMORY_LAYER_RAW = "raw"
 STORY_MEMORY_LAYER_COMPRESSED = "compressed"
@@ -51,7 +52,9 @@ STORY_LOCATION_TIME_TRAILING_PATTERNS = (
 
 
 def _strip_story_location_time_suffix(value: str) -> str:
-    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" .,:;!?…")
+    normalized = " ".join(
+        sanitize_likely_utf8_mojibake(value).replace("\r", " ").replace("\n", " ").split()
+    ).strip(" .,:;!?…")
     previous = ""
     while normalized and normalized != previous:
         previous = normalized
@@ -61,7 +64,9 @@ def _strip_story_location_time_suffix(value: str) -> str:
 
 
 def strip_story_location_time_context(value: str) -> str:
-    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()
+    normalized = " ".join(
+        sanitize_likely_utf8_mojibake(value).replace("\r", " ").replace("\n", " ").split()
+    ).strip()
     if not normalized:
         return ""
 
@@ -91,7 +96,7 @@ def normalize_story_memory_layer(value: str | None) -> str:
 
 
 def normalize_story_memory_block_title(value: str, *, fallback: str = "Блок памяти") -> str:
-    normalized = " ".join(value.split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).split()).strip()
     if not normalized:
         normalized = fallback
     if len(normalized) > STORY_MEMORY_BLOCK_MAX_TITLE_LENGTH:
@@ -102,7 +107,7 @@ def normalize_story_memory_block_title(value: str, *, fallback: str = "Блок 
 
 
 def normalize_story_memory_block_content(value: str) -> str:
-    normalized = value.replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if len(normalized) > STORY_MEMORY_BLOCK_MAX_CONTENT_LENGTH:
         normalized = normalized[-STORY_MEMORY_BLOCK_MAX_CONTENT_LENGTH :].lstrip()
     if not normalized:
@@ -123,11 +128,14 @@ def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
                 return ""
             return marker_name or ""
 
-        return STORY_MEMORY_OUTPUT_NAMED_MARKUP_PATTERN.sub(_replace_match, str(value or ""))
+        return STORY_MEMORY_OUTPUT_NAMED_MARKUP_PATTERN.sub(
+            _replace_match,
+            sanitize_likely_utf8_mojibake(value),
+        )
 
     layer_value = normalize_story_memory_layer(block.layer)
-    normalized_title = str(block.title or "").strip()
-    normalized_content = str(block.content or "")
+    normalized_title = sanitize_likely_utf8_mojibake(str(block.title or "")).strip()
+    normalized_content = sanitize_likely_utf8_mojibake(str(block.content or ""))
     if layer_value in {
         STORY_MEMORY_LAYER_RAW,
         STORY_MEMORY_LAYER_COMPRESSED,
@@ -160,7 +168,9 @@ def story_memory_block_to_out(block: StoryMemoryBlock) -> StoryMemoryBlockOut:
 
 
 def extract_story_location_label_from_content(value: str | None) -> str:
-    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" .,:;!?…")
+    normalized = " ".join(
+        sanitize_likely_utf8_mojibake(value).replace("\r", " ").replace("\n", " ").split()
+    ).strip(" .,:;!?…")
     if not normalized:
         return ""
     normalized_casefold = normalized.casefold()

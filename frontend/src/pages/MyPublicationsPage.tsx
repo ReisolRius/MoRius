@@ -136,7 +136,7 @@ function selectVisiblePublicationItems<
   )
   const publicationCopySourceIdSet = new Set(publicationCopySourceIds)
 
-  const visibleItems = sortByUpdatedDesc(
+  const visibleCandidates = sortByUpdatedDesc(
     items.filter((item) => {
       const sourceId = getSourceId(item)
       if (sourceId === null) {
@@ -152,6 +152,21 @@ function selectVisiblePublicationItems<
       return !ownItemIds.has(sourceId)
     }),
   )
+
+  const visibleItemsByEntityId = new Map<number, T>()
+  visibleCandidates.forEach((item) => {
+    const entityId = getSourceId(item) ?? item.id
+    const existingItem = visibleItemsByEntityId.get(entityId)
+    if (!existingItem) {
+      visibleItemsByEntityId.set(entityId, item)
+      return
+    }
+    if (getSourceId(existingItem) !== null && getSourceId(item) === null) {
+      visibleItemsByEntityId.set(entityId, item)
+    }
+  })
+
+  const visibleItems = Array.from(visibleItemsByEntityId.values())
 
   return {
     visibleItems,
@@ -643,14 +658,15 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleUnpublishWorld = useCallback(
     async (game: StoryGameSummary) => {
-      const actionKey = `world-${game.id}`
+      const targetGameId = game.source_world_id ?? game.id
+      const actionKey = `world-${targetGameId}`
       if (actionLoadingByKey[actionKey]) {
         return
       }
       setActionLoading(actionKey, true)
       setErrorMessage('')
       try {
-        await updateStoryGameMeta({ token: authToken, gameId: game.id, visibility: 'private' })
+        await updateStoryGameMeta({ token: authToken, gameId: targetGameId, visibility: 'private' })
         await loadPublicationWorlds({ force: true })
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось снять мир с публикации'
@@ -664,7 +680,8 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleUnpublishCharacter = useCallback(
     async (character: StoryCharacter) => {
-      const actionKey = `character-${character.id}`
+      const targetCharacterId = character.source_character_id ?? character.id
+      const actionKey = `character-${targetCharacterId}`
       if (actionLoadingByKey[actionKey]) {
         return
       }
@@ -673,7 +690,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
       try {
         await updateStoryCharacter({
           token: authToken,
-          characterId: character.id,
+          characterId: targetCharacterId,
           input: {
             name: character.name,
             description: character.description,
@@ -700,7 +717,8 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleUnpublishTemplate = useCallback(
     async (template: StoryInstructionTemplate) => {
-      const actionKey = `template-${template.id}`
+      const targetTemplateId = template.source_template_id ?? template.id
+      const actionKey = `template-${targetTemplateId}`
       if (actionLoadingByKey[actionKey]) {
         return
       }
@@ -709,7 +727,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
       try {
         await updateStoryInstructionTemplate({
           token: authToken,
-          templateId: template.id,
+          templateId: targetTemplateId,
           title: template.title,
           content: template.content,
           visibility: 'private',
@@ -788,13 +806,13 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const selectedMenuActionKey = useMemo(() => {
     if (cardMenuType === 'world' && selectedPublicationWorld) {
-      return `world-${selectedPublicationWorld.id}`
+      return `world-${selectedPublicationWorld.source_world_id ?? selectedPublicationWorld.id}`
     }
     if (cardMenuType === 'character' && selectedPublicationCharacter) {
-      return `character-${selectedPublicationCharacter.id}`
+      return `character-${selectedPublicationCharacter.source_character_id ?? selectedPublicationCharacter.id}`
     }
     if (cardMenuType === 'instruction' && selectedPublicationTemplate) {
-      return `template-${selectedPublicationTemplate.id}`
+      return `template-${selectedPublicationTemplate.source_template_id ?? selectedPublicationTemplate.id}`
     }
     return null
   }, [cardMenuType, selectedPublicationCharacter, selectedPublicationTemplate, selectedPublicationWorld])
@@ -803,13 +821,13 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleEditFromCardMenu = useCallback(() => {
     if (cardMenuType === 'world' && selectedPublicationWorld) {
-      onNavigate(`/worlds/${selectedPublicationWorld.id}/edit?source=my-publications`)
+      onNavigate(`/worlds/${selectedPublicationWorld.source_world_id ?? selectedPublicationWorld.id}/edit?source=my-publications`)
     }
     if (cardMenuType === 'character' && selectedPublicationCharacter) {
-      openCharacterEdit(selectedPublicationCharacter.id)
+      openCharacterEdit(selectedPublicationCharacter.source_character_id ?? selectedPublicationCharacter.id)
     }
     if (cardMenuType === 'instruction' && selectedPublicationTemplate) {
-      openInstructionEdit(selectedPublicationTemplate.id)
+      openInstructionEdit(selectedPublicationTemplate.source_template_id ?? selectedPublicationTemplate.id)
     }
     handleCloseCardMenu()
   }, [
@@ -989,7 +1007,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                       ratingAvg={game.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
                       heroImageUrl={game.cover_image_url}
-                      onClick={() => onNavigate(`/worlds/${game.id}/edit?source=my-publications`)}
+                      onClick={() => onNavigate(`/worlds/${game.source_world_id ?? game.id}/edit?source=my-publications`)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'world', game.id)}
                       menuAriaLabel="Открыть действия мира"
                     />
@@ -1026,7 +1044,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                       ratingAvg={character.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(character.id)}
                       heroImageUrl={character.avatar_url}
-                      onClick={() => openCharacterEdit(character.id)}
+                      onClick={() => openCharacterEdit(character.source_character_id ?? character.id)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'character', character.id)}
                       menuAriaLabel="Открыть действия персонажа"
                     />
@@ -1062,7 +1080,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                       additionsCount={template.community_additions_count}
                       ratingAvg={template.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(template.id + 100000)}
-                      onClick={() => openInstructionEdit(template.id)}
+                      onClick={() => openInstructionEdit(template.source_template_id ?? template.id)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'instruction', template.id)}
                       menuAriaLabel="Открыть действия инструкции"
                     />

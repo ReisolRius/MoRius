@@ -27,6 +27,10 @@ NOTIFICATION_KIND_MODERATION_REPORT = "moderation_report"
 NOTIFICATION_KIND_MODERATION_QUEUE = "moderation_queue"
 MODERATION_NOTIFICATION_ROLE_NAMES = ("administrator", "moderator")
 
+
+def _sanitize_notification_text(value: str | None) -> str:
+    return sanitize_likely_utf8_mojibake(str(value or "").strip())
+
 NOTIFICATION_PREFERENCE_FIELD_BY_KIND = {
     NOTIFICATION_KIND_COMMENT_REPLY: "notify_comment_reply",
     NOTIFICATION_KIND_WORLD_COMMENT: "notify_world_comment",
@@ -109,16 +113,16 @@ def _build_public_action_url(action_url: str | None) -> str | None:
 
 
 def _build_notification_email_subject(notification: UserNotification) -> str:
-    title = str(notification.title or "").strip() or "Новое уведомление"
+    title = _sanitize_notification_text(notification.title) or "Новое уведомление"
     compact_title = title[:96].rstrip()
     return f"MoRius: {compact_title}"
 
 
 def _build_notification_email_text(notification: UserNotification) -> str:
     lines = [
-        str(notification.title or "").strip() or "Новое уведомление в MoRius",
+        _sanitize_notification_text(notification.title) or "Новое уведомление в MoRius",
         "",
-        str(notification.body or "").strip() or "У вас появилось новое уведомление.",
+        _sanitize_notification_text(notification.body) or "У вас появилось новое уведомление.",
     ]
     action_url = _build_public_action_url(notification.action_url)
     if action_url:
@@ -134,8 +138,8 @@ def _build_notification_email_text(notification: UserNotification) -> str:
 
 
 def _build_notification_email_html(notification: UserNotification) -> str:
-    title = escape(str(notification.title or "").strip() or "Новое уведомление в MoRius")
-    body = escape(str(notification.body or "").strip() or "У вас появилось новое уведомление.").replace("\n", "<br />")
+    title = escape(_sanitize_notification_text(notification.title) or "Новое уведомление в MoRius")
+    body = escape(_sanitize_notification_text(notification.body) or "У вас появилось новое уведомление.").replace("\n", "<br />")
     action_url = _build_public_action_url(notification.action_url)
     action_markup = ""
     if action_url:
@@ -198,11 +202,11 @@ def create_user_notifications(db: Session, drafts: list[NotificationDraft]) -> l
         recipient = recipient_by_id.get(user_id)
         if not is_user_notification_enabled(recipient, draft.kind):
             continue
-        title = str(draft.title or "").strip()
-        body = str(draft.body or "").strip()
+        title = _sanitize_notification_text(draft.title)
+        body = _sanitize_notification_text(draft.body)
         if not title and not body:
             continue
-        action_url = str(draft.action_url or "").strip() or None
+        action_url = _sanitize_notification_text(draft.action_url) or None
         actor_user_id = int(draft.actor_user_id) if draft.actor_user_id is not None else None
         dedupe_key = (user_id, draft.kind, title, body, action_url, actor_user_id)
         if dedupe_key in seen_keys:
@@ -279,9 +283,9 @@ def list_user_notifications_out(
         UserNotificationOut(
             id=int(notification.id),
             kind=str(notification.kind or "").strip() or "generic",
-            title=str(notification.title or "").strip(),
-            body=str(notification.body or "").strip(),
-            action_url=str(notification.action_url or "").strip() or None,
+            title=_sanitize_notification_text(notification.title),
+            body=_sanitize_notification_text(notification.body),
+            action_url=_sanitize_notification_text(notification.action_url) or None,
             is_read=bool(notification.is_read),
             actor_user_id=int(notification.actor_user_id) if notification.actor_user_id is not None else None,
             actor_display_name=_resolve_user_display_name(actor),

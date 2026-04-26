@@ -25,6 +25,8 @@ import {
   type GrowProps,
 } from '@mui/material'
 import tavernBgImage from '../assets/images/tavern-bg.png'
+import riusDungeonHomeBgImage from '../assets/images/rius-dungeon-home-bg.jpg'
+import { useMoriusThemeController } from '../theme'
 import dashboardContinueIconMarkup from '../assets/icons/dashboard-continue.svg?raw'
 import dashboardQuickStartIconMarkup from '../assets/icons/dashboard-quick-start.svg?raw'
 import sidebarPlusIconMarkup from '../assets/icons/custom/plus.svg?raw'
@@ -500,6 +502,8 @@ function getDashboardNewsFallbackImage(slot: number): string {
 }
 
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
+  const { themeId } = useMoriusThemeController()
+  const heroBgImage = themeId === 'rius-dungeon' ? riusDungeonHomeBgImage : tavernBgImage
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -526,6 +530,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
   const [isBgImageLoaded, setIsBgImageLoaded] = useState(false)
+  useEffect(() => {
+    setIsBgImageLoaded(false)
+  }, [heroBgImage])
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
@@ -1542,8 +1549,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
       >
         <Box
+          key={heroBgImage}
           component="img"
-          src={tavernBgImage}
+          src={heroBgImage}
           alt=""
           fetchPriority="low"
           decoding="async"
@@ -2466,5 +2474,4 @@ function buildDashboardGameDescription(game: StoryGameSummary): string {
 }
 
 export default AuthenticatedHomePage
-
 

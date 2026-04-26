@@ -13,6 +13,11 @@ def _bind_monolith_names() -> None:
 
 _bind_monolith_names()
 
+
+def _normalize_story_message_content(value: str | None) -> str:
+    return str(value or "").replace("\r\n", "\n").strip()
+
+
 def _translate_text_batch_with_openrouter(
     texts: list[str],
     *,
@@ -320,7 +325,7 @@ def _yield_story_translated_stream_chunks(
         raw_output_collector["raw_output"] = "".join(raw_chunks_collected)
 
 def _strip_story_markup_for_language_detection(text_value: str) -> str:
-    normalized = text_value.replace("\r\n", "\n")
+    normalized = _normalize_story_message_content(text_value)
     return STORY_MARKUP_MARKER_PATTERN.sub(" ", normalized)
 
 def _should_force_story_output_to_russian(text_value: str, *, model_name: str | None = None) -> bool:
@@ -359,7 +364,7 @@ def _sanitize_story_mixed_script_token(token: str) -> str:
     return token
 
 def _sanitize_story_russian_output_segment(text_value: str) -> str:
-    normalized = text_value.replace("\r\n", "\n")
+    normalized = _normalize_story_message_content(text_value)
     if not normalized:
         return normalized
 
@@ -377,7 +382,7 @@ def _sanitize_story_russian_output_segment(text_value: str) -> str:
     return cleaned.strip()
 
 def _sanitize_story_russian_output_contract(text_value: str) -> str:
-    normalized = text_value.replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(text_value)
     if not normalized:
         return normalized
 
@@ -401,7 +406,7 @@ def _sanitize_story_russian_output_contract(text_value: str) -> str:
     return sanitized.strip()
 
 def _enforce_story_output_language(text_value: str, *, model_name: str | None = None) -> str:
-    normalized = text_value.replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(text_value)
     if not normalized:
         return normalized
 
@@ -411,7 +416,7 @@ def _enforce_story_output_language(text_value: str, *, model_name: str | None = 
         if _should_force_story_output_to_russian(candidate_output, model_name=model_name):
             try:
                 translated = _force_translate_story_model_output_to_user(candidate_output, source_model_name=model_name)
-                translated_normalized = _strip_story_model_meta_preamble(translated.replace("\r\n", "\n").strip())
+                translated_normalized = _strip_story_model_meta_preamble(_normalize_story_message_content(translated))
                 if translated_normalized:
                     candidate_output = translated_normalized
             except Exception as exc:
@@ -425,7 +430,7 @@ def _enforce_story_output_language(text_value: str, *, model_name: str | None = 
     if should_force_russian:
         try:
             translated = _force_translate_story_model_output_to_user(normalized, source_model_name=model_name)
-            translated_normalized = translated.replace("\r\n", "\n").strip()
+            translated_normalized = _normalize_story_message_content(translated)
             if translated_normalized:
                 candidate_output = translated_normalized
         except Exception as exc:

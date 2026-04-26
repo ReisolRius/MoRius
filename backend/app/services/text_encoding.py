@@ -25,15 +25,38 @@ _MOJIBAKE_MARKER_PATTERN = re.compile(
     ")"
 )
 
+_COMMON_UTF8_MOJIBAKE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("в‚Ѕ", "₽"),
+    ("вЂ¦", "…"),
+    ("вЂ”", "—"),
+    ("вЂ“", "–"),
+    ("вЂ™", "’"),
+    ("вЂ", "‘"),
+    ("вЂњ", "“"),
+    ("вЂќ", "”"),
+    ("в„–", "№"),
+)
+
+_COMMON_UTF8_MOJIBAKE_TOKENS = tuple(source for source, _ in _COMMON_UTF8_MOJIBAKE_REPLACEMENTS)
+
 
 def _mojibake_marker_score(value: str) -> int:
     return len(_MOJIBAKE_MARKER_PATTERN.findall(value))
+
+
+def _replace_common_utf8_mojibake_sequences(value: str) -> str:
+    current_value = value
+    for source, target in _COMMON_UTF8_MOJIBAKE_REPLACEMENTS:
+        current_value = current_value.replace(source, target)
+    return current_value
 
 
 def is_likely_utf8_mojibake(value: str | None) -> bool:
     normalized = str(value or "").strip()
     if len(normalized) < 4:
         return False
+    if any(token in normalized for token in _COMMON_UTF8_MOJIBAKE_TOKENS):
+        return True
     return _mojibake_marker_score(normalized) >= 2
 
 
@@ -45,13 +68,14 @@ def _decode_utf8_mojibake_candidate(value: str, *, source_encoding: str) -> str 
 
 
 def repair_likely_utf8_mojibake(value: str | None) -> str:
-    current_value = str(value or "")
+    current_value = _replace_common_utf8_mojibake_sequences(str(value or ""))
     if not current_value or not is_likely_utf8_mojibake(current_value):
         return current_value
 
     for _ in range(4):
+        current_value = _replace_common_utf8_mojibake_sequences(current_value)
         original_marker_score = _mojibake_marker_score(current_value)
-        if original_marker_score <= 0:
+        if original_marker_score <= 0 and not any(token in current_value for token in _COMMON_UTF8_MOJIBAKE_TOKENS):
             break
 
         best_candidate = current_value
@@ -71,7 +95,7 @@ def repair_likely_utf8_mojibake(value: str | None) -> str:
             break
         current_value = best_candidate
 
-    return current_value
+    return _replace_common_utf8_mojibake_sequences(current_value)
 
 
 def strip_unserializable_unicode(value: str | None) -> str:

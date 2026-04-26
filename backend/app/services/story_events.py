@@ -28,6 +28,7 @@ from app.services.story_world_cards import (
     normalize_story_world_card_triggers,
     serialize_story_world_card_memory_turns,
 )
+from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
 
 STORY_WORLD_CARD_EVENT_ADDED = "added"
 STORY_WORLD_CARD_EVENT_UPDATED = "updated"
@@ -69,6 +70,7 @@ def deserialize_story_world_card_snapshot(raw_value: str | None) -> dict[str, ob
 
     if not isinstance(parsed, dict):
         return None
+    parsed = repair_likely_utf8_mojibake_deep(parsed)
 
     title_value = " ".join(str(parsed.get("title", "")).split()).strip()
     content_value = str(parsed.get("content", "")).replace("\r\n", "\n").strip()
@@ -157,6 +159,7 @@ def deserialize_story_plot_card_snapshot(raw_value: str | None) -> dict[str, obj
 
     if not isinstance(parsed, dict):
         return None
+    parsed = repair_likely_utf8_mojibake_deep(parsed)
 
     title_value = " ".join(str(parsed.get("title", "")).split()).strip()
     content_value = str(parsed.get("content", "")).replace("\r\n", "\n").strip()
@@ -215,8 +218,8 @@ def story_world_card_change_event_to_out(event: StoryWorldCardChangeEvent) -> St
         assistant_message_id=event.assistant_message_id,
         world_card_id=event.world_card_id,
         action=normalize_story_world_card_event_action(event.action) or STORY_WORLD_CARD_EVENT_UPDATED,
-        title=event.title,
-        changed_text=event.changed_text,
+        title=sanitize_likely_utf8_mojibake(event.title),
+        changed_text=sanitize_likely_utf8_mojibake(event.changed_text),
         before_snapshot=deserialize_story_world_card_snapshot(event.before_snapshot),
         after_snapshot=deserialize_story_world_card_snapshot(event.after_snapshot),
         created_at=event.created_at,
@@ -230,8 +233,8 @@ def story_plot_card_change_event_to_out(event: StoryPlotCardChangeEvent) -> Stor
         assistant_message_id=event.assistant_message_id,
         plot_card_id=event.plot_card_id,
         action=normalize_story_world_card_event_action(event.action) or STORY_WORLD_CARD_EVENT_UPDATED,
-        title=event.title,
-        changed_text=event.changed_text,
+        title=sanitize_likely_utf8_mojibake(event.title),
+        changed_text=sanitize_likely_utf8_mojibake(event.changed_text),
         before_snapshot=deserialize_story_plot_card_snapshot(event.before_snapshot),
         after_snapshot=deserialize_story_plot_card_snapshot(event.after_snapshot),
         created_at=event.created_at,

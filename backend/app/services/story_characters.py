@@ -9,8 +9,15 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import StoryCharacter, StoryCharacterRace, StoryWorldCard
 from app.schemas import StoryCharacterOut, StoryPublicationStateOut
-from app.services.media import normalize_avatar_value, normalize_media_scale, resolve_media_display_url, validate_avatar_url
+from app.services.media import (
+    normalize_avatar_value,
+    normalize_media_scale,
+    resolve_media_display_url,
+    resolve_media_storage_value,
+    validate_avatar_url,
+)
 from app.services.story_emotions import deserialize_story_character_emotion_assets
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -43,7 +50,7 @@ STORY_AVATAR_SCALE_DEFAULT = 1.0
 
 
 def _normalize_story_trigger(value: str) -> str:
-    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_CHARACTER_TRIGGER_MAX_LENGTH:
@@ -111,7 +118,7 @@ def normalize_story_character_visibility(value: str | None) -> str:
 
 
 def normalize_story_character_name(value: str) -> str:
-    normalized = " ".join(value.split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).split()).strip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Character name cannot be empty")
     if len(normalized) > STORY_CHARACTER_MAX_NAME_LENGTH:
@@ -122,7 +129,7 @@ def normalize_story_character_name(value: str) -> str:
 
 
 def normalize_story_character_description(value: str) -> str:
-    normalized = value.replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if len(normalized) > STORY_CHARACTER_MAX_DESCRIPTION_LENGTH:
         normalized = normalized[:STORY_CHARACTER_MAX_DESCRIPTION_LENGTH].rstrip()
     if not normalized:
@@ -131,7 +138,7 @@ def normalize_story_character_description(value: str) -> str:
 
 
 def normalize_story_character_race(value: str | None) -> str:
-    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_CHARACTER_MAX_RACE_LENGTH:
@@ -144,44 +151,52 @@ def normalize_story_character_race_key(value: str | None) -> str:
 
 
 def normalize_story_character_clothing(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if not normalized:
         return ""
     return normalized[:STORY_CHARACTER_MAX_CLOTHING_LENGTH].rstrip()
 
 
 def normalize_story_character_inventory(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if not normalized:
         return ""
     return normalized[:STORY_CHARACTER_MAX_INVENTORY_LENGTH].rstrip()
 
 
 def normalize_story_character_health_status(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if not normalized:
         return ""
     return normalized[:STORY_CHARACTER_MAX_HEALTH_STATUS_LENGTH].rstrip()
 
 
 def normalize_story_character_note(value: str | None) -> str:
-    normalized = " ".join((value or "").replace("\r\n", " ").split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if len(normalized) > STORY_CHARACTER_MAX_NOTE_LENGTH:
         normalized = normalized[:STORY_CHARACTER_MAX_NOTE_LENGTH].rstrip()
     return normalized
 
 
-def normalize_story_character_avatar_url(raw_value: str | None) -> str | None:
+def normalize_story_character_avatar_url(raw_value: str | None, *, db: Session | None = None) -> str | None:
     normalized = normalize_avatar_value(raw_value)
     if normalized is None:
         return None
+    if db is not None:
+        normalized = normalize_avatar_value(resolve_media_storage_value(db, normalized))
+        if normalized is None:
+            return None
     return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
 
 
-def normalize_story_character_avatar_original_url(raw_value: str | None) -> str | None:
+def normalize_story_character_avatar_original_url(raw_value: str | None, *, db: Session | None = None) -> str | None:
     normalized = normalize_avatar_value(raw_value)
     if normalized is None:
         return None
+    if db is not None:
+        normalized = normalize_avatar_value(resolve_media_storage_value(db, normalized))
+        if normalized is None:
+            return None
     return validate_avatar_url(normalized, max_bytes=settings.character_avatar_max_bytes)
 
 
@@ -275,8 +290,8 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
     return StoryCharacterOut(
         id=character.id,
         user_id=character.user_id,
-        name=character.name,
-        description=character.description,
+        name=normalize_story_character_name(character.name),
+        description=normalize_story_character_description(character.description),
         race=normalize_story_character_race(getattr(character, "race", "")),
         clothing=normalize_story_character_clothing(getattr(character, "clothing", "")),
         inventory=normalize_story_character_inventory(getattr(character, "inventory", "")),
@@ -287,8 +302,11 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),
         emotion_assets=emotion_assets,
-        emotion_model=str(getattr(character, "emotion_model", "") or "").strip(),
-        emotion_prompt_lock=str(getattr(character, "emotion_prompt_lock", "") or "").strip() or None,
+        emotion_model=sanitize_likely_utf8_mojibake(str(getattr(character, "emotion_model", "") or "").strip()),
+        emotion_prompt_lock=sanitize_likely_utf8_mojibake(
+            str(getattr(character, "emotion_prompt_lock", "") or "").strip()
+        )
+        or None,
         source=normalize_story_character_source(character.source),
         visibility=coerce_story_character_visibility(getattr(character, "visibility", None)),
         publication=_story_character_publication_state_out(character),

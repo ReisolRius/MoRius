@@ -132,6 +132,7 @@ except ImportError:  # pragma: no cover - keeps moderation router alive on parti
     def send_notification_emails(db: Session, notifications: list[object]) -> None:
         return None
 from app.services.media import resolve_media_display_url
+from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_error
 from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_plot_cards,
@@ -155,16 +156,9 @@ logger = logging.getLogger(__name__)
 MODERATION_PREVIEW_MAX_CHARS = 180
 
 
-def _is_sqlite_locked_error(exc: Exception) -> bool:
-    if not isinstance(exc, OperationalError):
-        return False
-    detail = str(exc).strip().lower()
-    return "database is locked" in detail or "database schema is locked" in detail
-
-
 def _commit_admin_moderation_write(db: Session, *, action_label: str) -> None:
     try:
-        db.commit()
+        commit_with_retry(db)
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(
@@ -173,7 +167,7 @@ def _commit_admin_moderation_write(db: Session, *, action_label: str) -> None:
         ) from exc
     except OperationalError as exc:
         db.rollback()
-        if _is_sqlite_locked_error(exc):
+        if is_database_busy_error(exc):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Moderation is busy right now. Please try again in a moment.",
@@ -262,7 +256,7 @@ def _get_pending_world_or_404(db: Session, *, world_id: int) -> StoryGame:
         select(StoryGame).where(
             StoryGame.id == world_id,
             StoryGame.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryGame.visibility != "public",
+            StoryGame.source_world_id.is_(None),
         )
     )
     if world is None:
@@ -275,7 +269,7 @@ def _get_pending_character_or_404(db: Session, *, character_id: int) -> StoryCha
         select(StoryCharacter).where(
             StoryCharacter.id == character_id,
             StoryCharacter.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryCharacter.visibility != "public",
+            StoryCharacter.source_character_id.is_(None),
         )
     )
     if character is None:
@@ -288,7 +282,7 @@ def _get_pending_instruction_template_or_404(db: Session, *, template_id: int) -
         select(StoryInstructionTemplate).where(
             StoryInstructionTemplate.id == template_id,
             StoryInstructionTemplate.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryInstructionTemplate.visibility != "public",
+            StoryInstructionTemplate.source_template_id.is_(None),
         )
     )
     if template is None:
@@ -554,19 +548,19 @@ def list_pending_publication_submissions(
     worlds = db.scalars(
         select(StoryGame).where(
             StoryGame.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryGame.visibility != "public",
+            StoryGame.source_world_id.is_(None),
         )
     ).all()
     characters = db.scalars(
         select(StoryCharacter).where(
             StoryCharacter.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryCharacter.visibility != "public",
+            StoryCharacter.source_character_id.is_(None),
         )
     ).all()
     templates = db.scalars(
         select(StoryInstructionTemplate).where(
             StoryInstructionTemplate.publication_status == STORY_PUBLICATION_STATUS_PENDING,
-            StoryInstructionTemplate.visibility != "public",
+            StoryInstructionTemplate.source_template_id.is_(None),
         )
     ).all()
 
@@ -682,7 +676,7 @@ def update_pending_world_submission(
     world.age_rating = normalize_story_game_age_rating(payload.age_rating)
     world.genres = serialize_story_game_genres(normalize_story_game_genres(payload.genres))
     if "cover_image_url" in payload_fields:
-        world.cover_image_url = normalize_story_cover_image_url(payload.cover_image_url)
+        world.cover_image_url = normalize_story_cover_image_url(payload.cover_image_url, db=db)
     world.cover_scale = normalize_story_cover_scale(payload.cover_scale)
     world.cover_position_x = normalize_story_cover_position(payload.cover_position_x)
     world.cover_position_y = normalize_story_cover_position(payload.cover_position_y)
@@ -760,18 +754,25 @@ def update_pending_world_submission(
             normalize_story_world_card_triggers(card_payload.triggers, fallback_title=normalized_title)
         )
         if "avatar_url" in card_payload_fields:
-            normalized_avatar_url = normalize_story_character_avatar_url(card_payload.avatar_url)
+            normalized_avatar_url = normalize_story_character_avatar_url(card_payload.avatar_url, db=db)
             card.avatar_url = normalized_avatar_url
             if normalized_avatar_url is None:
                 card.avatar_original_url = None
             elif "avatar_original_url" in card_payload_fields:
-                card.avatar_original_url = normalize_story_character_avatar_original_url(card_payload.avatar_original_url)
+                card.avatar_original_url = normalize_story_character_avatar_original_url(
+                    card_payload.avatar_original_url,
+                    db=db,
+                )
             else:
                 card.avatar_original_url = normalize_story_character_avatar_original_url(
-                    getattr(card, "avatar_original_url", None) or normalized_avatar_url
+                    getattr(card, "avatar_original_url", None) or normalized_avatar_url,
+                    db=db,
                 )
         elif "avatar_original_url" in card_payload_fields and getattr(card, "avatar_url", None):
-            card.avatar_original_url = normalize_story_character_avatar_original_url(card_payload.avatar_original_url)
+            card.avatar_original_url = normalize_story_character_avatar_original_url(
+                card_payload.avatar_original_url,
+                db=db,
+            )
         card.avatar_scale = normalize_story_avatar_scale(card_payload.avatar_scale)
         card.memory_turns = normalize_story_world_card_memory_turns_for_storage(
             card_payload.memory_turns,
@@ -918,18 +919,25 @@ def update_pending_character_submission(
         normalize_story_character_triggers(payload.triggers, fallback_name=character.name)
     )
     if "avatar_url" in payload_fields:
-        normalized_avatar_url = normalize_story_character_avatar_url(payload.avatar_url)
+        normalized_avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
         character.avatar_url = normalized_avatar_url
         if normalized_avatar_url is None:
             character.avatar_original_url = None
         elif "avatar_original_url" in payload_fields:
-            character.avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+            character.avatar_original_url = normalize_story_character_avatar_original_url(
+                payload.avatar_original_url,
+                db=db,
+            )
         else:
             character.avatar_original_url = normalize_story_character_avatar_original_url(
-                getattr(character, "avatar_original_url", None) or normalized_avatar_url
+                getattr(character, "avatar_original_url", None) or normalized_avatar_url,
+                db=db,
             )
     elif "avatar_original_url" in payload_fields and getattr(character, "avatar_url", None):
-        character.avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url)
+        character.avatar_original_url = normalize_story_character_avatar_original_url(
+            payload.avatar_original_url,
+            db=db,
+        )
     character.avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
 
     _commit_admin_moderation_write(db, action_label="updating pending character submission")

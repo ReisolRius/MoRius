@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from sqlalchemy import inspect, or_, text
 
@@ -59,6 +60,41 @@ PRIVILEGED_ROLE_BY_EMAIL = {
     "alexunderstood8@gmail.com": "administrator",
     "borisow.n2011@gmail.com": "moderator",
 }
+BOOLEAN_COLUMN_ADD_STATEMENT_PATTERN = re.compile(
+    r"ALTER TABLE (?P<table>[A-Za-z_][A-Za-z0-9_]*) "
+    r"ADD COLUMN (?P<column>[A-Za-z_][A-Za-z0-9_]*) "
+    r"INTEGER NOT NULL DEFAULT (?P<default>[01])\Z"
+)
+POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
+    (User.__tablename__, "show_subscriptions"): False,
+    (User.__tablename__, "show_public_worlds"): True,
+    (User.__tablename__, "show_private_worlds"): False,
+    (User.__tablename__, "show_public_characters"): True,
+    (User.__tablename__, "show_public_instruction_templates"): True,
+    (User.__tablename__, "publication_visibility_initialized"): False,
+    (User.__tablename__, "is_banned"): False,
+    (User.__tablename__, "email_notifications_enabled"): False,
+    (User.__tablename__, "notifications_enabled"): True,
+    (User.__tablename__, "notify_comment_reply"): True,
+    (User.__tablename__, "notify_world_comment"): True,
+    (User.__tablename__, "notify_publication_review"): True,
+    (User.__tablename__, "notify_new_follower"): True,
+    (User.__tablename__, "notify_moderation_report"): True,
+    (User.__tablename__, "notify_moderation_queue"): True,
+    (StoryGame.__tablename__, "response_max_tokens_enabled"): False,
+    (StoryGame.__tablename__, "memory_optimization_enabled"): True,
+    (StoryGame.__tablename__, "show_gg_thoughts"): False,
+    (StoryGame.__tablename__, "show_npc_thoughts"): False,
+    (StoryGame.__tablename__, "ambient_enabled"): False,
+    (StoryGame.__tablename__, "emotion_visualization_enabled"): False,
+    (StoryGame.__tablename__, "environment_time_enabled"): False,
+    (StoryGame.__tablename__, "environment_weather_enabled"): False,
+    (StoryWorldCard.__tablename__, "is_locked"): False,
+    (StoryWorldCard.__tablename__, "ai_edit_enabled"): True,
+    (StoryInstructionCard.__tablename__, "is_active"): True,
+    (StoryPlotCard.__tablename__, "ai_edit_enabled"): True,
+    (StoryPlotCard.__tablename__, "is_enabled"): True,
+}
 
 
 def _is_duplicate_schema_error(exc: Exception) -> bool:
@@ -73,9 +109,37 @@ def _is_duplicate_schema_error(exc: Exception) -> bool:
     return any(marker in error_text for marker in duplicate_markers)
 
 
+def _sql_boolean_literal(value: bool) -> str:
+    if engine.dialect.name == "postgresql":
+        return "TRUE" if value else "FALSE"
+    return "1" if value else "0"
+
+
+def _normalize_schema_statement_for_dialect(statement: str) -> str:
+    if engine.dialect.name != "postgresql":
+        return statement
+
+    normalized = " ".join(str(statement or "").split())
+    match = BOOLEAN_COLUMN_ADD_STATEMENT_PATTERN.fullmatch(normalized)
+    if match is None:
+        return statement
+
+    key = (match.group("table"), match.group("column"))
+    default_value = POSTGRES_BOOLEAN_COLUMN_DEFAULTS.get(key)
+    if default_value is None:
+        return statement
+
+    return (
+        f"ALTER TABLE {match.group('table')} "
+        f"ADD COLUMN {match.group('column')} "
+        f"BOOLEAN NOT NULL DEFAULT {_sql_boolean_literal(default_value)}"
+    )
+
+
 def _execute_schema_statement(connection, statement: str) -> None:
+    rendered_statement = _normalize_schema_statement_for_dialect(statement)
     try:
-        connection.execute(text(statement))
+        connection.execute(text(rendered_statement))
     except Exception as exc:  # pragma: no cover - depends on database driver wording
         if _is_duplicate_schema_error(exc):
             return
@@ -220,6 +284,8 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
 
     existing_columns = {column["name"] for column in inspector.get_columns(StoryGame.__tablename__)}
     alter_statements: list[str] = []
+    added_environment_time_enabled = False
+    added_environment_weather_enabled = False
 
     if "description" not in existing_columns:
         alter_statements.append(
@@ -269,7 +335,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "story_llm_model" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'deepseek/deepseek-v3.2'"
+            "ADD COLUMN story_llm_model VARCHAR(120) NOT NULL DEFAULT 'deepseek/deepseek-chat-v3-0324'"
         )
     if "image_model" not in existing_columns:
         alter_statements.append(
@@ -341,6 +407,18 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN emotion_visualization_enabled INTEGER NOT NULL DEFAULT 0"
         )
+    if "environment_time_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN environment_time_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+        added_environment_time_enabled = True
+    if "environment_weather_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN environment_weather_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+        added_environment_weather_enabled = True
     if "ambient_profile" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -507,6 +585,21 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+        if "environment_enabled" in existing_columns and (
+            added_environment_time_enabled or added_environment_weather_enabled
+        ):
+            assignments: list[str] = []
+            if added_environment_time_enabled:
+                assignments.append("environment_time_enabled = environment_enabled")
+            if added_environment_weather_enabled:
+                assignments.append("environment_weather_enabled = environment_enabled")
+            if assignments:
+                connection.execute(
+                    text(
+                        f"UPDATE {StoryGame.__tablename__} "
+                        f"SET {', '.join(assignments)}"
+                    )
+                )
         if "avatar_original_url" not in existing_columns:
             connection.execute(
                 text(
@@ -547,15 +640,17 @@ def _initialize_user_publication_visibility_defaults() -> None:
     if not required_columns.issubset(user_columns):
         return
 
+    true_literal = _sql_boolean_literal(True)
+    false_literal = _sql_boolean_literal(False)
     with engine.begin() as connection:
         connection.execute(
             text(
                 f"UPDATE {User.__tablename__} "
-                "SET show_public_worlds = 1, "
-                "show_public_characters = 1, "
-                "show_public_instruction_templates = 1, "
-                "publication_visibility_initialized = 1 "
-                "WHERE COALESCE(publication_visibility_initialized, 0) = 0"
+                f"SET show_public_worlds = {true_literal}, "
+                f"show_public_characters = {true_literal}, "
+                f"show_public_instruction_templates = {true_literal}, "
+                f"publication_visibility_initialized = {true_literal} "
+                f"WHERE COALESCE(publication_visibility_initialized, {false_literal}) = {false_literal}"
             )
         )
 
@@ -1094,6 +1189,7 @@ def _ensure_performance_indexes_exist() -> None:
 
 
 LEGACY_STORY_AVATAR_MEDIA_SPECS: dict[str, tuple[type[object], str]] = {
+    "story-game-cover": (StoryGame, "cover_image_url"),
     "story-character-avatar": (StoryCharacter, "avatar_url"),
     "story-character-avatar-original": (StoryCharacter, "avatar_original_url"),
     "story-world-card-avatar": (StoryWorldCard, "avatar_url"),
@@ -1116,20 +1212,20 @@ def _resolve_legacy_story_avatar_media_value(
     if not normalized_value.startswith(MEDIA_URL_PREFIX):
         return normalized_value
     if max_depth <= 0:
-        return None
+        return normalized_value
 
     token = normalized_value[len(MEDIA_URL_PREFIX) :].strip()
     if not token:
-        return None
+        return normalized_value
 
     known_tokens = visited_tokens or set()
     if token in known_tokens:
-        return None
+        return normalized_value
     known_tokens.add(token)
 
     payload = parse_media_token(token)
     if payload is None:
-        return None
+        return normalized_value
 
     kind = str(payload.get("kind") or "").strip()
     entity_id_raw = payload.get("entity_id")
@@ -1140,25 +1236,40 @@ def _resolve_legacy_story_avatar_media_value(
 
     spec = LEGACY_STORY_AVATAR_MEDIA_SPECS.get(kind)
     if spec is None:
-        return None
+        return normalized_value
 
     model_class, field_name = spec
     record = db.get(model_class, entity_id)
     if record is None:
-        return None
+        return normalized_value
 
     nested_value = getattr(record, field_name, None)
-    return _resolve_legacy_story_avatar_media_value(
+    resolved_value = _resolve_legacy_story_avatar_media_value(
         nested_value,
         db=db,
         max_depth=max_depth - 1,
         visited_tokens=known_tokens,
     )
+    return str(resolved_value or "").strip() or normalized_value
 
 
 def _repair_legacy_story_avatar_media_tokens() -> None:
     with SessionLocal() as db:
         changed = False
+        world_records = (
+            db.query(StoryGame)
+            .filter(StoryGame.cover_image_url.like(f"{MEDIA_URL_PREFIX}%"))
+            .all()
+        )
+        for world in world_records:
+            resolved_cover_image_url = _resolve_legacy_story_avatar_media_value(
+                getattr(world, "cover_image_url", None),
+                db=db,
+            )
+            if resolved_cover_image_url != getattr(world, "cover_image_url", None):
+                world.cover_image_url = resolved_cover_image_url
+                changed = True
+
         character_records = (
             db.query(StoryCharacter)
             .filter(

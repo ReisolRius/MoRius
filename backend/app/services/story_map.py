@@ -47,6 +47,7 @@ from app.services.story_games import (
     serialize_story_environment_datetime,
 )
 from app.services.story_queries import get_user_story_game_or_404, touch_story_game
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 from app.services.concurrency import (
     add_user_tokens as _add_user_tokens_raw,
     spend_user_tokens_if_sufficient as _spend_user_tokens_if_sufficient_raw,
@@ -515,11 +516,13 @@ def _utcnow_iso() -> str:
 
 
 def _normalize_text(value: str | None, *, max_length: int) -> str:
-    return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip()[:max_length].strip()
+    return " ".join(
+        sanitize_likely_utf8_mojibake(value).replace("\r", " ").replace("\n", " ").split()
+    ).strip()[:max_length].strip()
 
 
 def _normalize_multiline_text(value: str | None, *, max_length: int) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if len(normalized) > max_length:
         normalized = normalized[:max_length].rstrip()
     return normalized

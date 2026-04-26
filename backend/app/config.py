@@ -21,6 +21,11 @@ BASE_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE_PATH = BASE_DIR / ".env"
 load_dotenv(ENV_FILE_PATH)
 
+SQLITE_URL_PREFIX = "sqlite:///"
+POSTGRES_LEGACY_URL_PREFIX = "postgres://"
+POSTGRESQL_URL_PREFIX = "postgresql://"
+POSTGRESQL_PSYCOPG_URL_PREFIX = "postgresql+psycopg://"
+
 
 def _to_bool(value: str | None, default: bool) -> bool:
     if value is None:
@@ -55,13 +60,21 @@ def _is_render_environment() -> bool:
     return _to_bool(os.getenv("RENDER"), default=False) or bool(os.getenv("RENDER_SERVICE_ID"))
 
 
+def is_sqlite_database_url(database_url: str | None) -> bool:
+    return str(database_url or "").strip().lower().startswith("sqlite")
+
+
+def is_postgresql_database_url(database_url: str | None) -> bool:
+    normalized = str(database_url or "").strip().lower()
+    return normalized.startswith(POSTGRES_LEGACY_URL_PREFIX) or normalized.startswith(POSTGRESQL_URL_PREFIX)
+
+
 def _normalize_sqlite_database_url(database_url: str) -> str:
     normalized = str(database_url or "").strip()
-    sqlite_prefix = "sqlite:///"
-    if not normalized.lower().startswith(sqlite_prefix):
+    if not normalized.lower().startswith(SQLITE_URL_PREFIX):
         return normalized
 
-    sqlite_path = normalized[len(sqlite_prefix) :]
+    sqlite_path = normalized[len(SQLITE_URL_PREFIX) :]
     if not sqlite_path or sqlite_path == ":memory:":
         return normalized
 
@@ -70,7 +83,28 @@ def _normalize_sqlite_database_url(database_url: str) -> str:
         return normalized
 
     resolved_path = (BASE_DIR / path_candidate).resolve()
-    return f"{sqlite_prefix}{resolved_path.as_posix()}"
+    return f"{SQLITE_URL_PREFIX}{resolved_path.as_posix()}"
+
+
+def _normalize_postgresql_database_url(database_url: str) -> str:
+    normalized = str(database_url or "").strip()
+    normalized_lower = normalized.lower()
+    if normalized_lower.startswith(POSTGRES_LEGACY_URL_PREFIX):
+        return f"{POSTGRESQL_PSYCOPG_URL_PREFIX}{normalized[len(POSTGRES_LEGACY_URL_PREFIX):]}"
+    if normalized_lower.startswith(POSTGRESQL_URL_PREFIX) and not normalized_lower.startswith(
+        POSTGRESQL_PSYCOPG_URL_PREFIX
+    ):
+        return f"{POSTGRESQL_PSYCOPG_URL_PREFIX}{normalized[len(POSTGRESQL_URL_PREFIX):]}"
+    return normalized
+
+
+def normalize_database_url(database_url: str) -> str:
+    normalized = str(database_url or "").strip()
+    if is_sqlite_database_url(normalized):
+        return _normalize_sqlite_database_url(normalized)
+    if is_postgresql_database_url(normalized):
+        return _normalize_postgresql_database_url(normalized)
+    return normalized
 
 
 def _default_app_mode() -> str:
@@ -104,14 +138,14 @@ def _default_db_max_overflow(app_mode: str) -> int:
 def _default_database_url() -> str:
     explicit_database_url = os.getenv("DATABASE_URL")
     if explicit_database_url and explicit_database_url.strip():
-        return _normalize_sqlite_database_url(explicit_database_url.strip())
+        return normalize_database_url(explicit_database_url.strip())
 
     if _is_render_environment():
         render_disk_path = os.getenv("RENDER_DISK_PATH", "/var/data").strip() or "/var/data"
         sqlite_path = Path(render_disk_path) / "morius.db"
-        return f"sqlite:///{sqlite_path.as_posix()}"
+        return normalize_database_url(f"{SQLITE_URL_PREFIX}{sqlite_path.as_posix()}")
 
-    return f"sqlite:///{(BASE_DIR / 'data' / 'morius.db').resolve().as_posix()}"
+    return normalize_database_url(f"{SQLITE_URL_PREFIX}{(BASE_DIR / 'data' / 'morius.db').resolve().as_posix()}")
 
 
 DEFAULT_APP_MODE = _default_app_mode()

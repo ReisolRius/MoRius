@@ -374,7 +374,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     story_llm_model:
       typeof game.story_llm_model === 'string'
         ? (game.story_llm_model as StoryGameSummary['story_llm_model'])
-        : 'deepseek/deepseek-v3.2',
+        : 'deepseek/deepseek-chat-v3-0324',
     image_model:
       typeof game.image_model === 'string'
         ? (game.image_model as StoryGameSummary['image_model'])
@@ -398,6 +398,8 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     ambient_enabled: Boolean(game.ambient_enabled),
     character_state_enabled: Boolean(game.character_state_enabled),
     environment_enabled: Boolean(game.environment_enabled),
+    environment_time_enabled: Boolean(game.environment_time_enabled ?? game.environment_enabled),
+    environment_weather_enabled: Boolean(game.environment_weather_enabled ?? game.environment_enabled),
     ambient_profile:
       game.ambient_profile && typeof game.ambient_profile === 'object'
         ? (game.ambient_profile as StoryGameSummary['ambient_profile'])
@@ -1744,6 +1746,8 @@ export async function updateStoryGameSettings(payload: {
   characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
   environmentEnabled?: boolean
+  environmentTimeEnabled?: boolean
+  environmentWeatherEnabled?: boolean
   environmentCurrentDatetime?: string | null
   environmentCurrentWeather?: Record<string, unknown> | null
   environmentTomorrowWeather?: Record<string, unknown> | null
@@ -1803,6 +1807,12 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.environmentEnabled === 'boolean') {
     requestPayload.environment_enabled = payload.environmentEnabled
+  }
+  if (typeof payload.environmentTimeEnabled === 'boolean') {
+    requestPayload.environment_time_enabled = payload.environmentTimeEnabled
+  }
+  if (typeof payload.environmentWeatherEnabled === 'boolean') {
+    requestPayload.environment_weather_enabled = payload.environmentWeatherEnabled
   }
   if (typeof payload.environmentCurrentDatetime === 'string' || payload.environmentCurrentDatetime === null) {
     requestPayload.environment_current_datetime = payload.environmentCurrentDatetime

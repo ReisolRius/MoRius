@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models import StoryCommunityWorldComment, User
 from app.schemas import StoryCommunityWorldCommentOut
 from app.services.media import normalize_media_scale, resolve_media_display_url
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 STORY_COMMUNITY_WORLD_COMMENT_MAX_LENGTH = 2_000
 STORY_COMMUNITY_WORLD_COMMENT_LIST_LIMIT = 200
@@ -15,7 +16,7 @@ USER_AVATAR_SCALE_DEFAULT = 1.0
 
 
 def normalize_story_community_world_comment_content(value: str | None) -> str:
-    normalized = str(value or "").replace("\r\n", "\n").strip()
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_COMMUNITY_WORLD_COMMENT_MAX_LENGTH:
@@ -27,8 +28,8 @@ def _resolve_author_name(user: User | None) -> str:
     if user is None:
         return "Unknown"
     if user.display_name and user.display_name.strip():
-        return user.display_name.strip()
-    return user.email.split("@", maxsplit=1)[0]
+        return sanitize_likely_utf8_mojibake(user.display_name).strip()
+    return sanitize_likely_utf8_mojibake(user.email.split("@", maxsplit=1)[0]).strip()
 
 
 def _resolve_author_avatar_scale(user: User | None) -> float:
@@ -63,7 +64,7 @@ def story_community_world_comment_to_out(
             else None
         ),
         user_avatar_scale=_resolve_author_avatar_scale(author),
-        content=(comment.content or "").strip(),
+        content=normalize_story_community_world_comment_content(comment.content),
         created_at=comment.created_at,
         updated_at=comment.updated_at,
     )

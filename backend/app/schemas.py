@@ -407,6 +407,8 @@ class StoryGameCreateRequest(BaseModel):
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
     environment_enabled: bool | None = None
+    environment_time_enabled: bool | None = None
+    environment_weather_enabled: bool | None = None
 
 
 class StoryQuickStartRequest(BaseModel):
@@ -442,6 +444,8 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
     environment_enabled: bool | None = None
+    environment_time_enabled: bool | None = None
+    environment_weather_enabled: bool | None = None
     character_state_enabled: bool | None = None
     environment_current_datetime: str | None = Field(default=None, max_length=64)
     environment_current_weather: dict[str, Any] | None = None
@@ -484,6 +488,8 @@ class StoryGenerateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     environment_enabled: bool | None = None
+    environment_time_enabled: bool | None = None
+    environment_weather_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
 
 
@@ -1214,6 +1220,8 @@ class StoryGameSummaryOut(BaseModel):
     ambient_enabled: bool
     character_state_enabled: bool = False
     environment_enabled: bool = False
+    environment_time_enabled: bool = False
+    environment_weather_enabled: bool = False
     emotion_visualization_enabled: bool
     ambient_profile: dict[str, Any] | None
     environment_current_datetime: str | None = None

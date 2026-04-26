@@ -953,7 +953,7 @@ def _fallback_sync_story_memory_and_environment(
         return False
 
     latest_user_prompt = (
-        latest_user_prompt_override.replace("\r\n", "\n").strip()
+        _normalize_story_message_content(latest_user_prompt_override)
         if isinstance(latest_user_prompt_override, str)
         else story_memory_pipeline._get_story_user_prompt_before_assistant_message(
             db,
@@ -967,7 +967,7 @@ def _fallback_sync_story_memory_and_environment(
         else story_memory_pipeline._normalize_story_assistant_text_for_memory(assistant_message.content)
     )
     if not latest_assistant_text:
-        latest_assistant_text = str(getattr(assistant_message, "content", "") or "").replace("\r\n", "\n").strip()
+        latest_assistant_text = _normalize_story_message_content(getattr(assistant_message, "content", None))
     previous_assistant_text = story_memory_pipeline._get_story_previous_assistant_text_before_message(
         db,
         game_id=game.id,

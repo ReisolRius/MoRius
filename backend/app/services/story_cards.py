@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 
 from app.models import StoryInstructionCard, StoryInstructionTemplate, StoryPlotCard
 from app.schemas import StoryInstructionCardOut, StoryInstructionTemplateOut, StoryPlotCardOut, StoryPublicationStateOut
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 try:
     from app.services.story_publication_moderation import coerce_story_publication_status
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -32,15 +33,15 @@ STORY_TEMPLATE_VISIBILITY_VALUES = {
 }
 
 
-def normalize_story_instruction_title(value: str) -> str:
-    normalized = " ".join(value.split()).strip()
+def normalize_story_instruction_title(value: str | None) -> str:
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).split()).strip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instruction title cannot be empty")
     return normalized
 
 
-def normalize_story_instruction_content(value: str) -> str:
-    normalized = value.replace("\r\n", "\n").strip()
+def normalize_story_instruction_content(value: str | None) -> str:
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Instruction text cannot be empty")
     return normalized
@@ -50,8 +51,8 @@ def story_instruction_card_to_out(card: StoryInstructionCard) -> StoryInstructio
     return StoryInstructionCardOut(
         id=card.id,
         game_id=card.game_id,
-        title=card.title,
-        content=card.content,
+        title=normalize_story_instruction_title(card.title),
+        content=normalize_story_instruction_content(card.content),
         is_active=bool(getattr(card, "is_active", True)),
         created_at=card.created_at,
         updated_at=card.updated_at,
@@ -103,8 +104,8 @@ def story_instruction_template_to_out(template: StoryInstructionTemplate) -> Sto
     return StoryInstructionTemplateOut(
         id=template.id,
         user_id=template.user_id,
-        title=template.title,
-        content=template.content,
+        title=normalize_story_instruction_title(template.title),
+        content=normalize_story_instruction_content(template.content),
         visibility=coerce_story_instruction_template_visibility(getattr(template, "visibility", None)),
         publication=_story_instruction_template_publication_state_out(template),
         source_template_id=getattr(template, "source_template_id", None),
@@ -116,8 +117,8 @@ def story_instruction_template_to_out(template: StoryInstructionTemplate) -> Sto
     )
 
 
-def normalize_story_plot_card_title(value: str) -> str:
-    normalized = " ".join(value.split()).strip()
+def normalize_story_plot_card_title(value: str | None) -> str:
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).split()).strip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Plot card title cannot be empty")
     if len(normalized) > STORY_PLOT_CARD_MAX_TITLE_LENGTH:
@@ -125,8 +126,8 @@ def normalize_story_plot_card_title(value: str) -> str:
     return normalized
 
 
-def normalize_story_plot_card_content(value: str, *, preserve_tail: bool = False) -> str:
-    normalized = value.replace("\r\n", "\n").strip()
+def normalize_story_plot_card_content(value: str | None, *, preserve_tail: bool = False) -> str:
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if len(normalized) > STORY_PLOT_CARD_MAX_CONTENT_LENGTH:
         if preserve_tail:
             normalized = normalized[-STORY_PLOT_CARD_MAX_CONTENT_LENGTH :].lstrip()
@@ -144,8 +145,8 @@ def normalize_story_plot_card_source(value: str | None) -> str:
     return STORY_PLOT_CARD_SOURCE_USER
 
 
-def normalize_story_plot_card_trigger(value: str) -> str:
-    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+def normalize_story_plot_card_trigger(value: str | None) -> str:
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_PLOT_CARD_TRIGGER_MAX_LENGTH:
@@ -153,16 +154,16 @@ def normalize_story_plot_card_trigger(value: str) -> str:
     return normalized
 
 
-def _split_story_plot_trigger_candidates(value: str) -> list[str]:
-    normalized = value.replace("\r\n", "\n")
+def _split_story_plot_trigger_candidates(value: str | None) -> list[str]:
+    normalized = str(value or "").replace("\r\n", "\n")
     parts = re.split(r"[,;\n]+", normalized)
     return [part.strip() for part in parts if part.strip()]
 
 
-def normalize_story_plot_card_triggers(values: list[str], *, fallback_title: str | None = None) -> list[str]:
+def normalize_story_plot_card_triggers(values: list[str | None] | None, *, fallback_title: str | None = None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
-    for value in values:
+    for value in values or []:
         candidate_values = _split_story_plot_trigger_candidates(value)
         if not candidate_values:
             candidate_values = [value]
@@ -199,8 +200,8 @@ def serialize_story_plot_card_triggers(values: list[str]) -> str:
     return json.dumps(values, ensure_ascii=False)
 
 
-def deserialize_story_plot_card_triggers(raw_value: str) -> list[str]:
-    raw = raw_value.strip()
+def deserialize_story_plot_card_triggers(raw_value: str | None) -> list[str]:
+    raw = str(raw_value or "").strip()
     if not raw:
         return []
 
@@ -293,8 +294,8 @@ def story_plot_card_to_out(card: StoryPlotCard) -> StoryPlotCardOut:
     return StoryPlotCardOut(
         id=card.id,
         game_id=card.game_id,
-        title=card.title,
-        content=card.content,
+        title=normalize_story_plot_card_title(card.title),
+        content=normalize_story_plot_card_content(card.content),
         triggers=triggers,
         memory_turns=serialize_story_plot_card_memory_turns(getattr(card, "memory_turns", None)),
         ai_edit_enabled=bool(card.ai_edit_enabled),

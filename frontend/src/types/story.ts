@@ -93,6 +93,8 @@ export type StoryGameSummary = {
   ambient_enabled: boolean
   character_state_enabled: boolean
   environment_enabled?: boolean
+  environment_time_enabled?: boolean
+  environment_weather_enabled?: boolean
   ambient_profile: StoryAmbientProfile | null
   environment_current_datetime?: string | null
   environment_current_weather?: Record<string, unknown> | null

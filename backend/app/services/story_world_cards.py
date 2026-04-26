@@ -19,6 +19,7 @@ from app.services.story_characters import (
     normalize_story_character_inventory,
     normalize_story_character_race,
 )
+from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
@@ -42,15 +43,15 @@ STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_TRIGGER_MAX_LENGTH = 80
 
 
-def normalize_story_world_card_title(value: str) -> str:
-    normalized = " ".join(value.split()).strip()
+def normalize_story_world_card_title(value: str | None) -> str:
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).split()).strip()
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="World card title cannot be empty")
     return normalized
 
 
-def normalize_story_world_card_content(value: str) -> str:
-    normalized = value.replace("\r\n", "\n").strip()
+def normalize_story_world_card_content(value: str | None) -> str:
+    normalized = sanitize_likely_utf8_mojibake(value).replace("\r\n", "\n").strip()
     if len(normalized) > STORY_WORLD_CARD_MAX_CONTENT_LENGTH:
         normalized = normalized[:STORY_WORLD_CARD_MAX_CONTENT_LENGTH].rstrip()
     if not normalized:
@@ -58,8 +59,8 @@ def normalize_story_world_card_content(value: str) -> str:
     return normalized
 
 
-def normalize_story_world_card_trigger(value: str) -> str:
-    normalized = " ".join(value.replace("\r\n", " ").split()).strip()
+def normalize_story_world_card_trigger(value: str | None) -> str:
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_WORLD_CARD_TRIGGER_MAX_LENGTH:
@@ -67,16 +68,16 @@ def normalize_story_world_card_trigger(value: str) -> str:
     return normalized
 
 
-def _split_story_world_trigger_candidates(value: str) -> list[str]:
-    normalized = value.replace("\r\n", "\n")
+def _split_story_world_trigger_candidates(value: str | None) -> list[str]:
+    normalized = str(value or "").replace("\r\n", "\n")
     parts = re.split(r"[,;\n]+", normalized)
     return [part.strip() for part in parts if part.strip()]
 
 
-def normalize_story_world_card_triggers(values: list[str], *, fallback_title: str) -> list[str]:
+def normalize_story_world_card_triggers(values: list[str | None] | None, *, fallback_title: str | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
-    for value in values:
+    for value in values or []:
         candidate_values = _split_story_world_trigger_candidates(value)
         if not candidate_values:
             candidate_values = [value]
@@ -103,8 +104,8 @@ def serialize_story_world_card_triggers(values: list[str]) -> str:
     return json.dumps(values, ensure_ascii=False)
 
 
-def deserialize_story_world_card_triggers(raw_value: str) -> list[str]:
-    raw = raw_value.strip()
+def deserialize_story_world_card_triggers(raw_value: str | None) -> list[str]:
+    raw = str(raw_value or "").strip()
     if not raw:
         return []
 
@@ -153,7 +154,7 @@ def normalize_story_world_card_kind(value: str | None) -> str:
 
 
 def normalize_story_world_detail_type(value: str | None) -> str:
-    normalized = " ".join(str(value or "").replace("\r\n", " ").split()).strip()
+    normalized = " ".join(sanitize_likely_utf8_mojibake(value).replace("\r\n", " ").split()).strip()
     if not normalized:
         return ""
     if len(normalized) > STORY_WORLD_DETAIL_TYPE_MAX_LENGTH:
@@ -280,8 +281,8 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
     return StoryWorldCardOut(
         id=card.id,
         game_id=card.game_id,
-        title=card.title,
-        content=card.content,
+        title=normalize_story_world_card_title(card.title),
+        content=normalize_story_world_card_content(card.content),
         race=normalize_story_character_race(getattr(card, "race", "")),
         clothing=normalize_story_character_clothing(getattr(card, "clothing", "")),
         inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
@@ -308,6 +309,7 @@ def build_story_world_card_from_character(
     character: StoryCharacter,
     kind: str,
     lock_card: bool = True,
+    db: Any | None = None,
 ) -> StoryWorldCard:
     normalized_name = normalize_story_world_card_title(character.name)
     normalized_content = normalize_story_world_card_content(character.description)
@@ -329,9 +331,9 @@ def build_story_world_card_from_character(
         triggers=serialize_story_world_card_triggers(normalized_triggers),
         kind=normalized_kind,
         detail_type="",
-        avatar_url=normalize_story_character_avatar_url(character.avatar_url),
+        avatar_url=normalize_story_character_avatar_url(character.avatar_url, db=db),
         avatar_original_url=(
-            normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None))
+            normalize_story_character_avatar_original_url(getattr(character, "avatar_original_url", None), db=db)
             if getattr(character, "avatar_url", None)
             else None
         ),

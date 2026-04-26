@@ -202,6 +202,97 @@ def parse_media_token(token: str) -> dict[str, Any] | None:
     return normalized_payload
 
 
+def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | None:
+    kind = str(payload.get("kind") or "").strip()
+    entity_id_raw = payload.get("entity_id")
+    try:
+        entity_id = int(entity_id_raw)
+    except (TypeError, ValueError):
+        return None
+
+    from app.models import StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
+    from app.services.story_emotions import deserialize_story_character_emotion_assets
+
+    media_kind_specs: dict[str, tuple[type[Any], Any]] = {
+        "user-avatar": (User, lambda record, _: getattr(record, "avatar_url", None)),
+        "story-game-cover": (StoryGame, lambda record, _: getattr(record, "cover_image_url", None)),
+        "story-character-avatar": (StoryCharacter, lambda record, _: getattr(record, "avatar_url", None)),
+        "story-character-avatar-original": (StoryCharacter, lambda record, _: getattr(record, "avatar_original_url", None)),
+        "story-character-emotion-asset": (
+            StoryCharacter,
+            lambda record, source_payload: deserialize_story_character_emotion_assets(
+                getattr(record, "emotion_assets", None)
+            ).get(str(source_payload.get("asset_id") or "").strip()),
+        ),
+        "story-world-card-avatar": (StoryWorldCard, lambda record, _: getattr(record, "avatar_url", None)),
+        "story-world-card-avatar-original": (
+            StoryWorldCard,
+            lambda record, _: getattr(record, "avatar_original_url", None),
+        ),
+        "story-world-card-template-avatar": (
+            StoryWorldCardTemplate,
+            lambda record, _: getattr(record, "avatar_url", None),
+        ),
+        "story-world-card-template-avatar-original": (
+            StoryWorldCardTemplate,
+            lambda record, _: getattr(record, "avatar_original_url", None),
+        ),
+        "story-turn-image-url": (StoryTurnImage, lambda record, _: getattr(record, "image_url", None)),
+        "story-turn-image-data": (StoryTurnImage, lambda record, _: getattr(record, "image_data_url", None)),
+    }
+
+    spec = media_kind_specs.get(kind)
+    if spec is None:
+        return None
+
+    model_class, value_getter = spec
+    record = db.get(model_class, entity_id)
+    if record is None:
+        return None
+    return value_getter(record, payload)
+
+
+def resolve_media_storage_value(
+    db: Any,
+    raw_value: str | None,
+    *,
+    max_depth: int = 6,
+    visited_tokens: set[str] | None = None,
+) -> str | None:
+    normalized_value = normalize_avatar_value(raw_value)
+    if normalized_value is None:
+        return None
+    if not normalized_value.startswith(MEDIA_URL_PREFIX):
+        return normalized_value
+    if max_depth <= 0:
+        return normalized_value
+
+    token = normalized_value[len(MEDIA_URL_PREFIX) :].strip()
+    if not token:
+        return normalized_value
+
+    known_tokens = visited_tokens or set()
+    if token in known_tokens:
+        return normalized_value
+    known_tokens.add(token)
+
+    payload = parse_media_token(token)
+    if payload is None:
+        return normalized_value
+
+    nested_value = _load_media_storage_source_value(db, payload)
+    if nested_value is None:
+        return normalized_value
+
+    resolved_value = resolve_media_storage_value(
+        db,
+        nested_value,
+        max_depth=max_depth - 1,
+        visited_tokens=known_tokens,
+    )
+    return normalize_avatar_value(resolved_value) or normalized_value
+
+
 def build_media_display_url(
     *,
     kind: str,

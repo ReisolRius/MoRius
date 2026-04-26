@@ -125,7 +125,7 @@ const yamiRiusColors: MoriusThemeColors = {
 
 const riusDungeonColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
-  appBackground: 'linear-gradient(44deg, #000000 0%, #000000 100%)',
+  appBackground: 'transparent',
   appBase: '#000000',
   appSurface: '#1a1e21',
   appElevated: '#1a1e21',

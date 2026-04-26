@@ -36,15 +36,19 @@ from app.services.story_games import (
     normalize_story_top_k,
     normalize_story_top_r,
 )
-from app.services.story_game_operation_lock import acquire_story_game_operation_lock
+from app.services.story_game_operation_lock import StoryGameOperationBusyError, acquire_story_game_operation_lock
 from app.services.story_memory import resolve_story_current_location_label
+from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_session_error
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
+STORY_SQLITE_BUSY_DETAIL = "Игровая сессия сейчас занята другой операцией. Попробуйте ещё раз через пару секунд."
 
 
 def _is_sqlite_database_url(database_url: str | None) -> bool:
     return str(database_url or "").strip().startswith("sqlite")
+
+
 STORY_TOKEN_ESTIMATE_PATTERN = re.compile(r"[0-9a-zа-яё]+|[^\s]", re.IGNORECASE)
 
 
@@ -141,13 +145,15 @@ def _public_story_error_detail(exc: Exception) -> str:
     detail = re.sub(r"\s+", " ", str(exc).replace("\r\n", "\n").strip())
     if not detail:
         return "Text generation failed"
+    if is_database_busy_session_error(exc):
+        return STORY_SQLITE_BUSY_DETAIL
     if detail.casefold().startswith("openrouter chat error") and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
 
 
 def _estimate_story_tokens(value: str) -> int:
-    normalized = value.replace("\r\n", "\n").strip()
+    normalized = _normalize_story_message_content(value)
     if not normalized:
         return 0
     matches = STORY_TOKEN_ESTIMATE_PATTERN.findall(normalized.lower().replace("ё", "е"))
@@ -158,6 +164,10 @@ def _estimate_story_tokens(value: str) -> int:
 
 def _normalize_story_model_id(value: str | None) -> str:
     return str(value or "").strip().lower()
+
+
+def _normalize_story_message_content(value: Any) -> str:
+    return str(value or "").replace("\r\n", "\n").strip()
 
 
 def _should_use_english_memory_source(model_name: str | None) -> bool:
@@ -190,7 +200,7 @@ def _estimate_story_context_usage_tokens(
     for message in context_messages:
         if message.role not in {"user", "assistant"}:
             continue
-        normalized_content = message.content.replace("\r\n", "\n").strip()
+        normalized_content = _normalize_story_message_content(getattr(message, "content", None))
         if not normalized_content:
             continue
         speaker_label = "Игрок" if message.role == "user" else "ИИ"
@@ -214,7 +224,7 @@ def _estimate_story_context_usage_tokens(
     for message in reversed(context_messages):
         if message.role != "user":
             continue
-        normalized_content = message.content.replace("\r\n", "\n").strip()
+        normalized_content = _normalize_story_message_content(getattr(message, "content", None))
         if not normalized_content:
             continue
         latest_user_tokens_used = _estimate_story_tokens(normalized_content) + 4
@@ -329,12 +339,6 @@ def _best_effort_sync_story_turn_memory_and_environment(
                 )
             )
         )
-        raw_blocks = [
-            block
-            for block in raw_blocks
-            if str(getattr(block, "layer", "") or "").strip().lower() == "raw"
-        ]
-
         token_count = max(_estimate_story_tokens(normalized_content), 1)
         changed_local = False
         if raw_blocks:
@@ -584,7 +588,7 @@ def _stream_story_response(
         )
         db.add(assistant_message)
         deps.touch_story_game(game)
-        db.commit()
+        commit_with_retry(db)
         db.refresh(assistant_message)
     except Exception as exc:
         logger.exception("Failed to initialize story generation stream")
@@ -635,7 +639,7 @@ def _stream_story_response(
             ):
                 assistant_message.content = produced
                 try:
-                    db.commit()
+                    commit_with_retry(db)
                 except Exception:
                     logger.warning(
                         "Failed to checkpoint streamed story response; final save will retry. game_id=%s assistant_message_id=%s",
@@ -660,6 +664,9 @@ def _stream_story_response(
         error_detail = _public_story_error_detail(exc)
         yield _sse_event("error", {"detail": error_detail})
 
+    if assistant_message is not None:
+        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "finalizing"})
+
     normalized_output = produced
     if produced.strip():
         try:
@@ -677,7 +684,7 @@ def _stream_story_response(
     try:
         assistant_message.content = normalized_output
         deps.touch_story_game(game)
-        db.commit()
+        commit_with_retry(db)
         db.refresh(assistant_message)
     except Exception as exc:
         logger.exception("Failed to finalize generated story message")
@@ -706,7 +713,7 @@ def _stream_story_response(
             )
             db.rollback()
 
-    assistant_text_for_postprocess = assistant_message.content.strip()
+    assistant_text_for_postprocess = _normalize_story_message_content(getattr(assistant_message, "content", None))
     if not assistant_text_for_postprocess:
         assistant_text_for_postprocess = normalized_output.strip()
     if not assistant_text_for_postprocess:
@@ -745,6 +752,7 @@ def _stream_story_response(
 
     unified_postprocess_payload: dict[str, Any] | None = None
     if not aborted and response_has_content:
+        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "postprocess"})
         try:
             unified_postprocess_payload = deps.resolve_story_turn_postprocess_payload(
                 db=db,
@@ -757,7 +765,7 @@ def _stream_story_response(
                 location_enabled=True,
                 environment_enabled=bool(getattr(game, "environment_enabled", None)),
                 character_state_enabled=bool(getattr(game, "character_state_enabled", None)),
-                important_event_enabled=memory_optimization_enabled,
+                important_event_enabled=True,
                 ambient_enabled=ambient_enabled,
                 emotion_visualization_enabled=emotion_visualization_enabled,
             )
@@ -849,6 +857,7 @@ def _stream_story_response(
             assistant_message.id,
             memory_optimization_enabled,
         )
+        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "memory_sync"})
         world_card_events_out: list[Any] = []
         plot_card_events_out: list[Any] = []
         plot_card_created = False
@@ -957,6 +966,7 @@ def _stream_story_response(
                 assistant_message.id,
             )
 
+        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "world_cards"})
         try:
             generated_events = deps.persist_generated_world_cards(
                 db=db,
@@ -1243,7 +1253,7 @@ def _generate_story_response_locked(
             )
             if first_assistant_message is None:
                 return current_messages
-            first_assistant_text = first_assistant_message.content.replace("\r\n", "\n").strip()
+            first_assistant_text = _normalize_story_message_content(getattr(first_assistant_message, "content", None))
             if first_assistant_text != opening_scene:
                 return current_messages
             try:
@@ -1521,7 +1531,7 @@ def _generate_story_response_locked(
         if source_user_message is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user prompt found for reroll")
 
-        prompt_text = source_user_message.content
+        prompt_text = _normalize_story_message_content(getattr(source_user_message, "content", None))
         turn_cost_tokens = _calculate_turn_cost_tokens(messages)
         if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
             db.rollback()
@@ -1565,9 +1575,12 @@ def _generate_story_response_locked(
     context_messages = deps.list_story_messages(db, game.id)
     active_world_cards = deps.select_story_world_cards_for_prompt(context_messages, world_cards)
     early_triggered_world_cards: list[dict[str, Any]] = []
-    if source_user_message is not None and source_user_message.content.strip():
+    source_user_prompt = _normalize_story_message_content(
+        getattr(source_user_message, "content", None) if source_user_message is not None else None
+    )
+    if source_user_prompt:
         early_triggered_world_cards = deps.select_story_world_cards_triggered_by_text(
-            source_user_message.content,
+            source_user_prompt,
             world_cards,
         )
     active_world_cards = _merge_story_active_world_cards(
@@ -1630,10 +1643,7 @@ def _generate_story_response_locked(
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
-            # Force identity encoding for SSE so middleware/proxies do not gzip-buffer the stream.
-            "Content-Encoding": "identity",
         },
     )
 
@@ -1649,7 +1659,18 @@ def generate_story_response(
     deps.validate_provider_config()
     user = deps.get_current_user(db, authorization)
     game = deps.get_user_story_game_or_404(db, user.id, game_id)
-    operation_lease = acquire_story_game_operation_lock(game.id, operation="story_generate")
+    try:
+        operation_lease = acquire_story_game_operation_lock(
+            game.id,
+            operation="story_generate",
+            wait_timeout_seconds=2.0,
+        )
+    except StoryGameOperationBusyError as exc:
+        logger.warning("Story generate lock timed out: game_id=%s error=%s", game.id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=STORY_SQLITE_BUSY_DETAIL,
+        ) from exc
 
     def _release_operation_lease() -> None:
         try:
