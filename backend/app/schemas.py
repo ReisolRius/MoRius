@@ -445,6 +445,8 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    canonical_state_pipeline_enabled: bool | None = None
+    canonical_state_safe_fallback_enabled: bool | None = None
     environment_enabled: bool | None = None
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
