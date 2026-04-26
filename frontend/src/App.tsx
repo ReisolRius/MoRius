@@ -626,6 +626,8 @@ function App() {
           user={authUser}
           authToken={authToken!}
           onNavigate={navigate}
+          onUserUpdate={handleUserUpdate}
+          onLogout={handleLogout}
         />
       </Suspense>
     )

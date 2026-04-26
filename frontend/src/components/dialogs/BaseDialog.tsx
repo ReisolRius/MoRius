@@ -1,5 +1,5 @@
-import { Dialog, DialogActions, DialogContent, DialogTitle, IconButton, SvgIcon, type DialogProps, type SxProps, type Theme } from '@mui/material'
-import type { ReactNode } from 'react'
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, SvgIcon, type DialogProps, type SxProps, type Theme } from '@mui/material'
+import { useEffect, useState, type ReactNode } from 'react'
 import useMobileDialogSheet from './useMobileDialogSheet'
 
 type BaseDialogProps = {
@@ -18,6 +18,12 @@ type BaseDialogProps = {
   contentSx?: SxProps<Theme>
   actionsSx?: SxProps<Theme>
   showCloseButton?: boolean
+  disableBackdropClose?: boolean
+  hasUnsavedChanges?: boolean
+  confirmCloseTitle?: string
+  confirmCloseDescription?: string
+  confirmCloseConfirmLabel?: string
+  confirmCloseCancelLabel?: string
 }
 
 const defaultPaperSx = {
@@ -79,8 +85,37 @@ function BaseDialog({
   contentSx,
   actionsSx,
   showCloseButton = true,
+  disableBackdropClose = false,
+  hasUnsavedChanges = false,
+  confirmCloseTitle = 'Закрыть без сохранения?',
+  confirmCloseDescription = 'Внесенные изменения будут потеряны.',
+  confirmCloseConfirmLabel = 'Закрыть',
+  confirmCloseCancelLabel = 'Остаться',
 }: BaseDialogProps) {
-  const mobileSheet = useMobileDialogSheet({ onClose })
+  const [isConfirmCloseOpen, setIsConfirmCloseOpen] = useState(false)
+
+  const handleRequestClose = () => {
+    if (hasUnsavedChanges) {
+      setIsConfirmCloseOpen(true)
+      return
+    }
+    onClose()
+  }
+
+  const handleDialogClose: DialogProps['onClose'] = (_event, reason) => {
+    if (reason === 'backdropClick' && (disableBackdropClose || hasUnsavedChanges)) {
+      return
+    }
+    handleRequestClose()
+  }
+
+  useEffect(() => {
+    if (!open) {
+      setIsConfirmCloseOpen(false)
+    }
+  }, [open])
+
+  const mobileSheet = useMobileDialogSheet({ onClose: handleRequestClose })
   const mergedPaperSx = flattenSx([defaultPaperSx, paperSx, mobileSheet.paperSx])
   const mergedTitleSx = flattenSx([defaultTitleSx, titleSx])
   const contentBaseSx = header ? defaultContentSxWithHeader : defaultContentSxWithoutHeader
@@ -91,7 +126,7 @@ function BaseDialog({
   return (
     <Dialog
       open={open}
-      onClose={onClose}
+      onClose={handleDialogClose}
       maxWidth={maxWidth}
       fullWidth={fullWidth}
       TransitionComponent={transitionComponent}
@@ -127,7 +162,7 @@ function BaseDialog({
       {showCloseButton && !mobileSheet.isMobileSheet ? (
         <IconButton
           aria-label="Закрыть"
-          onClick={onClose}
+          onClick={handleRequestClose}
           sx={{
             position: 'absolute',
             top: 10,
@@ -156,6 +191,42 @@ function BaseDialog({
           {actions ? <DialogActions sx={mergedActionsSx}>{actions}</DialogActions> : null}
         </>
       )}
+      <Dialog
+        open={isConfirmCloseOpen}
+        onClose={() => setIsConfirmCloseOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        BackdropProps={{
+          sx: { backgroundColor: 'rgba(0,0,0,0.62)' },
+        }}
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-dialog-bg)',
+            color: 'var(--morius-text-primary)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>{confirmCloseTitle}</DialogTitle>
+        <DialogContent sx={{ color: 'var(--morius-text-secondary)', pt: 0.5 }}>
+          {confirmCloseDescription}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsConfirmCloseOpen(false)} sx={{ color: 'var(--morius-text-secondary)' }}>
+            {confirmCloseCancelLabel}
+          </Button>
+          <Button
+            onClick={() => {
+              setIsConfirmCloseOpen(false)
+              onClose()
+            }}
+            sx={{ color: 'var(--morius-title-text)' }}
+          >
+            {confirmCloseConfirmLabel}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   )
 }

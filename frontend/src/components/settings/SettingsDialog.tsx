@@ -16,6 +16,7 @@ import {
   Switch,
   TextField,
   Typography,
+  type DialogProps,
   type SelectChangeEvent,
 } from '@mui/material'
 import eyedropperIconMarkup from '../../assets/icons/eyedropper.svg?raw'
@@ -228,6 +229,7 @@ function SettingsDialog({
   const [themeDraft, setThemeDraft] = useState<EditableTheme>(() => buildEditableThemeFromPreset(getMoriusThemeById('classic-dark')))
   const [editingThemeId, setEditingThemeId] = useState<string | null>(null)
   const [themeDeleteTarget, setThemeDeleteTarget] = useState<UserCustomTheme | null>(null)
+  const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false)
   const [editingColorField, setEditingColorField] = useState<ColorFieldKey | null>(null)
   const [colorInputDraft, setColorInputDraft] = useState('')
   const [colorPickerAnchorEl, setColorPickerAnchorEl] = useState<HTMLElement | null>(null)
@@ -322,14 +324,62 @@ function SettingsDialog({
     }
   }, [applyResolvedTheme, authToken, open])
 
-  const handleDialogClose = () => {
+  const hasProfileUnsavedChanges = useMemo(() => (
+    displayName !== (user.display_name ?? '') ||
+    profileDescription !== (user.profile_description ?? '') ||
+    notifications.notifications_enabled !== (user.notifications_enabled ?? true) ||
+    notifications.notify_comment_reply !== (user.notify_comment_reply ?? true) ||
+    notifications.notify_world_comment !== (user.notify_world_comment ?? true) ||
+    notifications.notify_publication_review !== (user.notify_publication_review ?? true) ||
+    notifications.notify_new_follower !== (user.notify_new_follower ?? true) ||
+    notifications.notify_moderation_report !== (user.notify_moderation_report ?? false) ||
+    notifications.notify_moderation_queue !== (user.notify_moderation_queue ?? false) ||
+    notifications.email_notifications_enabled !== (user.email_notifications_enabled ?? false) ||
+    privacy.show_subscriptions !== (user.show_subscriptions ?? false) ||
+    privacy.show_public_worlds !== (user.show_public_worlds ?? false) ||
+    privacy.show_private_worlds !== (user.show_private_worlds ?? false) ||
+    privacy.show_public_characters !== (user.show_public_characters ?? false) ||
+    privacy.show_public_instruction_templates !== (user.show_public_instruction_templates ?? false)
+  ), [displayName, notifications, privacy, profileDescription, user])
+
+  const hasThemeDraftUnsavedChanges = useMemo(() => {
+    if (!editingThemeId) {
+      return false
+    }
+    const normalizedDraft = buildCustomThemeFromDraft(themeDraft)
+    const savedTheme = savedCustomThemes.find((item) => item.id === normalizedDraft.id)
+    if (!savedTheme) {
+      return true
+    }
+    return JSON.stringify(normalizedDraft) !== JSON.stringify(savedTheme)
+  }, [editingThemeId, savedCustomThemes, themeDraft])
+
+  const hasUnsavedChanges = hasProfileUnsavedChanges || hasThemeDraftUnsavedChanges
+
+  const closeDialogWithoutPrompt = () => {
     applyResolvedTheme(themeSettings)
     handleCloseColorPicker()
     setThemeDeleteTarget(null)
+    setIsCloseConfirmOpen(false)
     setError('')
     onClose()
   }
-  const mobileSheet = useMobileDialogSheet({ onClose: handleDialogClose })
+
+  const requestDialogClose = () => {
+    if (hasUnsavedChanges) {
+      setIsCloseConfirmOpen(true)
+      return
+    }
+    closeDialogWithoutPrompt()
+  }
+
+  const handleDialogClose: DialogProps['onClose'] = (_event, reason) => {
+    if (reason === 'backdropClick') {
+      return
+    }
+    requestDialogClose()
+  }
+  const mobileSheet = useMobileDialogSheet({ onClose: requestDialogClose })
 
   const handleSelectPresetTheme = async (presetId: string) => {
     if (isSavingTheme) {
@@ -719,7 +769,7 @@ function SettingsDialog({
                 <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                   <Typography sx={{ color: 'var(--morius-accent)', fontSize: { xs: '2.25rem', md: '2.7rem' }, fontWeight: 900, lineHeight: 1 }}>Профиль</Typography>
                   <Button
-                    onClick={handleDialogClose}
+                    onClick={requestDialogClose}
                     disableRipple
                     sx={{
                       display: mobileSheet.isMobileSheet ? 'none' : 'inline-flex',
@@ -854,7 +904,7 @@ function SettingsDialog({
                 <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} spacing={1}>
                   <Typography sx={{ color: 'var(--morius-accent)', fontSize: { xs: '2.2rem', md: '2.7rem' }, fontWeight: 900, lineHeight: 1 }}>Темы</Typography>
                   <Button
-                    onClick={handleDialogClose}
+                    onClick={requestDialogClose}
                     disableRipple
                     sx={{
                       display: mobileSheet.isMobileSheet ? 'none' : 'inline-flex',
@@ -1239,6 +1289,47 @@ function SettingsDialog({
             }}
           >
             {isSavingTheme ? 'Удаляем...' : 'Удалить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={isCloseConfirmOpen}
+        onClose={() => setIsCloseConfirmOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
+            color: 'var(--morius-text-primary)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Закрыть без сохранения?</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.45 }}>
+            Внесенные изменения будут потеряны.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsCloseConfirmOpen(false)} sx={{ color: 'var(--morius-text-secondary)' }}>
+            Остаться
+          </Button>
+          <Button
+            onClick={closeDialogWithoutPrompt}
+            sx={{
+              minHeight: 40,
+              px: 1.8,
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: 'var(--morius-title-text)',
+              border: 'none',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg) 82%)',
+            }}
+          >
+            Закрыть
           </Button>
         </DialogActions>
       </Dialog>

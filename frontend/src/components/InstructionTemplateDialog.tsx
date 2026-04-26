@@ -552,6 +552,9 @@ function InstructionTemplateDialog({
       return
     }
     handleCloseTemplateMenu()
+    if (typeof window !== 'undefined' && !window.confirm('Удалить инструкцию?')) {
+      return
+    }
     await handleDeleteTemplate(selectedTemplateMenuItem.id)
   }, [handleCloseTemplateMenu, handleDeleteTemplate, isBusy, selectedTemplateMenuItem])
 
@@ -1290,4 +1293,3 @@ function InstructionTemplateDialog({
 }
 
 export default InstructionTemplateDialog
-

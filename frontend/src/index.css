@@ -59,6 +59,46 @@ select {
   color: var(--morius-text-primary);
 }
 
+.morius-skeleton-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--morius-radius);
+  border: var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent);
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--morius-card-bg) 78%, var(--morius-elevated-bg) 22%) 0%,
+      color-mix(in srgb, var(--morius-elevated-bg) 82%, var(--morius-card-bg) 18%) 100%);
+}
+
+.morius-skeleton-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-120%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--morius-title-text) 12%, transparent) 48%, transparent 100%);
+  animation: morius-skeleton-wave 1.55s ease-in-out infinite;
+}
+
+.morius-skeleton-card--flat {
+  border-color: transparent;
+}
+
+.morius-app-shell .MuiSkeleton-root {
+  position: relative !important;
+  overflow: hidden !important;
+  background-color: color-mix(in srgb, var(--morius-elevated-bg) 74%, var(--morius-card-bg) 26%) !important;
+  animation: none !important;
+}
+
+.morius-app-shell .MuiSkeleton-root::after {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  transform: translateX(-120%);
+  background: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--morius-title-text) 12%, transparent) 48%, transparent 100%) !important;
+  animation: morius-skeleton-wave 1.55s ease-in-out infinite !important;
+}
+
 .morius-app-shell .morius-surface-card {
   background: var(--morius-card-bg) !important;
   border-color: var(--morius-card-border) !important;
@@ -262,6 +302,15 @@ select {
   to { width: 100%; }
 }
 
+@keyframes morius-skeleton-wave {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(120%);
+  }
+}
+
 @keyframes morius-fade-up {
   0% {
     opacity: 0;
@@ -325,4 +374,3 @@ select {
     filter: brightness(1.06);
   }
 }
-

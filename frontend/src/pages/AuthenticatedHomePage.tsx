@@ -16,7 +16,6 @@ import {
   ButtonBase,
   Grow,
   IconButton,
-  Skeleton,
   Stack,
   SvgIcon,
   TextField,
@@ -525,6 +524,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isDashboardNewsLoading, setIsDashboardNewsLoading] = useState(false)
   const [dashboardNewsError, setDashboardNewsError] = useState('')
   const [isDashboardNewsEditorOpen, setIsDashboardNewsEditorOpen] = useState(false)
+  const [isDashboardNewsCloseConfirmOpen, setIsDashboardNewsCloseConfirmOpen] = useState(false)
   const [isDashboardNewsSaving, setIsDashboardNewsSaving] = useState(false)
   const [dashboardNewsEditorError, setDashboardNewsEditorError] = useState('')
   const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
@@ -830,6 +830,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     () => dashboardNews.find((item) => item.id === selectedDashboardNewsId) ?? dashboardNews[0] ?? null,
     [dashboardNews, selectedDashboardNewsId],
   )
+  const dashboardNewsOriginalDraft = useMemo(
+    () => createDashboardNewsDraft(selectedDashboardNews),
+    [selectedDashboardNews],
+  )
+  const hasDashboardNewsDraftChanges =
+    dashboardNewsDraft.category !== dashboardNewsOriginalDraft.category ||
+    dashboardNewsDraft.title !== dashboardNewsOriginalDraft.title ||
+    dashboardNewsDraft.description !== dashboardNewsOriginalDraft.description ||
+    dashboardNewsDraft.image_url !== dashboardNewsOriginalDraft.image_url ||
+    dashboardNewsDraft.date_label !== dashboardNewsOriginalDraft.date_label
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -1268,9 +1278,21 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     if (isDashboardNewsSaving) {
       return
     }
+    setIsDashboardNewsCloseConfirmOpen(false)
     setIsDashboardNewsEditorOpen(false)
     setDashboardNewsEditorError('')
   }, [isDashboardNewsSaving])
+
+  const handleRequestCloseDashboardNewsEditor = useCallback(() => {
+    if (isDashboardNewsSaving) {
+      return
+    }
+    if (hasDashboardNewsDraftChanges) {
+      setIsDashboardNewsCloseConfirmOpen(true)
+      return
+    }
+    handleCloseDashboardNewsEditor()
+  }, [handleCloseDashboardNewsEditor, hasDashboardNewsDraftChanges, isDashboardNewsSaving])
 
   const handleSaveDashboardNews = useCallback(async () => {
     if (!selectedDashboardNews || !isDashboardNewsEditor || isDashboardNewsSaving) {
@@ -1777,7 +1799,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 1.7fr) minmax(310px, 1fr)' },
                 minWidth: 0,
                 maxWidth: '100%',
-                '@media (max-width:699.95px)': {
+                '@media (max-width:899.95px)': {
                   display: 'none',
                 },
               }}
@@ -1789,7 +1811,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                   minWidth: 0,
                   maxWidth: '100%',
                   overflow: 'hidden',
-                  minHeight: { xs: 520, sm: 430, md: 330 },
+                  minHeight: { xs: 520, sm: 520, md: 460, xl: 430 },
                   borderRadius: '20px',
                   border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
                   background: APP_CARD_BACKGROUND,
@@ -1797,13 +1819,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 }}
               >
                 {isDashboardNewsLoading && dashboardNews.length === 0 ? (
-                  <Stack spacing={1.2} sx={{ p: { xs: 1.5, md: 1.8 } }}>
-                    <Skeleton variant="rectangular" height={190} sx={{ borderRadius: '16px', bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
-                    <Skeleton variant="text" width="22%" height={18} sx={{ bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
-                    <Skeleton variant="text" width="52%" height={42} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                    <Skeleton variant="text" width="94%" height={26} sx={{ bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
-                    <Skeleton variant="text" width="26%" height={18} sx={{ bgcolor: 'rgba(184, 201, 226, 0.14)' }} />
-                  </Stack>
+                  <Box className="morius-skeleton-card morius-skeleton-card--flat" sx={{ position: 'absolute', inset: 0, borderRadius: 0 }} />
                 ) : selectedDashboardNews ? (
                   <>
                     <Box
@@ -1850,7 +1866,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                         position: 'absolute',
                         inset: 0,
                         background:
-                          'linear-gradient(180deg, rgba(8, 12, 18, 0.18) 0%, rgba(8, 12, 18, 0.42) 36%, rgba(8, 12, 18, 0.92) 100%)',
+                          'linear-gradient(90deg, rgba(2, 5, 9, 0.94) 0%, rgba(2, 5, 9, 0.78) 36%, rgba(2, 5, 9, 0.28) 70%, rgba(2, 5, 9, 0.04) 100%), linear-gradient(180deg, rgba(8, 12, 18, 0.08) 0%, rgba(8, 12, 18, 0.32) 42%, rgba(8, 12, 18, 0.9) 100%)',
                       }}
                     />
                     <Stack
@@ -1962,6 +1978,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     ? HOME_NEWS_SKELETON_KEYS.map((itemKey) => (
                         <Box
                           key={itemKey}
+                          className="morius-skeleton-card"
                           sx={{
                             width: { xs: '100%', xl: '100%' },
                             minWidth: { xs: '100%', xl: 0 },
@@ -1969,19 +1986,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             flex: { xs: '0 0 100%', xl: '0 0 auto' },
                             minHeight: 96,
                             borderRadius: '18px',
-                            p: 1.25,
-                            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-                            background: APP_CARD_BACKGROUND,
                             scrollSnapAlign: 'start',
                             boxSizing: 'border-box',
                           }}
-                        >
-                          <Stack spacing={0.55}>
-                            <Skeleton variant="text" width="34%" height={20} sx={{ bgcolor: 'rgba(184, 201, 226, 0.18)' }} />
-                            <Skeleton variant="text" width="76%" height={28} sx={{ bgcolor: 'rgba(184, 201, 226, 0.2)' }} />
-                            <Skeleton variant="text" width="90%" height={22} sx={{ bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
-                          </Stack>
-                        </Box>
+                        />
                       ))
                     : dashboardNews.map((item) => {
                         const isSelected = item.id === selectedDashboardNews?.id
@@ -2062,6 +2070,152 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
           </Box>
 
+          <Box
+            sx={{
+              display: { xs: 'block', md: 'none' },
+              width: '100%',
+              maxWidth: '100%',
+              overflow: 'hidden',
+            }}
+          >
+            {dashboardNewsError ? (
+              <Alert severity="error" sx={{ mb: 1.2, borderRadius: '16px' }}>
+                {dashboardNewsError}
+              </Alert>
+            ) : null}
+            <Box
+              sx={{
+                position: 'relative',
+                overflow: 'hidden',
+                width: '100%',
+                height: { xs: 382, sm: 420 },
+                borderRadius: '0 0 16px 16px',
+                background: APP_CARD_BACKGROUND,
+              }}
+            >
+              {isDashboardNewsLoading && dashboardNews.length === 0 ? (
+                <Box className="morius-skeleton-card morius-skeleton-card--flat" sx={{ position: 'absolute', inset: 0, borderRadius: 0 }} />
+              ) : selectedDashboardNews ? (
+                <>
+                  <Box
+                    component="img"
+                    src={newsXfCurrentSrc || selectedDashboardNewsImage}
+                    alt=""
+                    loading="eager"
+                    decoding="async"
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'center',
+                    }}
+                  />
+                  <Box
+                    aria-hidden
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      background:
+                        'linear-gradient(180deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.28) 48%, rgba(0,0,0,0.9) 100%)',
+                    }}
+                  />
+                  <Stack
+                    spacing={0.8}
+                    justifyContent="flex-end"
+                    sx={{
+                      position: 'relative',
+                      zIndex: 1,
+                      height: '100%',
+                      px: 2,
+                      pb: 2.2,
+                      color: '#fff',
+                    }}
+                  >
+                    <Typography sx={{ color: 'rgba(255,255,255,0.82)', fontSize: '0.82rem', fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase' }}>
+                      {selectedDashboardNews.category}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: '#fff',
+                        fontSize: '2rem',
+                        fontWeight: 900,
+                        lineHeight: 1.04,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {selectedDashboardNews.title}
+                    </Typography>
+                    <Typography
+                      sx={{
+                        color: 'rgba(255,255,255,0.76)',
+                        fontSize: '0.95rem',
+                        lineHeight: 1.45,
+                        fontWeight: 700,
+                        whiteSpace: 'pre-line',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {selectedDashboardNews.description}
+                    </Typography>
+                    {isDashboardNewsEditor ? (
+                      <Button
+                        onClick={handleOpenDashboardNewsEditor}
+                        sx={{
+                          width: 'fit-content',
+                          minHeight: 32,
+                          px: 0,
+                          color: '#fff',
+                          textTransform: 'none',
+                          fontWeight: 800,
+                          '&:hover': { color: 'var(--morius-accent)' },
+                        }}
+                      >
+                        Редактировать новость
+                      </Button>
+                    ) : null}
+                  </Stack>
+                </>
+              ) : (
+                <Stack justifyContent="flex-end" sx={{ height: '100%', p: 2 }}>
+                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.2rem', fontWeight: 900 }}>Новостей пока нет</Typography>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Как только появятся обновления, они будут показаны здесь.</Typography>
+                </Stack>
+              )}
+            </Box>
+            {dashboardNews.length > 1 ? (
+              <Stack direction="row" justifyContent="center" spacing={1} sx={{ mt: 1.35 }}>
+                {dashboardNews.map((item) => {
+                  const isSelected = item.id === selectedDashboardNews?.id
+                  return (
+                    <ButtonBase
+                      key={`mobile-news-dot-${item.id}`}
+                      aria-label={`Новость ${item.slot}`}
+                      onClick={() => {
+                        setSelectedDashboardNewsId(item.id)
+                        setNewsProgressKey((k) => k + 1)
+                      }}
+                      sx={{
+                        width: isSelected ? 26 : 20,
+                        height: 4,
+                        borderRadius: '999px',
+                        backgroundColor: isSelected ? 'rgba(255,255,255,0.92)' : 'rgba(255,255,255,0.24)',
+                        transition: 'width 180ms ease, background-color 180ms ease',
+                      }}
+                    />
+                  )
+                })}
+              </Stack>
+            ) : null}
+          </Box>
+
           {/* ── Миры (worlds slider) ────────────────────────────────────── */}
           <Box data-tour-id="home-community-section" sx={{ scrollMarginTop: '120px' }}>
             <HomeSliderHeader
@@ -2096,9 +2250,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             </Box>
             {/* Mobile horizontal slider */}
             <MobileCardSlider>
-              {isCommunityWorldsLoading && communityWorlds.length === 0
-                ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
-                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                {isCommunityWorldsLoading && communityWorlds.length === 0
+                  ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
+                    <Box key={key} className="morius-skeleton-card" sx={{ height: MOBILE_CARD_HEIGHT, flexShrink: 0 }} />
                   ))
                 : communityWorldsPreview.map((world) => (
                     <MobileCardItem
@@ -2133,7 +2287,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {isCommunityCharactersLoading && communityCharacters.length === 0
                   ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
                       <SliderCard key={key}>
-                        <Skeleton variant="rectangular" sx={{ borderRadius: 'var(--morius-radius)', height: 300, bgcolor: 'rgba(184,201,226,0.12)' }} />
+                        <Box className="morius-skeleton-card" sx={{ height: 300 }} />
                       </SliderCard>
                     ))
                   : communityCharacters.map((item) => (
@@ -2147,7 +2301,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <MobileCardSlider>
               {isCommunityCharactersLoading && communityCharacters.length === 0
                 ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
-                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                    <Box key={key} className="morius-skeleton-card" sx={{ height: MOBILE_CARD_HEIGHT, flexShrink: 0 }} />
                   ))
                 : communityCharacters.map((item) => (
                     <MobileCardItem
@@ -2181,7 +2335,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 {isCommunityRulesLoading && communityRules.length === 0
                   ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
                       <SliderCard key={key}>
-                        <Skeleton variant="rectangular" sx={{ borderRadius: 'var(--morius-radius)', height: 300, bgcolor: 'rgba(184,201,226,0.12)' }} />
+                        <Box className="morius-skeleton-card" sx={{ height: 300 }} />
                       </SliderCard>
                     ))
                   : communityRules.map((item) => (
@@ -2195,7 +2349,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <MobileCardSlider>
               {isCommunityRulesLoading && communityRules.length === 0
                 ? HOME_COMMUNITY_SKELETON_CARD_KEYS.map((key) => (
-                    <Skeleton key={key} variant="rectangular" height={MOBILE_CARD_HEIGHT} sx={{ borderRadius: 'var(--morius-radius)', bgcolor: 'rgba(184,201,226,0.12)', flexShrink: 0 }} />
+                    <Box key={key} className="morius-skeleton-card" sx={{ height: MOBILE_CARD_HEIGHT, flexShrink: 0 }} />
                   ))
                 : communityRules.map((item) => (
                     <MobileCardItem
@@ -2226,7 +2380,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
       <BaseDialog
         open={isDashboardNewsEditorOpen}
-        onClose={handleCloseDashboardNewsEditor}
+        onClose={handleRequestCloseDashboardNewsEditor}
+        disableBackdropClose
         maxWidth="sm"
         transitionComponent={DialogTransition}
         header={
@@ -2239,7 +2394,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }
         actions={
           <>
-            <Button onClick={handleCloseDashboardNewsEditor} disabled={isDashboardNewsSaving} sx={{ color: APP_TEXT_SECONDARY }}>
+            <Button onClick={handleRequestCloseDashboardNewsEditor} disabled={isDashboardNewsSaving} sx={{ color: APP_TEXT_SECONDARY }}>
               Отмена
             </Button>
             <Button
@@ -2296,6 +2451,27 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             minRows={5}
           />
         </Stack>
+      </BaseDialog>
+
+      <BaseDialog
+        open={isDashboardNewsCloseConfirmOpen}
+        onClose={() => setIsDashboardNewsCloseConfirmOpen(false)}
+        maxWidth="xs"
+        header={<Typography sx={{ fontSize: '1.1rem', fontWeight: 900 }}>Закрыть без сохранения?</Typography>}
+        actions={
+          <>
+            <Button onClick={() => setIsDashboardNewsCloseConfirmOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>
+              Остаться
+            </Button>
+            <Button onClick={handleCloseDashboardNewsEditor} sx={{ color: APP_TEXT_PRIMARY }}>
+              Закрыть
+            </Button>
+          </>
+        }
+      >
+        <Typography sx={{ color: APP_TEXT_SECONDARY }}>
+          Внесенные изменения в новости будут потеряны.
+        </Typography>
       </BaseDialog>
 
       <CommunityWorldDialog
@@ -2474,4 +2650,3 @@ function buildDashboardGameDescription(game: StoryGameSummary): string {
 }
 
 export default AuthenticatedHomePage
-

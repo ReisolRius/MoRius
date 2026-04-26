@@ -206,7 +206,7 @@ const sectionHeadingSx: SxProps<Theme> = {
   fontWeight: 600,
   textTransform: 'uppercase',
   color: TEXT_HEADING,
-  letterSpacing: '-0.02em',
+  letterSpacing: 0,
 }
 
 /* --- RevealOnView --------------------------------------------------------- */
@@ -405,17 +405,19 @@ export default function PublicLandingPage({
           aria-hidden
           sx={{
             position: 'absolute',
-            bottom: 0,
+            bottom: { xs: -150, md: -190 },
             left: '50%',
             transform: 'translateX(-50%)',
-            width: { xs: '220%', md: '150%' },
-            height: { xs: 260, md: 320 },
+            width: { xs: '260%', md: '175%' },
+            height: { xs: 440, md: 560 },
             pointerEvents: 'none',
             zIndex: 2,
+            filter: 'blur(1.5px)',
+            opacity: 0.86,
             WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 20%, #000 55%, #000 80%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.16) 18%, rgba(0,0,0,0.9) 43%, rgba(0,0,0,0.72) 64%, transparent 100%)',
             maskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.4) 20%, #000 55%, #000 80%, transparent 100%)',
+              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.16) 18%, rgba(0,0,0,0.9) 43%, rgba(0,0,0,0.72) 64%, transparent 100%)',
           }}
         >
           <Box
@@ -776,18 +778,24 @@ export default function PublicLandingPage({
                       width: '100%',
                       flexShrink: 0,
                       position: 'relative',
+                      minHeight: { xs: 'auto', md: 430 },
+                      pb: { xs: 0, md: 9 },
                     }}
                   >
                     {/* Big stroke number */}
               <Typography
                 aria-hidden
                 sx={{
-                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontFamily: 'Roboto, Arial, sans-serif',
                   fontWeight: 700,
                   fontSize: { xs: '9rem', md: '13rem' },
                   lineHeight: 0.85,
                   WebkitTextFillColor: 'transparent',
                   WebkitTextStroke: `2px ${ORANGE}`,
+                  letterSpacing: 0,
+                  fontVariantNumeric: 'tabular-nums',
+                  WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 58%, rgba(0,0,0,0.36) 76%, transparent 100%)',
+                  maskImage: 'linear-gradient(180deg, #000 0%, #000 58%, rgba(0,0,0,0.36) 76%, transparent 100%)',
                   userSelect: 'none',
                   mb: -2,
                   opacity: 0.9,
@@ -820,7 +828,7 @@ export default function PublicLandingPage({
               </Typography>
 
               {/* Navigation arrows */}
-              <Box sx={{ display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 2, mb: 3.5 }}>
+              <Box sx={{ position: 'absolute', left: 0, bottom: 38, display: { xs: 'none', md: 'flex' }, alignItems: 'center', gap: 2, mb: 0 }}>
                 <IconButton
                   onClick={handlePrevSlide}
                   disabled={currentSlide === 0}
@@ -868,7 +876,7 @@ export default function PublicLandingPage({
               </Box>
 
               {/* Dot indicators */}
-              <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1 }}>
+              <Box sx={{ position: 'absolute', left: 0, bottom: 0, display: { xs: 'none', md: 'flex' }, gap: 1 }}>
                 {advantageSlides.map((_, i) => (
                   <Box
                     key={i}
@@ -923,18 +931,13 @@ export default function PublicLandingPage({
                       minHeight: { xs: 320, md: 500 },
                     }}
                   >
-                    {/* Orange blurred glow blob */}
                     <Box
                       aria-hidden
                       sx={{
                         position: 'absolute',
-                        width: '65%',
-                        height: '55%',
-                        borderRadius: '50%',
-                        backgroundColor: `rgba(239,108,0,0.13)`,
-                        filter: 'blur(55px)',
-                        top: '22%',
-                        left: '17%',
+                        inset: { xs: '10% 0 8%', md: '5% -6% 4%' },
+                        background:
+                          'linear-gradient(90deg, transparent 0%, rgba(239,108,0,0.06) 22%, rgba(239,108,0,0.16) 50%, rgba(239,108,0,0.06) 78%, transparent 100%)',
                         zIndex: 0,
                         pointerEvents: 'none',
                       }}
@@ -949,7 +952,7 @@ export default function PublicLandingPage({
                         width: { xs: '85%', md: '90%' },
                         maxWidth: 560,
                         borderRadius: '12px',
-                        boxShadow: '0 24px 48px rgba(0,0,0,0.55)',
+                        boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(239,108,0,0.14)',
                         transform: 'rotate(4deg)',
                       }}
                     />

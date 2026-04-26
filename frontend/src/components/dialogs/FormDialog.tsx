@@ -19,6 +19,8 @@ type FormDialogProps = {
   actionsSx?: SxProps<Theme>
   cancelButtonSx?: SxProps<Theme>
   submitButtonSx?: SxProps<Theme>
+  hasUnsavedChanges?: boolean
+  disableBackdropClose?: boolean
 }
 
 function FormDialog({
@@ -38,6 +40,8 @@ function FormDialog({
   actionsSx,
   cancelButtonSx,
   submitButtonSx,
+  hasUnsavedChanges = false,
+  disableBackdropClose = true,
 }: FormDialogProps) {
   return (
     <BaseDialog
@@ -48,6 +52,8 @@ function FormDialog({
       titleSx={titleSx}
       contentSx={contentSx}
       actionsSx={actionsSx}
+      disableBackdropClose={disableBackdropClose}
+      hasUnsavedChanges={hasUnsavedChanges}
       header={
         <Stack spacing={0.3}>
           {typeof title === 'string' ? <Typography sx={{ fontWeight: 800, fontSize: '1.45rem' }}>{title}</Typography> : title}

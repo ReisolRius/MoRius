@@ -1306,6 +1306,28 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     setCardDialogOpen(false)
   }, [cardContentDraft, cardDialogKind, cardDialogTargetLocalId, cardIsEnabledDraft, cardTitleDraft, cardTriggersDraft])
 
+  const activeCardDialogSource = useMemo(() => {
+    if (!cardDialogTargetLocalId) {
+      return null
+    }
+    const source = cardDialogKind === 'instruction' ? instructionCards : plotCards
+    return source.find((item) => item.localId === cardDialogTargetLocalId) ?? null
+  }, [cardDialogKind, cardDialogTargetLocalId, instructionCards, plotCards])
+
+  const hasCardDialogUnsavedChanges =
+    cardTitleDraft !== (activeCardDialogSource?.title ?? '') ||
+    cardContentDraft !== (activeCardDialogSource?.content ?? '') ||
+    cardTriggersDraft !== (cardDialogKind === 'plot' ? activeCardDialogSource?.triggers ?? '' : '') ||
+    cardIsEnabledDraft !== (cardDialogKind === 'plot' ? Boolean(activeCardDialogSource?.is_enabled) : false)
+
+  const activeWorldProfileDialogSource = worldProfileDialogCardId ? worldProfile : null
+  const hasWorldProfileDialogUnsavedChanges =
+    worldProfileTitleDraft !== (activeWorldProfileDialogSource?.title ?? '') ||
+    worldProfileContentDraft !== (activeWorldProfileDialogSource?.content ?? '') ||
+    worldProfileAvatarUrlDraft !== (activeWorldProfileDialogSource?.avatar_url ?? null) ||
+    worldProfileAvatarOriginalUrlDraft !== (activeWorldProfileDialogSource?.avatar_original_url ?? activeWorldProfileDialogSource?.avatar_url ?? null) ||
+    worldProfileAvatarScaleDraft !== (activeWorldProfileDialogSource?.avatar_scale ?? 1)
+
   const handleApplyInstructionTemplate = useCallback(async (template: { title: string; content: string }) => {
     const normalizedTitle = template.title.replace(/\s+/g, ' ').trim()
     const normalizedContent = template.content.replace(/\r\n/g, '\n').trim()
@@ -2682,6 +2704,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           '&:hover': { backgroundColor: APP_BUTTON_HOVER },
         }}
         submitDisabled={!cardTitleDraft.trim() || !cardContentDraft.trim()}
+        hasUnsavedChanges={hasCardDialogUnsavedChanges}
       >
 
           <Stack spacing={1}>
@@ -2753,6 +2776,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           color: 'var(--morius-accent)',
         }}
         submitDisabled={!worldProfileTitleDraft.trim() || !worldProfileContentDraft.trim()}
+        hasUnsavedChanges={hasWorldProfileDialogUnsavedChanges}
       >
         <Stack spacing={1}>
           <WorldCardBannerPreview

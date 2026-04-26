@@ -427,6 +427,9 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
     if (editingTemplateId === null || isSaving || isDeleting) {
       return
     }
+    if (typeof window !== 'undefined' && !window.confirm('Удалить шаблон карточки?')) {
+      return
+    }
     setIsDeleting(true)
     setError('')
     try {

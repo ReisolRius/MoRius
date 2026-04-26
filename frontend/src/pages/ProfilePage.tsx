@@ -1888,6 +1888,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   ])
 
   const handleDeleteContentCardFromMenu = useCallback(async () => {
+    if (typeof window !== 'undefined' && !window.confirm('Удалить выбранную карточку?')) {
+      handleCloseContentCardMenu()
+      return
+    }
     if (contentCardMenuType === 'character' && selectedContentCharacterMenuItem) {
       try {
         setError('')

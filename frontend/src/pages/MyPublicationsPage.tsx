@@ -5,6 +5,10 @@ import HeaderAccountActions from '../components/HeaderAccountActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
+import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
+import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
+import TopUpDialog from '../components/profile/TopUpDialog'
+import SettingsDialog from '../components/settings/SettingsDialog'
 import DeferredImage from '../components/media/DeferredImage'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
@@ -13,6 +17,12 @@ import cardsPlotRaw from '../assets/icons/cards-plot.svg?raw'
 import cardsRulesRaw from '../assets/icons/cards-rules.svg?raw'
 import { useIncrementalList } from '../hooks/useIncrementalList'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
+import {
+  createCoinTopUpPayment,
+  getCoinTopUpPlans,
+  syncCoinTopUpPayment,
+  type CoinTopUpPlan,
+} from '../services/authApi'
 import {
   listStoryCharacters,
   listStoryGames,
@@ -38,6 +48,8 @@ type MyPublicationsPageProps = {
   user: AuthUser
   authToken: string
   onNavigate: (path: string) => void
+  onUserUpdate: (user: AuthUser) => void
+  onLogout: () => void
 }
 
 type PublicationSection = 'worlds' | 'characters' | 'instructions'
@@ -54,6 +66,8 @@ const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
+const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 
 type PublicationCardPresentation = {
   statusLabel: string
@@ -531,8 +545,17 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
   )
 }
 
-function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageProps) {
+function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogout }: MyPublicationsPageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false)
+  const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
+  const [confirmLogoutOpen, setConfirmLogoutOpen] = useState(false)
+  const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
+  const [hasTopUpPlansLoaded, setHasTopUpPlansLoaded] = useState(false)
+  const [isTopUpPlansLoading, setIsTopUpPlansLoading] = useState(false)
+  const [topUpError, setTopUpError] = useState('')
+  const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
+  const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [section, setSection] = useState<PublicationSection>('worlds')
   const [errorMessage, setErrorMessage] = useState('')
   const [publicationGames, setPublicationGames] = useState<StoryGameSummary[]>([])
@@ -888,6 +911,9 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     const character = selectedPublicationCharacter
     const template = selectedPublicationTemplate
     handleCloseCardMenu()
+    if (typeof window !== 'undefined' && !window.confirm('Снять с публикации?')) {
+      return
+    }
     if (targetType === 'world' && world) {
       await handleUnpublishWorld(world)
       return
@@ -910,6 +936,104 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     selectedPublicationWorld,
   ])
 
+  const handleCloseTopUpDialog = useCallback(() => {
+    setTopUpDialogOpen(false)
+    setTopUpError('')
+    setActivePlanPurchaseId(null)
+  }, [])
+
+  const handleOpenTopUpDialog = useCallback(() => {
+    setSettingsDialogOpen(false)
+    setConfirmLogoutOpen(false)
+    setTopUpError('')
+    setTopUpDialogOpen(true)
+  }, [])
+
+  const loadTopUpPlans = useCallback(async () => {
+    setIsTopUpPlansLoading(true)
+    setTopUpError('')
+    try {
+      const plans = await getCoinTopUpPlans()
+      setTopUpPlans(plans)
+      setHasTopUpPlansLoaded(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить тарифы пополнения'
+      setTopUpError(detail)
+    } finally {
+      setIsTopUpPlansLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!topUpDialogOpen || hasTopUpPlansLoaded || isTopUpPlansLoading) {
+      return
+    }
+    void loadTopUpPlans()
+  }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
+
+  const syncPendingPayment = useCallback(
+    async (paymentId: string) => {
+      try {
+        const response = await syncCoinTopUpPayment({
+          token: authToken,
+          payment_id: paymentId,
+        })
+
+        onUserUpdate(response.user)
+        if (response.status === 'succeeded') {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+          setPaymentSuccessCoins(response.coins)
+          return
+        }
+
+        if (FINAL_PAYMENT_STATUSES.has(response.status)) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Failed to sync payment status'
+        if (detail.includes('404')) {
+          localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
+        }
+      }
+    },
+    [authToken, onUserUpdate],
+  )
+
+  useEffect(() => {
+    const pendingPaymentId = localStorage.getItem(PENDING_PAYMENT_STORAGE_KEY)
+    if (!pendingPaymentId) {
+      return
+    }
+    void syncPendingPayment(pendingPaymentId)
+  }, [syncPendingPayment])
+
+  const handlePurchasePlan = useCallback(
+    async (planId: string) => {
+      setTopUpError('')
+      setActivePlanPurchaseId(planId)
+      try {
+        const response = await createCoinTopUpPayment({
+          token: authToken,
+          plan_id: planId,
+        })
+        localStorage.setItem(PENDING_PAYMENT_STORAGE_KEY, response.payment_id)
+        window.location.assign(response.confirmation_url)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось создать оплату'
+        setTopUpError(detail)
+        setActivePlanPurchaseId(null)
+      }
+    },
+    [authToken],
+  )
+
+  const handleConfirmLogout = useCallback(() => {
+    setConfirmLogoutOpen(false)
+    setSettingsDialogOpen(false)
+    setTopUpDialogOpen(false)
+    onLogout()
+  }, [onLogout])
+
   const authorName = user.display_name?.trim() || 'Игрок'
   const authorAvatarUrl = user.avatar_url ?? null
 
@@ -923,7 +1047,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
           onContinue: () => onNavigate('/dashboard?mobileAction=continue'),
           onQuickStart: () => onNavigate('/dashboard?mobileAction=quick-start'),
           onCreateWorld: () => onNavigate('/worlds/new'),
-          onOpenShop: () => onNavigate('/profile?mobileAction=shop'),
+          onOpenShop: handleOpenTopUpDialog,
         })}
         menuItems={[
           { key: 'dashboard', label: 'Главная', isActive: false, onClick: () => onNavigate('/dashboard') },
@@ -936,7 +1060,8 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         onToggleRightPanel={() => undefined}
         rightToggleLabels={{ expanded: 'Скрыть кнопки шапки', collapsed: 'Показать кнопки шапки' }}
         hideRightToggle
-        onOpenTopUpDialog={() => onNavigate('/profile?mobileAction=shop')}
+        onOpenTopUpDialog={handleOpenTopUpDialog}
+        onOpenSettingsDialog={() => setSettingsDialogOpen(true)}
         rightActions={
           <HeaderAccountActions
             user={user}
@@ -1181,6 +1306,41 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         initialTemplateId={instructionEditId}
         includePublicationCopies
         onClose={closeInstructionDialog}
+      />
+
+      <SettingsDialog
+        open={settingsDialogOpen}
+        user={user}
+        authToken={authToken}
+        onClose={() => {
+          setSettingsDialogOpen(false)
+          setConfirmLogoutOpen(false)
+        }}
+        onLogout={() => setConfirmLogoutOpen(true)}
+        onUserUpdate={onUserUpdate}
+        onOpenTopUp={handleOpenTopUpDialog}
+      />
+
+      <TopUpDialog
+        open={topUpDialogOpen}
+        topUpError={topUpError}
+        isTopUpPlansLoading={isTopUpPlansLoading}
+        topUpPlans={topUpPlans}
+        activePlanPurchaseId={activePlanPurchaseId}
+        onClose={handleCloseTopUpDialog}
+        onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
+      />
+
+      <ConfirmLogoutDialog
+        open={confirmLogoutOpen}
+        onClose={() => setConfirmLogoutOpen(false)}
+        onConfirm={handleConfirmLogout}
+      />
+
+      <PaymentSuccessDialog
+        open={paymentSuccessCoins !== null}
+        coins={paymentSuccessCoins ?? 0}
+        onClose={() => setPaymentSuccessCoins(null)}
       />
 
       <Footer

@@ -270,7 +270,6 @@ function AppHeader({
   const isMobileStory = mobileVariant === 'story' && isPhoneLayout
   const shouldHideRightToggle = hideRightToggle || isMobileBottomNav
 
-  const handleOpenThemeDialog = () => setIsThemeDialogOpen(true)
   const handleCloseThemeDialog = () => setIsThemeDialogOpen(false)
   const handleOpenSupportDialog = () => setIsSupportDialogOpen(true)
   const handleCloseSupportDialog = () => setIsSupportDialogOpen(false)
@@ -396,12 +395,16 @@ function AppHeader({
     ? (isPageMenuOpen ? MENU_EXPANDED_WIDTH : HEADER_BUTTON_SIZE)
     : (isPageMenuOpen ? MENU_EXPANDED_WIDTH : MENU_COLLAPSED_WIDTH)
   const utilityMenuItems = [
-    {
-      key: 'theme-settings',
-      label: 'Настройки',
-      onClick: onOpenSettingsDialog ?? handleOpenThemeDialog,
-      icon: <SidebarGlyphIcon markup={sidebarSettingsIconMarkup} />,
-    },
+    ...(onOpenSettingsDialog
+      ? [
+          {
+            key: 'theme-settings',
+            label: 'Настройки',
+            onClick: onOpenSettingsDialog,
+            icon: <SidebarGlyphIcon markup={sidebarSettingsIconMarkup} />,
+          },
+        ]
+      : []),
     {
       key: 'support',
       label: 'Поддержка',
@@ -474,13 +477,17 @@ function AppHeader({
           },
         ]
       : []),
-    {
-      key: 'theme-settings',
-      title: '\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438',
-      description: '\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u0442\u0435\u043c\u0443, \u0448\u0440\u0438\u0444\u0442 \u0438 \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u043e\u043f\u0446\u0438\u0438.',
-      iconMarkup: sidebarSettingsIconMarkup,
-      onClick: onOpenSettingsDialog ?? handleOpenThemeDialog,
-    },
+    ...(onOpenSettingsDialog
+      ? [
+          {
+            key: 'theme-settings',
+            title: '\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438',
+            description: '\u0421\u043c\u0435\u043d\u0438\u0442\u044c \u0442\u0435\u043c\u0443, \u0448\u0440\u0438\u0444\u0442 \u0438 \u0434\u043e\u043f\u043e\u043b\u043d\u0438\u0442\u0435\u043b\u044c\u043d\u044b\u0435 \u043e\u043f\u0446\u0438\u0438.',
+            iconMarkup: sidebarSettingsIconMarkup,
+            onClick: onOpenSettingsDialog,
+          },
+        ]
+      : []),
   ]
   const resolvedMobileActionItems = mobileActionItems.length > 0 ? mobileActionItems : fallbackMobileActionItems
   const isMoreButtonActive =

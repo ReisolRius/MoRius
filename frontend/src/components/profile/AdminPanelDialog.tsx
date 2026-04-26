@@ -862,6 +862,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     if (!selectedReport || isApplyingReportAction) {
       return
     }
+    if (typeof window !== 'undefined' && !window.confirm('Удалить контент из сообщества?')) {
+      return
+    }
     setIsApplyingReportAction(true)
     setErrorMessage('')
     setSuccessMessage('')
