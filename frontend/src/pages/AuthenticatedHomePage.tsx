@@ -1629,7 +1629,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
       >
         <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
-          <Stack alignItems="center" spacing={0.35} sx={{ mb: 'var(--morius-cards-title-gap)' }}>
+          <Stack
+            alignItems="center"
+            spacing={0.35}
+            sx={{
+              display: { xs: 'none', md: 'flex' },
+              mb: 'var(--morius-cards-title-gap)',
+            }}
+          >
             <Typography sx={{ fontSize: { xs: '2rem', md: '2.35rem' }, fontWeight: 900, color: APP_TEXT_PRIMARY, textAlign: 'center' }}>
               Главная
             </Typography>
@@ -2027,7 +2034,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               },
                             }}
                           >
-                            <Stack spacing={0.35} sx={{ width: '100%' }}>
+                            <Stack spacing={0.45} sx={{ width: '100%', height: '100%', minHeight: 0 }}>
                               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                                 {item.category}
                               </Typography>
@@ -2044,6 +2051,20 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                 }}
                               >
                                 {item.title}
+                              </Typography>
+                              <Typography
+                                sx={{
+                                  color: 'rgba(226, 235, 246, 0.68)',
+                                  fontSize: '0.82rem',
+                                  fontWeight: 650,
+                                  lineHeight: 1.35,
+                                  display: '-webkit-box',
+                                  WebkitLineClamp: 2,
+                                  WebkitBoxOrient: 'vertical',
+                                  overflow: 'hidden',
+                                }}
+                              >
+                                {item.description}
                               </Typography>
                             </Stack>
                             {/* Auto-advance progress bar */}

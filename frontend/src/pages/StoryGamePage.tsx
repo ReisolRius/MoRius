@@ -4639,6 +4639,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [expandedWorldCardEventIds, setExpandedWorldCardEventIds] = useState<number[]>([])
   const [undoingWorldCardEventIds, setUndoingWorldCardEventIds] = useState<number[]>([])
   const [worldCardDialogOpen, setWorldCardDialogOpen] = useState(false)
+  const [worldCardCloseConfirmOpen, setWorldCardCloseConfirmOpen] = useState(false)
   const [editingWorldCardId, setEditingWorldCardId] = useState<number | null>(null)
   const [editingWorldCardKind, setEditingWorldCardKind] = useState<StoryWorldCardKind>('world')
   const [worldCardTitleDraft, setWorldCardTitleDraft] = useState('')
@@ -6011,6 +6012,71 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => worldCardAvatarOriginalDraft ?? worldCardAvatarDraft ?? resolveWorldCardPreviewAvatar(editingWorldCard),
     [editingWorldCard, resolveWorldCardPreviewAvatar, worldCardAvatarDraft, worldCardAvatarOriginalDraft],
   )
+  const hasWorldCardDialogUnsavedChanges = useMemo(() => {
+    if (!worldCardDialogOpen) {
+      return false
+    }
+
+    if (!editingWorldCard) {
+      const emptyMemoryTurns = editingWorldCardKind === 'npc' ? NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS : WORLD_CARD_TRIGGER_ACTIVE_TURNS
+      return (
+        Boolean(worldCardTitleDraft.trim()) ||
+        Boolean(worldCardContentDraft.trim()) ||
+        Boolean(worldCardDetailTypeDraft.trim()) ||
+        Boolean(worldCardRaceDraft.trim()) ||
+        Boolean(worldCardRaceInputDraft.trim()) ||
+        Boolean(worldCardClothingDraft.trim()) ||
+        Boolean(worldCardInventoryDraft.trim()) ||
+        Boolean(worldCardHealthStatusDraft.trim()) ||
+        Boolean(worldCardTriggersDraft.trim()) ||
+        worldCardMemoryTurnsDraft !== emptyMemoryTurns ||
+        Boolean(worldCardAvatarDraft) ||
+        Boolean(worldCardAvatarOriginalDraft) ||
+        worldCardAvatarScaleDraft !== 1 ||
+        isWorldCardAvatarDraftDirty
+      )
+    }
+
+    const originalAvatar = resolveWorldCardAvatar(editingWorldCard)
+    const originalPreviewAvatar = resolveWorldCardPreviewAvatar(editingWorldCard) ?? originalAvatar
+
+    return (
+      worldCardTitleDraft !== editingWorldCard.title ||
+      worldCardContentDraft !== editingWorldCard.content ||
+      worldCardDetailTypeDraft !== normalizeStoryWorldDetailTypeValue(editingWorldCard.detail_type) ||
+      worldCardRaceDraft !== normalizeCharacterRaceValue(editingWorldCard.race) ||
+      worldCardRaceInputDraft !== normalizeCharacterRaceValue(editingWorldCard.race) ||
+      worldCardClothingDraft !== normalizeCharacterAdditionalValue(editingWorldCard.clothing) ||
+      worldCardInventoryDraft !== normalizeCharacterAdditionalValue(editingWorldCard.inventory) ||
+      worldCardHealthStatusDraft !== normalizeCharacterAdditionalValue(editingWorldCard.health_status) ||
+      worldCardTriggersDraft !== editingWorldCard.triggers.join(', ') ||
+      worldCardMemoryTurnsDraft !== toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(editingWorldCard)) ||
+      worldCardAvatarDraft !== originalAvatar ||
+      worldCardAvatarOriginalDraft !== originalPreviewAvatar ||
+      worldCardAvatarScaleDraft !== (editingWorldCard.avatar_scale ?? 1) ||
+      isWorldCardAvatarDraftDirty
+    )
+  }, [
+    editingWorldCard,
+    editingWorldCardKind,
+    isWorldCardAvatarDraftDirty,
+    resolveWorldCardAvatar,
+    resolveWorldCardPreviewAvatar,
+    worldCardAvatarDraft,
+    worldCardAvatarOriginalDraft,
+    worldCardAvatarScaleDraft,
+    worldCardClothingDraft,
+    worldCardContentDraft,
+    worldCardDetailTypeDraft,
+    worldCardDialogOpen,
+    worldCardHealthStatusDraft,
+    worldCardInventoryDraft,
+    worldCardMemoryTurnsDraft,
+    worldCardRaceDraft,
+    worldCardRaceInputDraft,
+    worldCardTitleDraft,
+    worldCardTriggersDraft,
+  ])
   const mainHeroPreviewAvatarUrl = useMemo(
     () => resolveWorldCardPreviewAvatar(mainHeroCard),
     [mainHeroCard, resolveWorldCardPreviewAvatar],
@@ -9277,10 +9343,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardDialogOpen(true)
   }
 
-  const handleCloseWorldCardDialog = () => {
+  const forceCloseWorldCardDialog = () => {
     if (isSavingWorldCard || isCreatingGame || isSavingWorldCardAvatar) {
       return
     }
+    setWorldCardCloseConfirmOpen(false)
     setWorldCardDialogOpen(false)
     setEditingWorldCardId(null)
     setEditingWorldCardKind('world')
@@ -9302,6 +9369,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardAvatarCropSource(null)
     setWorldCardAvatarTargetId(null)
     setWorldCardAvatarTargetMode(null)
+  }
+
+  const handleCloseWorldCardDialog = () => {
+    if (isSavingWorldCard || isCreatingGame || isSavingWorldCardAvatar) {
+      return
+    }
+    if (hasWorldCardDialogUnsavedChanges) {
+      setWorldCardCloseConfirmOpen(true)
+      return
+    }
+    forceCloseWorldCardDialog()
   }
 
   const handleCreateCharacterRace = useCallback(
@@ -20014,6 +20092,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <BaseDialog
         open={worldCardDialogOpen}
         onClose={handleCloseWorldCardDialog}
+        disableBackdropClose
+        protectTextInputClose={false}
         maxWidth="sm"
         transitionComponent={DialogTransition}
         backdropSx={{
@@ -20553,6 +20633,26 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             )}
           </Button>
         </DialogActions>
+      </BaseDialog>
+
+      <BaseDialog
+        open={worldCardCloseConfirmOpen}
+        onClose={() => setWorldCardCloseConfirmOpen(false)}
+        maxWidth="xs"
+        header={<Typography sx={{ fontWeight: 800 }}>Закрыть без сохранения?</Typography>}
+        contentSx={{ color: 'var(--morius-text-secondary)', pt: 0.5 }}
+        actions={
+          <>
+            <Button onClick={() => setWorldCardCloseConfirmOpen(false)} sx={{ color: 'var(--morius-text-secondary)' }}>
+              Остаться
+            </Button>
+            <Button onClick={forceCloseWorldCardDialog} sx={{ color: 'var(--morius-title-text)' }}>
+              Закрыть
+            </Button>
+          </>
+        }
+      >
+        Внесенные изменения будут потеряны.
       </BaseDialog>
 
       <WorldCardTemplatePickerDialog

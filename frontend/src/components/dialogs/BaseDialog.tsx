@@ -1,12 +1,16 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, SvgIcon, type DialogProps, type SxProps, type Theme } from '@mui/material'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefCallback } from 'react'
 import useMobileDialogSheet from './useMobileDialogSheet'
+
+type BaseDialogActionContext = {
+  requestClose: () => void
+}
 
 type BaseDialogProps = {
   open: boolean
   onClose: () => void
   header?: ReactNode
-  actions?: ReactNode
+  actions?: ReactNode | ((context: BaseDialogActionContext) => ReactNode)
   children: ReactNode
   maxWidth?: DialogProps['maxWidth']
   fullWidth?: boolean
@@ -19,11 +23,23 @@ type BaseDialogProps = {
   actionsSx?: SxProps<Theme>
   showCloseButton?: boolean
   disableBackdropClose?: boolean
+  protectTextInputClose?: boolean
   hasUnsavedChanges?: boolean
   confirmCloseTitle?: string
   confirmCloseDescription?: string
   confirmCloseConfirmLabel?: string
   confirmCloseCancelLabel?: string
+}
+
+const editableTextSelector = [
+  'textarea:not([disabled]):not([readonly])',
+  'input:not([type="hidden"]):not([disabled]):not([readonly])',
+  '[contenteditable="true"]',
+  '[role="textbox"]',
+].join(',')
+
+function isEditableTextTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(target.closest(editableTextSelector))
 }
 
 const defaultPaperSx = {
@@ -86,6 +102,7 @@ function BaseDialog({
   actionsSx,
   showCloseButton = true,
   disableBackdropClose = false,
+  protectTextInputClose = true,
   hasUnsavedChanges = false,
   confirmCloseTitle = 'Закрыть без сохранения?',
   confirmCloseDescription = 'Внесенные изменения будут потеряны.',
@@ -93,17 +110,28 @@ function BaseDialog({
   confirmCloseCancelLabel = 'Остаться',
 }: BaseDialogProps) {
   const [isConfirmCloseOpen, setIsConfirmCloseOpen] = useState(false)
+  const [hasUserInputChanges, setHasUserInputChanges] = useState(false)
+  const paperRef = useRef<HTMLElement | null>(null)
 
-  const handleRequestClose = () => {
-    if (hasUnsavedChanges) {
+  const hasProtectedUnsavedChanges = hasUnsavedChanges || (protectTextInputClose && hasUserInputChanges)
+  const dialogHasTextInputs = () => protectTextInputClose && Boolean(paperRef.current?.querySelector(editableTextSelector))
+
+  const handleRequestClose = useCallback(() => {
+    if (hasProtectedUnsavedChanges) {
       setIsConfirmCloseOpen(true)
       return
     }
     onClose()
+  }, [hasProtectedUnsavedChanges, onClose])
+
+  const handleDialogInputCapture = (event: FormEvent<HTMLElement>) => {
+    if (protectTextInputClose && isEditableTextTarget(event.target)) {
+      setHasUserInputChanges(true)
+    }
   }
 
   const handleDialogClose: DialogProps['onClose'] = (_event, reason) => {
-    if (reason === 'backdropClick' && (disableBackdropClose || hasUnsavedChanges)) {
+    if (reason === 'backdropClick' && (disableBackdropClose || dialogHasTextInputs())) {
       return
     }
     handleRequestClose()
@@ -112,10 +140,19 @@ function BaseDialog({
   useEffect(() => {
     if (!open) {
       setIsConfirmCloseOpen(false)
+      setHasUserInputChanges(false)
     }
   }, [open])
 
   const mobileSheet = useMobileDialogSheet({ onClose: handleRequestClose })
+  const mobileSheetPaperRef = mobileSheet.paperTouchHandlers.ref
+  const setPaperRef = useCallback<RefCallback<HTMLElement>>(
+    (node) => {
+      paperRef.current = node
+      mobileSheetPaperRef?.(node)
+    },
+    [mobileSheetPaperRef],
+  )
   const mergedPaperSx = flattenSx([defaultPaperSx, paperSx, mobileSheet.paperSx])
   const mergedTitleSx = flattenSx([defaultTitleSx, titleSx])
   const contentBaseSx = header ? defaultContentSxWithHeader : defaultContentSxWithoutHeader
@@ -155,7 +192,8 @@ function BaseDialog({
         sx: mergedBackdropSx,
       }}
       PaperProps={{
-        ...mobileSheet.paperTouchHandlers,
+        ref: setPaperRef,
+        onInputCapture: handleDialogInputCapture,
         sx: mergedPaperSx,
       }}
     >
@@ -188,7 +226,11 @@ function BaseDialog({
         <>
           {header ? <DialogTitle sx={mergedTitleSx}>{header}</DialogTitle> : null}
           <DialogContent sx={mergedContentSx}>{children}</DialogContent>
-          {actions ? <DialogActions sx={mergedActionsSx}>{actions}</DialogActions> : null}
+          {actions ? (
+            <DialogActions sx={mergedActionsSx}>
+              {typeof actions === 'function' ? actions({ requestClose: handleRequestClose }) : actions}
+            </DialogActions>
+          ) : null}
         </>
       )}
       <Dialog

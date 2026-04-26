@@ -494,6 +494,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [isCommunityInstructionRatingSaving, setIsCommunityInstructionRatingSaving] = useState(false)
   const [isCommunityInstructionAddSaving, setIsCommunityInstructionAddSaving] = useState(false)
   const [communityEntityReportTarget, setCommunityEntityReportTarget] = useState<CommunityEntityReportTarget | null>(null)
+  const [isCommunityEntityReportCloseConfirmOpen, setIsCommunityEntityReportCloseConfirmOpen] = useState(false)
   const [communityEntityReportReasonDraft, setCommunityEntityReportReasonDraft] = useState<StoryCommunityWorldReportReason>('other')
   const [communityEntityReportDescriptionDraft, setCommunityEntityReportDescriptionDraft] = useState('')
   const [communityEntityReportValidationError, setCommunityEntityReportValidationError] = useState('')
@@ -1512,18 +1513,26 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   }, [authToken, isCommunityInstructionAddSaving, selectedCommunityInstructionTemplate, user.id])
 
   const resetCommunityEntityReportDialog = useCallback(() => {
+    setIsCommunityEntityReportCloseConfirmOpen(false)
     setCommunityEntityReportTarget(null)
     setCommunityEntityReportReasonDraft('other')
     setCommunityEntityReportDescriptionDraft('')
     setCommunityEntityReportValidationError('')
   }, [])
 
+  const hasCommunityEntityReportUnsavedChanges =
+    communityEntityReportReasonDraft !== 'other' || Boolean(communityEntityReportDescriptionDraft.trim())
+
   const handleCloseCommunityEntityReportDialog = useCallback(() => {
     if (isCommunityEntityReportSubmitting) {
       return
     }
+    if (hasCommunityEntityReportUnsavedChanges) {
+      setIsCommunityEntityReportCloseConfirmOpen(true)
+      return
+    }
     resetCommunityEntityReportDialog()
-  }, [isCommunityEntityReportSubmitting, resetCommunityEntityReportDialog])
+  }, [hasCommunityEntityReportUnsavedChanges, isCommunityEntityReportSubmitting, resetCommunityEntityReportDialog])
 
   const handleOpenCharacterReportDialog = useCallback(() => {
     if (!selectedCommunityCharacter || selectedCommunityCharacter.is_reported_by_user || isCommunityEntityReportSubmitting) {
@@ -2971,7 +2980,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       </Dialog>
       <Dialog
         open={communityEntityReportTarget !== null}
-        onClose={handleCloseCommunityEntityReportDialog}
+        onClose={(_event, reason) => {
+          if (reason === 'backdropClick') {
+            return
+          }
+          handleCloseCommunityEntityReportDialog()
+        }}
         fullWidth
         maxWidth="sm"
         sx={{
@@ -3096,6 +3110,33 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             }}
           >
             {isCommunityEntityReportSubmitting ? 'Отправка...' : 'Отправить жалобу'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={isCommunityEntityReportCloseConfirmOpen}
+        onClose={() => setIsCommunityEntityReportCloseConfirmOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BACKGROUND,
+            color: APP_TEXT_PRIMARY,
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Закрыть без сохранения?</DialogTitle>
+        <DialogContent sx={{ color: APP_TEXT_SECONDARY, pt: 0.5 }}>
+          Внесенные изменения будут потеряны.
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsCommunityEntityReportCloseConfirmOpen(false)} sx={{ color: APP_TEXT_SECONDARY }}>
+            Остаться
+          </Button>
+          <Button onClick={resetCommunityEntityReportDialog} sx={{ color: APP_TEXT_PRIMARY }}>
+            Закрыть
           </Button>
         </DialogActions>
       </Dialog>

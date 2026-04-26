@@ -66,16 +66,16 @@ function FormDialog({
           ) : null}
         </Stack>
       }
-      actions={
+      actions={({ requestClose }) => (
         <>
-          <Button onClick={onClose} sx={cancelButtonSx}>
+          <Button onClick={requestClose} sx={cancelButtonSx}>
             {cancelLabel}
           </Button>
           <Button onClick={onSubmit} disabled={submitDisabled} sx={submitButtonSx}>
             {submitLabel}
           </Button>
         </>
-      }
+      )}
     >
       {children}
     </BaseDialog>

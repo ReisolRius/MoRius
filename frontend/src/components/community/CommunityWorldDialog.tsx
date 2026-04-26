@@ -490,6 +490,7 @@ function CommunityWorldDialog({
   const [isShareNoticeOpen, setIsShareNoticeOpen] = useState(false)
   const [isReportNoticeOpen, setIsReportNoticeOpen] = useState(false)
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
+  const [isReportCloseConfirmOpen, setIsReportCloseConfirmOpen] = useState(false)
   const [reportReasonDraft, setReportReasonDraft] = useState<string>('')
   const [reportDescriptionDraft, setReportDescriptionDraft] = useState('')
   const [reportValidationError, setReportValidationError] = useState('')
@@ -643,13 +644,25 @@ function CommunityWorldDialog({
     setIsReportDialogOpen(true)
   }, [canReportWorld, isActionLocked])
 
-  const handleCloseReportDialog = useCallback(() => {
+  const hasReportDialogUnsavedChanges = Boolean(reportReasonDraft.trim() || reportDescriptionDraft.trim())
+
+  const forceCloseReportDialog = useCallback(() => {
     if (isReportSubmitting) return
+    setIsReportCloseConfirmOpen(false)
     setIsReportDialogOpen(false)
     setReportValidationError('')
     setReportReasonDraft('')
     setReportDescriptionDraft('')
   }, [isReportSubmitting])
+
+  const handleCloseReportDialog = useCallback(() => {
+    if (isReportSubmitting) return
+    if (hasReportDialogUnsavedChanges) {
+      setIsReportCloseConfirmOpen(true)
+      return
+    }
+    forceCloseReportDialog()
+  }, [forceCloseReportDialog, hasReportDialogUnsavedChanges, isReportSubmitting])
 
   const reportDialogSheet = useMobileDialogSheet({ onClose: handleCloseReportDialog, disabled: isReportSubmitting })
 
@@ -1542,7 +1555,12 @@ function CommunityWorldDialog({
       {/* ── Report sub-dialog ── */}
       <Dialog
         open={isReportDialogOpen}
-        onClose={handleCloseReportDialog}
+        onClose={(_event, reason) => {
+          if (reason === 'backdropClick') {
+            return
+          }
+          handleCloseReportDialog()
+        }}
         maxWidth="sm"
         fullWidth
         sx={reportDialogSheet.dialogSx}
@@ -1624,6 +1642,33 @@ function CommunityWorldDialog({
             }}
           >
             {isReportSubmitting ? <CircularProgress size={15} sx={{ color: APP_TEXT_PRIMARY }} /> : 'Отправить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={isReportCloseConfirmOpen}
+        onClose={() => setIsReportCloseConfirmOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            background: APP_CARD_BG,
+            color: APP_TEXT_PRIMARY,
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Закрыть без сохранения?</DialogTitle>
+        <DialogContent sx={{ color: APP_TEXT_SECONDARY, pt: 0.5 }}>
+          Внесенные изменения будут потеряны.
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsReportCloseConfirmOpen(false)} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
+            Остаться
+          </Button>
+          <Button onClick={forceCloseReportDialog} sx={{ color: APP_TEXT_PRIMARY, textTransform: 'none' }}>
+            Закрыть
           </Button>
         </DialogActions>
       </Dialog>

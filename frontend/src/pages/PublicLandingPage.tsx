@@ -485,7 +485,7 @@ export default function PublicLandingPage({
         component="section"
         sx={{
           position: 'relative',
-          backgroundColor: '#1a1309',
+          background: 'linear-gradient(180deg, #1a1309 0%, #1a1309 68%, #111111 100%)',
           py: { xs: 0, md: 0 },
           overflow: 'hidden',
           /* warm radial glow on the left */
@@ -493,7 +493,18 @@ export default function PublicLandingPage({
             content: '""',
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(ellipse 55% 80% at 20% 60%, rgba(120,60,10,0.35) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(120,60,10,0.35) 0%, rgba(120,60,10,0.2) 42%, transparent 78%)',
+            pointerEvents: 'none',
+            zIndex: 0,
+          },
+          '&::after': {
+            content: '""',
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: { xs: 140, md: 190 },
+            background: 'linear-gradient(180deg, transparent 0%, #111111 100%)',
             pointerEvents: 'none',
             zIndex: 0,
           },
@@ -794,8 +805,8 @@ export default function PublicLandingPage({
                   WebkitTextStroke: `2px ${ORANGE}`,
                   letterSpacing: 0,
                   fontVariantNumeric: 'tabular-nums',
-                  WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 58%, rgba(0,0,0,0.36) 76%, transparent 100%)',
-                  maskImage: 'linear-gradient(180deg, #000 0%, #000 58%, rgba(0,0,0,0.36) 76%, transparent 100%)',
+                  WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 36%, rgba(0,0,0,0.28) 56%, transparent 78%)',
+                  maskImage: 'linear-gradient(180deg, #000 0%, #000 36%, rgba(0,0,0,0.28) 56%, transparent 78%)',
                   userSelect: 'none',
                   mb: -2,
                   opacity: 0.9,
@@ -937,25 +948,41 @@ export default function PublicLandingPage({
                         position: 'absolute',
                         inset: { xs: '10% 0 8%', md: '5% -6% 4%' },
                         background:
-                          'linear-gradient(90deg, transparent 0%, rgba(239,108,0,0.06) 22%, rgba(239,108,0,0.16) 50%, rgba(239,108,0,0.06) 78%, transparent 100%)',
+                          'radial-gradient(ellipse at center, rgba(239,108,0,0.2) 0%, rgba(239,108,0,0.12) 34%, rgba(239,108,0,0.05) 54%, transparent 76%)',
                         zIndex: 0,
                         pointerEvents: 'none',
                       }}
                     />
                     <Box
-                      component="img"
-                      src={item.preview}
-                      alt={item.title}
                       sx={{
                         position: 'relative',
                         zIndex: 1,
                         width: { xs: '85%', md: '90%' },
                         maxWidth: 560,
-                        borderRadius: '12px',
-                        boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(239,108,0,0.14)',
                         transform: 'rotate(4deg)',
+                        '&::after': {
+                          content: '""',
+                          position: 'absolute',
+                          inset: -1,
+                          borderRadius: '12px',
+                          background:
+                            'linear-gradient(90deg, #111111 0%, transparent 13%, transparent 87%, #111111 100%), linear-gradient(180deg, #111111 0%, transparent 13%, transparent 87%, #111111 100%)',
+                          pointerEvents: 'none',
+                        },
                       }}
-                    />
+                    >
+                      <Box
+                        component="img"
+                        src={item.preview}
+                        alt={item.title}
+                        sx={{
+                          width: '100%',
+                          display: 'block',
+                          borderRadius: '12px',
+                          boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(239,108,0,0.14)',
+                        }}
+                      />
+                    </Box>
                   </Box>
                 ))}
               </Box>

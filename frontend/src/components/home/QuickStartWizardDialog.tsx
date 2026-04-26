@@ -477,10 +477,10 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
         </Stack>
       }
       contentSx={{ px: { xs: 1.2, sm: 1.6 }, pb: { xs: 1.2, sm: 1.6 } }}
-      actions={
+      actions={({ requestClose }) => (
         <Stack direction="row" spacing={0.8} sx={{ width: '100%', justifyContent: 'space-between' }}>
           <Button
-            onClick={step === 0 ? onClose : () => setStep((current) => Math.max(0, current - 1))}
+            onClick={step === 0 ? requestClose : () => setStep((current) => Math.max(0, current - 1))}
             disabled={isSubmitting}
             sx={{
               minHeight: 40,
@@ -533,7 +533,7 @@ function QuickStartWizardDialog({ open, authToken, onClose, onStarted }: QuickSt
             </Button>
           )}
         </Stack>
-      }
+      )}
     >
       <Stack spacing={1.2}>
         <Box

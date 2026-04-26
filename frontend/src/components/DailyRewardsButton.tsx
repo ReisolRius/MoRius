@@ -193,6 +193,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
   return (
     <>
       <IconButton
+        className="morius-daily-rewards-button"
         onClick={handleTogglePopover}
         aria-label="Ежедневные награды"
         aria-expanded={open ? 'true' : undefined}

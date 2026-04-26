@@ -584,7 +584,7 @@ function AppHeader({
           >
             <Box
               sx={{
-                '& .MuiButtonBase-root': {
+                '& .MuiButtonBase-root:not(.morius-daily-rewards-button)': {
                   border: 'none !important',
                   backgroundColor: 'transparent !important',
                   boxShadow: 'none !important',
@@ -1577,7 +1577,7 @@ function AppHeader({
             sx={
               shouldHideRightToggle
                 ? {
-                    '& .MuiButtonBase-root': {
+                    '& .MuiButtonBase-root:not(.morius-daily-rewards-button)': {
                       border: 'none !important',
                       backgroundColor: 'transparent !important',
                       boxShadow: 'none !important',
