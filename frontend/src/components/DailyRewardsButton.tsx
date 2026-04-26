@@ -201,7 +201,11 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           minWidth: 0,
           width: size,
           height: size,
-          borderRadius: '50%',
+          maxWidth: size,
+          maxHeight: size,
+          flex: `0 0 ${size}px`,
+          aspectRatio: '1 / 1',
+          borderRadius: '9999px !important',
           p: 0,
           color: `${canClaim ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)'} !important`,
           backgroundColor: 'var(--morius-elevated-bg) !important',
@@ -209,11 +213,14 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           boxShadow: '0 10px 24px rgba(0,0,0,0.22)',
           transition: 'background-color 160ms ease, color 160ms ease, transform 160ms ease',
           position: 'relative',
-          overflow: 'visible',
+          overflow: 'hidden',
           '&:hover': {
             color: 'var(--morius-title-text) !important',
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, var(--morius-accent) 12%) !important',
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-title-text) 22%) !important',
             transform: 'translateY(-1px)',
+          },
+          '&:active': {
+            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, var(--morius-title-text) 28%) !important',
           },
         }}
       >

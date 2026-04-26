@@ -55,6 +55,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
 from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
 from app.routers.payments import router as payments_router
+from app.routers.referrals import router as referrals_router
 from app.routers.story_cards import router as story_cards_router
 from app.routers.story_characters import router as story_characters_router
 from app.routers.story_generate import router as story_generate_router
@@ -1507,6 +1508,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(health_router)
 app.include_router(payments_router)
+app.include_router(referrals_router)
 app.include_router(story_cards_router)
 app.include_router(story_characters_router)
 app.include_router(story_generate_router)

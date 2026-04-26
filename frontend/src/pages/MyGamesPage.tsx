@@ -272,6 +272,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false)
   const isPhoneLayout = useMediaQuery('(max-width:767px)')
@@ -662,6 +663,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
           return
         }
 
@@ -1474,6 +1476,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
@@ -1501,8 +1504,12 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
+        referralBonusCoins={paymentReferralBonusCoins}
         transitionComponent={DialogTransition}
-        onClose={() => setPaymentSuccessCoins(null)}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       <CharacterManagerDialog

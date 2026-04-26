@@ -5,6 +5,5 @@ from app.microservices.factory import create_service_app
 
 app = create_service_app(
     title=f"{settings.app_name} Auth Service",
-    include_prefixes=("/api/auth",),
+    include_prefixes=("/api/auth", "/api/referrals"),
 )
-

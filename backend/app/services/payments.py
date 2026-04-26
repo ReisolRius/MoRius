@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import ipaddress
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,6 +16,10 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models import CoinPurchase, User
 from app.services.concurrency import grant_purchase_coins_once
+from app.services.referrals import (
+    ReferralRewardGrantResult,
+    grant_referral_rewards_after_purchase,
+)
 
 PAYMENT_PROVIDER = "yookassa"
 FINAL_PAYMENT_STATUSES = {"succeeded", "canceled"}
@@ -62,6 +67,13 @@ HTTP_ADAPTER = HTTPAdapter(
 )
 HTTP_SESSION.mount("https://", HTTP_ADAPTER)
 HTTP_SESSION.mount("http://", HTTP_ADAPTER)
+
+
+@dataclass(frozen=True)
+class PaymentSyncResult:
+    purchase_coins_granted: bool = False
+    referral_bonus_granted: bool = False
+    referral_bonus_amount: int = 0
 
 
 def _utcnow() -> datetime:
@@ -288,13 +300,29 @@ def grant_purchase_coins_once_for_purchase(db: Session, purchase: CoinPurchase, 
     )
 
 
+def grant_purchase_and_referral_rewards_once_for_purchase(
+    db: Session,
+    purchase: CoinPurchase,
+    user: User,
+) -> PaymentSyncResult:
+    purchase_coins_granted = grant_purchase_coins_once_for_purchase(db, purchase, user)
+    referral_result = ReferralRewardGrantResult(bonus_granted=False)
+    if purchase_coins_granted:
+        referral_result = grant_referral_rewards_after_purchase(db, purchase=purchase, user=user)
+    return PaymentSyncResult(
+        purchase_coins_granted=purchase_coins_granted,
+        referral_bonus_granted=referral_result.bonus_granted,
+        referral_bonus_amount=referral_result.bonus_amount if referral_result.bonus_granted else 0,
+    )
+
+
 def sync_purchase_status(
     *,
     db: Session,
     purchase: CoinPurchase,
     user: User,
     provider_payment_payload: dict[str, Any],
-) -> None:
+) -> PaymentSyncResult:
     status_value = str(provider_payment_payload.get("status", "")).strip().lower()
     if not status_value:
         raise HTTPException(
@@ -303,12 +331,16 @@ def sync_purchase_status(
         )
 
     purchase.status = status_value
+    sync_result = PaymentSyncResult()
     if status_value == "succeeded":
-        grant_purchase_coins_once_for_purchase(db, purchase, user)
+        if purchase.id is None:
+            db.flush()
+        sync_result = grant_purchase_and_referral_rewards_once_for_purchase(db, purchase, user)
 
     db.commit()
     db.refresh(purchase)
     db.refresh(user)
+    return sync_result
 
 
 def sync_user_pending_purchases(db: Session, user: User) -> None:

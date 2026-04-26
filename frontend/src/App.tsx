@@ -1,5 +1,6 @@
 ﻿import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import {
+  applyReferralCode,
   getCurrentUser,
   getCurrentUserThemeSettings,
   type CurrentUserThemeSettings,
@@ -10,6 +11,12 @@ import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 import { getMoriusThemeById, useMoriusThemeController } from './theme'
 import { buildPresetFromCustomTheme } from './theme/customTheme'
+import {
+  clearPendingReferralCode,
+  extractReferralCodeFromLocation,
+  readPendingReferralCode,
+  savePendingReferralCode,
+} from './utils/referrals'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -72,6 +79,10 @@ function isAuthenticatedPath(pathname: string): boolean {
 
 function isLegalPath(pathname: string): boolean {
   return pathname === '/privacy-policy' || pathname === '/terms-of-service'
+}
+
+function isReferralPath(pathname: string): boolean {
+  return /^\/ref\/[^/?#]+\/?$/.test(pathname)
 }
 
 function extractStoryGameId(pathname: string): number | null {
@@ -184,6 +195,14 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     show_public_characters: typeof value.show_public_characters === 'boolean' ? value.show_public_characters : false,
     show_public_instruction_templates:
       typeof value.show_public_instruction_templates === 'boolean' ? value.show_public_instruction_templates : false,
+    referral_code: typeof value.referral_code === 'string' && value.referral_code.trim() ? value.referral_code : null,
+    referred_by_user_id:
+      typeof value.referred_by_user_id === 'number' && Number.isFinite(value.referred_by_user_id)
+        ? Math.trunc(value.referred_by_user_id)
+        : null,
+    referral_applied_at: typeof value.referral_applied_at === 'string' ? value.referral_applied_at : null,
+    referral_bonus_claimed_at:
+      typeof value.referral_bonus_claimed_at === 'string' ? value.referral_bonus_claimed_at : null,
     active_theme_id:
       typeof value.active_theme_id === 'string' && value.active_theme_id.trim() ? value.active_theme_id : null,
     is_banned: Boolean(value.is_banned),
@@ -264,6 +283,7 @@ function App() {
   const [authToken, setAuthToken] = useState<string | null>(initialSession.token)
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
+  const [pendingReferralCode, setPendingReferralCode] = useState(() => readPendingReferralCode())
   const [isRouteTransitionVisible, setIsRouteTransitionVisible] = useState(false)
   const hasTrackedInitialRouteRef = useRef(false)
   const routeTransitionTimerRef = useRef<number | null>(null)
@@ -399,6 +419,50 @@ function App() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setPath(normalizedTarget.pathname)
   }, [triggerRouteTransition])
+
+  useEffect(() => {
+    const referralCode = extractReferralCodeFromLocation(window.location)
+    if (!referralCode) {
+      return
+    }
+    const savedCode = savePendingReferralCode(referralCode)
+    const timerIds: number[] = []
+    if (savedCode) {
+      timerIds.push(window.setTimeout(() => setPendingReferralCode(savedCode), 0))
+    }
+    if (isReferralPath(path)) {
+      timerIds.push(window.setTimeout(() => navigate(`/?ref=${encodeURIComponent(referralCode)}`, { replace: true }), 0))
+    }
+    return () => {
+      timerIds.forEach((timerId) => window.clearTimeout(timerId))
+    }
+  }, [navigate, path])
+
+  useEffect(() => {
+    if (!authToken || !pendingReferralCode) {
+      return
+    }
+
+    let active = true
+    void applyReferralCode({
+      token: authToken,
+      code: pendingReferralCode,
+    })
+      .then(() => {
+        if (!active) {
+          return
+        }
+        clearPendingReferralCode()
+        setPendingReferralCode('')
+      })
+      .catch(() => {
+        // Keep the pending code for a later retry if the network is temporarily unavailable.
+      })
+
+    return () => {
+      active = false
+    }
+  }, [authToken, pendingReferralCode])
 
   const resetSession = useCallback(() => {
     clearAuthSession()
@@ -659,6 +723,7 @@ function App() {
       <Suspense fallback={null}>
         <PublicLandingPage
           isAuthenticated={isAuthenticated}
+          pendingReferralCode={pendingReferralCode}
           onNavigate={navigate}
           onGoHome={() => navigate('/dashboard')}
           onAuthSuccess={handleAuthSuccess}

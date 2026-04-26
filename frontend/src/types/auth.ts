@@ -22,6 +22,10 @@ export type AuthUser = {
   show_private_worlds?: boolean
   show_public_characters?: boolean
   show_public_instruction_templates?: boolean
+  referral_code?: string | null
+  referred_by_user_id?: number | null
+  referral_applied_at?: string | null
+  referral_bonus_claimed_at?: string | null
   active_theme_id?: string | null
   is_banned: boolean
   ban_expires_at: string | null

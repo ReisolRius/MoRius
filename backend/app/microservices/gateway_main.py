@@ -7,6 +7,7 @@ app = create_service_app(
     title=f"{settings.app_name} Gateway",
     include_prefixes=(
         "/api/auth",
+        "/api/referrals",
         "/api/story",
         "/api/payments",
         "/api/media",

@@ -51,6 +51,7 @@ import {
   deleteCurrentUserNotification,
   followUserProfile,
   getCurrentUserNotificationSummary,
+  getCurrentUserReferralSummary,
   listCurrentUserNotifications,
   markAllCurrentUserNotificationsRead,
   getProfileView,
@@ -63,9 +64,11 @@ import {
   type CoinTopUpPlan,
   type ProfileFollowState,
   type ProfileView,
+  type ReferralSummary,
   type UserNotificationCounters,
   type UserNotification,
 } from '../services/authApi'
+import { buildReferralLink } from '../utils/referrals'
 import {
   deleteStoryCharacter,
   deleteStoryInstructionTemplate,
@@ -515,6 +518,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
+  const [referralSummary, setReferralSummary] = useState<ReferralSummary | null>(null)
+  const [isReferralSummaryLoading, setIsReferralSummaryLoading] = useState(false)
+  const [referralError, setReferralError] = useState('')
+  const [isReferralCopied, setIsReferralCopied] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
 
   const [error, setError] = useState('')
@@ -575,6 +583,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     [profileView, resolvedProfileName, resolvedProfileUser.avatar_url, resolvedProfileUser.id],
   )
   const visibleSubscriptions = profileView?.subscriptions ?? []
+  const referralLink = useMemo(
+    () => buildReferralLink(referralSummary?.referral_code ?? user.referral_code ?? ''),
+    [referralSummary?.referral_code, user.referral_code],
+  )
   const isProfileBootstrapLoading = isProfileViewLoading
   const isCurrentTabContentLoading =
     (tab === 'characters' && isOwnProfile && isLoadingContent && characters.length === 0) ||
@@ -1082,6 +1094,56 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   }, [authToken, isOwnProfile])
   void loadFavoriteWorlds
 
+  const loadReferralSummary = useCallback(async () => {
+    if (!isOwnProfile) {
+      setReferralSummary(null)
+      setReferralError('')
+      return
+    }
+
+    setIsReferralSummaryLoading(true)
+    setReferralError('')
+    try {
+      const summary = await getCurrentUserReferralSummary({ token: authToken })
+      setReferralSummary(summary)
+    } catch (requestError) {
+      setReferralSummary(null)
+      setReferralError(requestError instanceof Error ? requestError.message : 'Не удалось загрузить реферальную ссылку')
+    } finally {
+      setIsReferralSummaryLoading(false)
+    }
+  }, [authToken, isOwnProfile])
+
+  useEffect(() => {
+    void loadReferralSummary()
+  }, [loadReferralSummary])
+
+  const handleCopyReferralLink = useCallback(async () => {
+    if (!referralLink) {
+      return
+    }
+    setReferralError('')
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(referralLink)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = referralLink
+        textarea.setAttribute('readonly', 'true')
+        textarea.style.position = 'fixed'
+        textarea.style.left = '-9999px'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setIsReferralCopied(true)
+      window.setTimeout(() => setIsReferralCopied(false), 1800)
+    } catch {
+      setReferralError('Не удалось скопировать ссылку')
+    }
+  }, [referralLink])
+
   /* legacyLoadNotifications
     if (!isOwnProfile) {
       setNotifications([])
@@ -1559,6 +1621,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
+          if (response.referral_bonus_granted) {
+            void loadReferralSummary()
+          }
           return
         }
 
@@ -1572,7 +1638,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         }
       }
     },
-    [authToken, onUserUpdate],
+    [authToken, loadReferralSummary, onUserUpdate],
   )
 
   useEffect(() => {
@@ -3528,6 +3594,56 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       </Box>
                     ) : null}
 
+                    {isOwnProfile ? (
+                      <Box
+                        sx={{
+                          display: { xs: 'block', lg: 'none' },
+                          p: 1.05,
+                          borderRadius: '8px',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 84%, transparent)',
+                        }}
+                      >
+                        <Stack spacing={0.82}>
+                          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 900 }}>
+                              Пригласи друга
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 900 }}>
+                              +500 солов
+                            </Typography>
+                          </Stack>
+                          <Button
+                            onClick={() => void handleCopyReferralLink()}
+                            disabled={!referralLink || isReferralSummaryLoading}
+                            sx={{
+                              minHeight: 36,
+                              px: 1,
+                              borderRadius: '8px',
+                              justifyContent: 'flex-start',
+                              gap: 0.75,
+                              textTransform: 'none',
+                              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                              backgroundColor: 'var(--morius-elevated-bg)',
+                              color: 'var(--morius-text-primary)',
+                              fontWeight: 800,
+                              '&:hover': {
+                                backgroundColor: 'var(--morius-button-hover)',
+                              },
+                            }}
+                          >
+                            <Box component="img" src={icons.communityShare} alt="" sx={{ width: 15, height: 15, flexShrink: 0 }} />
+                            <Typography component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.78rem', fontWeight: 800 }}>
+                              {isReferralCopied ? 'Ссылка скопирована' : 'Скопировать реферальную ссылку'}
+                            </Typography>
+                          </Button>
+                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.28 }}>
+                            Оплаченных приглашений: {Math.max(0, referralSummary?.paid_referrals_count ?? 0)}
+                          </Typography>
+                        </Stack>
+                      </Box>
+                    ) : null}
+
                     <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }} sx={{ display: { xs: 'none', md: 'flex' } }}>
                       {!isOwnProfile ? (
                         <Button
@@ -3927,6 +4043,78 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Typography>
                       </Button>
                     ))}
+
+                {isOwnProfile ? (
+                  <Box
+                    sx={{
+                      mt: 0.35,
+                      p: 1.15,
+                      borderRadius: '8px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, transparent)',
+                    }}
+                  >
+                    <Stack spacing={0.9}>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 900 }}>
+                          Пригласи друга
+                        </Typography>
+                        <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 900 }}>
+                          +500
+                        </Typography>
+                      </Stack>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                        Друг получит +500 солов после первой покупки, и ты тоже получишь +500.
+                      </Typography>
+                      {isReferralSummaryLoading && !referralSummary ? (
+                        <Skeleton variant="rounded" height={34} sx={{ borderRadius: '8px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />
+                      ) : (
+                        <Button
+                          onClick={() => void handleCopyReferralLink()}
+                          disabled={!referralLink}
+                          sx={{
+                            minHeight: 34,
+                            px: 1,
+                            borderRadius: '8px',
+                            justifyContent: 'flex-start',
+                            gap: 0.75,
+                            textTransform: 'none',
+                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-text-primary)',
+                            fontWeight: 800,
+                            '&:hover': {
+                              backgroundColor: 'var(--morius-button-hover)',
+                            },
+                          }}
+                        >
+                          <Box component="img" src={icons.communityShare} alt="" sx={{ width: 15, height: 15, flexShrink: 0 }} />
+                          <Typography
+                            component="span"
+                            sx={{
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              fontSize: '0.78rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            {isReferralCopied ? 'Ссылка скопирована' : 'Скопировать ссылку'}
+                          </Typography>
+                        </Button>
+                      )}
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem', lineHeight: 1.25 }}>
+                        Оплаченных приглашений: {Math.max(0, referralSummary?.paid_referrals_count ?? 0)}
+                      </Typography>
+                      {referralError ? (
+                        <Typography sx={{ color: 'var(--morius-danger, #ef6c6c)', fontSize: '0.74rem', lineHeight: 1.25 }}>
+                          {referralError}
+                        </Typography>
+                      ) : null}
+                    </Stack>
+                  </Box>
+                ) : null}
 
                 {profileSidebarSubscriptions.length > 0 ? (
                   <Stack spacing={0.8} sx={{ pt: 0.5 }}>
@@ -4373,6 +4561,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
       />
@@ -4380,7 +4569,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
-        onClose={() => setPaymentSuccessCoins(null)}
+        referralBonusCoins={paymentReferralBonusCoins}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       <ProfileDialog

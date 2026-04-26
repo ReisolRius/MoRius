@@ -460,6 +460,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [isCommunityWorldsLoadingMore, setIsCommunityWorldsLoadingMore] = useState(false)
@@ -1836,6 +1837,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
           return
         }
         if (FINAL_PAYMENT_STATUSES.has(response.status)) {
@@ -3165,6 +3167,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
       />
@@ -3187,7 +3190,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
-        onClose={() => setPaymentSuccessCoins(null)}
+        referralBonusCoins={paymentReferralBonusCoins}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       {/* Mobile search overlay — slides in from top when search icon is tapped */}

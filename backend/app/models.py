@@ -47,6 +47,10 @@ class User(Base):
     daily_reward_cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     daily_reward_claim_month: Mapped[str] = mapped_column(String(7), nullable=False, default="", server_default="")
     daily_reward_claim_mask: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    referral_code: Mapped[str | None] = mapped_column(String(24), unique=True, nullable=True, index=True)
+    referred_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    referral_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    referral_bonus_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -127,6 +131,23 @@ class CoinPurchase(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class ReferralReward(Base):
+    __tablename__ = "referral_rewards"
+    __table_args__ = (
+        UniqueConstraint("referred_user_id", name="uq_referral_rewards_referred_user"),
+        UniqueConstraint("triggering_purchase_id", name="uq_referral_rewards_triggering_purchase"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    referrer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    referred_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    triggering_purchase_id: Mapped[int] = mapped_column(ForeignKey("coin_purchases.id"), nullable=False, index=True)
+    referrer_reward_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=500, server_default="500")
+    referred_reward_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=500, server_default="500")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="granted", server_default="granted")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class DashboardNewsCard(Base):

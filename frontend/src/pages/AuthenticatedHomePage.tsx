@@ -519,6 +519,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [dashboardNews, setDashboardNews] = useState<DashboardNewsCard[]>([])
   const [selectedDashboardNewsId, setSelectedDashboardNewsId] = useState<number | null>(null)
   const [isDashboardNewsLoading, setIsDashboardNewsLoading] = useState(false)
@@ -1215,6 +1216,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
           return
         }
 
@@ -1623,7 +1625,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         sx={{
           position: 'relative',
           zIndex: 1,
-          pt: 'var(--morius-header-menu-top)',
+          pt: { xs: 'max(46px, calc(var(--morius-header-menu-top) - 20px))', md: 'var(--morius-header-menu-top)' },
           pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
@@ -2112,6 +2114,18 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 height: { xs: 382, sm: 420 },
                 borderRadius: '0 0 16px 16px',
                 background: APP_CARD_BACKGROUND,
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: 86,
+                  zIndex: 1,
+                  pointerEvents: 'none',
+                  background:
+                    'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-base) 90%, transparent) 0%, color-mix(in srgb, var(--morius-app-base) 48%, transparent) 48%, rgba(0,0,0,0) 100%)',
+                },
               }}
             >
               {isDashboardNewsLoading && dashboardNews.length === 0 ? (
@@ -2138,6 +2152,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     sx={{
                       position: 'absolute',
                       inset: 0,
+                      zIndex: 1,
                       background:
                         'linear-gradient(180deg, rgba(0,0,0,0.02) 0%, rgba(0,0,0,0.28) 48%, rgba(0,0,0,0.9) 100%)',
                     }}
@@ -2147,7 +2162,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     justifyContent="flex-end"
                     sx={{
                       position: 'relative',
-                      zIndex: 1,
+                      zIndex: 2,
                       height: '100%',
                       px: 2,
                       pb: 2.2,
@@ -2546,6 +2561,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
@@ -2573,8 +2589,12 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
+        referralBonusCoins={paymentReferralBonusCoins}
         transitionComponent={DialogTransition}
-        onClose={() => setPaymentSuccessCoins(null)}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       <CharacterManagerDialog

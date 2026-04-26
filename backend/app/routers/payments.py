@@ -26,12 +26,13 @@ from app.services.payments import (
     create_payment_in_provider,
     fetch_payment_from_provider,
     get_coin_plan,
-    grant_purchase_coins_once_for_purchase,
+    grant_purchase_and_referral_rewards_once_for_purchase,
     is_payments_configured,
     is_yookassa_webhook_source_ip_allowed,
     is_yookassa_webhook_token_valid,
     sync_purchase_status,
 )
+from app.services.referrals import get_referred_reward_amount_for_purchase
 
 router = APIRouter()
 
@@ -102,7 +103,7 @@ def create_coin_top_up_payment(
 
     db.flush()
     if provider_status == "succeeded":
-        grant_purchase_coins_once_for_purchase(db, purchase, user)
+        grant_purchase_and_referral_rewards_once_for_purchase(db, purchase, user)
 
     db.commit()
     db.refresh(purchase)
@@ -133,21 +134,41 @@ def sync_coin_top_up_payment(
 
     needs_sync = purchase.status not in FINAL_PAYMENT_STATUSES
     needs_coin_apply = purchase.status == "succeeded" and purchase.coins_granted_at is None
+    referral_bonus_granted = False
+    referral_bonus_amount = 0
     if needs_sync or needs_coin_apply:
         provider_payment_payload = fetch_payment_from_provider(payment_id)
-        sync_purchase_status(
+        sync_result = sync_purchase_status(
             db=db,
             purchase=purchase,
             user=user,
             provider_payment_payload=provider_payment_payload,
         )
+        referral_bonus_granted = sync_result.referral_bonus_granted
+        referral_bonus_amount = sync_result.referral_bonus_amount
     else:
         db.refresh(user)
+
+    if (
+        not referral_bonus_granted
+        and purchase.status == "succeeded"
+        and purchase.id is not None
+    ):
+        existing_referral_bonus_amount = get_referred_reward_amount_for_purchase(
+            db,
+            purchase_id=int(purchase.id),
+            referred_user_id=int(user.id),
+        )
+        if existing_referral_bonus_amount > 0:
+            referral_bonus_granted = True
+            referral_bonus_amount = existing_referral_bonus_amount
 
     return CoinTopUpSyncResponse(
         payment_id=purchase.provider_payment_id,
         status=purchase.status,
         coins=purchase.coins,
+        referral_bonus_granted=referral_bonus_granted,
+        referral_bonus_amount=referral_bonus_amount,
         user=UserOut.model_validate(user),
     )
 

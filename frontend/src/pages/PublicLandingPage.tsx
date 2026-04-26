@@ -261,6 +261,7 @@ function RevealOnView({ children, delay = 0, y = 24, threshold = 0.18, sx }: Rev
 
 type PublicLandingPageProps = {
   isAuthenticated: boolean
+  pendingReferralCode?: string | null
   onNavigate: (path: string) => void
   onGoHome: () => void
   onAuthSuccess: (payload: AuthResponse) => void
@@ -270,11 +271,13 @@ type PublicLandingPageProps = {
 
 export default function PublicLandingPage({
   isAuthenticated,
+  pendingReferralCode,
   onNavigate,
   onGoHome,
   onAuthSuccess,
 }: PublicLandingPageProps) {
   const storySectionRef = useRef<HTMLElement | null>(null)
+  const openedReferralCodeRef = useRef<string | null>(null)
   const [animationStarted, setAnimationStarted] = useState(false)
   const [typedText, setTypedText] = useState('')
   const [promptText, setPromptText] = useState('')
@@ -337,6 +340,18 @@ export default function PublicLandingPage({
   }, [])
 
   const isTyping = animationStarted && typedText.length < STORY_TEXT.length
+
+  useEffect(() => {
+    if (isAuthenticated || !pendingReferralCode || openedReferralCodeRef.current === pendingReferralCode) {
+      return
+    }
+    openedReferralCodeRef.current = pendingReferralCode
+    const timerId = window.setTimeout(() => {
+      setAuthDialogMode('register')
+      setAuthDialogOpen(true)
+    }, 0)
+    return () => window.clearTimeout(timerId)
+  }, [isAuthenticated, pendingReferralCode])
 
   const openAuthDialog = (mode: AuthMode) => {
     if (isAuthenticated) { onGoHome(); return }

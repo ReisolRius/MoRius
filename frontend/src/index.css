@@ -223,6 +223,17 @@ select {
   animation: morius-caret-blink 1s steps(1, end) infinite;
 }
 
+.morius-streaming-caret {
+  display: inline-block;
+  width: 0.08em;
+  height: 1.08em;
+  margin-left: 0.14em;
+  transform: translateY(0.16em);
+  border-radius: 999px;
+  background: currentColor;
+  animation: morius-caret-blink 1s steps(1, end) infinite;
+}
+
 @keyframes morius-dot-bounce {
   0%,
   80%,
@@ -295,6 +306,17 @@ select {
 
 .morius-composer-waiting {
   animation: morius-composer-glow 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-caret,
+  .morius-streaming-caret,
+  .morius-generating-pulse-dot,
+  .morius-generating-dot,
+  .morius-stop-indicator,
+  .morius-composer-waiting {
+    animation: none !important;
+  }
 }
 
 @keyframes morius-news-progress {

@@ -219,7 +219,25 @@ export type CoinTopUpSyncResponse = {
   payment_id: string
   status: string
   coins: number
+  referral_bonus_granted?: boolean
+  referral_bonus_amount?: number
   user: AuthUser
+}
+
+export type ReferralSummary = {
+  referral_code: string
+  paid_referrals_count: number
+  referral_pending_purchase: boolean
+  pending_bonus_amount: number
+}
+
+export type ReferralApplyResponse = {
+  ok: boolean
+  reason: string
+  message: string
+  referral_pending_purchase: boolean
+  pending_bonus_amount: number
+  referrer_user_id: number | null
 }
 
 export type AdminManagedUser = {
@@ -1268,6 +1286,62 @@ export async function syncCoinTopUpPayment(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
+}
+
+export async function getCurrentUserReferralSummary(payload: { token: string } | string): Promise<ReferralSummary> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<ReferralSummary>(
+    '/api/referrals/me',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return {
+    referral_code: typeof response.referral_code === 'string' ? response.referral_code : '',
+    paid_referrals_count:
+      typeof response.paid_referrals_count === 'number' && Number.isFinite(response.paid_referrals_count)
+        ? Math.max(0, Math.trunc(response.paid_referrals_count))
+        : 0,
+    referral_pending_purchase: Boolean(response.referral_pending_purchase),
+    pending_bonus_amount:
+      typeof response.pending_bonus_amount === 'number' && Number.isFinite(response.pending_bonus_amount)
+        ? Math.max(0, Math.trunc(response.pending_bonus_amount))
+        : 0,
+  }
+}
+
+export async function applyReferralCode(payload: {
+  token: string
+  code: string
+}): Promise<ReferralApplyResponse> {
+  const response = await requestJson<ReferralApplyResponse>(
+    '/api/referrals/apply',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({ code: payload.code }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return {
+    ok: Boolean(response.ok),
+    reason: typeof response.reason === 'string' ? response.reason : '',
+    message: typeof response.message === 'string' ? response.message : '',
+    referral_pending_purchase: Boolean(response.referral_pending_purchase),
+    pending_bonus_amount:
+      typeof response.pending_bonus_amount === 'number' && Number.isFinite(response.pending_bonus_amount)
+        ? Math.max(0, Math.trunc(response.pending_bonus_amount))
+        : 0,
+    referrer_user_id:
+      typeof response.referrer_user_id === 'number' && Number.isFinite(response.referrer_user_id)
+        ? Math.trunc(response.referrer_user_id)
+        : null,
+  }
 }
 
 export async function getCurrentUserThemeSettings(payload: { token: string } | string): Promise<CurrentUserThemeSettings> {

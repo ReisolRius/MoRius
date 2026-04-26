@@ -3212,6 +3212,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={handlePurchaseTopUpPlan}
       />

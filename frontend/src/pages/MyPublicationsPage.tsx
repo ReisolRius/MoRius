@@ -556,6 +556,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [section, setSection] = useState<PublicationSection>('worlds')
   const [errorMessage, setErrorMessage] = useState('')
   const [publicationGames, setPublicationGames] = useState<StoryGameSummary[]>([])
@@ -983,6 +984,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
           return
         }
 
@@ -1327,6 +1329,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
       />
@@ -1340,7 +1343,11 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
-        onClose={() => setPaymentSuccessCoins(null)}
+        referralBonusCoins={paymentReferralBonusCoins}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       <Footer

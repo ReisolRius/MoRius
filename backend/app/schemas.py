@@ -34,6 +34,10 @@ class UserOut(BaseModel):
     show_private_worlds: bool = False
     show_public_characters: bool = False
     show_public_instruction_templates: bool = False
+    referral_code: str | None = None
+    referred_by_user_id: int | None = None
+    referral_applied_at: datetime | None = None
+    referral_bonus_claimed_at: datetime | None = None
     active_theme_id: str | None = None
     is_banned: bool
     ban_expires_at: datetime | None
@@ -376,7 +380,29 @@ class CoinTopUpSyncResponse(BaseModel):
     payment_id: str
     status: str
     coins: int
+    referral_bonus_granted: bool = False
+    referral_bonus_amount: int = 0
     user: UserOut
+
+
+class ReferralApplyRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)
+
+
+class ReferralApplyResponse(BaseModel):
+    ok: bool
+    reason: str
+    message: str
+    referral_pending_purchase: bool
+    pending_bonus_amount: int = 0
+    referrer_user_id: int | None = None
+
+
+class ReferralSummaryOut(BaseModel):
+    referral_code: str
+    paid_referrals_count: int = Field(default=0, ge=0)
+    referral_pending_purchase: bool = False
+    pending_bonus_amount: int = 0
 
 
 class StoryGameCreateRequest(BaseModel):

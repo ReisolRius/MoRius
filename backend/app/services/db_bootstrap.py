@@ -9,6 +9,7 @@ from sqlalchemy import inspect, or_, text
 from app.database import Base, SessionLocal, engine
 from app.models import (
     CoinPurchase,
+    ReferralReward,
     StoryCharacter,
     StoryCharacterRace,
     StoryWorldCardTemplate,
@@ -217,6 +218,14 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_month VARCHAR(7) NOT NULL DEFAULT ''")
     if "daily_reward_claim_mask" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claim_mask INTEGER NOT NULL DEFAULT 0")
+    if "referral_code" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN referral_code VARCHAR(24)")
+    if "referred_by_user_id" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN referred_by_user_id INTEGER")
+    if "referral_applied_at" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN referral_applied_at TIMESTAMP WITH TIME ZONE")
+    if "referral_bonus_claimed_at" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN referral_bonus_claimed_at TIMESTAMP WITH TIME ZONE")
 
     if not alter_statements:
         return
@@ -1195,6 +1204,14 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {StoryBugReport.__tablename__} (reporter_user_id, status, id)",
         "CREATE INDEX IF NOT EXISTS ix_coin_purchases_user_status_granted "
         f"ON {CoinPurchase.__tablename__} (user_id, status, coins_granted_at)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_referral_code "
+        f"ON {User.__tablename__} (referral_code)",
+        "CREATE INDEX IF NOT EXISTS ix_users_referred_by_user_id "
+        f"ON {User.__tablename__} (referred_by_user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_referral_rewards_referrer_status_id "
+        f"ON {ReferralReward.__tablename__} (referrer_user_id, status, id)",
+        "CREATE INDEX IF NOT EXISTS ix_referral_rewards_referred_id "
+        f"ON {ReferralReward.__tablename__} (referred_user_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_user_follows_follower_following_id "
         f"ON {UserFollow.__tablename__} (follower_user_id, following_user_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_user_follows_following_follower_id "

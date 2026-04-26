@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Box,
@@ -11,7 +12,7 @@ import {
   Typography,
   type DialogProps,
 } from '@mui/material'
-import type { CoinTopUpPlan } from '../../services/authApi'
+import { getCurrentUserReferralSummary, type CoinTopUpPlan } from '../../services/authApi'
 import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
 import chroniclerOrnament from '../../assets/images/topup/chronicler-ornament.svg'
 import putnikRibbon from '../../assets/images/topup/putnik-ribbon.svg'
@@ -24,6 +25,9 @@ type TopUpDialogProps = {
   isTopUpPlansLoading: boolean
   topUpPlans: CoinTopUpPlan[]
   activePlanPurchaseId: string | null
+  authToken?: string
+  referralBonusPending?: boolean
+  referralBonusAmount?: number
   transitionComponent?: DialogProps['TransitionComponent']
   onClose: () => void
   onPurchasePlan: (planId: string) => void
@@ -86,11 +90,41 @@ function TopUpDialog({
   isTopUpPlansLoading,
   topUpPlans,
   activePlanPurchaseId,
+  authToken,
+  referralBonusPending,
+  referralBonusAmount,
   transitionComponent,
   onClose,
   onPurchasePlan,
 }: TopUpDialogProps) {
   const mobileSheet = useMobileDialogSheet({ onClose })
+  const [fetchedReferralBonusPending, setFetchedReferralBonusPending] = useState(false)
+  const [fetchedReferralBonusAmount, setFetchedReferralBonusAmount] = useState(500)
+  const resolvedReferralBonusPending = referralBonusPending ?? fetchedReferralBonusPending
+  const resolvedReferralBonusAmount = referralBonusAmount ?? fetchedReferralBonusAmount
+
+  useEffect(() => {
+    if (!open || !authToken || referralBonusPending !== undefined) {
+      return
+    }
+    let active = true
+    void getCurrentUserReferralSummary({ token: authToken })
+      .then((summary) => {
+        if (!active) {
+          return
+        }
+        setFetchedReferralBonusPending(summary.referral_pending_purchase)
+        setFetchedReferralBonusAmount(summary.pending_bonus_amount || 500)
+      })
+      .catch(() => {
+        if (active) {
+          setFetchedReferralBonusPending(false)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [authToken, open, referralBonusPending])
   return (
     <Dialog
       open={open}
@@ -152,6 +186,21 @@ function TopUpDialog({
       >
         <Stack spacing={1.8}>
           {topUpError ? <Alert severity="error">{topUpError}</Alert> : null}
+          {resolvedReferralBonusPending ? (
+            <Alert
+              severity="success"
+              sx={{
+                borderRadius: '14px',
+                backgroundColor: 'rgba(93, 216, 188, 0.12)',
+                color: 'rgba(255,255,255,0.88)',
+                '& .MuiAlert-icon': {
+                  color: '#5DD8BC',
+                },
+              }}
+            >
+              После первой покупки по приглашению начислим +{Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')} солов вам и другу.
+            </Alert>
+          ) : null}
           {isTopUpPlansLoading ? (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
               <CircularProgress size={30} />

@@ -4,12 +4,14 @@ import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 type PaymentSuccessDialogProps = {
   open: boolean
   coins: number
+  referralBonusCoins?: number
   onClose: () => void
   transitionComponent?: DialogProps['TransitionComponent']
 }
 
-function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: PaymentSuccessDialogProps) {
+function PaymentSuccessDialog({ open, coins, referralBonusCoins = 0, onClose, transitionComponent }: PaymentSuccessDialogProps) {
   const mobileSheet = useMobileDialogSheet({ onClose })
+  const normalizedReferralBonusCoins = Math.max(0, Math.trunc(referralBonusCoins))
   return (
     <Dialog
       open={open}
@@ -43,6 +45,11 @@ function PaymentSuccessDialog({ open, coins, onClose, transitionComponent }: Pay
         <Typography sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
           Начислено +{Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')} солов.
         </Typography>
+        {normalizedReferralBonusCoins > 0 ? (
+          <Typography sx={{ color: 'var(--morius-accent)', lineHeight: 1.5, mt: 0.8, fontWeight: 700 }}>
+            Реферальный бонус: +{normalizedReferralBonusCoins.toLocaleString('ru-RU')} солов.
+          </Typography>
+        ) : null}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.4 }}>
         <Button

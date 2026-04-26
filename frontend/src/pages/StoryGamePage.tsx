@@ -164,6 +164,7 @@ import type {
   StoryNarratorModelId,
   StoryPlotCard,
   StoryPlotCardEvent,
+  StoryStreamDonePayload,
   StoryWorldCard,
   StoryWorldCardKind,
   StoryWorldDetailType,
@@ -172,6 +173,13 @@ import type {
   SmartRegenerationOption,
 } from '../types/story'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
+import {
+  createSmoothStreamingTextController,
+  prefersReducedMotion,
+  readSmoothStreamingPreference,
+  writeSmoothStreamingPreference,
+  type SmoothStreamingTextController,
+} from '../utils/smoothStreamingText'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import {
@@ -286,6 +294,7 @@ type VisualStageParticipant = StorySceneEmotionCueParticipant & {
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
+const STREAMING_CARET_CLASS_NAME = 'morius-streaming-caret'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS = 120_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
@@ -4543,6 +4552,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [topUpError, setTopUpError] = useState('')
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
+  const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
   const [customTitleMap, setCustomTitleMap] = useState<StoryTitleMap>({})
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
@@ -4674,6 +4684,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
   const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(false)
   const [isFineTuneSettingsExpanded, setIsFineTuneSettingsExpanded] = useState(false)
+  const [smoothStreamingEnabled, setSmoothStreamingEnabled] = useState(() => readSmoothStreamingPreference())
   const [isContextUsageExpanded, setIsContextUsageExpanded] = useState(false)
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
   const [contextBudgetWarning, setContextBudgetWarning] = useState<{
@@ -10249,6 +10260,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [activeGameId, advancedRegenerationEnabled, isGenerating, user.id])
 
+  const toggleSmoothStreamingEnabled = useCallback(() => {
+    setSmoothStreamingEnabled((previousValue) => {
+      const nextValue = !previousValue
+      writeSmoothStreamingPreference(nextValue)
+      return nextValue
+    })
+  }, [])
+
   const persistContextLimit = useCallback(
     async (nextValue: number) => {
       const targetGameId = activeGameId
@@ -12289,6 +12308,55 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       let postprocessPending = false
       let startedAssistantMessageId: number | null = null
       let completedAssistantMessageId: number | null = null
+      const completedPayloadRef: { current: StoryStreamDonePayload | null } = { current: null }
+      const smoothStreamingControllerRef: { current: SmoothStreamingTextController | null } = { current: null }
+
+      const updateAssistantMessageContent = (messageId: number, content: string) => {
+        const now = new Date().toISOString()
+        setMessages((previousMessages) => {
+          const targetIndex = previousMessages.findIndex((message) => message.id === messageId)
+          if (targetIndex < 0) {
+            return previousMessages
+          }
+          const nextMessages = [...previousMessages]
+          nextMessages[targetIndex] = {
+            ...nextMessages[targetIndex],
+            content,
+            updated_at: now,
+          }
+          return nextMessages
+        })
+      }
+
+      const appendAssistantMessageDelta = (messageId: number, delta: string) => {
+        const now = new Date().toISOString()
+        setMessages((previousMessages) => {
+          const targetIndex = previousMessages.findIndex((message) => message.id === messageId)
+          if (targetIndex < 0) {
+            return previousMessages
+          }
+          const nextMessages = [...previousMessages]
+          const targetMessage = nextMessages[targetIndex]
+          nextMessages[targetIndex] = {
+            ...targetMessage,
+            content: `${targetMessage.content}${delta}`,
+            updated_at: now,
+          }
+          return nextMessages
+        })
+      }
+
+      const commitCompletedAssistantMessage = (payload: StoryStreamDonePayload) => {
+        setMessages((previousMessages) => {
+          const targetIndex = previousMessages.findIndex((message) => message.id === payload.message.id)
+          if (targetIndex < 0) {
+            return previousMessages
+          }
+          const nextMessages = [...previousMessages]
+          nextMessages[targetIndex] = normalizeStoryMessageItem(payload.message)
+          return nextMessages
+        })
+      }
 
       try {
         await generateStoryResponseStream({
@@ -12331,6 +12399,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
             startedAssistantMessageId = payload.assistant_message_id
             setActiveAssistantMessageId(payload.assistant_message_id)
+            smoothStreamingControllerRef.current = createSmoothStreamingTextController({
+              enabled: smoothStreamingEnabled,
+              reducedMotion: prefersReducedMotion(),
+              onUpdate: (text) => updateAssistantMessageContent(payload.assistant_message_id, text),
+            })
             setMessages((previousMessages) => {
               const nextMessages = [...previousMessages]
               if (payload.user_message_id !== null) {
@@ -12365,34 +12438,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             })
           },
           onChunk: (payload) => {
-            const now = new Date().toISOString()
-            setMessages((previousMessages) => {
-              const lastIndex = previousMessages.length - 1
-              if (lastIndex >= 0 && previousMessages[lastIndex].id === payload.assistant_message_id) {
-                const nextMessages = [...previousMessages]
-                const targetMessage = nextMessages[lastIndex]
-                nextMessages[lastIndex] = {
-                  ...targetMessage,
-                  content: `${targetMessage.content}${payload.delta}`,
-                  updated_at: now,
-                }
-                return nextMessages
-              }
-
-              const targetIndex = previousMessages.findIndex((message) => message.id === payload.assistant_message_id)
-              if (targetIndex < 0) {
-                return previousMessages
-              }
-
-              const nextMessages = [...previousMessages]
-              const targetMessage = nextMessages[targetIndex]
-              nextMessages[targetIndex] = {
-                ...targetMessage,
-                content: `${targetMessage.content}${payload.delta}`,
-                updated_at: now,
-              }
-              return nextMessages
-            })
+            if (smoothStreamingControllerRef.current) {
+              smoothStreamingControllerRef.current.appendChunk(payload.delta)
+              return
+            }
+            appendAssistantMessageDelta(payload.assistant_message_id, payload.delta)
           },
           onPlotMemory: (payload) => {
             const nextPlotEvents = payload.plot_card_events ?? []
@@ -12409,6 +12459,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             applyPlotCardEvents(nextPlotEvents)
           },
           onDone: (payload) => {
+            completedPayloadRef.current = payload
             completedAssistantMessageId = payload.message.id
             if (payload.user) {
               onUserUpdate(payload.user)
@@ -12462,18 +12513,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 ),
               )
             }
-            setMessages((previousMessages) => {
-              const targetIndex = previousMessages.findIndex((message) => message.id === payload.message.id)
-              if (targetIndex < 0) {
-                return previousMessages
-              }
-              const nextMessages = [...previousMessages]
-              nextMessages[targetIndex] = normalizeStoryMessageItem(payload.message)
-              return nextMessages
-            })
           },
         })
+        const completedPayload = completedPayloadRef.current
+        if (completedPayload) {
+          const normalizedCompletedMessage = normalizeStoryMessageItem(completedPayload.message)
+          if (smoothStreamingControllerRef.current) {
+            smoothStreamingControllerRef.current.appendFinalText(normalizedCompletedMessage.content)
+            await smoothStreamingControllerRef.current.finish()
+          } else {
+            updateAssistantMessageContent(normalizedCompletedMessage.id, normalizedCompletedMessage.content)
+          }
+          commitCompletedAssistantMessage(completedPayload)
+        }
       } catch (error) {
+        smoothStreamingControllerRef.current?.cancel()
         if (controller.signal.aborted) {
           wasAborted = true
         } else {
@@ -12497,6 +12551,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setIsGenerating(false)
         setActiveAssistantMessageId(null)
         generationAbortRef.current = null
+        if (!completedPayloadRef.current) {
+          smoothStreamingControllerRef.current?.cancel()
+        }
 
         if (wasAborted && streamStarted) {
           await new Promise<void>((resolve) => {
@@ -12658,6 +12715,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       responseMaxTokens,
       showGgThoughts,
       showNpcThoughts,
+      smoothStreamingEnabled,
       mainHeroDisplayNameForTags,
       storyLlmModel,
       storyRepetitionPenalty,
@@ -13473,6 +13531,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (response.status === 'succeeded') {
           localStorage.removeItem(PENDING_PAYMENT_STORAGE_KEY)
           setPaymentSuccessCoins(response.coins)
+          setPaymentReferralBonusCoins(response.referral_bonus_granted ? Math.max(0, Math.trunc(response.referral_bonus_amount ?? 0)) : 0)
           return
         }
 
@@ -15563,6 +15622,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                           <Stack direction="row" spacing={0.45} alignItems="center">
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Плавная печать ответов
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Сглаживает потоковый ответ ИИ на экране, даже если сервер прислал текст крупными или неровными порциями." />
+                          </Stack>
+                          <Switch
+                            checked={smoothStreamingEnabled}
+                            onChange={toggleSmoothStreamingEnabled}
+                            disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                               Авто состояние
                             </Typography>
                             <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
@@ -17495,6 +17581,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       >
                         <Stack spacing="var(--morius-story-message-gap)">
                           {blocks.map((block, index) => {
+                            const shouldShowStreamingCaret = isStreaming && index === blocks.length - 1
                             if (block.type === 'character') {
                               const nearbyNarrativeContext = blocks
                                 .slice(Math.max(0, index - 3), Math.min(blocks.length, index + 4))
@@ -17579,6 +17666,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       }}
                                     >
                                       {block.text}
+                                      {shouldShowStreamingCaret ? (
+                                        <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
+                                      ) : null}
                                     </Box>
                                   </Stack>
                                 </Stack>
@@ -17631,11 +17721,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   }}
                                 >
                                   {block.text}
+                                  {shouldShowStreamingCaret ? (
+                                    <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
+                                  ) : null}
                                 </Box>
                               </Box>
                             )
                           })}
-                          {isStreaming ? (
+                          {isStreaming && blocks.length === 0 ? (
                             <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
                               <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
                                 <Box className="morius-generating-pulse-dot" />
@@ -21641,6 +21734,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         isTopUpPlansLoading={isTopUpPlansLoading}
         topUpPlans={topUpPlans}
         activePlanPurchaseId={activePlanPurchaseId}
+        authToken={authToken}
         transitionComponent={DialogTransition}
         onClose={handleCloseTopUpDialog}
         onPurchasePlan={(planId) => void handlePurchasePlan(planId)}
@@ -21649,8 +21743,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}
         coins={paymentSuccessCoins ?? 0}
+        referralBonusCoins={paymentReferralBonusCoins}
         transitionComponent={DialogTransition}
-        onClose={() => setPaymentSuccessCoins(null)}
+        onClose={() => {
+          setPaymentSuccessCoins(null)
+          setPaymentReferralBonusCoins(0)
+        }}
       />
 
       <ConfirmLogoutDialog
