@@ -37,7 +37,18 @@ from app.services.story_games import (
     normalize_story_top_r,
 )
 from app.services.story_game_operation_lock import StoryGameOperationBusyError, acquire_story_game_operation_lock
+from app.services.story_canonical_pipeline import (
+    build_canonical_generation_prompt,
+    clear_canonical_state_payload,
+    guard_generated_story_output,
+    persist_canonical_state_to_game,
+)
 from app.services.story_memory import resolve_story_current_location_label
+from app.services.story_smart_regeneration import (
+    build_smart_regeneration_instruction_card,
+    normalize_smart_regeneration_mode,
+    normalize_smart_regeneration_options,
+)
 from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_session_error
 
 logger = logging.getLogger(__name__)
@@ -680,6 +691,38 @@ def _stream_story_response(
         except Exception:
             logger.exception("Failed to normalize generated story output")
             normalized_output = produced
+    canonical_pipeline_enabled = bool(settings.enable_canonical_state_pipeline) and bool(
+        getattr(game, "canonical_state_pipeline_enabled", True)
+    )
+    canonical_safe_fallback_enabled = bool(settings.canonical_state_safe_fallback) or bool(
+        getattr(game, "canonical_state_safe_fallback_enabled", False)
+    )
+    if canonical_pipeline_enabled and normalized_output.strip():
+        try:
+            guard_result = guard_generated_story_output(
+                output=normalized_output,
+                player_text=prompt,
+                game=game,
+                world_cards=world_cards,
+                context_messages=context_messages,
+                use_safe_fallback=canonical_safe_fallback_enabled,
+            )
+            normalized_output = guard_result.output
+            if guard_result.state is not None:
+                persist_canonical_state_to_game(game, guard_result.state)
+            if guard_result.patched or guard_result.fallback_used or guard_result.quality.issues:
+                logger.info(
+                    "Canonical output guard result: game_id=%s patched=%s fallback_used=%s contract_ok=%s language_ok=%s quality_ok=%s issues=%s",
+                    game.id,
+                    guard_result.patched,
+                    guard_result.fallback_used,
+                    guard_result.contract.ok,
+                    guard_result.language.ok,
+                    guard_result.quality.ok,
+                    len(guard_result.quality.issues),
+                )
+        except Exception:
+            logger.exception("Canonical output guard failed; preserving normalized legacy output")
 
     try:
         assistant_message.content = normalized_output
@@ -1211,6 +1254,22 @@ def _generate_story_response_locked(
     discard_last_assistant_steps = max(int(payload.discard_last_assistant_steps or 0), 0)
     reroll_discarded_assistant_text: str | None = None
     instruction_cards = deps.normalize_generation_instructions(payload.instructions)
+    smart_regeneration_payload = getattr(payload, "smart_regeneration", None)
+    smart_regeneration_enabled = bool(getattr(smart_regeneration_payload, "enabled", False))
+    smart_regeneration_mode = getattr(smart_regeneration_payload, "mode", None)
+    smart_regeneration_options = list(getattr(smart_regeneration_payload, "options", []) or [])
+    if smart_regeneration_enabled:
+        try:
+            normalize_smart_regeneration_mode(smart_regeneration_mode)
+            if smart_regeneration_options:
+                normalize_smart_regeneration_options(smart_regeneration_options)
+        except ValueError as exc:
+            logger.info(
+                "Smart regeneration validation failed: game_id=%s detail=%s",
+                game.id,
+                str(exc),
+            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     if not instruction_cards:
         try:
             persisted_instruction_rows = db.scalars(
@@ -1340,6 +1399,7 @@ def _generate_story_response_locked(
         delete_source_user: bool,
         action_label: str,
     ) -> list[StoryMessage]:
+        nonlocal reroll_discarded_assistant_text
         if steps <= 0:
             return deps.list_story_messages(db, game.id)
 
@@ -1393,9 +1453,14 @@ def _generate_story_response_locked(
                         StoryCharacterStateSnapshot.assistant_message_id == last_message.id,
                     )
                 )
+                if reroll_discarded_assistant_text is None:
+                    discarded_text = _normalize_story_message_content(getattr(last_message, "content", None))
+                    if discarded_text:
+                        reroll_discarded_assistant_text = discarded_text
                 db.delete(last_message)
                 if delete_source_user:
                     db.delete(source_user_message_for_step)
+                clear_canonical_state_payload(game)
                 if action_label != "reroll":
                     deps.touch_story_game(game)
                 db.commit()
@@ -1571,6 +1636,28 @@ def _generate_story_response_locked(
         db.refresh(source_user_message)
         db.refresh(user)
 
+    try:
+        smart_instruction_card = build_smart_regeneration_instruction_card(
+            getattr(payload, "smart_regeneration", None),
+            previous_assistant_text=reroll_discarded_assistant_text,
+        )
+    except ValueError as exc:
+        logger.info(
+            "Smart regeneration validation failed: game_id=%s detail=%s",
+            game.id,
+            str(exc),
+        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    if smart_instruction_card is not None:
+        instruction_cards = [smart_instruction_card, *instruction_cards]
+        logger.info(
+            "Smart regeneration enabled: game_id=%s mode=%s options=%s instruction_chars=%s",
+            game.id,
+            str(getattr(payload.smart_regeneration, "mode", None) or "new_variant"),
+            list(getattr(payload.smart_regeneration, "options", []) or []),
+            len(str(smart_instruction_card.get("content", ""))),
+        )
+
     world_cards = deps.list_story_world_cards(db, game.id)
     context_messages = deps.list_story_messages(db, game.id)
     active_world_cards = deps.select_story_world_cards_for_prompt(context_messages, world_cards)
@@ -1593,6 +1680,29 @@ def _generate_story_response_locked(
         memory_optimization_enabled,
         context_messages,
     )
+    effective_instruction_cards = instruction_cards
+    canonical_pipeline_enabled = bool(settings.enable_canonical_state_pipeline) and bool(
+        getattr(game, "canonical_state_pipeline_enabled", True)
+    )
+    if canonical_pipeline_enabled:
+        try:
+            canonical_prompt = build_canonical_generation_prompt(
+                player_text=prompt_text,
+                game=game,
+                world_cards=active_world_cards,
+                context_messages=context_messages,
+            )
+            if canonical_prompt:
+                effective_instruction_cards = [
+                    {
+                        "title": "Canonical State V1",
+                        "content": canonical_prompt,
+                        "source_kind": "canonical",
+                    },
+                    *instruction_cards,
+                ]
+        except Exception:
+            logger.exception("Canonical state prompt card failed; continuing with legacy instruction cards")
     assistant_turn_index = (
         len([message for message in context_messages if message.role == deps.story_assistant_role]) + 1
     )
@@ -1606,7 +1716,7 @@ def _generate_story_response_locked(
         prompt=prompt_text,
         turn_index=assistant_turn_index,
         context_messages=context_messages,
-        instruction_cards=instruction_cards,
+        instruction_cards=effective_instruction_cards,
         plot_cards=active_plot_cards,
         world_cards=active_world_cards,
         all_world_cards=world_cards,

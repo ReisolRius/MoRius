@@ -66,6 +66,7 @@ import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
 import HeaderAccountActions from '../components/HeaderAccountActions'
+import AdvancedRegenerationDialog from '../components/story/AdvancedRegenerationDialog'
 import WorldCardBannerPreview from '../components/story/WorldCardBannerPreview'
 import WorldCardTemplatePickerDialog from '../components/story/WorldCardTemplatePickerDialog'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
@@ -167,6 +168,8 @@ import type {
   StoryWorldCardKind,
   StoryWorldDetailType,
   StoryWorldCardEvent,
+  SmartRegenerationMode,
+  SmartRegenerationOption,
 } from '../types/story'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import { MobileCardItem } from '../components/mobile/MobileCardSlider'
@@ -179,6 +182,10 @@ import {
   normalizeStoryWorldDetailTypeValue,
   STORY_WORLD_BANNER_ASPECT,
 } from '../utils/storyWorldCards'
+import {
+  DEFAULT_SMART_REGENERATION_MODE,
+  resolveSmartRegenerationOptionSelection,
+} from '../utils/advancedRegeneration'
 import { moriusThemeTokens, useMoriusThemeController } from '../theme'
 
 type StoryGamePageProps = {
@@ -211,6 +218,8 @@ type StorySettingsOverride = {
   ambientEnabled: boolean
   characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
+  canonicalStatePipelineEnabled?: boolean
+  canonicalStateSafeFallbackEnabled?: boolean
 }
 
 type CharacterRaceOption = {
@@ -407,10 +416,10 @@ const STORY_CHARACTER_EMOTION_LABELS: Record<StoryCharacterEmotionId, string> = 
   'герой',
   'ты',
   'тебя',
-  'С‚РµР±Рµ',
+  'тебе',
   'тобой',
   'вас',
-  'СЏ',
+  'я',
   'нас',
   'you',
   'yours',
@@ -751,10 +760,23 @@ const STORY_SETTINGS_INFO_TEXT = {
     'Вы можете изменить уровень оптимизации памяти, чтобы замедлить заполнение контекста. Важно: чем выше уровень, тем раньше могут начать пропадать детали.',
   ambient:
     'Бета. Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация. Включение стоит +1 сол за ход, а ответ может генерироваться дольше.',
+  advancedRegeneration:
+    'Перед перегенерацией позволяет выбрать, что именно исправить: язык, длину, стиль, факты, повторения и т.д.',
+  canonicalStatePipeline:
+    'Админ-настройка. Включает RPG pipeline v1: канон состояния, план сцены, анти-повторы и проверку формата ответа перед сохранением хода.',
+  canonicalStateSafeFallback:
+    'Админ-настройка. При грубой поломке формата или языка заменяет ответ короткой безопасной сценой вместо сохранения проблемного текста.',
   temperature:
     'Только для опытных. Настройка того, насколько креативно и смело будет отвечать ИИ.',
   contextUsage: 'Следите за тем, сколько у вас осталось места в памяти истории для ИИ.',
 } as const
+
+const ADVANCED_REGENERATION_STORAGE_PREFIX = 'morius-advanced-regeneration'
+const DEFAULT_SMART_REGENERATION_OPTIONS: SmartRegenerationOption[] = ['preserve_format']
+
+function buildAdvancedRegenerationStorageKey(userId: number, gameId: number): string {
+  return `${ADVANCED_REGENERATION_STORAGE_PREFIX}:${userId}:${gameId}`
+}
 
 const NARRATOR_STAT_MOJIBAKE_MARKER_REGEX = /[\u0420\u040E\u0402]/u
 
@@ -1437,6 +1459,33 @@ function normalizeStoryMemoryBlocks(items: StoryMemoryBlock[] | null | undefined
   return Array.isArray(items) ? items.map((item) => normalizeStoryMemoryBlockItem(item)) : []
 }
 
+function buildOptimisticRawTurnMemoryContent(
+  userText: string,
+  assistantText: string,
+  mainHeroName: string,
+): string {
+  const normalizedUserText = toStoryText(userText).replace(/\r\n/g, '\n').trim()
+  const normalizedAssistantText = toStoryText(assistantText).replace(/\r\n/g, '\n').trim()
+  const normalizedMainHeroName = mainHeroName.replace(/\s+/g, ' ').trim() || 'игрок'
+  const parts: string[] = []
+  if (normalizedUserText) {
+    parts.push(`Ход игрока: ${normalizedMainHeroName} (полный текст):\n${normalizedUserText}`)
+  }
+  if (normalizedAssistantText) {
+    parts.push(`Ответ рассказчика (полный текст):\n${normalizedAssistantText}`)
+  }
+  return parts.join('\n\n').trim()
+}
+
+function buildOptimisticRawTurnMemoryTitle(content: string): string {
+  const firstContentLine =
+    content
+      .split('\n')
+      .map((line) => line.replace(/\s+/g, ' ').trim())
+      .find((line) => line.length > 0) ?? ''
+  return firstContentLine.slice(0, 120).trim() || 'Свежий ход'
+}
+
 function normalizeStoryWorldCards(items: StoryWorldCard[] | null | undefined): StoryWorldCard[] {
   return Array.isArray(items) ? items.map((item) => normalizeStoryWorldCardItem(item)) : []
 }
@@ -1643,7 +1692,7 @@ function estimateDataUrlBytes(dataUrl: string): number {
 }
 
 function normalizeAssistantMarkerKey(value: string): string {
-  const normalizedKey = value.toLowerCase().replace(/[\s-]+/g, '_').replace(/С‘/g, 'Рµ').trim()
+  const normalizedKey = value.toLowerCase().replace(/[\s-]+/g, '_').replace(/ё/g, 'е').trim()
   const compactKey = normalizedKey.replace(/_/g, '')
   const aliasKeyByCompact: Record<string, string> = {
     narrator: 'narrator',
@@ -3151,7 +3200,7 @@ function resolveEnvironmentSeasonValueFromLabel(value: unknown): EnvironmentSeas
   if (normalized.includes('осен') || normalized.includes('autumn') || normalized.includes('fall')) {
     return 'autumn'
   }
-  if (normalized.includes('Р»РµС‚') || normalized.includes('summer')) {
+  if (normalized.includes('лет') || normalized.includes('summer')) {
     return 'summer'
   }
   return null
@@ -4498,6 +4547,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [editingMessageId, setEditingMessageId] = useState<number | null>(null)
   const [messageDraft, setMessageDraft] = useState('')
   const [isSavingMessage, setIsSavingMessage] = useState(false)
+  const inlineMessageSaveRevisionRef = useRef<Map<number, number>>(new Map())
   const [instructionCards, setInstructionCards] = useState<StoryInstructionCard[]>([])
   const [instructionDialogOpen, setInstructionDialogOpen] = useState(false)
   const [editingInstructionId, setEditingInstructionId] = useState<number | null>(null)
@@ -4529,6 +4579,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [undoingPlotCardEventIds, setUndoingPlotCardEventIds] = useState<number[]>([])
   const [isUndoingAssistantStep, setIsUndoingAssistantStep] = useState(false)
   const [isRerollTurnPendingReplacement, setIsRerollTurnPendingReplacement] = useState(false)
+  const [advancedRegenerationEnabled, setAdvancedRegenerationEnabled] = useState(false)
+  const [advancedRegenerationDialogOpen, setAdvancedRegenerationDialogOpen] = useState(false)
+  const [selectedSmartRegenerationMode, setSelectedSmartRegenerationMode] = useState<SmartRegenerationMode>(
+    DEFAULT_SMART_REGENERATION_MODE,
+  )
+  const [selectedSmartRegenerationOptions, setSelectedSmartRegenerationOptions] = useState<SmartRegenerationOption[]>(
+    DEFAULT_SMART_REGENERATION_OPTIONS,
+  )
   const [worldCards, setWorldCards] = useState<StoryWorldCard[]>([])
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false)
@@ -4642,6 +4700,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [characterStateEnabled, setCharacterStateEnabled] = useState(false)
   const [emotionVisualizationEnabled, setEmotionVisualizationEnabled] = useState(false)
+  const [canonicalStatePipelineEnabled, setCanonicalStatePipelineEnabled] = useState(true)
+  const [canonicalStateSafeFallbackEnabled, setCanonicalStateSafeFallbackEnabled] = useState(false)
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
   const storySettingsOverridesRef = useRef<Record<number, StorySettingsOverride>>({})
@@ -4671,6 +4731,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
   const [isSavingEmotionVisualizationEnabled, setIsSavingEmotionVisualizationEnabled] = useState(false)
+  const [isSavingCanonicalStatePipeline, setIsSavingCanonicalStatePipeline] = useState(false)
+  const [isSavingCanonicalStateSafeFallback, setIsSavingCanonicalStateSafeFallback] = useState(false)
   const [cardMenuAnchorEl, setCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [cardMenuType, setCardMenuType] = useState<PanelCardMenuType | null>(null)
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
@@ -4784,6 +4846,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   useEffect(() => {
     activeGameIdRef.current = activeGameId
   }, [activeGameId])
+
+  useEffect(() => {
+    setAdvancedRegenerationDialogOpen(false)
+    setSelectedSmartRegenerationMode(DEFAULT_SMART_REGENERATION_MODE)
+    setSelectedSmartRegenerationOptions(DEFAULT_SMART_REGENERATION_OPTIONS)
+    if (!activeGameId) {
+      setAdvancedRegenerationEnabled(false)
+      return
+    }
+    try {
+      const storageKey = buildAdvancedRegenerationStorageKey(user.id, activeGameId)
+      setAdvancedRegenerationEnabled(localStorage.getItem(storageKey) === '1')
+    } catch {
+      setAdvancedRegenerationEnabled(false)
+    }
+  }, [activeGameId, user.id])
 
   useEffect(() => {
     setIsAutoScrollPaused(false)
@@ -4961,6 +5039,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } else {
       setPersistedAmbientProfile(null)
     }
+    const normalizedRuntimeCanonicalStatePipelineEnabled = runtimeGame.canonical_state_pipeline_enabled !== false
+    const normalizedRuntimeCanonicalStateSafeFallbackEnabled = Boolean(
+      runtimeGame.canonical_state_safe_fallback_enabled,
+    )
     const override = storySettingsOverridesRef.current[game.id]
     if (override) {
       setStoryLlmModel(override.storyLlmModel)
@@ -4994,6 +5076,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       } else {
         setEmotionVisualizationEnabled(false)
       }
+      setCanonicalStatePipelineEnabled(
+        typeof override.canonicalStatePipelineEnabled === 'boolean'
+          ? override.canonicalStatePipelineEnabled
+          : normalizedRuntimeCanonicalStatePipelineEnabled,
+      )
+      setCanonicalStateSafeFallbackEnabled(
+        typeof override.canonicalStateSafeFallbackEnabled === 'boolean'
+          ? override.canonicalStateSafeFallbackEnabled
+          : normalizedRuntimeCanonicalStateSafeFallbackEnabled,
+      )
       return
     }
     if (typeof runtimeGame.story_llm_model === 'string' && runtimeGame.story_llm_model.trim().length > 0) {
@@ -5045,6 +5137,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } else {
       setEmotionVisualizationEnabled(false)
     }
+    setCanonicalStatePipelineEnabled(normalizedRuntimeCanonicalStatePipelineEnabled)
+    setCanonicalStateSafeFallbackEnabled(normalizedRuntimeCanonicalStateSafeFallbackEnabled)
   }, [])
 
   const hasMessages = messages.length > 0
@@ -5610,7 +5704,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingThoughtVisibility ||
     isSavingAmbientEnabled ||
     isSavingCharacterStateEnabled ||
-    isSavingEmotionVisualizationEnabled
+    isSavingEmotionVisualizationEnabled ||
+    isSavingCanonicalStatePipeline ||
+    isSavingCanonicalStateSafeFallback
   const isInstructionCardActionLocked =
     isStoryTurnBusy || isSavingInstruction || isCreatingGame || deletingInstructionId !== null || updatingInstructionActiveId !== null
   const isWorldCardActionLocked = isStoryTurnBusy || isSavingWorldCard || isCreatingGame || deletingWorldCardId !== null
@@ -8527,14 +8623,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           message.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : message,
         ),
       )
-      try {
-        await optimizeStoryMemorySnapshot(activeGameId, updatedMessage.id)
-      } catch (memoryError) {
-        console.error('Story memory optimize after edit failed', memoryError)
-        const detail = memoryError instanceof Error ? memoryError.message : 'Текст сохранен, но оптимизация памяти не выполнена'
-        setErrorMessage(detail)
-      }
-      await loadGameById(activeGameId, { silent: true })
       setEditingMessageId(null)
       setMessageDraft('')
     } catch (error) {
@@ -8543,7 +8631,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } finally {
       setIsSavingMessage(false)
     }
-  }, [activeGameId, authToken, editingMessageId, isSavingMessage, loadGameById, messageDraft, messages, optimizeStoryMemorySnapshot])
+  }, [activeGameId, authToken, editingMessageId, isSavingMessage, messageDraft, messages])
 
   const handleSaveMessageInline = useCallback(
     async (messageId: number, nextContentRaw: string) => {
@@ -8566,8 +8654,64 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
 
-      setIsSavingMessage(true)
+      const previousMessagesSnapshot = messages
+      const previousMemoryBlocksSnapshot = aiMemoryBlocks
+      const nextRevision = (inlineMessageSaveRevisionRef.current.get(messageId) ?? 0) + 1
+      inlineMessageSaveRevisionRef.current.set(messageId, nextRevision)
       setErrorMessage('')
+      setMessages((previousMessages) =>
+        previousMessages.map((message) =>
+          message.id === messageId
+            ? normalizeStoryMessageItem({
+                ...message,
+                content: normalized,
+                updated_at: new Date().toISOString(),
+              })
+            : message,
+        ),
+      )
+      if (currentMessage.role === 'assistant') {
+        const latestAssistantMessageId = [...messages].reverse().find((message) => message.role === 'assistant')?.id ?? null
+        if (latestAssistantMessageId === currentMessage.id) {
+          const currentMessageIndex = messages.findIndex((message) => message.id === currentMessage.id)
+          const previousUserMessage =
+            currentMessageIndex >= 0
+              ? [...messages.slice(0, currentMessageIndex)].reverse().find((message) => message.role === 'user') ?? null
+              : null
+          const nextRawContent = buildOptimisticRawTurnMemoryContent(
+            previousUserMessage?.content ?? '',
+            normalized,
+            mainHeroDisplayNameForTags,
+          )
+          setAiMemoryBlocks((previousBlocks) => {
+            const existingBlock =
+              previousBlocks.find(
+                (block) => block.layer === 'raw' && block.assistant_message_id === currentMessage.id,
+              ) ?? null
+            if (!nextRawContent) {
+              return existingBlock
+                ? previousBlocks.filter((block) => block.id !== existingBlock.id)
+                : previousBlocks
+            }
+            const now = new Date().toISOString()
+            const nextBlock: StoryMemoryBlock = normalizeStoryMemoryBlockItem({
+              id: existingBlock?.id ?? -Date.now(),
+              game_id: activeGameId,
+              assistant_message_id: currentMessage.id,
+              layer: 'raw',
+              title: buildOptimisticRawTurnMemoryTitle(nextRawContent),
+              content: nextRawContent,
+              token_count: estimateTextTokens(nextRawContent),
+              created_at: existingBlock?.created_at ?? now,
+              updated_at: now,
+            })
+            const mergedBlocks = existingBlock
+              ? previousBlocks.map((block) => (block.id === existingBlock.id ? nextBlock : block))
+              : [...previousBlocks, nextBlock]
+            return [...mergedBlocks].sort((left, right) => left.id - right.id)
+          })
+        }
+      }
       try {
         const updatedMessage = await updateStoryMessage({
           token: authToken,
@@ -8575,27 +8719,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           messageId,
           content: normalized,
         })
-        setMessages((previousMessages) =>
-          previousMessages.map((message) =>
-            message.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : message,
-          ),
-        )
-        try {
-          await optimizeStoryMemorySnapshot(activeGameId, updatedMessage.id)
-        } catch (memoryError) {
-          console.error('Story memory optimize after inline edit failed', memoryError)
-          const detail = memoryError instanceof Error ? memoryError.message : 'Текст сохранен, но оптимизация памяти не выполнена'
+        if (inlineMessageSaveRevisionRef.current.get(messageId) === nextRevision) {
+          setMessages((previousMessages) =>
+            previousMessages.map((message) =>
+              message.id === updatedMessage.id ? normalizeStoryMessageItem(updatedMessage) : message,
+            ),
+          )
+        }
+      } catch (error) {
+        if (inlineMessageSaveRevisionRef.current.get(messageId) === nextRevision) {
+          setMessages(previousMessagesSnapshot)
+          setAiMemoryBlocks(previousMemoryBlocksSnapshot)
+          const detail = error instanceof Error ? error.message : 'Не удалось сохранить изменения сообщения'
           setErrorMessage(detail)
         }
-        await loadGameById(activeGameId, { silent: true })
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : 'Не удалось сохранить изменения сообщения'
-        setErrorMessage(detail)
-      } finally {
-        setIsSavingMessage(false)
       }
     },
-    [activeGameId, authToken, isGenerating, isSavingMessage, loadGameById, messages, optimizeStoryMemorySnapshot],
+    [
+      activeGameId,
+      aiMemoryBlocks,
+      authToken,
+      isGenerating,
+      isSavingMessage,
+      mainHeroDisplayNameForTags,
+      messages,
+    ],
   )
 
   const ensureGameForInstructionCard = useCallback(async (): Promise<number | null> => {
@@ -10001,6 +10149,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, authToken, loadGameById, undoingPlotCardEventIds],
   )
 
+  const toggleAdvancedRegenerationEnabled = useCallback(() => {
+    if (!activeGameId || isGenerating) {
+      return
+    }
+
+    const nextValue = !advancedRegenerationEnabled
+    setAdvancedRegenerationEnabled(nextValue)
+    if (!nextValue) {
+      setAdvancedRegenerationDialogOpen(false)
+    }
+    try {
+      const storageKey = buildAdvancedRegenerationStorageKey(user.id, activeGameId)
+      if (nextValue) {
+        localStorage.setItem(storageKey, '1')
+      } else {
+        localStorage.removeItem(storageKey)
+      }
+    } catch {
+      // LocalStorage can be unavailable in private modes; the in-memory setting still works.
+    }
+  }, [activeGameId, advancedRegenerationEnabled, isGenerating, user.id])
+
   const persistContextLimit = useCallback(
     async (nextValue: number) => {
       const targetGameId = activeGameId
@@ -11045,6 +11215,295 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyLlmModel,
   ])
 
+  const toggleCanonicalStatePipelineEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !isAdministrator ||
+      !targetGameId ||
+      isSavingCanonicalStatePipeline ||
+      isSavingCanonicalStateSafeFallback ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
+      isSavingContextLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingThoughtVisibility ||
+      isSavingAmbientEnabled ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const nextValue = !canonicalStatePipelineEnabled
+    const previousValue = canonicalStatePipelineEnabled
+    const previousSafeFallback = canonicalStateSafeFallbackEnabled
+    const previousStoryLlmModel = storyLlmModel
+    const previousMemoryOptimization = memoryOptimizationEnabled
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    const previousShowGgThoughts = showGgThoughts
+    const previousShowNpcThoughts = showNpcThoughts
+    const previousAmbientEnabled = ambientEnabled
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
+
+    setCanonicalStatePipelineEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        ...previousOverrides[targetGameId],
+        storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        memoryOptimizationMode,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+        canonicalStatePipelineEnabled: nextValue,
+        canonicalStateSafeFallbackEnabled: previousSafeFallback,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingCanonicalStatePipeline(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        canonicalStatePipelineEnabled: nextValue,
+        contextLimitTokens: contextLimitChars,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+      })
+      setCanonicalStatePipelineEnabled(nextValue)
+      setGames((previousGames) =>
+        sortGamesByActivity(
+          previousGames.map((game) =>
+            game.id === updatedGame.id
+              ? {
+                  ...updatedGame,
+                  story_llm_model: previousStoryLlmModel,
+                  memory_optimization_enabled: previousMemoryOptimization,
+                  story_top_k: previousStoryTopK,
+                  story_top_r: previousStoryTopR,
+                  show_gg_thoughts: previousShowGgThoughts,
+                  show_npc_thoughts: previousShowNpcThoughts,
+                  ambient_enabled: previousAmbientEnabled,
+                  canonical_state_pipeline_enabled: nextValue,
+                  canonical_state_safe_fallback_enabled: previousSafeFallback,
+                }
+              : game,
+          ),
+        ),
+      )
+    } catch (error) {
+      setCanonicalStatePipelineEnabled(previousValue)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          ...previousOverrides[targetGameId],
+          storyLlmModel: previousStoryLlmModel,
+          responseMaxTokens: previousResponseMaxTokens,
+          responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+          memoryOptimizationEnabled: previousMemoryOptimization,
+          memoryOptimizationMode,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+          showGgThoughts: previousShowGgThoughts,
+          showNpcThoughts: previousShowNpcThoughts,
+          ambientEnabled: previousAmbientEnabled,
+          canonicalStatePipelineEnabled: previousValue,
+          canonicalStateSafeFallbackEnabled: previousSafeFallback,
+        },
+      }))
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить RPG pipeline'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingCanonicalStatePipeline(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    authToken,
+    canonicalStatePipelineEnabled,
+    canonicalStateSafeFallbackEnabled,
+    contextLimitChars,
+    isAdministrator,
+    isGenerating,
+    isSavingAmbientEnabled,
+    isSavingCanonicalStatePipeline,
+    isSavingCanonicalStateSafeFallback,
+    isSavingContextLimit,
+    isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingStoryLlmModel,
+    isSavingStorySampling,
+    isSavingThoughtVisibility,
+    memoryOptimizationEnabled,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    showGgThoughts,
+    showNpcThoughts,
+    storyTopK,
+    storyTopR,
+    storyLlmModel,
+  ])
+
+  const toggleCanonicalStateSafeFallbackEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !isAdministrator ||
+      !targetGameId ||
+      !canonicalStatePipelineEnabled ||
+      isSavingCanonicalStateSafeFallback ||
+      isSavingCanonicalStatePipeline ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
+      isSavingContextLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingThoughtVisibility ||
+      isSavingAmbientEnabled ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const nextValue = !canonicalStateSafeFallbackEnabled
+    const previousValue = canonicalStateSafeFallbackEnabled
+    const previousPipelineEnabled = canonicalStatePipelineEnabled
+    const previousStoryLlmModel = storyLlmModel
+    const previousMemoryOptimization = memoryOptimizationEnabled
+    const previousStoryTopK = storyTopK
+    const previousStoryTopR = storyTopR
+    const previousShowGgThoughts = showGgThoughts
+    const previousShowNpcThoughts = showNpcThoughts
+    const previousAmbientEnabled = ambientEnabled
+    const previousResponseMaxTokens = responseMaxTokens
+    const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
+
+    setCanonicalStateSafeFallbackEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        ...previousOverrides[targetGameId],
+        storyLlmModel: previousStoryLlmModel,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        memoryOptimizationMode,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+        canonicalStatePipelineEnabled: previousPipelineEnabled,
+        canonicalStateSafeFallbackEnabled: nextValue,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingCanonicalStateSafeFallback(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        canonicalStateSafeFallbackEnabled: nextValue,
+        contextLimitTokens: contextLimitChars,
+        responseMaxTokens: previousResponseMaxTokens,
+        responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+        memoryOptimizationEnabled: previousMemoryOptimization,
+        storyTopK: previousStoryTopK,
+        storyTopR: previousStoryTopR,
+        showGgThoughts: previousShowGgThoughts,
+        showNpcThoughts: previousShowNpcThoughts,
+        ambientEnabled: previousAmbientEnabled,
+      })
+      setCanonicalStateSafeFallbackEnabled(nextValue)
+      setGames((previousGames) =>
+        sortGamesByActivity(
+          previousGames.map((game) =>
+            game.id === updatedGame.id
+              ? {
+                  ...updatedGame,
+                  story_llm_model: previousStoryLlmModel,
+                  memory_optimization_enabled: previousMemoryOptimization,
+                  story_top_k: previousStoryTopK,
+                  story_top_r: previousStoryTopR,
+                  show_gg_thoughts: previousShowGgThoughts,
+                  show_npc_thoughts: previousShowNpcThoughts,
+                  ambient_enabled: previousAmbientEnabled,
+                  canonical_state_pipeline_enabled: previousPipelineEnabled,
+                  canonical_state_safe_fallback_enabled: nextValue,
+                }
+              : game,
+          ),
+        ),
+      )
+    } catch (error) {
+      setCanonicalStateSafeFallbackEnabled(previousValue)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          ...previousOverrides[targetGameId],
+          storyLlmModel: previousStoryLlmModel,
+          responseMaxTokens: previousResponseMaxTokens,
+          responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
+          memoryOptimizationEnabled: previousMemoryOptimization,
+          memoryOptimizationMode,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+          showGgThoughts: previousShowGgThoughts,
+          showNpcThoughts: previousShowNpcThoughts,
+          ambientEnabled: previousAmbientEnabled,
+          canonicalStatePipelineEnabled: previousPipelineEnabled,
+          canonicalStateSafeFallbackEnabled: previousValue,
+        },
+      }))
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить safe fallback'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingCanonicalStateSafeFallback(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    authToken,
+    canonicalStatePipelineEnabled,
+    canonicalStateSafeFallbackEnabled,
+    contextLimitChars,
+    isAdministrator,
+    isGenerating,
+    isSavingAmbientEnabled,
+    isSavingCanonicalStatePipeline,
+    isSavingCanonicalStateSafeFallback,
+    isSavingContextLimit,
+    isSavingMemoryOptimization,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingStoryLlmModel,
+    isSavingStorySampling,
+    isSavingThoughtVisibility,
+    memoryOptimizationEnabled,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    showGgThoughts,
+    showNpcThoughts,
+    storyTopK,
+    storyTopR,
+    storyLlmModel,
+  ])
+
   const toggleResponseMaxTokensEnabled = useCallback(async () => {
     const targetGameId = activeGameId
     if (
@@ -11735,6 +12194,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       prompt?: string
       rerollLastResponse?: boolean
       discardLastAssistantSteps?: number
+      smartRegenerationMode?: SmartRegenerationMode
+      smartRegenerationOptions?: SmartRegenerationOption[]
       instructionCards?: StoryInstructionCard[]
     }) => {
       setIsAutoScrollPaused(false)
@@ -11758,6 +12219,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           prompt: options.prompt,
           rerollLastResponse: options.rerollLastResponse,
           discardLastAssistantSteps: options.discardLastAssistantSteps,
+          smartRegeneration: options.smartRegenerationOptions?.length
+            ? {
+                enabled: true,
+                mode: options.smartRegenerationMode ?? DEFAULT_SMART_REGENERATION_MODE,
+                options: options.smartRegenerationOptions,
+              }
+            : undefined,
           instructions: (options.instructionCards ?? [])
             .filter((card) => card.is_active !== false)
             .map((card) => ({
@@ -12232,7 +12700,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const sendStoryPrompt = useCallback(
     async (
       rawPrompt: string,
-      options?: { clearComposer?: boolean; hideUserMessage?: boolean; discardLastAssistantSteps?: number },
+      options?: {
+        clearComposer?: boolean
+        hideUserMessage?: boolean
+        discardLastAssistantSteps?: number
+        smartRegenerationMode?: SmartRegenerationMode
+        smartRegenerationOptions?: SmartRegenerationOption[]
+      },
     ) => {
       if (isStoryTurnBusy) {
         return null
@@ -12314,6 +12788,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         prompt: normalizedPrompt,
         discardLastAssistantSteps: options?.discardLastAssistantSteps,
+        smartRegenerationMode: options?.smartRegenerationMode,
+        smartRegenerationOptions: options?.smartRegenerationOptions,
         instructionCards,
       })
     },
@@ -12690,7 +13166,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [activeGameId, authToken, canRedoAssistantStep, isUndoingAssistantStep, loadGameById])
 
-  const handleRerollLastResponse = useCallback(async () => {
+  const handleRerollLastResponse = useCallback(async (
+    smartRegenerationOptions?: SmartRegenerationOption[],
+    smartRegenerationMode?: SmartRegenerationMode,
+  ) => {
     if (!canReroll || !activeGameId || !currentRerollAssistantMessage || !currentRerollSourceUserMessage) {
       return
     }
@@ -12719,6 +13198,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
     const generationResult = await sendStoryPrompt(rerollSourceUserMessage.content, {
       discardLastAssistantSteps: 1,
+      smartRegenerationMode,
+      smartRegenerationOptions,
     })
     if (generationResult === null) {
       setMessages((previousMessages) => {
@@ -12744,6 +13225,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     sendStoryPrompt,
     setIsRerollTurnPendingReplacement,
   ])
+
+  const handleRerollButtonClick = useCallback(() => {
+    if (!canReroll) {
+      return
+    }
+    if (advancedRegenerationEnabled) {
+      setSelectedSmartRegenerationMode(DEFAULT_SMART_REGENERATION_MODE)
+      setSelectedSmartRegenerationOptions(DEFAULT_SMART_REGENERATION_OPTIONS)
+      setAdvancedRegenerationDialogOpen(true)
+      return
+    }
+    void handleRerollLastResponse()
+  }, [advancedRegenerationEnabled, canReroll, handleRerollLastResponse])
+
+  const handleToggleSmartRegenerationOption = useCallback((option: SmartRegenerationOption) => {
+    setSelectedSmartRegenerationOptions((currentOptions) =>
+      resolveSmartRegenerationOptionSelection(currentOptions, option),
+    )
+  }, [])
+
+  const handleDefaultRegenerationFromDialog = useCallback(() => {
+    setAdvancedRegenerationDialogOpen(false)
+    setSelectedSmartRegenerationMode(DEFAULT_SMART_REGENERATION_MODE)
+    setSelectedSmartRegenerationOptions(DEFAULT_SMART_REGENERATION_OPTIONS)
+    void handleRerollLastResponse()
+  }, [handleRerollLastResponse])
+
+  const handleSmartRegenerationFromDialog = useCallback(() => {
+    const selectedOptions = selectedSmartRegenerationOptions.filter((option) => option !== 'preserve_format')
+    if (!selectedOptions.length) {
+      return
+    }
+    const payloadOptions = resolveSmartRegenerationOptionSelection(selectedOptions, 'preserve_format')
+    const payloadMode = selectedSmartRegenerationMode
+    setAdvancedRegenerationDialogOpen(false)
+    setSelectedSmartRegenerationMode(DEFAULT_SMART_REGENERATION_MODE)
+    setSelectedSmartRegenerationOptions(DEFAULT_SMART_REGENERATION_OPTIONS)
+    void handleRerollLastResponse(payloadOptions, payloadMode)
+  }, [handleRerollLastResponse, selectedSmartRegenerationMode, selectedSmartRegenerationOptions])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -14938,6 +15458,33 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                           <Stack direction="row" spacing={0.45} alignItems="center">
                             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Продвинутая перегенерация
+                            </Typography>
+                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.advancedRegeneration} />
+                          </Stack>
+                          <Switch
+                            checked={advancedRegenerationEnabled}
+                            onChange={toggleAdvancedRegenerationEnabled}
+                            disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
                               Авто состояние
                             </Typography>
                             <SettingsInfoTooltipIcon text="Если включено, ИИ будет внутри основного запроса отслеживать изменения одежды, инвентаря и состояния здоровья персонажей и обновлять только изменившиеся поля. Если выключено, эти поля остаются только ручными." />
@@ -14965,34 +15512,94 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Stack>
 
                         {isAdministrator ? (
-                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                            <Stack direction="row" spacing={0.45} alignItems="center">
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                                Режим новеллы
-                              </Typography>
-                              <SettingsInfoTooltipIcon text="Показывает сцену в формате визуальной новеллы только в тех ходах, где есть взаимодействие и для героев уже подготовлены эмоции." />
+                          <>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                              <Stack direction="row" spacing={0.45} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                  RPG pipeline v1
+                                </Typography>
+                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStatePipeline} />
+                              </Stack>
+                              <Switch
+                                checked={canonicalStatePipelineEnabled}
+                                onChange={() => {
+                                  void toggleCanonicalStatePipelineEnabled()
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  '& .MuiSwitch-switchBase.Mui-checked': {
+                                    color: 'var(--morius-accent)',
+                                  },
+                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                    backgroundColor: switchCheckedTrackColor,
+                                    opacity: 1,
+                                  },
+                                  '& .MuiSwitch-track': {
+                                    backgroundColor: switchTrackColor,
+                                    opacity: 1,
+                                  },
+                                }}
+                              />
                             </Stack>
-                            <Switch
-                              checked={emotionVisualizationEnabled}
-                              onChange={() => {
-                                void toggleEmotionVisualizationEnabled()
-                              }}
-                              disabled={isSavingStorySettings || isGenerating}
-                              sx={{
-                                '& .MuiSwitch-switchBase.Mui-checked': {
-                                  color: 'var(--morius-accent)',
-                                },
-                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                  backgroundColor: switchCheckedTrackColor,
-                                  opacity: 1,
-                                },
-                                '& .MuiSwitch-track': {
-                                  backgroundColor: switchTrackColor,
-                                  opacity: 1,
-                                },
-                              }}
-                            />
-                          </Stack>
+
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                              <Stack direction="row" spacing={0.45} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                  Safe fallback
+                                </Typography>
+                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.canonicalStateSafeFallback} />
+                              </Stack>
+                              <Switch
+                                checked={canonicalStatePipelineEnabled && canonicalStateSafeFallbackEnabled}
+                                onChange={() => {
+                                  void toggleCanonicalStateSafeFallbackEnabled()
+                                }}
+                                disabled={!canonicalStatePipelineEnabled || isSavingStorySettings || isGenerating}
+                                sx={{
+                                  '& .MuiSwitch-switchBase.Mui-checked': {
+                                    color: 'var(--morius-accent)',
+                                  },
+                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                    backgroundColor: switchCheckedTrackColor,
+                                    opacity: 1,
+                                  },
+                                  '& .MuiSwitch-track': {
+                                    backgroundColor: switchTrackColor,
+                                    opacity: 1,
+                                  },
+                                }}
+                              />
+                            </Stack>
+
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                              <Stack direction="row" spacing={0.45} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                  Режим новеллы
+                                </Typography>
+                                <SettingsInfoTooltipIcon text="Показывает сцену в формате визуальной новеллы только в тех ходах, где есть взаимодействие и для героев уже подготовлены эмоции." />
+                              </Stack>
+                              <Switch
+                                checked={emotionVisualizationEnabled}
+                                onChange={() => {
+                                  void toggleEmotionVisualizationEnabled()
+                                }}
+                                disabled={isSavingStorySettings || isGenerating}
+                                sx={{
+                                  '& .MuiSwitch-switchBase.Mui-checked': {
+                                    color: 'var(--morius-accent)',
+                                  },
+                                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                    backgroundColor: switchCheckedTrackColor,
+                                    opacity: 1,
+                                  },
+                                  '& .MuiSwitch-track': {
+                                    backgroundColor: switchTrackColor,
+                                    opacity: 1,
+                                  },
+                                }}
+                              />
+                            </Stack>
+                          </>
                         ) : null}
 
                         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
@@ -15024,7 +15631,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           />
                         </Stack>
 
-                        {isSavingThoughtVisibility || isSavingAmbientEnabled || isSavingCharacterStateEnabled || isSavingEmotionVisualizationEnabled ? (
+                        {isSavingThoughtVisibility ||
+                        isSavingAmbientEnabled ||
+                        isSavingCharacterStateEnabled ||
+                        isSavingEmotionVisualizationEnabled ||
+                        isSavingCanonicalStatePipeline ||
+                        isSavingCanonicalStateSafeFallback ? (
                           <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
                         ) : null}
                       </Box>
@@ -17615,7 +18227,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   <span>
                     <IconButton
                       aria-label="Перегенерировать"
-                      onClick={() => void handleRerollLastResponse()}
+                      onClick={handleRerollButtonClick}
                       disabled={!canReroll}
                       sx={getComposerTopActionButtonSx()}
                     >
@@ -18303,6 +18915,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </MenuItem>
         ) : null}
       </Menu>
+
+      <AdvancedRegenerationDialog
+        open={advancedRegenerationDialogOpen}
+        selectedMode={selectedSmartRegenerationMode}
+        selectedOptions={selectedSmartRegenerationOptions}
+        disabled={isGenerating || isRerollTurnPendingReplacement}
+        onClose={() => setAdvancedRegenerationDialogOpen(false)}
+        onModeChange={setSelectedSmartRegenerationMode}
+        onToggleOption={handleToggleSmartRegenerationOption}
+        onDefaultRegenerate={handleDefaultRegenerationFromDialog}
+        onSmartRegenerate={handleSmartRegenerationFromDialog}
+      />
 
       <BaseDialog
         open={missingMainHeroDialogOpen}

@@ -51,6 +51,7 @@ import type {
   StoryCharacter,
   StoryCharacterEmotionAssets,
   StoryCommunityCharacterSummary,
+  StoryGamePayload,
   StoryGameVisibility,
   StoryWorldCard,
   StoryWorldCardTemplate,
@@ -360,6 +361,53 @@ function toEditableWorldProfileFromTemplate(
     avatar_url: template.avatar_url,
     avatar_original_url: template.avatar_original_url ?? template.avatar_url,
     avatar_scale: clamp(template.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
+  }
+}
+
+function mergePublicationEditPayload(
+  sourcePayload: StoryGamePayload,
+  publicationPayload: StoryGamePayload,
+): StoryGamePayload {
+  const publicationWorldProfile = publicationPayload.world_cards.find((card) => card.kind === 'world_profile') ?? null
+  const sourceWorldProfile = sourcePayload.world_cards.find((card) => card.kind === 'world_profile') ?? null
+  let nextWorldCards = sourcePayload.world_cards
+
+  if (publicationWorldProfile?.avatar_url && sourceWorldProfile && !sourceWorldProfile.avatar_url) {
+    nextWorldCards = sourcePayload.world_cards.map((card) =>
+      card.id === sourceWorldProfile.id
+        ? {
+            ...card,
+            avatar_url: publicationWorldProfile.avatar_url,
+            avatar_original_url: publicationWorldProfile.avatar_original_url ?? publicationWorldProfile.avatar_url,
+            avatar_scale: publicationWorldProfile.avatar_scale,
+          }
+        : card,
+    )
+  } else if (publicationWorldProfile?.avatar_url && !sourceWorldProfile) {
+    nextWorldCards = [
+      ...sourcePayload.world_cards,
+      {
+        ...publicationWorldProfile,
+        id: 0,
+        game_id: sourcePayload.game.id,
+        avatar_original_url: publicationWorldProfile.avatar_original_url ?? publicationWorldProfile.avatar_url,
+      },
+    ]
+  }
+
+  const shouldUsePublicationCover = !sourcePayload.game.cover_image_url && Boolean(publicationPayload.game.cover_image_url)
+  return {
+    ...sourcePayload,
+    game: shouldUsePublicationCover
+      ? {
+          ...sourcePayload.game,
+          cover_image_url: publicationPayload.game.cover_image_url,
+          cover_scale: publicationPayload.game.cover_scale,
+          cover_position_x: publicationPayload.game.cover_position_x,
+          cover_position_y: publicationPayload.game.cover_position_y,
+        }
+      : sourcePayload.game,
+    world_cards: nextWorldCards,
   }
 }
 
@@ -1041,7 +1089,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         sourceWorldId > 0 &&
         sourceWorldId !== initialPayload.game.id
       ) {
-        return getStoryGame({ token: authToken, gameId: sourceWorldId })
+        const sourcePayload = await getStoryGame({ token: authToken, gameId: sourceWorldId })
+        return mergePublicationEditPayload(sourcePayload, initialPayload)
       }
       return initialPayload
     }
@@ -1763,6 +1812,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       const existingWorldProfile = latest.world_cards.find((card) => card.kind === 'world_profile') ?? null
       if (worldProfile) {
         const preparedWorldProfileBannerUrl = await prepareWorldBannerForRequest(worldProfile.avatar_url)
+        const preparedWorldProfileBannerOriginalUrl = await prepareWorldBannerForRequest(
+          worldProfile.avatar_original_url ?? worldProfile.avatar_url,
+        )
         const worldProfileTargetId = existingWorldProfile?.id ?? worldProfile.id
         if (worldProfileTargetId) {
           await updateStoryWorldCard({
@@ -1779,7 +1831,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             gameId,
             cardId: worldProfileTargetId,
             avatar_url: preparedWorldProfileBannerUrl,
-            avatar_original_url: worldProfile.avatar_original_url ?? worldProfile.avatar_url,
+            avatar_original_url: preparedWorldProfileBannerOriginalUrl ?? preparedWorldProfileBannerUrl,
             avatar_scale: worldProfile.avatar_scale,
           })
         } else {
@@ -1791,7 +1843,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             content: worldProfile.content,
             triggers: parseTriggers('', worldProfile.title),
             avatar_url: preparedWorldProfileBannerUrl,
-            avatar_original_url: worldProfile.avatar_original_url ?? worldProfile.avatar_url,
+            avatar_original_url: preparedWorldProfileBannerOriginalUrl ?? preparedWorldProfileBannerUrl,
             avatar_scale: worldProfile.avatar_scale,
             memory_turns: null,
           })
@@ -1931,7 +1983,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       } catch {
         // Ignore storage restrictions.
       }
-      onNavigate(`/home/${gameId}`)
+      onNavigate(isMyPublicationsEdit ? '/games/publications' : `/home/${gameId}`)
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {

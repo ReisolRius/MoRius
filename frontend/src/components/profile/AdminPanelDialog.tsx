@@ -77,7 +77,7 @@ import type {
   StoryWorldCard,
 } from '../../types/story'
 
-const ADMIN_PANEL_EMAIL_ALLOWLIST = new Set(['alexunderstood8@gmail.com', 'borisow.n2011@gmail.com'])
+const ADMIN_PANEL_ALLOWED_ROLES = new Set(['administrator', 'moderator'])
 const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
@@ -104,7 +104,6 @@ type ModerationInstructionDraft = AdminModerationInstructionTemplateDetail & {
 type AdminPanelDialogProps = {
   open: boolean
   authToken: string
-  currentUserEmail: string
   currentUserRole: string
   onNavigate: (path: string) => void
   onClose: () => void
@@ -271,7 +270,7 @@ function normalizeModerationQueueItem(item: AdminModerationQueueItem): AdminMode
   }
 }
 
-function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, onNavigate, onClose }: AdminPanelDialogProps) {
+function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClose }: AdminPanelDialogProps) {
   const [activeTab, setActiveTab] = useState<AdminPanelTab>('users')
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState<AdminManagedUser[]>([])
@@ -314,8 +313,8 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
   const [successMessage, setSuccessMessage] = useState('')
 
   const canUseAdminPanel = useMemo(
-    () => ADMIN_PANEL_EMAIL_ALLOWLIST.has(currentUserEmail.trim().toLowerCase()),
-    [currentUserEmail],
+    () => ADMIN_PANEL_ALLOWED_ROLES.has(currentUserRole.trim().toLowerCase()),
+    [currentUserRole],
   )
   const canManageModeratorRole = useMemo(
     () => currentUserRole.trim().toLowerCase() === 'administrator',
@@ -2508,4 +2507,3 @@ function AdminPanelDialog({ open, authToken, currentUserEmail, currentUserRole, 
 }
 
 export default AdminPanelDialog
-export { ADMIN_PANEL_EMAIL_ALLOWLIST }

@@ -3,6 +3,18 @@ import type { AuthUser } from './auth'
 export type StoryRole = 'user' | 'assistant'
 export type StoryGameVisibility = 'private' | 'public'
 export type StoryPublicationStatus = 'none' | 'pending' | 'approved' | 'rejected'
+export type SmartRegenerationOption =
+  | 'fix_language'
+  | 'make_more_alive'
+  | 'make_shorter'
+  | 'make_more_detailed'
+  | 'more_action'
+  | 'more_dialogue'
+  | 'less_pathos'
+  | 'stricter_facts'
+  | 'remove_repetition'
+  | 'preserve_format'
+export type SmartRegenerationMode = 'new_variant' | 'improve_existing'
 export type StoryPublicationState = {
   status: StoryPublicationStatus
   requested_at: string | null
@@ -92,6 +104,8 @@ export type StoryGameSummary = {
   show_npc_thoughts: boolean
   ambient_enabled: boolean
   character_state_enabled: boolean
+  canonical_state_pipeline_enabled?: boolean
+  canonical_state_safe_fallback_enabled?: boolean
   environment_enabled?: boolean
   environment_time_enabled?: boolean
   environment_weather_enabled?: boolean

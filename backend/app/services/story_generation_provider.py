@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from app import main as monolith_main
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
 

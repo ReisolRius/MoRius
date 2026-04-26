@@ -308,6 +308,24 @@ class StoryGame(Base):
         default="",
         server_default="",
     )
+    canonical_state_payload: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        server_default="",
+    )
+    canonical_state_pipeline_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+    )
+    canonical_state_safe_fallback_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     ambient_profile: Mapped[str] = mapped_column(
         Text,
         nullable=False,

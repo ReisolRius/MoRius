@@ -180,9 +180,10 @@ def ensure_user_not_banned(user: User) -> None:
 def user_has_admin_panel_access(user: User) -> bool:
     normalized_email = normalize_email(user.email)
     expected_role = PRIVILEGED_ROLE_BY_EMAIL.get(normalized_email)
-    if not expected_role:
-        return False
-    return user.role == expected_role and user.role in ADMIN_PANEL_ALLOWED_ROLES
+    normalized_role = str(getattr(user, "role", "") or "").strip().lower()
+    if expected_role:
+        return normalized_role == expected_role and normalized_role in ADMIN_PANEL_ALLOWED_ROLES
+    return normalized_role in ADMIN_PANEL_ALLOWED_ROLES
 
 
 def _parse_token_issued_at(raw_value: Any) -> datetime:

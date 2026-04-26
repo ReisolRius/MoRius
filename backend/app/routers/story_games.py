@@ -11,7 +11,7 @@ from pydantic import BaseModel
 import requests
 from sqlalchemy import case, delete as sa_delete, func, or_, select, update as sa_update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, load_only
+from sqlalchemy.orm import Session, aliased, load_only
 
 from app.database import get_db
 from app.config import settings
@@ -84,6 +84,8 @@ from app.services.story_games import (
     deserialize_story_game_genres,
     get_story_game_public_cards_out,
     normalize_story_ambient_enabled,
+    normalize_story_canonical_state_pipeline_enabled,
+    normalize_story_canonical_state_safe_fallback_enabled,
     normalize_story_character_state_enabled,
     normalize_story_context_limit_chars,
     normalize_story_cover_image_url,
@@ -155,7 +157,6 @@ from app.services.story_world_comments import (
     story_community_world_comment_to_out,
 )
 from app.services.story_world_cards import story_world_card_to_out
-from app.services.story_publication_copies import upsert_story_game_publication_copy_from_source
 try:
     from app.services.notifications import (
         NOTIFICATION_KIND_MODERATION_QUEUE,
@@ -1622,12 +1623,34 @@ def _build_story_community_world_summary(
     )
 
 
-def _get_story_game_publication_copy(db: Session, *, source_game_id: int) -> StoryGame | None:
-    return db.scalar(
-        select(StoryGame)
-        .where(StoryGame.source_world_id == source_game_id)
-        .order_by(StoryGame.id.asc())
+def _is_story_game_publication_copy_candidate(game: StoryGame) -> bool:
+    publication_status = str(getattr(game, "publication_status", "") or "").strip().lower()
+    return (
+        str(getattr(game, "visibility", "") or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC
+        or publication_status in {"pending", "approved", "rejected"}
     )
+
+
+def _list_story_game_publication_copies(db: Session, *, source_game: StoryGame) -> list[StoryGame]:
+    return [
+        copy
+        for copy in db.scalars(
+            select(StoryGame)
+            .where(
+                StoryGame.user_id == int(source_game.user_id),
+                StoryGame.source_world_id == int(source_game.id),
+            )
+            .order_by(StoryGame.id.asc())
+        ).all()
+        if _is_story_game_publication_copy_candidate(copy)
+    ]
+
+
+def _delete_story_game_publication_copies_for_source(db: Session, *, source_game: StoryGame) -> bool:
+    publication_copies = _list_story_game_publication_copies(db, source_game=source_game)
+    for publication_copy in publication_copies:
+        _delete_story_game_with_relations(db, game_id=int(publication_copy.id))
+    return bool(publication_copies)
 
 
 def _create_story_game_publication_copy_from_source(
@@ -1848,6 +1871,15 @@ def list_story_community_worlds(
         )
         .join(User, User.id == StoryGame.user_id)
         .where(StoryGame.visibility == "public")
+    )
+    publication_copy_alias = aliased(StoryGame)
+    statement = statement.where(
+        ~select(publication_copy_alias.id)
+        .where(
+            publication_copy_alias.source_world_id == StoryGame.id,
+            publication_copy_alias.visibility == STORY_GAME_VISIBILITY_PUBLIC,
+        )
+        .exists()
     )
     if normalized_query:
         like_pattern = f"%{normalized_query}%"
@@ -2775,6 +2807,13 @@ def clone_story_game(
             getattr(source_game, "emotion_visualization_enabled", None)
         ),
         ambient_profile=str(getattr(source_game, "ambient_profile", "") or ""),
+        canonical_state_payload=str(getattr(source_game, "canonical_state_payload", "") or ""),
+        canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
+            getattr(source_game, "canonical_state_pipeline_enabled", None)
+        ),
+        canonical_state_safe_fallback_enabled=normalize_story_canonical_state_safe_fallback_enabled(
+            getattr(source_game, "canonical_state_safe_fallback_enabled", None)
+        ),
         environment_current_datetime=str(getattr(source_game, "environment_current_datetime", "") or ""),
         environment_current_weather=str(getattr(source_game, "environment_current_weather", "") or ""),
         environment_tomorrow_weather=str(getattr(source_game, "environment_tomorrow_weather", "") or ""),
@@ -2988,6 +3027,14 @@ def update_story_game_settings(
     if payload.emotion_visualization_enabled is not None and user.role == "administrator":
         game.emotion_visualization_enabled = normalize_story_emotion_visualization_enabled(
             payload.emotion_visualization_enabled
+        )
+    if payload.canonical_state_pipeline_enabled is not None and user.role == "administrator":
+        game.canonical_state_pipeline_enabled = normalize_story_canonical_state_pipeline_enabled(
+            payload.canonical_state_pipeline_enabled
+        )
+    if payload.canonical_state_safe_fallback_enabled is not None and user.role == "administrator":
+        game.canonical_state_safe_fallback_enabled = normalize_story_canonical_state_safe_fallback_enabled(
+            payload.canonical_state_safe_fallback_enabled
         )
     if (
         next_environment_time_enabled
@@ -3901,7 +3948,6 @@ def update_story_game_meta(
     previous_publication_status = str(getattr(game, "publication_status", "") or "").strip().lower()
     requested_visibility: str | None = None
     should_notify_publication_queue = False
-    should_sync_approved_publication_copy = False
     if payload.title is not None:
         normalized_title = payload.title.strip()
         game.title = normalized_title or STORY_DEFAULT_TITLE
@@ -3915,7 +3961,7 @@ def update_story_game_meta(
         game.age_rating = normalize_story_game_age_rating(payload.age_rating)
     if payload.genres is not None:
         game.genres = serialize_story_game_genres(normalize_story_game_genres(payload.genres))
-    if payload.cover_image_url is not None:
+    if "cover_image_url" in payload.model_fields_set:
         game.cover_image_url = normalize_story_cover_image_url(payload.cover_image_url, db=db)
     if payload.cover_scale is not None:
         game.cover_scale = normalize_story_cover_scale(payload.cover_scale)
@@ -3925,19 +3971,14 @@ def update_story_game_meta(
         game.cover_position_y = normalize_story_cover_position(payload.cover_position_y)
     if requested_visibility is not None:
         if requested_visibility == STORY_GAME_VISIBILITY_PUBLIC and game.source_world_id is None:
-            if previous_publication_status == "approved":
-                game.visibility = STORY_GAME_VISIBILITY_PRIVATE
-                should_sync_approved_publication_copy = True
-            else:
-                mark_story_publication_pending(game)
-                game.visibility = STORY_GAME_VISIBILITY_PRIVATE
-                should_notify_publication_queue = previous_publication_status != "pending"
+            mark_story_publication_pending(game)
+            game.visibility = STORY_GAME_VISIBILITY_PRIVATE
+            should_notify_publication_queue = previous_publication_status != "pending"
+            _delete_story_game_publication_copies_for_source(db, source_game=game)
         else:
             if requested_visibility == STORY_GAME_VISIBILITY_PRIVATE and game.source_world_id is None:
                 clear_story_publication_state(game)
-                publication_copy = _get_story_game_publication_copy(db, source_game_id=int(game.id))
-                if publication_copy is not None:
-                    _delete_story_game_with_relations(db, game_id=int(publication_copy.id))
+                _delete_story_game_publication_copies_for_source(db, source_game=game)
             game.visibility = requested_visibility
     if (str(game.visibility or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC):
         main_hero_card_ids = db.scalars(
@@ -3961,15 +4002,6 @@ def update_story_game_meta(
         refresh_story_game_public_card_snapshots(db, game)
 
     touch_story_game(game)
-    if should_sync_approved_publication_copy:
-        reviewer_user_id_raw = getattr(game, "publication_reviewer_user_id", None)
-        reviewer_user_id = int(reviewer_user_id_raw) if reviewer_user_id_raw is not None else None
-        upsert_story_game_publication_copy_from_source(
-            db,
-            source_game=game,
-            copy_cards=True,
-            reviewer_user_id=reviewer_user_id,
-        )
     db.commit()
     db.refresh(game)
     if should_notify_publication_queue:
@@ -3994,6 +4026,8 @@ def delete_story_game(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    if getattr(game, "source_world_id", None) is None:
+        _delete_story_game_publication_copies_for_source(db, source_game=game)
     _delete_story_game_with_relations(db, game_id=game.id)
     db.commit()
     return MessageResponse(message="Game deleted")

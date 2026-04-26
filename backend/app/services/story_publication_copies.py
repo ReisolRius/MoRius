@@ -35,6 +35,7 @@ from app.services.story_emotions import (
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PUBLIC,
     clone_story_world_cards_to_game,
+    delete_story_game_with_relations,
     normalize_story_cover_image_url,
     normalize_story_memory_optimization_mode,
     serialize_story_environment_weather,
@@ -44,6 +45,14 @@ from app.services.story_games import (
     story_game_summary_to_out,
 )
 from app.services.story_publication_moderation import mark_story_publication_approved
+
+
+def _is_story_game_publication_copy_candidate(game: StoryGame) -> bool:
+    publication_status = str(getattr(game, "publication_status", "") or "").strip().lower()
+    return (
+        str(getattr(game, "visibility", "") or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC
+        or publication_status in {"pending", "approved", "rejected"}
+    )
 
 
 def _copy_publication_review_state(source, target, *, reviewer_user_id: int | None = None) -> None:
@@ -200,12 +209,21 @@ def upsert_story_game_publication_copy_from_source(
     raw_cover_image_url = normalize_story_cover_image_url(getattr(source_game, "cover_image_url", None), db=db)
     story_narrator_mode = str(getattr(source_game, "story_narrator_mode", "") or "normal").strip() or "normal"
     story_romance_enabled = bool(getattr(source_game, "story_romance_enabled", False))
-    publication = db.scalar(
-        select(StoryGame).where(
-            StoryGame.user_id == source_game.user_id,
-            StoryGame.source_world_id == source_game.id,
-        ).order_by(StoryGame.id.asc())
-    )
+    publication_candidates = [
+        candidate
+        for candidate in db.scalars(
+            select(StoryGame)
+            .where(
+                StoryGame.user_id == source_game.user_id,
+                StoryGame.source_world_id == source_game.id,
+            )
+            .order_by(StoryGame.id.asc())
+        ).all()
+        if _is_story_game_publication_copy_candidate(candidate)
+    ]
+    publication = publication_candidates[0] if publication_candidates else None
+    for duplicate_publication in publication_candidates[1:]:
+        delete_story_game_with_relations(db, game_id=int(duplicate_publication.id))
     if publication is None:
         publication = StoryGame(
             user_id=source_game.user_id,
@@ -262,11 +280,20 @@ def upsert_story_game_publication_copy_from_source(
                 db.add(publication)
                 db.flush()
         except IntegrityError:
-            publication = db.scalar(
-                select(StoryGame).where(
-                    StoryGame.user_id == source_game.user_id,
-                    StoryGame.source_world_id == source_game.id,
-                ).order_by(StoryGame.id.asc())
+            publication = next(
+                (
+                    candidate
+                    for candidate in db.scalars(
+                        select(StoryGame)
+                        .where(
+                            StoryGame.user_id == source_game.user_id,
+                            StoryGame.source_world_id == source_game.id,
+                        )
+                        .order_by(StoryGame.id.asc())
+                    ).all()
+                    if _is_story_game_publication_copy_candidate(candidate)
+                ),
+                None,
             )
             if publication is None:
                 raise

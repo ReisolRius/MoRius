@@ -4436,7 +4436,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       <AdminPanelDialog
         open={adminOpen}
         authToken={authToken}
-        currentUserEmail={user.email}
         currentUserRole={user.role}
         onNavigate={onNavigate}
         onClose={() => setAdminOpen(false)}

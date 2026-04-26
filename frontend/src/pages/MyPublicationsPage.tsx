@@ -112,6 +112,38 @@ function sortByUpdatedDesc<T extends { id: number; updated_at: string }>(items: 
   return [...items].sort((left, right) => parseDate(right.updated_at) - parseDate(left.updated_at) || right.id - left.id)
 }
 
+function mergePublicationWorldSourceRows(games: StoryGameSummary[]): StoryGameSummary[] {
+  const publicationCopyBySourceId = new Map<number, StoryGameSummary>()
+  games.forEach((game) => {
+    const sourceWorldId = game.source_world_id
+    if (typeof sourceWorldId === 'number' && sourceWorldId > 0 && game.visibility === 'public') {
+      publicationCopyBySourceId.set(sourceWorldId, game)
+    }
+  })
+
+  return games.map((game) => {
+    if (game.source_world_id !== null) {
+      return game
+    }
+    const publicationCopy = publicationCopyBySourceId.get(game.id)
+    if (!publicationCopy) {
+      return game
+    }
+    const shouldUseCopyCover = !game.cover_image_url && Boolean(publicationCopy.cover_image_url)
+    return {
+      ...game,
+      cover_image_url: shouldUseCopyCover ? publicationCopy.cover_image_url : game.cover_image_url,
+      cover_scale: shouldUseCopyCover ? publicationCopy.cover_scale : game.cover_scale,
+      cover_position_x: shouldUseCopyCover ? publicationCopy.cover_position_x : game.cover_position_x,
+      cover_position_y: shouldUseCopyCover ? publicationCopy.cover_position_y : game.cover_position_y,
+      community_views: publicationCopy.community_views,
+      community_launches: publicationCopy.community_launches,
+      community_rating_avg: publicationCopy.community_rating_avg,
+      community_rating_count: publicationCopy.community_rating_count,
+    }
+  })
+}
+
 function selectVisiblePublicationItems<
   T extends {
     id: number
@@ -249,6 +281,14 @@ function resolvePublicationDisplayState(
     reviewer_user_id: publication?.reviewer_user_id ?? null,
     rejection_reason: publication?.rejection_reason ?? null,
   }
+}
+
+function resolvePublicationWorldEditTargetId(game: StoryGameSummary, visibleGames: StoryGameSummary[]): number {
+  const sourceWorldId = game.source_world_id
+  if (typeof sourceWorldId !== 'number' || !Number.isFinite(sourceWorldId) || sourceWorldId <= 0) {
+    return game.id
+  }
+  return visibleGames.some((item) => item.id === sourceWorldId) ? sourceWorldId : game.id
 }
 
 function resolveAuthorInitials(authorName: string): string {
@@ -558,7 +598,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     try {
       const games = await listStoryGames(authToken, { compact: true })
       const { visibleItems, publicationCopySourceIds } = selectVisiblePublicationItems(
-        games,
+        mergePublicationWorldSourceRows(games),
         (item) => item.source_world_id,
       )
       setPublicationWorldCopySourceIds(publicationCopySourceIds)
@@ -658,7 +698,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const handleUnpublishWorld = useCallback(
     async (game: StoryGameSummary) => {
-      const targetGameId = game.source_world_id ?? game.id
+      const targetGameId = resolvePublicationWorldEditTargetId(game, publicationGames)
       const actionKey = `world-${targetGameId}`
       if (actionLoadingByKey[actionKey]) {
         return
@@ -675,7 +715,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
         setActionLoading(actionKey, false)
       }
     },
-    [actionLoadingByKey, authToken, loadPublicationWorlds, setActionLoading],
+    [actionLoadingByKey, authToken, loadPublicationWorlds, publicationGames, setActionLoading],
   )
 
   const handleUnpublishCharacter = useCallback(
@@ -806,7 +846,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
 
   const selectedMenuActionKey = useMemo(() => {
     if (cardMenuType === 'world' && selectedPublicationWorld) {
-      return `world-${selectedPublicationWorld.source_world_id ?? selectedPublicationWorld.id}`
+      return `world-${resolvePublicationWorldEditTargetId(selectedPublicationWorld, publicationGames)}`
     }
     if (cardMenuType === 'character' && selectedPublicationCharacter) {
       return `character-${selectedPublicationCharacter.source_character_id ?? selectedPublicationCharacter.id}`
@@ -815,13 +855,13 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
       return `template-${selectedPublicationTemplate.source_template_id ?? selectedPublicationTemplate.id}`
     }
     return null
-  }, [cardMenuType, selectedPublicationCharacter, selectedPublicationTemplate, selectedPublicationWorld])
+  }, [cardMenuType, publicationGames, selectedPublicationCharacter, selectedPublicationTemplate, selectedPublicationWorld])
 
   const isSelectedMenuActionLoading = selectedMenuActionKey ? Boolean(actionLoadingByKey[selectedMenuActionKey]) : false
 
   const handleEditFromCardMenu = useCallback(() => {
     if (cardMenuType === 'world' && selectedPublicationWorld) {
-      onNavigate(`/worlds/${selectedPublicationWorld.source_world_id ?? selectedPublicationWorld.id}/edit?source=my-publications`)
+      onNavigate(`/worlds/${resolvePublicationWorldEditTargetId(selectedPublicationWorld, publicationGames)}/edit?source=my-publications`)
     }
     if (cardMenuType === 'character' && selectedPublicationCharacter) {
       openCharacterEdit(selectedPublicationCharacter.source_character_id ?? selectedPublicationCharacter.id)
@@ -836,6 +876,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
     onNavigate,
     openCharacterEdit,
     openInstructionEdit,
+    publicationGames,
     selectedPublicationCharacter,
     selectedPublicationTemplate,
     selectedPublicationWorld,
@@ -1007,7 +1048,7 @@ function MyPublicationsPage({ user, authToken, onNavigate }: MyPublicationsPageP
                       ratingAvg={game.community_rating_avg}
                       heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
                       heroImageUrl={game.cover_image_url}
-                      onClick={() => onNavigate(`/worlds/${game.source_world_id ?? game.id}/edit?source=my-publications`)}
+                      onClick={() => onNavigate(`/worlds/${resolvePublicationWorldEditTargetId(game, publicationGames)}/edit?source=my-publications`)}
                       onOpenMenu={(event) => handleOpenCardMenu(event, 'world', game.id)}
                       menuAriaLabel="Открыть действия мира"
                     />

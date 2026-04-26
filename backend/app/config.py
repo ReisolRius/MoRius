@@ -228,6 +228,8 @@ class Settings:
     story_translation_enabled: bool
     story_user_language: str
     story_model_language: str
+    enable_canonical_state_pipeline: bool
+    canonical_state_safe_fallback: bool
 
 
 settings = Settings(
@@ -340,4 +342,6 @@ settings = Settings(
     story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=False),
     story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
     story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
+    enable_canonical_state_pipeline=_to_bool(os.getenv("ENABLE_CANONICAL_STATE_PIPELINE"), default=True),
+    canonical_state_safe_fallback=_to_bool(os.getenv("CANONICAL_STATE_SAFE_FALLBACK"), default=False),
 )

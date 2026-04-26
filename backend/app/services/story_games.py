@@ -546,6 +546,18 @@ def normalize_story_character_state_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
+def normalize_story_canonical_state_pipeline_enabled(value: bool | None) -> bool:
+    if value is None:
+        return True
+    return bool(value)
+
+
+def normalize_story_canonical_state_safe_fallback_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
 def normalize_story_environment_enabled(value: bool | None) -> bool:
     if value is None:
         return False
@@ -1030,6 +1042,12 @@ def story_game_summary_to_out(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
+        canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
+            getattr(game, "canonical_state_pipeline_enabled", None)
+        ),
+        canonical_state_safe_fallback_enabled=normalize_story_canonical_state_safe_fallback_enabled(
+            getattr(game, "canonical_state_safe_fallback_enabled", None)
+        ),
         environment_enabled=environment_time_enabled or environment_weather_enabled,
         environment_time_enabled=environment_time_enabled,
         environment_weather_enabled=environment_weather_enabled,
@@ -1141,6 +1159,12 @@ def story_game_summary_to_compact_out(
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
+        ),
+        canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
+            getattr(game, "canonical_state_pipeline_enabled", None)
+        ),
+        canonical_state_safe_fallback_enabled=normalize_story_canonical_state_safe_fallback_enabled(
+            getattr(game, "canonical_state_safe_fallback_enabled", None)
         ),
         environment_enabled=environment_time_enabled or environment_weather_enabled,
         environment_time_enabled=environment_time_enabled,

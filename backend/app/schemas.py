@@ -406,6 +406,8 @@ class StoryGameCreateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    canonical_state_pipeline_enabled: bool | None = None
+    canonical_state_safe_fallback_enabled: bool | None = None
     environment_enabled: bool | None = None
     environment_time_enabled: bool | None = None
     environment_weather_enabled: bool | None = None
@@ -472,11 +474,18 @@ class StoryInstructionCardInput(BaseModel):
     is_active: bool = True
 
 
+class StorySmartRegenerationRequest(BaseModel):
+    enabled: bool = True
+    mode: str | None = Field(default=None, max_length=32)
+    options: list[str] = Field(default_factory=list, max_length=10)
+
+
 class StoryGenerateRequest(BaseModel):
     prompt: str | None = Field(default=None, min_length=1, max_length=4_000)
     reroll_last_response: bool = False
     discard_last_assistant_steps: int = Field(default=0, ge=0, le=50)
     instructions: list[StoryInstructionCardInput] = Field(default_factory=list, max_length=40)
+    smart_regeneration: StorySmartRegenerationRequest | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     memory_optimization_enabled: bool | None = None
@@ -1219,6 +1228,8 @@ class StoryGameSummaryOut(BaseModel):
     show_npc_thoughts: bool
     ambient_enabled: bool
     character_state_enabled: bool = False
+    canonical_state_pipeline_enabled: bool = True
+    canonical_state_safe_fallback_enabled: bool = False
     environment_enabled: bool = False
     environment_time_enabled: bool = False
     environment_weather_enabled: bool = False

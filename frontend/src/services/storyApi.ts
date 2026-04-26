@@ -6,6 +6,8 @@
   StoryCharacterEmotionId,
   StoryCharacterEmotionGenerationPayload,
   StoryCharacterEmotionGenerationJobPayload,
+  SmartRegenerationMode,
+  SmartRegenerationOption,
   StoryCommunityCharacterSummary,
   StoryCommunityWorldComment,
   StoryCommunityInstructionTemplateSummary,
@@ -97,6 +99,11 @@ export type StoryGenerationStreamOptions = {
   prompt?: string
   rerollLastResponse?: boolean
   discardLastAssistantSteps?: number
+  smartRegeneration?: {
+    enabled: boolean
+    mode?: SmartRegenerationMode
+    options: SmartRegenerationOption[]
+  }
   instructions?: StoryInstructionCardInput[]
   storyLlmModel?: StoryNarratorModelId
   responseMaxTokens?: number
@@ -397,6 +404,8 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     show_npc_thoughts: Boolean(game.show_npc_thoughts),
     ambient_enabled: Boolean(game.ambient_enabled),
     character_state_enabled: Boolean(game.character_state_enabled),
+    canonical_state_pipeline_enabled: game.canonical_state_pipeline_enabled !== false,
+    canonical_state_safe_fallback_enabled: Boolean(game.canonical_state_safe_fallback_enabled),
     environment_enabled: Boolean(game.environment_enabled),
     environment_time_enabled: Boolean(game.environment_time_enabled ?? game.environment_enabled),
     environment_weather_enabled: Boolean(game.environment_weather_enabled ?? game.environment_enabled),
@@ -1745,6 +1754,8 @@ export async function updateStoryGameSettings(payload: {
   ambientEnabled?: boolean
   characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
+  canonicalStatePipelineEnabled?: boolean
+  canonicalStateSafeFallbackEnabled?: boolean
   environmentEnabled?: boolean
   environmentTimeEnabled?: boolean
   environmentWeatherEnabled?: boolean
@@ -1805,6 +1816,12 @@ export async function updateStoryGameSettings(payload: {
   if (typeof payload.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
   }
+  if (typeof payload.canonicalStatePipelineEnabled === 'boolean') {
+    requestPayload.canonical_state_pipeline_enabled = payload.canonicalStatePipelineEnabled
+  }
+  if (typeof payload.canonicalStateSafeFallbackEnabled === 'boolean') {
+    requestPayload.canonical_state_safe_fallback_enabled = payload.canonicalStateSafeFallbackEnabled
+  }
   if (typeof payload.environmentEnabled === 'boolean') {
     requestPayload.environment_enabled = payload.environmentEnabled
   }
@@ -1861,23 +1878,43 @@ export async function updateStoryGameMeta(payload: {
   cover_position_x?: number
   cover_position_y?: number
 }): Promise<StoryGameSummary> {
+  const requestPayload: Record<string, unknown> = {}
+  if (payload.title !== undefined) {
+    requestPayload.title = payload.title
+  }
+  if (payload.description !== undefined) {
+    requestPayload.description = payload.description
+  }
+  if (payload.opening_scene !== undefined) {
+    requestPayload.opening_scene = payload.opening_scene
+  }
+  if (payload.visibility !== undefined) {
+    requestPayload.visibility = payload.visibility
+  }
+  if (payload.age_rating !== undefined) {
+    requestPayload.age_rating = payload.age_rating
+  }
+  if (payload.genres !== undefined) {
+    requestPayload.genres = payload.genres
+  }
+  if (payload.cover_image_url !== undefined) {
+    requestPayload.cover_image_url = payload.cover_image_url
+  }
+  if (payload.cover_scale !== undefined) {
+    requestPayload.cover_scale = payload.cover_scale
+  }
+  if (payload.cover_position_x !== undefined) {
+    requestPayload.cover_position_x = payload.cover_position_x
+  }
+  if (payload.cover_position_y !== undefined) {
+    requestPayload.cover_position_y = payload.cover_position_y
+  }
   return request<StoryGameSummary>(`/api/story/games/${payload.gameId}/meta`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      title: payload.title ?? null,
-      description: payload.description ?? null,
-      opening_scene: payload.opening_scene ?? null,
-      visibility: payload.visibility ?? null,
-      age_rating: payload.age_rating ?? null,
-      genres: payload.genres ?? null,
-      cover_image_url: payload.cover_image_url ?? null,
-      cover_scale: payload.cover_scale ?? null,
-      cover_position_x: payload.cover_position_x ?? null,
-      cover_position_y: payload.cover_position_y ?? null,
-    }),
+    body: JSON.stringify(requestPayload),
   })
 }
 
@@ -1949,6 +1986,13 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
   if (typeof options.discardLastAssistantSteps === 'number' && Number.isFinite(options.discardLastAssistantSteps)) {
     requestPayload.discard_last_assistant_steps = Math.max(0, Math.trunc(options.discardLastAssistantSteps))
+  }
+  if (options.smartRegeneration) {
+    requestPayload.smart_regeneration = {
+      enabled: Boolean(options.smartRegeneration.enabled),
+      mode: options.smartRegeneration.mode,
+      options: options.smartRegeneration.options,
+    }
   }
   if (typeof options.storyLlmModel === 'string') {
     requestPayload.story_llm_model = options.storyLlmModel
