@@ -609,7 +609,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             height: '100%',
             display: 'block',
             objectFit: 'cover',
-            objectPosition: 'left center',
+            objectPosition: 'left bottom',
           }}
         />
       </Box>

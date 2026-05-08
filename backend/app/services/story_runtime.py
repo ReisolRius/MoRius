@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from dataclasses import dataclass
 from typing import Any, Callable
+from uuid import uuid4
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
@@ -50,6 +51,11 @@ from app.services.story_smart_regeneration import (
     normalize_smart_regeneration_options,
 )
 from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_session_error
+from app.services.story_generation_cancel import (
+    StoryGenerationCancelled,
+    mark_story_generation_finished,
+    mark_story_generation_started,
+)
 
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
@@ -584,6 +590,7 @@ def _stream_story_response(
     emotion_visualization_enabled: bool,
     show_gg_thoughts: bool,
     show_npc_thoughts: bool,
+    story_generation_id: str,
 ):
     assistant_message: StoryMessage | None = None
     persist_min_chars = max(int(deps.stream_persist_min_chars), 1)
@@ -640,6 +647,8 @@ def _stream_story_response(
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
+            story_generation_game_id=int(game.id),
+            story_generation_id=story_generation_id,
             raw_output_collector=stream_runtime_meta,
         ):
             produced += chunk
@@ -663,9 +672,7 @@ def _stream_story_response(
                     persisted_length = len(produced)
                     last_persisted_at = current_time
             yield _sse_event("chunk", {"assistant_message_id": assistant_message.id, "delta": chunk})
-    except GeneratorExit:
-        # Client disconnected or canceled stream: finalize what is already produced
-        # so we don't persist a broken tail from interim chunk checkpoints.
+    except (GeneratorExit, StoryGenerationCancelled):
         aborted = True
         stream_error = stream_error or "stream cancelled by client"
     except Exception as exc:
@@ -674,6 +681,27 @@ def _stream_story_response(
         db.rollback()
         error_detail = _public_story_error_detail(exc)
         yield _sse_event("error", {"detail": error_detail})
+
+    if aborted:
+        try:
+            if assistant_message is not None:
+                db.delete(assistant_message)
+            if turn_cost_tokens > 0:
+                deps.add_user_tokens(db, int(user.id), turn_cost_tokens)
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+            try:
+                db.refresh(user)
+            except Exception:
+                pass
+        except Exception:
+            logger.exception(
+                "Failed to clean up canceled story stream: game_id=%s assistant_message_id=%s",
+                game.id,
+                getattr(assistant_message, "id", None),
+            )
+            db.rollback()
+        return
 
     if assistant_message is not None:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "finalizing"})
@@ -1610,12 +1638,22 @@ def _generate_story_response_locked(
         if discard_last_assistant_steps > 0:
             messages = _drop_last_assistant_steps(
                 steps=discard_last_assistant_steps,
-                delete_source_user=True,
+                delete_source_user=False,
                 action_label="rollback",
             )
         if payload.prompt is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
         prompt_text = deps.normalize_text(payload.prompt)
+        if discard_last_assistant_steps > 0:
+            source_user_message = next(
+                (
+                    message
+                    for message in reversed(messages)
+                    if message.role == deps.story_user_role
+                    and _normalize_story_message_content(getattr(message, "content", None)) == prompt_text
+                ),
+                None,
+            )
         turn_cost_tokens = _calculate_turn_cost_tokens(messages)
         if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
             db.rollback()
@@ -1623,12 +1661,13 @@ def _generate_story_response_locked(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="Недостаточно солов для хода",
             )
-        source_user_message = StoryMessage(
-            game_id=game.id,
-            role=deps.story_user_role,
-            content=prompt_text,
-        )
-        db.add(source_user_message)
+        if source_user_message is None:
+            source_user_message = StoryMessage(
+                game_id=game.id,
+                role=deps.story_user_role,
+                content=prompt_text,
+            )
+            db.add(source_user_message)
         if game.title == deps.story_default_title:
             game.title = deps.derive_story_title(prompt_text)
         deps.touch_story_game(game)
@@ -1706,6 +1745,8 @@ def _generate_story_response_locked(
     assistant_turn_index = (
         len([message for message in context_messages if message.role == deps.story_assistant_role]) + 1
     )
+    story_generation_id = uuid4().hex
+    mark_story_generation_started(int(game.id), story_generation_id)
     stream = _stream_story_response(
         deps=deps,
         db=db,
@@ -1733,6 +1774,7 @@ def _generate_story_response_locked(
         emotion_visualization_enabled=emotion_visualization_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
+        story_generation_id=story_generation_id,
     )
 
     def _safe_stream():
@@ -1747,6 +1789,8 @@ def _generate_story_response_locked(
                 yield _sse_event("error", {"detail": _public_story_error_detail(detail_source)})
             except Exception:
                 return
+        finally:
+            mark_story_generation_finished(int(game.id), story_generation_id)
 
     return StreamingResponse(
         _safe_stream(),

@@ -9,6 +9,9 @@ from sqlalchemy import inspect, or_, text
 from app.database import Base, SessionLocal, engine
 from app.models import (
     CoinPurchase,
+    DashboardNewsCard,
+    EmailVerification,
+    PasswordResetVerification,
     ReferralReward,
     StoryCharacter,
     StoryCharacterRace,
@@ -233,6 +236,22 @@ def _ensure_user_account_columns_exist() -> None:
     with engine.begin() as connection:
         for statement in alter_statements:
             _execute_schema_statement(connection, statement)
+
+
+def _ensure_auth_verification_schema() -> None:
+    inspector = inspect(engine)
+    if inspector.has_table(EmailVerification.__tablename__):
+        verification_columns = {column["name"] for column in inspector.get_columns(EmailVerification.__tablename__)}
+        if "display_name" not in verification_columns:
+            with engine.begin() as connection:
+                _execute_schema_statement(
+                    connection,
+                    f"ALTER TABLE {EmailVerification.__tablename__} ADD COLUMN display_name VARCHAR(120)",
+                )
+
+    # Base.metadata.create_all creates this table for fresh databases. The explicit touch keeps
+    # the table loaded in older bootstrap flows that import models selectively.
+    _ = PasswordResetVerification.__tablename__
 
 
 def _enforce_privileged_roles() -> None:
@@ -1081,6 +1100,27 @@ def _ensure_story_soft_undo_columns_exist() -> None:
             _execute_schema_statement(connection, statement)
 
 
+def _ensure_dashboard_news_schema() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(DashboardNewsCard.__tablename__):
+        return
+
+    columns_by_name = {column["name"]: column for column in inspector.get_columns(DashboardNewsCard.__tablename__)}
+    image_url_column = columns_by_name.get("image_url")
+    if image_url_column is None or engine.dialect.name != "postgresql":
+        return
+
+    column_type = str(image_url_column.get("type") or "").lower()
+    if "char" not in column_type:
+        return
+
+    with engine.begin() as connection:
+        _execute_schema_statement(
+            connection,
+            f"ALTER TABLE {DashboardNewsCard.__tablename__} ALTER COLUMN image_url TYPE TEXT",
+        )
+
+
 def _ensure_performance_indexes_exist() -> None:
     index_statements = (
         "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
@@ -1410,6 +1450,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
 
     Base.metadata.create_all(bind=engine)
     _ensure_user_account_columns_exist()
+    _ensure_auth_verification_schema()
     _initialize_user_publication_visibility_defaults()
     _enforce_privileged_roles()
     _ensure_story_game_context_limit_column_exists(defaults.context_limit_tokens)
@@ -1425,6 +1466,7 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_character_races_schema()
     _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)
     _ensure_story_turn_image_history_schema()
+    _ensure_dashboard_news_schema()
     _ensure_story_soft_undo_columns_exist()
     _repair_legacy_story_avatar_media_tokens()
     _ensure_performance_indexes_exist()

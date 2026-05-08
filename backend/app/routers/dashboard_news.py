@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models import DashboardNewsCard
 from app.schemas import DashboardNewsCardOut, DashboardNewsCardUpdateRequest
 from app.services.auth_identity import ADMIN_PANEL_ALLOWED_ROLES, get_current_user
+from app.services.media import resolve_media_storage_value, validate_avatar_url
 
 router = APIRouter()
 
@@ -61,16 +62,12 @@ def _normalize_dashboard_news_text(value: str, *, field_label: str, preserve_lin
     )
 
 
-def _normalize_dashboard_news_image_url(value: str | None) -> str | None:
-    normalized = str(value or "").strip()
+def _normalize_dashboard_news_image_url(value: str | None, *, db: Session | None = None) -> str | None:
+    normalized = resolve_media_storage_value(db, value) if db is not None else str(value or "").strip()
+    normalized = str(normalized or "").strip()
     if not normalized:
         return None
-    if len(normalized) > 3_000_000:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Dashboard news image is too large",
-        )
-    return normalized
+    return validate_avatar_url(normalized, max_bytes=2_500_000)
 
 
 def _require_dashboard_news_editor(user) -> None:
@@ -100,7 +97,7 @@ def _list_dashboard_news_cards(db: Session) -> list[DashboardNewsCard]:
                 category=str(default_card["category"]),
                 title=str(default_card["title"]),
                 description=str(default_card["description"]),
-                image_url=_normalize_dashboard_news_image_url(default_card.get("image_url")),  # type: ignore[arg-type]
+                image_url=_normalize_dashboard_news_image_url(default_card.get("image_url"), db=db),  # type: ignore[arg-type]
                 date_label=str(default_card["date_label"]),
             )
         )
@@ -143,7 +140,7 @@ def update_dashboard_news(
         field_label="Dashboard news description",
         preserve_lines=True,
     )
-    card.image_url = _normalize_dashboard_news_image_url(payload.image_url)
+    card.image_url = _normalize_dashboard_news_image_url(payload.image_url, db=db)
     card.date_label = _normalize_dashboard_news_text(payload.date_label, field_label="Dashboard news date")
     db.commit()
     db.refresh(card)

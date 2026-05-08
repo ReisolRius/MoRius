@@ -79,6 +79,7 @@ type AppHeaderProps = {
   onOpenTopUpDialog?: () => void
   onOpenBugReportDialog?: () => void
   onOpenSettingsDialog?: () => void
+  onGoHome?: () => void
   mobileVariant?: 'bottom-nav' | 'story'
   centerSlot?: ReactNode
 }
@@ -228,6 +229,7 @@ function AppHeader({
   onOpenTopUpDialog,
   onOpenBugReportDialog,
   onOpenSettingsDialog,
+  onGoHome,
   mobileVariant = 'bottom-nav',
   centerSlot,
 }: AppHeaderProps) {
@@ -433,10 +435,10 @@ function AppHeader({
       : []),
   ]
 
-  const closeMobileSheets = () => {
+  const closeMobileSheets = useCallback(() => {
     setIsMobileActionSheetOpen(false)
     setIsMobileMoreSheetOpen(false)
-  }
+  }, [])
 
   const closePageMenu = useCallback(() => {
     if (onClosePageMenu) {
@@ -493,6 +495,62 @@ function AppHeader({
   const isMoreButtonActive =
     isMobileMoreSheetOpen || mobileMoreMenuItems.some((item) => item.isActive) || (!mobileHomeItem && !mobileLibraryItem && !mobileCommunityItem)
   const shouldShowCompactSidebarOverlay = isCompactSidebar && isPageMenuOpen && !isMobileBottomNav && !isMobileStory
+  const dashboardMenuItem = resolvedMenuItems.find((item) => item.key === 'dashboard') ?? null
+  const canLogoNavigateHome = Boolean(onGoHome || dashboardMenuItem)
+
+  const handleBrandLogoClick = useCallback(() => {
+    closeMobileSheets()
+    if (onGoHome) {
+      onGoHome()
+      return
+    }
+    dashboardMenuItem?.onClick()
+  }, [closeMobileSheets, dashboardMenuItem, onGoHome])
+
+  const renderBrandLogo = () => {
+    const logoImage = (
+      <Box
+        component="img"
+        src={brandLogo}
+        alt="Morius"
+        sx={{
+          width: LOGO_WIDTH,
+          height: 'auto',
+          display: 'block',
+          opacity: 0.96,
+        }}
+      />
+    )
+
+    if (!canLogoNavigateHome) {
+      return logoImage
+    }
+
+    return (
+      <Box
+        component="button"
+        type="button"
+        onClick={handleBrandLogoClick}
+        aria-label="На главную"
+        sx={{
+          p: 0,
+          m: 0,
+          width: LOGO_WIDTH,
+          border: 'none',
+          background: 'transparent',
+          display: 'block',
+          cursor: 'pointer',
+          '&:focus-visible': {
+            outline: '2px solid rgba(205, 223, 246, 0.62)',
+            outlineOffset: '4px',
+            borderRadius: '8px',
+          },
+        }}
+      >
+        {logoImage}
+      </Box>
+    )
+  }
 
   useEffect(() => {
     if (!isPageMenuOpen || isMobileBottomNav || !isCompactSidebar) {
@@ -558,20 +616,10 @@ function AppHeader({
               left: 'var(--morius-header-side-offset)',
               zIndex: 37,
               display: shouldHideBrandLogo ? 'none' : 'block',
-              pointerEvents: 'none',
+              pointerEvents: canLogoNavigateHome ? 'auto' : 'none',
             }}
           >
-            <Box
-              component="img"
-              src={brandLogo}
-              alt="Morius"
-              sx={{
-                width: LOGO_WIDTH,
-                height: 'auto',
-                display: 'block',
-                opacity: 0.96,
-              }}
-            />
+            {renderBrandLogo()}
           </Box>
 
           <Box
@@ -1090,20 +1138,10 @@ function AppHeader({
                 transform: 'translateY(-50%)',
                 width: LOGO_WIDTH,
                 display: shouldHideBrandLogo ? 'none' : 'block',
-                pointerEvents: 'none',
+                pointerEvents: canLogoNavigateHome ? 'auto' : 'none',
               }}
             >
-              <Box
-                component="img"
-                src={brandLogo}
-                alt="Morius"
-                sx={{
-                  width: LOGO_WIDTH,
-                  height: 'auto',
-                  display: 'block',
-                  opacity: 0.96,
-                }}
-              />
+              {renderBrandLogo()}
             </Box>
           </Box>
 
@@ -1297,21 +1335,11 @@ function AppHeader({
             width: LOGO_WIDTH,
             opacity: showLogo ? 1 : 0,
             overflow: 'hidden',
-            pointerEvents: 'none',
+            pointerEvents: showLogo && canLogoNavigateHome ? 'auto' : 'none',
             transition: 'opacity 180ms ease',
           }}
         >
-          <Box
-            component="img"
-            src={brandLogo}
-            alt="Morius"
-            sx={{
-              width: LOGO_WIDTH,
-              height: 'auto',
-              display: 'block',
-              opacity: 0.96,
-            }}
-          />
+          {renderBrandLogo()}
         </Box>
       </Box>
 

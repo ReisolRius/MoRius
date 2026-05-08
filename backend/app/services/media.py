@@ -53,8 +53,21 @@ def normalize_avatar_value(raw_value: str | None) -> str | None:
     return cleaned
 
 
-def normalize_proxyable_remote_media_url(raw_value: str | None) -> str | None:
+def normalize_media_reference_value(raw_value: str | None) -> str | None:
     normalized_value = normalize_avatar_value(raw_value)
+    if normalized_value is None or normalized_value.startswith(MEDIA_URL_PREFIX):
+        return normalized_value
+    try:
+        parsed = urlparse(normalized_value)
+    except ValueError:
+        return normalized_value
+    if parsed.path.startswith(MEDIA_URL_PREFIX):
+        return parsed.path
+    return normalized_value
+
+
+def normalize_proxyable_remote_media_url(raw_value: str | None) -> str | None:
+    normalized_value = normalize_media_reference_value(raw_value)
     if normalized_value is None:
         return None
     if not normalized_value.startswith(("https://", "http://")):
@@ -210,7 +223,7 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
     except (TypeError, ValueError):
         return None
 
-    from app.models import StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
+    from app.models import DashboardNewsCard, StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
     from app.services.story_emotions import deserialize_story_character_emotion_assets
 
     media_kind_specs: dict[str, tuple[type[Any], Any]] = {
@@ -239,6 +252,7 @@ def _load_media_storage_source_value(db: Any, payload: dict[str, Any]) -> Any | 
         ),
         "story-turn-image-url": (StoryTurnImage, lambda record, _: getattr(record, "image_url", None)),
         "story-turn-image-data": (StoryTurnImage, lambda record, _: getattr(record, "image_data_url", None)),
+        "dashboard-news-image": (DashboardNewsCard, lambda record, _: getattr(record, "image_url", None)),
     }
 
     spec = media_kind_specs.get(kind)

@@ -57,6 +57,10 @@ export type ImageCropperProps = {
   cancelLabel?: string
   saveLabel?: string
   isSaving?: boolean
+  outputWidth?: number
+  outputHeight?: number
+  outputMime?: string
+  outputQuality?: number
 }
 
 const DEFAULT_ASPECT = 1
@@ -215,6 +219,10 @@ export function ImageCropper({
   cancelLabel = 'Отмена',
   saveLabel = 'Сохранить',
   isSaving = false,
+  outputWidth,
+  outputHeight,
+  outputMime = DEFAULT_OUTPUT_MIME,
+  outputQuality = DEFAULT_OUTPUT_QUALITY,
 }: ImageCropperProps) {
   const normalizedAspect = aspect > 0 ? aspect : DEFAULT_ASPECT
 
@@ -428,8 +436,19 @@ export function ImageCropper({
     const sourceHeight = (cropRect.height * imageElementRef.current.naturalHeight) / imageLayout.height
 
     const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(sourceWidth))
-    canvas.height = Math.max(1, Math.round(sourceHeight))
+    const targetWidth =
+      typeof outputWidth === 'number' && Number.isFinite(outputWidth) && outputWidth > 0
+        ? Math.round(outputWidth)
+        : Math.round(sourceWidth)
+    const targetHeight =
+      typeof outputHeight === 'number' && Number.isFinite(outputHeight) && outputHeight > 0
+        ? Math.round(outputHeight)
+        : outputWidth && outputWidth > 0
+          ? Math.round(targetWidth / normalizedAspect)
+          : Math.round(sourceHeight)
+
+    canvas.width = Math.max(1, targetWidth)
+    canvas.height = Math.max(1, targetHeight)
 
     const context = canvas.getContext('2d')
     if (!context) {
@@ -450,9 +469,11 @@ export function ImageCropper({
       canvas.height,
     )
 
-    const compressedDataUrl = canvas.toDataURL(DEFAULT_OUTPUT_MIME, DEFAULT_OUTPUT_QUALITY)
+    const resolvedOutputMime = outputMime.trim() || DEFAULT_OUTPUT_MIME
+    const resolvedOutputQuality = clamp(outputQuality, 0.01, 1)
+    const compressedDataUrl = canvas.toDataURL(resolvedOutputMime, resolvedOutputQuality)
     onSave(
-      compressedDataUrl.startsWith(`data:${DEFAULT_OUTPUT_MIME}`)
+      compressedDataUrl.startsWith(`data:${resolvedOutputMime}`)
         ? compressedDataUrl
         : canvas.toDataURL(FALLBACK_OUTPUT_MIME),
     )

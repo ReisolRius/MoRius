@@ -276,7 +276,7 @@ STORY_GAME_VISIBILITY_VALUES = {
 STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 32_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -4768,7 +4768,8 @@ def _build_story_system_prompt(
                 (
                     f"Бюджет ответа: ориентируйся до {target_tokens} токенов "
                     f"(жесткий максимум {normalized_limit}). "
-                    "Планируй объем заранее и завершай финальную фразу полностью, без обрыва."
+                    "Планируй объем заранее и завершай финальную фразу полностью, без обрыва. "
+                    "Если сцена не помещается, сократи детали и число реплик, но не начинай мысль, которую не успеешь закрыть."
                 ),
             ]
         )

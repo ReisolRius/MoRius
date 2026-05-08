@@ -384,7 +384,7 @@ def _normalize_story_community_world_sort(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in STORY_COMMUNITY_WORLD_SORT_OPTIONS:
         return normalized
-    return "launches_desc"
+    return "updated_desc"
 
 
 def _normalize_story_community_world_search_query(value: str | None) -> str:
@@ -1827,7 +1827,7 @@ def list_story_games(
 def list_story_community_worlds(
     limit: int = Query(default=60, ge=1, le=60),
     offset: int = Query(default=0, ge=0),
-    sort: str = Query(default="launches_desc"),
+    sort: str = Query(default="updated_desc"),
     query: str = Query(default="", max_length=120),
     age_rating: str | None = Query(default=None),
     genre: str | None = Query(default=None, max_length=80),
@@ -1895,24 +1895,24 @@ def list_story_community_worlds(
         statement = statement.where(StoryGame.genres.ilike(f"%{normalized_genre}%"))
 
     if normalized_sort == "updated_desc":
-        statement = statement.order_by(StoryGame.updated_at.desc(), StoryGame.id.desc())
+        statement = statement.order_by(StoryGame.created_at.desc(), StoryGame.id.desc())
     elif normalized_sort == "rating_desc":
         statement = statement.order_by(
             rating_average_expr.desc(),
             StoryGame.community_rating_count.desc(),
-            StoryGame.updated_at.desc(),
+            StoryGame.created_at.desc(),
             StoryGame.id.desc(),
         )
     elif normalized_sort == "views_desc":
         statement = statement.order_by(
             StoryGame.community_views.desc(),
-            StoryGame.updated_at.desc(),
+            StoryGame.created_at.desc(),
             StoryGame.id.desc(),
         )
     else:
         statement = statement.order_by(
             StoryGame.community_launches.desc(),
-            StoryGame.updated_at.desc(),
+            StoryGame.created_at.desc(),
             StoryGame.id.desc(),
         )
 

@@ -133,6 +133,19 @@ def _build_verification_email_text(*, verification_code: str, ttl_minutes: int) 
     )
 
 
+def _build_password_reset_email_subject() -> str:
+    return "MoRius: код восстановления пароля"
+
+
+def _build_password_reset_email_text(*, verification_code: str, ttl_minutes: int) -> str:
+    return (
+        "Код восстановления пароля для аккаунта MoRius:\n"
+        f"{verification_code}\n\n"
+        f"Код действует {ttl_minutes} минут.\n"
+        "Если вы не запрашивали восстановление пароля, просто проигнорируйте это письмо."
+    )
+
+
 def send_email_message(
     *,
     recipient_email: str,
@@ -188,6 +201,20 @@ def send_email_verification_code(recipient_email: str, verification_code: str) -
     ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
     subject = _build_verification_email_subject()
     text_body = _build_verification_email_text(
+        verification_code=verification_code,
+        ttl_minutes=ttl_minutes,
+    )
+    send_email_message(
+        recipient_email=recipient_email,
+        subject=subject,
+        text_body=text_body,
+    )
+
+
+def send_password_reset_code(recipient_email: str, verification_code: str) -> None:
+    ttl_minutes = max(settings.email_verification_code_ttl_minutes, 1)
+    subject = _build_password_reset_email_subject()
+    text_body = _build_password_reset_email_text(
         verification_code=verification_code,
         ttl_minutes=ttl_minutes,
     )

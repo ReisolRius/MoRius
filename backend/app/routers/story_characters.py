@@ -152,7 +152,7 @@ def _normalize_story_community_character_sort(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in STORY_COMMUNITY_CHARACTER_SORT_OPTIONS:
         return normalized
-    return "additions_desc"
+    return "updated_desc"
 
 
 def _normalize_story_community_added_filter(value: str | None) -> str:
@@ -472,7 +472,7 @@ def create_story_character_race(
 def list_story_community_characters(
     limit: int = Query(default=80, ge=1, le=80),
     offset: int = Query(default=0, ge=0),
-    sort: str = Query(default="additions_desc"),
+    sort: str = Query(default="updated_desc"),
     query: str = Query(default="", max_length=120),
     added_filter: str = Query(default="all"),
     authorization: str | None = Header(default=None),
@@ -543,18 +543,18 @@ def list_story_community_characters(
         statement = statement.where(~added_by_user_exists)
 
     if normalized_sort == "updated_desc":
-        statement = statement.order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
+        statement = statement.order_by(StoryCharacter.created_at.desc(), StoryCharacter.id.desc())
     elif normalized_sort == "rating_desc":
         statement = statement.order_by(
             rating_average_expr.desc(),
             StoryCharacter.community_rating_count.desc(),
-            StoryCharacter.updated_at.desc(),
+            StoryCharacter.created_at.desc(),
             StoryCharacter.id.desc(),
         )
     else:
         statement = statement.order_by(
             StoryCharacter.community_additions_count.desc(),
-            StoryCharacter.updated_at.desc(),
+            StoryCharacter.created_at.desc(),
             StoryCharacter.id.desc(),
         )
 

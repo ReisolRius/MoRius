@@ -106,6 +106,18 @@ class EmailVerification(Base):
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
     code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts_left: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PasswordResetVerification(Base):
+    __tablename__ = "password_reset_verifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     attempts_left: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -161,7 +173,7 @@ class DashboardNewsCard(Base):
     category: Mapped[str] = mapped_column(String(80), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     date_label: Mapped[str] = mapped_column(String(80), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -224,14 +236,14 @@ class StoryGame(Base):
     story_top_r: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=0.85,
-        server_default="0.85",
+        default=0.75,
+        server_default="0.75",
     )
     story_temperature: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        default=0.85,
-        server_default="0.85",
+        default=0.75,
+        server_default="0.75",
     )
     show_gg_thoughts: Mapped[bool] = mapped_column(
         Boolean,

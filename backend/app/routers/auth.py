@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import EmailVerification, User
+from app.models import EmailVerification, PasswordResetVerification, User
 from app.schemas import (
     AuthResponse,
     AvatarUpdateRequest,
@@ -30,6 +30,8 @@ from app.schemas import (
     MessageResponse,
     OnboardingGuideStateOut,
     OnboardingGuideStateUpdateRequest,
+    PasswordResetRequest,
+    PasswordResetVerifyRequest,
     ProfileUpdateRequest,
     RegisterRequest,
     RegisterVerifyRequest,
@@ -193,11 +195,13 @@ from app.services.auth_verification import (
     generate_verification_code,
     get_resend_cooldown_remaining_seconds,
     mark_verification_code_sent,
+    send_password_reset_code,
     send_email_verification_code,
 )
 
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
 GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -208,6 +212,8 @@ NEW_USER_STARTER_COINS = 50
 ONBOARDING_GUIDE_DEFAULT_STATUS = "pending"
 ONBOARDING_GUIDE_ALLOWED_STATUSES = {"pending", "completed", "skipped"}
 ONBOARDING_GUIDE_STEP_ID_MAX_LENGTH = 120
+PASSWORD_RESET_COOLDOWN_PREFIX = "password-reset:"
+PASSWORD_RESET_SUCCESS_MESSAGE = "If an account with this email exists, password reset code was sent"
 
 
 def _utcnow() -> datetime:
@@ -437,6 +443,69 @@ def _verify_google_token_with_tokeninfo(id_token_value: str) -> dict[str, Any] |
     return normalized_payload
 
 
+def _verify_google_access_token_with_tokeninfo(access_token_value: str) -> dict[str, Any] | None:
+    try:
+        response = requests.get(
+            GOOGLE_TOKENINFO_URL,
+            params={"access_token": access_token_value},
+            timeout=(4, 10),
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach Google tokeninfo endpoint") from exc
+
+    payload: Any = {}
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if response.status_code >= 500:
+        raise RuntimeError(f"Google tokeninfo is unavailable ({response.status_code})")
+
+    if response.status_code >= 400:
+        return None
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("Google tokeninfo returned invalid payload")
+
+    normalized_payload: dict[str, Any] = dict(payload)
+    email_verified = normalized_payload.get("email_verified", normalized_payload.get("verified_email"))
+    if isinstance(email_verified, str):
+        normalized_payload["email_verified"] = email_verified.strip().lower() == "true"
+    elif isinstance(email_verified, bool):
+        normalized_payload["email_verified"] = email_verified
+    return normalized_payload
+
+
+def _fetch_google_userinfo(access_token_value: str) -> dict[str, Any]:
+    try:
+        response = requests.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token_value}"},
+            timeout=(4, 10),
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError("Failed to reach Google userinfo endpoint") from exc
+
+    payload: Any = {}
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+
+    if response.status_code >= 500:
+        raise RuntimeError(f"Google userinfo is unavailable ({response.status_code})")
+
+    if response.status_code >= 400 or not isinstance(payload, dict):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google token")
+
+    normalized_payload: dict[str, Any] = dict(payload)
+    email_verified = normalized_payload.get("email_verified")
+    if isinstance(email_verified, str):
+        normalized_payload["email_verified"] = email_verified.strip().lower() == "true"
+    return normalized_payload
+
+
 def _decode_google_token_claims_unverified(id_token_value: str) -> dict[str, Any] | None:
     token_parts = str(id_token_value or "").split(".")
     if len(token_parts) < 2:
@@ -482,6 +551,9 @@ def _is_google_token_claims_expired(token_data: dict[str, Any]) -> bool:
 @router.post("/api/auth/register", response_model=MessageResponse)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> MessageResponse:
     normalized_email = normalize_email(payload.email)
+    if not payload.accepted_terms:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Terms should be accepted")
+    display_name = coerce_display_name(payload.display_name, fallback_email=normalized_email)
     existing_user = db.scalar(select(User).where(User.email == normalized_email))
     now = _utcnow()
     max_attempts = max(settings.email_verification_max_attempts, 1)
@@ -508,6 +580,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Message
             email=normalized_email,
             code_hash=code_hash,
             password_hash=password_hash,
+            display_name=display_name,
             expires_at=expires_at,
             attempts_left=max_attempts,
         )
@@ -515,6 +588,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Message
     else:
         verification.code_hash = code_hash
         verification.password_hash = password_hash
+        verification.display_name = display_name
         verification.expires_at = expires_at
         verification.attempts_left = max_attempts
 
@@ -577,12 +651,14 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     if existing_user and not existing_user.password_hash:
         existing_user.password_hash = verification.password_hash
         existing_user.auth_provider = provider_union(existing_user.auth_provider, "email")
+        if not (existing_user.display_name or "").strip() and verification.display_name:
+            existing_user.display_name = verification.display_name
         user = existing_user
     else:
         user = User(
             email=normalized_email,
             password_hash=verification.password_hash,
-            display_name=build_user_name(normalized_email),
+            display_name=verification.display_name or build_user_name(normalized_email),
             auth_provider="email",
             coins=NEW_USER_STARTER_COINS,
         )
@@ -595,6 +671,115 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(normalized_email)
+    return issue_auth_response(user)
+
+
+@router.post("/api/auth/password-reset", response_model=MessageResponse)
+def request_password_reset(payload: PasswordResetRequest, db: Session = Depends(get_db)) -> MessageResponse:
+    normalized_email = normalize_email(payload.email)
+    cooldown_key = f"{PASSWORD_RESET_COOLDOWN_PREFIX}{normalized_email}"
+    now = _utcnow()
+    cooldown_remaining_seconds = get_resend_cooldown_remaining_seconds(cooldown_key, now)
+    if cooldown_remaining_seconds > 0:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Please wait {cooldown_remaining_seconds} seconds before requesting a new code",
+        )
+
+    user = db.scalar(select(User).where(User.email == normalized_email))
+    if user is None:
+        mark_verification_code_sent(cooldown_key, now=now)
+        return MessageResponse(message=PASSWORD_RESET_SUCCESS_MESSAGE)
+
+    verification_code = generate_verification_code()
+    expires_at = now + timedelta(minutes=max(settings.email_verification_code_ttl_minutes, 1))
+    max_attempts = max(settings.email_verification_max_attempts, 1)
+    code_hash = hash_password(verification_code)
+
+    verification = db.scalar(
+        select(PasswordResetVerification).where(PasswordResetVerification.email == normalized_email)
+    )
+    if verification is None:
+        verification = PasswordResetVerification(
+            email=normalized_email,
+            code_hash=code_hash,
+            expires_at=expires_at,
+            attempts_left=max_attempts,
+        )
+        db.add(verification)
+    else:
+        verification.code_hash = code_hash
+        verification.expires_at = expires_at
+        verification.attempts_left = max_attempts
+
+    try:
+        send_password_reset_code(normalized_email, verification_code)
+    except Exception as exc:
+        db.rollback()
+        detail = "Failed to send password reset email"
+        if settings.debug:
+            detail = f"{detail}: {exc}"
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail) from exc
+
+    db.commit()
+    mark_verification_code_sent(cooldown_key, now=_utcnow())
+    return MessageResponse(message=PASSWORD_RESET_SUCCESS_MESSAGE)
+
+
+@router.post("/api/auth/password-reset/verify", response_model=AuthResponse)
+def verify_password_reset(payload: PasswordResetVerifyRequest, db: Session = Depends(get_db)) -> AuthResponse:
+    normalized_email = normalize_email(payload.email)
+    cooldown_key = f"{PASSWORD_RESET_COOLDOWN_PREFIX}{normalized_email}"
+    verification = db.scalar(
+        select(PasswordResetVerification).where(PasswordResetVerification.email == normalized_email)
+    )
+    if verification is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset code was not requested for this email",
+        )
+
+    expires_at = _to_utc(verification.expires_at)
+    if expires_at <= _utcnow():
+        db.delete(verification)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password reset code expired. Request a new code",
+        )
+
+    if not verify_password(payload.code, verification.code_hash):
+        verification.attempts_left -= 1
+        if verification.attempts_left <= 0:
+            db.delete(verification)
+            db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Password reset code is invalid. Request a new code",
+            )
+
+        attempts_left = verification.attempts_left
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Password reset code is invalid. Attempts left: {attempts_left}",
+        )
+
+    user = db.scalar(select(User).where(User.email == normalized_email))
+    if user is None:
+        db.delete(verification)
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password reset code is invalid")
+
+    user.password_hash = hash_password(payload.password)
+    user.auth_provider = provider_union(user.auth_provider, "email")
+    _sync_user_display_name(user, fallback_email=normalized_email)
+    sync_user_access_state(user)
+    ensure_user_not_banned(user)
+    db.delete(verification)
+    db.commit()
+    db.refresh(user)
+    clear_verification_code_cooldown(cooldown_key)
     return issue_auth_response(user)
 
 
@@ -629,58 +814,76 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail="Google OAuth is not configured on server",
         )
 
-    normalized_id_token = payload.id_token.strip()
-    local_claims = _decode_google_token_claims_unverified(normalized_id_token)
-    local_claims_expired = isinstance(local_claims, dict) and _is_google_token_claims_expired(local_claims)
+    normalized_id_token = (payload.id_token or "").strip()
+    normalized_access_token = (payload.access_token or "").strip()
 
     token_data: dict[str, Any] | None = None
     verification_errors: list[str] = []
-    if google_id_token is not None and google_requests is not None:
-        try:
-            token_data = google_id_token.verify_oauth2_token(
-                normalized_id_token,
-                google_requests.Request(),
-                audience=None,
-            )
-        except ValueError as exc:
-            verification_errors.append(f"sdk_value_error={exc}")
-        except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
-            logger.exception("Google token verification failed via sdk, trying fallbacks")
-            verification_errors.append(f"sdk_error={exc}")
-    else:
-        verification_errors.append("sdk_unavailable")
 
-    if token_data is None:
-        try:
-            token_data = _verify_google_token_with_tokeninfo(normalized_id_token)
-        except Exception as fallback_exc:
-            verification_errors.append(f"tokeninfo_error={fallback_exc}")
+    if normalized_id_token:
+        local_claims = _decode_google_token_claims_unverified(normalized_id_token)
+        local_claims_expired = isinstance(local_claims, dict) and _is_google_token_claims_expired(local_claims)
 
-    if token_data is None:
-        if isinstance(local_claims, dict) and not local_claims_expired:
-            token_data = local_claims
-            logger.warning("Google auth is using local unverified token claims fallback")
+        if google_id_token is not None and google_requests is not None:
+            try:
+                token_data = google_id_token.verify_oauth2_token(
+                    normalized_id_token,
+                    google_requests.Request(),
+                    audience=None,
+                )
+            except ValueError as exc:
+                verification_errors.append(f"sdk_value_error={exc}")
+            except Exception as exc:  # pragma: no cover - defensive fallback for transport/provider failures
+                logger.exception("Google token verification failed via sdk, trying fallbacks")
+                verification_errors.append(f"sdk_error={exc}")
         else:
-            verification_errors.append(
-                "local_claims_expired" if local_claims_expired else "local_claims_invalid"
-            )
+            verification_errors.append("sdk_unavailable")
 
-    if not isinstance(token_data, dict):
-        if local_claims_expired:
-            detail = "Google token expired"
+        if token_data is None:
+            try:
+                token_data = _verify_google_token_with_tokeninfo(normalized_id_token)
+            except Exception as fallback_exc:
+                verification_errors.append(f"tokeninfo_error={fallback_exc}")
+
+        if token_data is None:
+            if isinstance(local_claims, dict) and not local_claims_expired:
+                token_data = local_claims
+                logger.warning("Google auth is using local unverified token claims fallback")
+            else:
+                verification_errors.append(
+                    "local_claims_expired" if local_claims_expired else "local_claims_invalid"
+                )
+
+        if not isinstance(token_data, dict):
+            if local_claims_expired:
+                detail = "Google token expired"
+                if settings.debug and verification_errors:
+                    detail = f"{detail}: {'; '.join(verification_errors)}"
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+
+            detail = "Invalid Google token"
             if settings.debug and verification_errors:
                 detail = f"{detail}: {'; '.join(verification_errors)}"
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
-        detail = "Invalid Google token"
-        if settings.debug and verification_errors:
-            detail = f"{detail}: {'; '.join(verification_errors)}"
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+        if token_data.get("iss") not in GOOGLE_ISSUERS:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
+    else:
+        try:
+            token_data = _verify_google_access_token_with_tokeninfo(normalized_access_token)
+        except Exception as exc:
+            verification_errors.append(f"tokeninfo_error={exc}")
 
-    if token_data.get("iss") not in GOOGLE_ISSUERS:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google issuer")
+        if not isinstance(token_data, dict):
+            detail = "Invalid Google token"
+            if settings.debug and verification_errors:
+                detail = f"{detail}: {'; '.join(verification_errors)}"
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
 
-    token_aud = token_data.get("aud")
+        userinfo_data = _fetch_google_userinfo(normalized_access_token)
+        token_data.update({key: value for key, value in userinfo_data.items() if value is not None})
+
+    token_aud = token_data.get("aud") or token_data.get("issued_to") or token_data.get("audience")
     token_azp = token_data.get("azp")
     if not is_allowed_google_audience(token_aud, token_azp, allowed_google_client_ids):
         detail = "Google token audience mismatch"
@@ -698,7 +901,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
     if not email:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Google account email is missing")
 
-    raw_google_sub = token_data.get("sub")
+    raw_google_sub = token_data.get("sub") or token_data.get("user_id")
     google_sub = str(raw_google_sub).strip() if raw_google_sub is not None else ""
     google_sub = google_sub or None
     display_name = coerce_display_name(token_data.get("name"), fallback_email=email)

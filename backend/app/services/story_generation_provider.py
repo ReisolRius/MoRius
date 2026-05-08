@@ -3,6 +3,12 @@ from __future__ import annotations
 from typing import Any
 
 from app import main as monolith_main
+from app.services.story_generation_cancel import (
+    StoryGenerationCancelled,
+    is_story_generation_cancelled,
+    register_story_generation_response,
+    unregister_story_generation_response,
+)
 from app.services.text_encoding import repair_likely_utf8_mojibake_deep
 
 
@@ -40,21 +46,42 @@ def _build_story_provider_messages(
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> list[dict[str, str]]:
-    _ = (story_narrator_mode, story_romance_enabled)
-    return monolith_main._build_story_provider_messages(
-        context_messages,
-        instruction_cards,
-        plot_cards,
-        world_cards,
-        use_plot_memory=use_plot_memory,
-        context_limit_tokens=context_limit_tokens,
-        response_max_tokens=response_max_tokens,
-        translate_for_model=translate_for_model,
-        model_name=model_name,
-        reroll_discarded_assistant_text=reroll_discarded_assistant_text,
-        show_gg_thoughts=show_gg_thoughts,
-        show_npc_thoughts=show_npc_thoughts,
-    )
+    try:
+        from app.services import story_prompt_engine
+
+        messages_payload = story_prompt_engine._build_story_provider_messages(
+            context_messages,
+            instruction_cards,
+            plot_cards,
+            world_cards,
+            use_plot_memory=use_plot_memory,
+            context_limit_tokens=context_limit_tokens,
+            response_max_tokens=response_max_tokens,
+            translate_for_model=translate_for_model,
+            model_name=model_name,
+            story_narrator_mode=story_narrator_mode,
+            story_romance_enabled=story_romance_enabled,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
+    except Exception:
+        logger.exception("Story prompt engine failed; falling back to monolith prompt builder")
+        messages_payload = monolith_main._build_story_provider_messages(
+            context_messages,
+            instruction_cards,
+            plot_cards,
+            world_cards,
+            use_plot_memory=use_plot_memory,
+            context_limit_tokens=context_limit_tokens,
+            response_max_tokens=response_max_tokens,
+            translate_for_model=translate_for_model,
+            model_name=model_name,
+            reroll_discarded_assistant_text=reroll_discarded_assistant_text,
+            show_gg_thoughts=show_gg_thoughts,
+            show_npc_thoughts=show_npc_thoughts,
+        )
+    return repair_likely_utf8_mojibake_deep(messages_payload)
 
 
 def _should_lock_openrouter_story_request_to_selected_model(model_name: str | None) -> bool:
@@ -121,7 +148,7 @@ def _apply_openrouter_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1"}:
+    if normalized_model_name == "z-ai/glm-5":
         payload["reasoning"] = {
             "effort": "minimal",
             "exclude": True,
@@ -364,6 +391,8 @@ def _iter_gigachat_story_stream_chunks(
     reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
+    story_generation_game_id: int | None = None,
+    story_generation_id: str | None = None,
 ):
     access_token = _get_gigachat_access_token()
     request_started_at = time.monotonic()
@@ -511,6 +540,8 @@ def _iter_openrouter_story_stream_chunks(
     reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
+    story_generation_game_id: int | None = None,
+    story_generation_id: str | None = None,
 ):
     def _extract_story_novel_suffix(base_text: str, candidate_text: str) -> str:
         normalized_base = base_text or ""
@@ -571,6 +602,8 @@ def _iter_openrouter_story_stream_chunks(
 
     for model_name in candidate_models:
         for attempt_index in range(len(OPENROUTER_RETRY_DELAYS_SECONDS) + 1):
+            if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
+                raise StoryGenerationCancelled("Story generation cancelled")
             payload = {
                 "model": model_name,
                 "messages": messages_payload,
@@ -612,7 +645,14 @@ def _iter_openrouter_story_stream_chunks(
                     timeout=(20, 120),
                     stream=True,
                 )
+                register_story_generation_response(
+                    story_generation_game_id,
+                    story_generation_id,
+                    response,
+                )
             except requests.RequestException as exc:
+                if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
+                    raise StoryGenerationCancelled("Story generation cancelled") from exc
                 if attempt_index < len(OPENROUTER_RETRY_DELAYS_SECONDS):
                     logger.warning(
                         "OpenRouter stream request transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
@@ -768,7 +808,12 @@ def _iter_openrouter_story_stream_chunks(
                                     yield chunk
                                 break
                 except requests.RequestException as exc:
+                    if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
+                        raise StoryGenerationCancelled("Story generation cancelled") from exc
                     raise RuntimeError("Failed while reading OpenRouter chat stream") from exc
+
+                if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
+                    raise StoryGenerationCancelled("Story generation cancelled")
 
                 if emitted_delta:
                     _log_openrouter_completion_finish(
@@ -815,6 +860,11 @@ def _iter_openrouter_story_stream_chunks(
 
                 raise RuntimeError("OpenRouter stream completed without textual content")
             finally:
+                unregister_story_generation_response(
+                    story_generation_game_id,
+                    story_generation_id,
+                    response,
+                )
                 response.close()
 
         if model_name == candidate_models[-1] and last_error is not None:
@@ -1079,6 +1129,8 @@ def _iter_story_provider_stream_chunks(
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
     raw_output_collector: dict[str, str] | None = None,
+    story_generation_game_id: int | None = None,
+    story_generation_id: str | None = None,
 ):
     provider = _effective_story_llm_provider()
 
@@ -1172,6 +1224,8 @@ def _iter_story_provider_stream_chunks(
                 reroll_discarded_assistant_text=reroll_discarded_assistant_text,
                 show_gg_thoughts=show_gg_thoughts,
                 show_npc_thoughts=show_npc_thoughts,
+                story_generation_game_id=story_generation_game_id,
+                story_generation_id=story_generation_id,
             )
             yield from _yield_story_translated_stream_chunks(
                 raw_chunk_stream,
@@ -1205,6 +1259,8 @@ def _iter_story_provider_stream_chunks(
             reroll_discarded_assistant_text=reroll_discarded_assistant_text,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
+            story_generation_game_id=story_generation_game_id,
+            story_generation_id=story_generation_id,
         ):
             raw_chunks.append(chunk)
             yield chunk

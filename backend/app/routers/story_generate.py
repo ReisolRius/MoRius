@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.models import StoryGame, StoryMessage
-from app.schemas import StoryGenerateRequest
+from app.schemas import MessageResponse, StoryGenerateRequest
 from app.services.auth_identity import get_current_user
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.story_cards import (
@@ -55,6 +55,7 @@ from app.services.story_queries import (
 from app.services.story_runtime import StoryRuntimeDeps, generate_story_response
 from app.services.story_text import normalize_story_text
 from app.services.story_undo import rollback_story_card_events_for_assistant_message
+from app.services.story_generation_cancel import cancel_story_generation
 from app.services.story_world_cards import (
     deserialize_story_world_card_triggers,
     story_world_card_to_out,
@@ -1353,3 +1354,15 @@ def generate_story_response_route(
         authorization=authorization,
         db=db,
     )
+
+
+@router.post("/api/story/games/{game_id}/generation/cancel", response_model=MessageResponse)
+def cancel_story_generation_route(
+    game_id: int,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MessageResponse:
+    user = get_current_user(db, authorization)
+    game = get_user_story_game_or_404(db, user.id, game_id)
+    cancelled = cancel_story_generation(game.id)
+    return MessageResponse(message="Generation cancellation requested" if cancelled else "No active generation")

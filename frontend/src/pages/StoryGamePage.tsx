@@ -5,12 +5,14 @@
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type FocusEvent as ReactFocusEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactElement,
+  type ReactNode,
   type Ref,
 } from 'react'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
@@ -104,6 +106,7 @@ import {
   createStoryNpcFromCharacter,
   createStoryPlotCard,
   createStoryWorldCard,
+  cancelStoryGeneration,
   deleteStoryCharacter,
   deleteStoryInstructionCard,
   deleteStoryMemoryBlock,
@@ -334,7 +337,7 @@ const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
 const filterWorldDetailTypeOptions = createFilterOptions<WorldDetailTypeAutocompleteOption>()
 const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 6000
-const STORY_CONTEXT_LIMIT_MAX = 32000
+const STORY_CONTEXT_LIMIT_MAX = 64000
 const STORY_DEFAULT_CONTEXT_LIMIT = 6000
 const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
@@ -344,9 +347,10 @@ const STORY_RESPONSE_MAX_TOKENS_MAX = 800
 const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
-const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number] = [1, 2, 4]
-const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number] = [2, 4, 8]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number] = [3, 6, 12]
+const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
+const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number, number] = [1, 2, 4, 8]
+const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number] = [2, 4, 8, 16]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number] = [3, 6, 12, 24]
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-chat-v3-0324',
   'deepseek/deepseek-v3.2',
@@ -368,10 +372,10 @@ const STORY_REPETITION_PENALTY_MAX = 2
 const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const STORY_TOP_R_MIN = 0.1
 const STORY_TOP_R_MAX = 1
-const STORY_DEFAULT_TOP_R = 0.85
+const STORY_DEFAULT_TOP_R = 0.75
 const STORY_TEMPERATURE_MIN = 0
 const STORY_TEMPERATURE_MAX = 2
-const STORY_DEFAULT_TEMPERATURE = 0.85
+const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
@@ -520,64 +524,64 @@ const NARRATOR_STAT_FALLBACK_LABELS = ['Интеллект', 'Скорость',
 
 const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarratorSamplingDefaults> = {
   'z-ai/glm-5': {
-    storyTemperature: 0.9,
-    storyRepetitionPenalty: 1.15,
-    storyTopK: 60,
-    storyTopR: 0.88,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'z-ai/glm-5.1': {
-    storyTemperature: 0.92,
-    storyRepetitionPenalty: 1.2,
-    storyTopK: 65,
-    storyTopR: 0.88,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'z-ai/glm-4.7': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 55,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'deepseek/deepseek-chat-v3-0324': {
-    storyTemperature: 0.78,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'deepseek/deepseek-v3.2': {
-    storyTemperature: 0.82,
-    storyRepetitionPenalty: 1.08,
-    storyTopK: 50,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'x-ai/grok-4.1-fast': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 50,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'mistralai/mistral-nemo': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.05,
-    storyTopK: 55,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'xiaomi/mimo-v2-flash': {
-    storyTemperature: 0.85,
-    storyRepetitionPenalty: 1.1,
-    storyTopK: 50,
-    storyTopR: 0.85,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'xiaomi/mimo-v2-pro': {
-    storyTemperature: 0.88,
-    storyRepetitionPenalty: 1.15,
-    storyTopK: 55,
-    storyTopR: 0.87,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
   'aion-labs/aion-2.0': {
-    storyTemperature: 0.88,
-    storyRepetitionPenalty: 1.1,
-    storyTopK: 55,
-    storyTopR: 0.87,
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
   },
 }
 
@@ -759,8 +763,8 @@ const STORY_SETTINGS_INFO_TEXT = {
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
-    'Ограничение памяти истории для ИИ. Чем выше лимит, тем дороже ход. Новый максимум — 32000, а стоимость зависит и от диапазона контекста, и от выбранного рассказчика.',
-  responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах.',
+    'Ограничение памяти истории для ИИ. Чем выше лимит, тем дороже ход. Новый максимум — 64000, а стоимость зависит и от диапазона контекста, и от выбранного рассказчика.',
+  responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах. ИИ получает инструкцию завершать мысль внутри выбранного бюджета, а не писать до обрыва.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
   memoryOptimization:
@@ -808,6 +812,7 @@ function SettingsInfoTooltipIcon({ text }: { text: string }) {
   return (
     <Tooltip
       arrow
+      disableInteractive
       placement="top-start"
       enterTouchDelay={0}
       title={<Box sx={{ maxWidth: 276, whiteSpace: 'normal' }}>{text}</Box>}
@@ -2479,6 +2484,216 @@ function filterAssistantMessageBlocksForDisplay(
   return displayBlocks
 }
 
+type StreamingAssistantTextStore = {
+  subscribe: (listener: () => void) => () => void
+  getText: (messageId: number) => string
+  setText: (messageId: number, text: string) => void
+  clear: (messageId?: number) => void
+}
+
+function createStreamingAssistantTextStore(): StreamingAssistantTextStore {
+  const listeners = new Set<() => void>()
+  let activeMessageId: number | null = null
+  let activeText = ''
+
+  const notify = () => {
+    Array.from(listeners).forEach((listener) => listener())
+  }
+
+  return {
+    subscribe: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    getText: (messageId) => (messageId === activeMessageId ? activeText : ''),
+    setText: (messageId, text) => {
+      const nextText = String(text ?? '')
+      if (activeMessageId === messageId && activeText === nextText) {
+        return
+      }
+      activeMessageId = messageId
+      activeText = nextText
+      notify()
+    },
+    clear: (messageId) => {
+      if (activeMessageId === null) {
+        return
+      }
+      if (typeof messageId === 'number' && activeMessageId !== messageId) {
+        return
+      }
+      activeMessageId = null
+      activeText = ''
+      notify()
+    },
+  }
+}
+
+type StreamingAssistantMessageContentProps = {
+  messageId: number
+  store: StreamingAssistantTextStore
+  mainHeroName: string
+  showNpcThoughts: boolean
+  assistantReplyTextColor: string
+  assistantSpeakerLabelColor: string
+  assistantThoughtLabelColor: string
+  assistantThoughtTextColor: string
+  isGrayTheme: boolean
+  storyHistoryTextSx: Record<string, string | number>
+  renderPreviewableCharacterAvatar: (options: {
+    avatarUrl: string | null
+    previewUrl?: string | null
+    avatarScale?: number
+    fallbackLabel: string
+    size?: number
+  }) => ReactNode
+  resolveDialogueAvatar: (speakerName: string) => string | null
+  resolveDialogueAvatarPreview: (speakerName: string) => string | null
+  resolveDialogueSpeakerName: (speakerName: string, dialogueText: string, nearbyNarrativeText?: string) => string
+}
+
+function StreamingAssistantMessageContent({
+  messageId,
+  store,
+  mainHeroName,
+  showNpcThoughts,
+  assistantReplyTextColor,
+  assistantSpeakerLabelColor,
+  assistantThoughtLabelColor,
+  assistantThoughtTextColor,
+  isGrayTheme,
+  storyHistoryTextSx,
+  renderPreviewableCharacterAvatar,
+  resolveDialogueAvatar,
+  resolveDialogueAvatarPreview,
+  resolveDialogueSpeakerName,
+}: StreamingAssistantMessageContentProps) {
+  const streamingText = useSyncExternalStore(
+    store.subscribe,
+    () => store.getText(messageId),
+    () => '',
+  )
+  const blocks = useMemo(() => {
+    const resolvedContent = replaceMainHeroInlineTags(streamingText, mainHeroName)
+    return filterAssistantMessageBlocksForDisplay(parseAssistantMessageBlocks(resolvedContent), {
+      mainHeroName,
+      showNpcThoughts,
+    })
+  }, [mainHeroName, showNpcThoughts, streamingText])
+
+  if (blocks.length === 0) {
+    return (
+      <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
+        <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
+          <Box className="morius-generating-pulse-dot" />
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
+            Смотрим, что было дальше...
+          </Typography>
+        </Stack>
+      </Stack>
+    )
+  }
+
+  return (
+    <>
+      {blocks.map((block, index) => {
+        const shouldShowStreamingCaret = index === blocks.length - 1
+        if (block.type === 'character') {
+          const nearbyNarrativeContext = blocks
+            .slice(Math.max(0, index - 3), Math.min(blocks.length, index + 4))
+            .filter((candidate) => candidate.type === 'narrative')
+            .map((candidate) => candidate.text)
+            .join('\n')
+          const resolvedSpeakerName = resolveDialogueSpeakerName(
+            block.speakerName,
+            block.text,
+            nearbyNarrativeContext,
+          )
+          const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+          return (
+            <Stack
+              key={`${messageId}-${index}-stream-character`}
+              direction="row"
+              spacing={ASSISTANT_DIALOGUE_AVATAR_GAP}
+              alignItems="flex-start"
+              sx={{
+                px: 0.05,
+                py: 0.05,
+              }}
+            >
+              {renderPreviewableCharacterAvatar({
+                avatarUrl: speakerAvatar,
+                previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
+                fallbackLabel: resolvedSpeakerName,
+                size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+              })}
+              <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
+                <Typography
+                  sx={{
+                    color: block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+                    fontSize: '0.84rem',
+                    lineHeight: 1.2,
+                    fontWeight: 700,
+                    letterSpacing: 0.18,
+                  }}
+                >
+                  {block.delivery === 'thought' ? `${resolvedSpeakerName} (В голове)` : resolvedSpeakerName}
+                </Typography>
+                <Box
+                  component="div"
+                  sx={{
+                    color: isGrayTheme
+                      ? assistantReplyTextColor
+                      : block.delivery === 'thought'
+                        ? assistantThoughtTextColor
+                        : 'var(--morius-title-text)',
+                    lineHeight: 1.54,
+                    fontSize: { xs: '1rem', md: '1.08rem' },
+                    ...storyHistoryTextSx,
+                    fontStyle: block.delivery === 'thought' ? 'italic' : 'normal',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {block.text}
+                  {shouldShowStreamingCaret ? (
+                    <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
+                  ) : null}
+                </Box>
+              </Stack>
+            </Stack>
+          )
+        }
+
+        return (
+          <Box
+            key={`${messageId}-${index}-stream`}
+            sx={{
+              px: 0.05,
+              py: 0.05,
+            }}
+          >
+            <Box
+              component="div"
+              sx={{
+                color: assistantReplyTextColor,
+                lineHeight: 1.58,
+                fontSize: { xs: '1.02rem', md: '1.12rem' },
+                ...storyHistoryTextSx,
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {block.text}
+              {shouldShowStreamingCaret ? (
+                <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
+              ) : null}
+            </Box>
+          </Box>
+        )
+      })}
+    </>
+  )
+}
+
 
 const LATIN_TO_CYRILLIC_NAME_DIGRAPHS: Array<[string, string]> = [
   ['shch', 'щ'],
@@ -2983,7 +3198,7 @@ function parseStorySceneEmotionPayload(rawValue: string | null | undefined): Sto
   }
 }
 
-function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly [number, number, number] {
+function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly [number, number, number, number] {
   if (modelId === 'z-ai/glm-5.1') {
     return STORY_TURN_COST_GLM51_TIERS
   }
@@ -3004,16 +3219,19 @@ function getStoryTurnCostTooltipText(): string {
     'до 6000 — 1 сол',
     '6001–16000 — 2 сола',
     '16001–32000 — 4 сола',
+    '32001–64000 — 8 солов',
     '',
     'GLM 5.0, Aion Labs, Xiaomi MiMo V2 Pro:',
     'до 6000 — 2 сола',
     '6001–16000 — 4 сола',
     '16001–32000 — 8 солов',
+    '32001–64000 — 16 солов',
     '',
     'GLM 5.1:',
     'до 6000 — 3 сола',
     '6001–16000 — 6 солов',
     '16001–32000 — 12 солов',
+    '32001–64000 — 24 сола',
     'Эмбиент подсветка: +1 сол за ход',
     'Визуализация эмоций: +1 сол за ход',
   ].join('\n')
@@ -3026,12 +3244,14 @@ function getStoryTurnCostTokens(
   emotionVisualizationEnabled = false,
 ): number {
   const normalizedUsage = Math.max(0, Math.round(contextUsageTokens))
-  const [tier1Cost, tier2Cost, tier3Cost] = getStoryNarratorTurnCostTiers(narratorModelId)
-  let totalCost = tier3Cost
+  const [tier1Cost, tier2Cost, tier3Cost, tier4Cost] = getStoryNarratorTurnCostTiers(narratorModelId)
+  let totalCost = tier4Cost
   if (normalizedUsage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX) {
     totalCost = tier1Cost
   } else if (normalizedUsage <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX) {
     totalCost = tier2Cost
+  } else if (normalizedUsage <= STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX) {
+    totalCost = tier3Cost
   }
   if (ambientEnabled) {
     totalCost += 1
@@ -4755,6 +4975,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [bugReportTitleDraft, setBugReportTitleDraft] = useState('')
   const [bugReportDescriptionDraft, setBugReportDescriptionDraft] = useState('')
   const [isBugReportSubmitting, setIsBugReportSubmitting] = useState(false)
+  const streamingAssistantTextStore = useMemo(() => createStreamingAssistantTextStore(), [])
   const [characterMenuAnchorEl, setCharacterMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [characterMenuCharacterId, setCharacterMenuCharacterId] = useState<number | null>(null)
   const generationAbortRef = useRef<AbortController | null>(null)
@@ -4772,6 +4993,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const composerAiMenuRef = useRef<HTMLDivElement | null>(null)
   const composerContainerRef = useRef<HTMLDivElement | null>(null)
   const messagesViewportRef = useRef<HTMLDivElement | null>(null)
+  const isAutoScrollPausedRef = useRef(isAutoScrollPaused)
+  const streamingAutoScrollFrameRef = useRef<number | null>(null)
   const isExpandingMessagesWindowRef = useRef(false)
   const pendingMessagesWindowAnchorRef = useRef<{ previousScrollHeight: number; previousScrollTop: number } | null>(null)
   const emotionStagePanelRef = useRef<HTMLDivElement | null>(null)
@@ -4860,6 +5083,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId])
 
   useEffect(() => {
+    isAutoScrollPausedRef.current = isAutoScrollPaused
+  }, [isAutoScrollPaused])
+
+  useEffect(() => {
     setAdvancedRegenerationDialogOpen(false)
     setSelectedSmartRegenerationMode(DEFAULT_SMART_REGENERATION_MODE)
     setSelectedSmartRegenerationOptions(DEFAULT_SMART_REGENERATION_OPTIONS)
@@ -4876,6 +5103,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId, user.id])
 
   useEffect(() => {
+    isAutoScrollPausedRef.current = false
     setIsAutoScrollPaused(false)
     setContinueHiddenForMessageId(null)
     setHiddenUserMessageIds([])
@@ -6180,20 +6408,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (right.community_rating_avg !== left.community_rating_avg) {
           return right.community_rating_avg - left.community_rating_avg
         }
-        return right.community_rating_count - left.community_rating_count
+        return (
+          right.community_rating_count - left.community_rating_count
+          || parseSortDate(right.created_at) - parseSortDate(left.created_at)
+          || right.id - left.id
+        )
       }
       if (characterSelectionSortMode === 'additions_desc') {
         if (right.community_additions_count !== left.community_additions_count) {
           return right.community_additions_count - left.community_additions_count
         }
-        return right.id - left.id
+        return parseSortDate(right.created_at) - parseSortDate(left.created_at) || right.id - left.id
       }
-      const leftTimestamp = Date.parse(left.updated_at)
-      const rightTimestamp = Date.parse(right.updated_at)
-      if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && rightTimestamp !== leftTimestamp) {
-        return rightTimestamp - leftTimestamp
-      }
-      return right.id - left.id
+      return parseSortDate(right.created_at) - parseSortDate(left.created_at) || right.id - left.id
     })
     return nextItems
   }, [
@@ -8257,6 +8484,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         document.body.style.cursor = ''
         document.body.style.userSelect = ''
       }
+      if (streamingAutoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(streamingAutoScrollFrameRef.current)
+        streamingAutoScrollFrameRef.current = null
+      }
     }
   }, [])
 
@@ -8488,7 +8719,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return
     }
     const distanceFromBottom = viewport.scrollHeight - (viewport.scrollTop + viewport.clientHeight)
-    if (!isAutoScrollPaused && isGenerating && distanceFromBottom > STORY_AUTOSCROLL_BOTTOM_THRESHOLD) {
+    if (!isAutoScrollPausedRef.current && isGenerating && distanceFromBottom > STORY_AUTOSCROLL_BOTTOM_THRESHOLD) {
+      isAutoScrollPausedRef.current = true
       setIsAutoScrollPaused(true)
     }
 
@@ -8537,7 +8769,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [
     activeGameId,
     hasOlderStoryMessages,
-    isAutoScrollPaused,
     isGenerating,
     isLoadingOlderStoryMessages,
     loadGameById,
@@ -8571,6 +8802,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     viewport.scrollTop = viewport.scrollHeight
   }, [messages, isAutoScrollPaused, isGenerating, messagesViewportBottomPadding])
+
+  const scheduleStreamingAutoScroll = useCallback(() => {
+    if (isAutoScrollPausedRef.current || streamingAutoScrollFrameRef.current !== null) {
+      return
+    }
+    streamingAutoScrollFrameRef.current = window.requestAnimationFrame(() => {
+      streamingAutoScrollFrameRef.current = null
+      if (isAutoScrollPausedRef.current) {
+        return
+      }
+      const viewport = messagesViewportRef.current
+      if (!viewport) {
+        return
+      }
+      viewport.scrollTop = viewport.scrollHeight
+    })
+  }, [])
 
   useEffect(() => {
     if (!errorMessage) {
@@ -10346,6 +10594,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
       const normalizedValue = clampStoryResponseMaxTokens(nextValue)
       setResponseMaxTokens(normalizedValue)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          ...previousOverrides[targetGameId],
+          storyLlmModel,
+          responseMaxTokens: normalizedValue,
+          responseMaxTokensEnabled: true,
+          memoryOptimizationEnabled,
+          memoryOptimizationMode,
+          storyRepetitionPenalty,
+          storyTemperature,
+          storyTopK,
+          storyTopR,
+          showGgThoughts,
+          showNpcThoughts,
+          ambientEnabled,
+        },
+      }))
       setErrorMessage('')
       setIsSavingResponseMaxTokens(true)
       try {
@@ -10374,6 +10640,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingAmbientEnabled,
       isSavingContextLimit,
       memoryOptimizationEnabled,
+      ambientEnabled,
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
@@ -10381,6 +10648,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingStorySampling,
       isSavingThoughtVisibility,
       responseMaxTokensEnabled,
+      storyLlmModel,
+      storyRepetitionPenalty,
+      storyTemperature,
+      storyTopK,
+      storyTopR,
       showGgThoughts,
       showNpcThoughts,
     ],
@@ -12295,6 +12567,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       smartRegenerationOptions?: SmartRegenerationOption[]
       instructionCards?: StoryInstructionCard[]
     }) => {
+      isAutoScrollPausedRef.current = false
       setIsAutoScrollPaused(false)
       setErrorMessage('')
       setIsGenerating(true)
@@ -12322,24 +12595,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           nextMessages[targetIndex] = {
             ...nextMessages[targetIndex],
             content,
-            updated_at: now,
-          }
-          return nextMessages
-        })
-      }
-
-      const appendAssistantMessageDelta = (messageId: number, delta: string) => {
-        const now = new Date().toISOString()
-        setMessages((previousMessages) => {
-          const targetIndex = previousMessages.findIndex((message) => message.id === messageId)
-          if (targetIndex < 0) {
-            return previousMessages
-          }
-          const nextMessages = [...previousMessages]
-          const targetMessage = nextMessages[targetIndex]
-          nextMessages[targetIndex] = {
-            ...targetMessage,
-            content: `${targetMessage.content}${delta}`,
             updated_at: now,
           }
           return nextMessages
@@ -12399,10 +12654,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             }
             startedAssistantMessageId = payload.assistant_message_id
             setActiveAssistantMessageId(payload.assistant_message_id)
+            streamingAssistantTextStore.setText(payload.assistant_message_id, '')
             smoothStreamingControllerRef.current = createSmoothStreamingTextController({
               enabled: smoothStreamingEnabled,
               reducedMotion: prefersReducedMotion(),
-              onUpdate: (text) => updateAssistantMessageContent(payload.assistant_message_id, text),
+              onUpdate: (text) => {
+                streamingAssistantTextStore.setText(payload.assistant_message_id, text)
+                scheduleStreamingAutoScroll()
+              },
             })
             setMessages((previousMessages) => {
               const nextMessages = [...previousMessages]
@@ -12442,7 +12701,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               smoothStreamingControllerRef.current.appendChunk(payload.delta)
               return
             }
-            appendAssistantMessageDelta(payload.assistant_message_id, payload.delta)
+            streamingAssistantTextStore.setText(
+              payload.assistant_message_id,
+              `${streamingAssistantTextStore.getText(payload.assistant_message_id)}${payload.delta}`,
+            )
+            scheduleStreamingAutoScroll()
           },
           onPlotMemory: (payload) => {
             const nextPlotEvents = payload.plot_card_events ?? []
@@ -12520,7 +12783,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           const normalizedCompletedMessage = normalizeStoryMessageItem(completedPayload.message)
           if (smoothStreamingControllerRef.current) {
             smoothStreamingControllerRef.current.appendFinalText(normalizedCompletedMessage.content)
-            await smoothStreamingControllerRef.current.finish()
+            const displayedText = await smoothStreamingControllerRef.current.finish()
+            streamingAssistantTextStore.setText(normalizedCompletedMessage.id, displayedText)
           } else {
             updateAssistantMessageContent(normalizedCompletedMessage.id, normalizedCompletedMessage.content)
           }
@@ -12533,8 +12797,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         } else {
           generationFailed = true
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
+          if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
+            setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
+          }
           if (/недостаточно (?:токенов|солов)/i.test(detail)) {
-            setInputValue('')
             setTopUpError('')
             setTopUpDialogOpen(true)
             setProfileDialogOpen(false)
@@ -12552,14 +12818,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setActiveAssistantMessageId(null)
         generationAbortRef.current = null
         if (!completedPayloadRef.current) {
+          if (startedAssistantMessageId !== null) {
+            const displayedText =
+              smoothStreamingControllerRef.current?.getDisplayedText() ??
+              streamingAssistantTextStore.getText(startedAssistantMessageId)
+            if (displayedText.trim().length > 0) {
+              updateAssistantMessageContent(startedAssistantMessageId, displayedText)
+            }
+          }
           smoothStreamingControllerRef.current?.cancel()
         }
-
-        if (wasAborted && streamStarted) {
-          await new Promise<void>((resolve) => {
-            window.setTimeout(() => resolve(), 700)
-          })
-        }
+        streamingAssistantTextStore.clear(completedAssistantMessageId ?? startedAssistantMessageId ?? undefined)
 
         const shouldOptimizeStoryMemory =
           !generationFailed &&
@@ -12713,9 +12982,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       optimizeStoryMemorySnapshot,
       responseMaxTokensEnabled,
       responseMaxTokens,
+      scheduleStreamingAutoScroll,
       showGgThoughts,
       showNpcThoughts,
       smoothStreamingEnabled,
+      streamingAssistantTextStore,
       mainHeroDisplayNameForTags,
       storyLlmModel,
       storyRepetitionPenalty,
@@ -12849,9 +13120,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       if (hasInsufficientTokensForTurn) {
-        if (options?.clearComposer) {
-          setInputValue('')
-        }
         setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
         setTopUpError('')
         setTopUpDialogOpen(true)
@@ -12894,6 +13162,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return null
       }
 
+      isAutoScrollPausedRef.current = false
       setIsAutoScrollPaused(false)
       const now = new Date().toISOString()
       const temporaryUserMessageId = -Date.now()
@@ -12963,7 +13232,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setInputValue('')
       setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setTopUpDialogOpen(true)
@@ -13227,6 +13495,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleVoiceActionClick = useCallback(() => {
     if (isGenerating) {
+      const targetGameId = activeGameId
+      if (targetGameId) {
+        void cancelStoryGeneration({
+          token: authToken,
+          gameId: targetGameId,
+        }).catch((error) => {
+          console.error('Story generation cancellation request failed', error)
+        })
+      }
       const activeController = generationAbortRef.current
       if (activeController) {
         activeController.abort()
@@ -13246,7 +13523,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     voiceSessionRequestedRef.current = true
     startVoiceInput()
-  }, [handleSendPrompt, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
+  }, [activeGameId, authToken, handleSendPrompt, isGenerating, isVoiceInputActive, showMicAction, startVoiceInput, stopVoiceInput])
 
   const handleUndoAssistantStep = useCallback(async () => {
     if (!activeGameId || !canUndoAssistantStep || isUndoingAssistantStep) {
@@ -13311,7 +13588,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setInputValue('')
       setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setTopUpDialogOpen(true)
@@ -13700,12 +13976,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           background:
             'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 94%, #05070d 6%) 0%, color-mix(in srgb, var(--morius-card-bg) 88%, #020304 12%) 100%)',
           transform: {
-            xs: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + 24px))',
-            md: isRightPanelOpen ? 'translateX(0)' : 'translateX(calc(100% + var(--morius-interface-gap)))',
+            xs: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 24px), 0, 0)',
+            md: isRightPanelOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + var(--morius-interface-gap)), 0, 0)',
           },
           opacity: isRightPanelOpen ? 1 : 0,
           pointerEvents: isRightPanelOpen ? 'auto' : 'none',
           transition: 'transform 260ms ease, opacity 220ms ease',
+          willChange: 'transform, opacity',
+          contain: 'layout paint',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -17580,8 +17858,25 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         }}
                       >
                         <Stack spacing="var(--morius-story-message-gap)">
-                          {blocks.map((block, index) => {
-                            const shouldShowStreamingCaret = isStreaming && index === blocks.length - 1
+                          {isStreaming ? (
+                            <StreamingAssistantMessageContent
+                              messageId={message.id}
+                              store={streamingAssistantTextStore}
+                              mainHeroName={mainHeroDisplayNameForTags}
+                              showNpcThoughts={showNpcThoughts}
+                              assistantReplyTextColor={assistantReplyTextColor}
+                              assistantSpeakerLabelColor={assistantSpeakerLabelColor}
+                              assistantThoughtLabelColor={assistantThoughtLabelColor}
+                              assistantThoughtTextColor={assistantThoughtTextColor}
+                              isGrayTheme={isGrayTheme}
+                              storyHistoryTextSx={storyHistoryTextSx}
+                              renderPreviewableCharacterAvatar={renderPreviewableCharacterAvatar}
+                              resolveDialogueAvatar={resolveDialogueAvatar}
+                              resolveDialogueAvatarPreview={resolveDialogueAvatarPreview}
+                              resolveDialogueSpeakerName={resolveDialogueSpeakerName}
+                            />
+                          ) : (
+                            blocks.map((block, index) => {
                             if (block.type === 'character') {
                               const nearbyNarrativeContext = blocks
                                 .slice(Math.max(0, index - 3), Math.min(blocks.length, index + 4))
@@ -17666,9 +17961,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       }}
                                     >
                                       {block.text}
-                                      {shouldShowStreamingCaret ? (
-                                        <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
-                                      ) : null}
                                     </Box>
                                   </Stack>
                                 </Stack>
@@ -17721,23 +18013,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   }}
                                 >
                                   {block.text}
-                                  {shouldShowStreamingCaret ? (
-                                    <Box component="span" className={STREAMING_CARET_CLASS_NAME} aria-hidden="true" />
-                                  ) : null}
                                 </Box>
                               </Box>
                             )
-                          })}
-                          {isStreaming && blocks.length === 0 ? (
-                            <Stack direction="row" alignItems="center" spacing={0.65} sx={{ px: 0.05, py: 0.05 }}>
-                              <Stack direction="row" alignItems="center" spacing={0.65} className="morius-generating-indicator">
-                                <Box className="morius-generating-pulse-dot" />
-                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', letterSpacing: 0.1 }}>
-                                  Смотрим, что было дальше...
-                                </Typography>
-                              </Stack>
-                            </Stack>
-                          ) : null}
+                            })
+                          )}
                           {messagePlotCardEvents.length > 0 || messageWorldCardEvents.length > 0 ? (
                             <Stack spacing={0.75}>
                               {messagePlotCardEvents.map((plotCardEvent) => {

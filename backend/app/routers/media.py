@@ -9,11 +9,12 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
+from app.models import DashboardNewsCard, StoryCharacter, StoryGame, StoryTurnImage, StoryWorldCard, StoryWorldCardTemplate, User
 from app.services.story_emotions import deserialize_story_character_emotion_assets
 from app.services.media import (
     MEDIA_URL_PREFIX,
     decode_media_data_url,
+    normalize_media_reference_value,
     normalize_media_cache_version,
     normalize_proxyable_remote_media_url,
     parse_media_token,
@@ -79,6 +80,11 @@ MEDIA_KIND_SPECS: dict[str, tuple[type[Any], Callable[[Any, dict[str, Any]], Any
     "story-turn-image-data": (
         StoryTurnImage,
         lambda record, _: getattr(record, "image_data_url", None),
+        lambda record: getattr(record, "updated_at", None),
+    ),
+    "dashboard-news-image": (
+        DashboardNewsCard,
+        lambda record, _: getattr(record, "image_url", None),
         lambda record: getattr(record, "updated_at", None),
     ),
 }
@@ -156,7 +162,7 @@ def _resolve_nested_media_source_value(
     max_depth: int = 4,
     visited_tokens: set[str] | None = None,
 ) -> str | None:
-    normalized_value = str(raw_value or "").strip() if isinstance(raw_value, str) else None
+    normalized_value = normalize_media_reference_value(raw_value) if isinstance(raw_value, str) else None
     if normalized_value is None:
         return None
     if not normalized_value.startswith(MEDIA_URL_PREFIX):

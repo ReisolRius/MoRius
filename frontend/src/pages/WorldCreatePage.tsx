@@ -17,6 +17,7 @@ import ImageCropper from '../components/ImageCropper'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
+import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
 import { STORY_WORLD_BANNER_ASPECT } from '../utils/storyWorldCards'
 import {
@@ -158,24 +159,6 @@ const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
 const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
 const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const CHARACTER_NOTE_MAX_LENGTH = 20
-const WORLD_GENRE_OPTIONS = [
-  'Фэнтези',
-  'Фантастика (Научная фантастика)',
-  'Детектив',
-  'Триллер',
-  'Хоррор (Ужасы)',
-  'Мистика',
-  'Романтика (Любовный роман)',
-  'Приключения',
-  'Боевик',
-  'Исторический роман',
-  'Комедия / Юмор',
-  'Трагедия / Драма',
-  'Антиутопия',
-  'Постапокалипсис',
-  'Киберпанк',
-  'Повседневность',
-] as const
 type StoryAgeRating = (typeof AGE_RATING_OPTIONS)[number]
 
 const dialogPaperSx = {
@@ -809,16 +792,19 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         if (right.community_rating_avg !== left.community_rating_avg) {
           return right.community_rating_avg - left.community_rating_avg
         }
-        return right.community_rating_count - left.community_rating_count
+        if (right.community_rating_count !== left.community_rating_count) {
+          return right.community_rating_count - left.community_rating_count
+        }
+        return Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id
       }
       if (characterPickerSortMode === 'additions_desc') {
         if (right.community_additions_count !== left.community_additions_count) {
           return right.community_additions_count - left.community_additions_count
         }
-        return right.id - left.id
+        return Date.parse(right.created_at) - Date.parse(left.created_at) || right.id - left.id
       }
-      const leftTimestamp = Date.parse(left.updated_at)
-      const rightTimestamp = Date.parse(right.updated_at)
+      const leftTimestamp = Date.parse(left.created_at)
+      const rightTimestamp = Date.parse(right.created_at)
       if (Number.isFinite(leftTimestamp) && Number.isFinite(rightTimestamp) && rightTimestamp !== leftTimestamp) {
         return rightTimestamp - leftTimestamp
       }

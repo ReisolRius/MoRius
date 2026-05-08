@@ -198,9 +198,13 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
         aria-label="Ежедневные награды"
         aria-expanded={open ? 'true' : undefined}
         sx={{
+          '--morius-daily-rewards-size': `${size}px`,
+          '--morius-daily-rewards-icon-size': `${Math.max(20, Math.round(size * 0.52))}px`,
+          '--morius-daily-rewards-color': canClaim ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
           minWidth: 0,
           width: size,
           height: size,
+          minHeight: size,
           maxWidth: size,
           maxHeight: size,
           flex: `0 0 ${size}px`,
@@ -208,19 +212,21 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           borderRadius: '9999px !important',
           p: 0,
           color: `${canClaim ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)'} !important`,
-          backgroundColor: 'var(--morius-elevated-bg) !important',
+          background: 'var(--morius-elevated-bg) !important',
           border: 'none',
           boxShadow: '0 10px 24px rgba(0,0,0,0.22)',
-          transition: 'background-color 160ms ease, color 160ms ease, transform 160ms ease',
+          opacity: '1 !important',
+          transition: 'background 160ms ease, color 160ms ease, transform 160ms ease',
           position: 'relative',
           overflow: 'hidden',
           '&:hover': {
             color: 'var(--morius-title-text) !important',
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, var(--morius-title-text) 22%) !important',
+            background: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important',
+            opacity: '1 !important',
             transform: 'translateY(-1px)',
           },
           '&:active': {
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, var(--morius-title-text) 28%) !important',
+            background: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important',
           },
         }}
       >

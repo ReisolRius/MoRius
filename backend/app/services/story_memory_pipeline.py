@@ -19,6 +19,7 @@ from app.services.story_games import (
     serialize_story_environment_datetime as _serialize_story_environment_datetime,
     serialize_story_environment_weather as _serialize_story_environment_weather,
 )
+from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
 
 
 
@@ -40,6 +41,11 @@ def _bind_monolith_names() -> None:
 
 
 _bind_monolith_names()
+
+
+def _request_openrouter_story_text(messages_payload: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
+    repaired_messages = repair_likely_utf8_mojibake_deep(messages_payload)
+    return monolith_main._request_openrouter_story_text(repaired_messages, *args, **kwargs)
 
 STORY_CHARACTER_STATE_KIND_MAIN_HERO = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_MAIN_HERO", "main_hero")
 STORY_CHARACTER_STATE_KIND_NPC = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_NPC", "npc")
@@ -157,7 +163,9 @@ def _normalize_story_character_state_monitor_inactive_always(value: Any) -> bool
 
 def _normalize_story_environment_weather_text(value: Any, *, max_chars: int = 80) -> str:
 
-    normalized = " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split()).strip(" ,;:-.!?…")
+    normalized = " ".join(
+        sanitize_likely_utf8_mojibake(str(value or "")).replace("\r", " ").replace("\n", " ").split()
+    ).strip(" ,;:-.!?…")
 
     if not normalized:
 
@@ -618,7 +626,7 @@ def _build_story_environment_non_generic_fallback_weather_payload(
 
         season_key = "autumn"
 
-    normalized_supporting_text = str(supporting_text or "").casefold()
+    normalized_supporting_text = sanitize_likely_utf8_mojibake(str(supporting_text or "")).casefold()
     seed_source = f"{target_day_date}|{normalized_supporting_text[:320]}"
     seed_value = sum((index + 1) * ord(character) for index, character in enumerate(seed_source))
     pattern_index = seed_value % len(_STORY_ENVIRONMENT_FALLBACK_PATTERNS[season_key])
@@ -9083,6 +9091,31 @@ def _sync_story_environment_state_for_assistant_message(
     estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text_for_time_progress)
     if _story_environment_has_brief_scene_signal(source_text_for_time_progress) and estimated_elapsed_minutes is not None:
         estimated_elapsed_minutes = min(estimated_elapsed_minutes, 3)
+    if (
+        time_enabled
+        and isinstance(saved_current_datetime, datetime)
+        and isinstance(resolved_current_datetime, datetime)
+        and source_text_for_time_progress
+        and not _story_environment_has_precise_clock_reference(source_text_for_time_progress)
+        and not _story_environment_has_explicit_time_skip(source_text_for_time_progress)
+    ):
+        guarded_step_minutes = estimated_elapsed_minutes
+        if guarded_step_minutes is None:
+            guarded_step_minutes = max(
+                1,
+                _normalize_story_environment_turn_step_minutes(getattr(game, "environment_turn_step_minutes", None)),
+            )
+        if _story_environment_has_brief_scene_signal(source_text_for_time_progress):
+            guarded_step_minutes = min(guarded_step_minutes, 3)
+        delta_minutes = int((resolved_current_datetime - saved_current_datetime).total_seconds() // 60)
+        max_reasonable_delta = max(5, guarded_step_minutes + 2, int(round(guarded_step_minutes * 1.4)))
+        if delta_minutes > max_reasonable_delta:
+            resolved_current_datetime = (saved_current_datetime + timedelta(minutes=guarded_step_minutes)).replace(
+                second=0,
+                microsecond=0,
+                tzinfo=None,
+            )
+            contextual_time_anchor_applied = False
     should_force_time_progress = (
         time_enabled
         and

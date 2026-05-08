@@ -113,10 +113,15 @@ const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
 
 const MY_GAMES_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `my-game-skeleton-${index}`)
 
+function parseGameSortDate(value: string): number {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
     (left, right) =>
-      new Date(right.last_activity_at).getTime() - new Date(left.last_activity_at).getTime() || right.id - left.id,
+      parseGameSortDate(right.last_activity_at) - parseGameSortDate(left.last_activity_at) || right.id - left.id,
   )
 }
 
@@ -124,15 +129,15 @@ function sortGames(games: StoryGameSummary[], mode: GamesSortMode): StoryGameSum
   const sorted = [...games]
   sorted.sort((left, right) => {
     if (mode === 'updated_desc') {
-      return new Date(right.last_activity_at).getTime() - new Date(left.last_activity_at).getTime()
+      return parseGameSortDate(right.last_activity_at) - parseGameSortDate(left.last_activity_at) || right.id - left.id
     }
     if (mode === 'updated_asc') {
-      return new Date(left.last_activity_at).getTime() - new Date(right.last_activity_at).getTime()
+      return parseGameSortDate(left.last_activity_at) - parseGameSortDate(right.last_activity_at) || left.id - right.id
     }
     if (mode === 'created_desc') {
-      return new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+      return parseGameSortDate(right.created_at) - parseGameSortDate(left.created_at) || right.id - left.id
     }
-    return new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+    return parseGameSortDate(left.created_at) - parseGameSortDate(right.created_at) || left.id - right.id
   })
   return sorted
 }

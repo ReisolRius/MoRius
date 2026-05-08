@@ -177,7 +177,9 @@ class ProfileFollowStateOut(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
+    display_name: str | None = Field(default=None, max_length=120)
     password: str = Field(min_length=8, max_length=128)
+    accepted_terms: bool = False
 
 
 class RegisterVerifyRequest(BaseModel):
@@ -191,7 +193,24 @@ class LoginRequest(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    id_token: str = Field(min_length=1)
+    id_token: str | None = Field(default=None, min_length=1)
+    access_token: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def _require_google_token(self) -> "GoogleAuthRequest":
+        if not (self.id_token or "").strip() and not (self.access_token or "").strip():
+            raise ValueError("Google token is required")
+        return self
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetVerifyRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=6, pattern=r"^\d{6}$")
+    password: str = Field(min_length=8, max_length=128)
 
 
 class AvatarUpdateRequest(BaseModel):
@@ -357,12 +376,41 @@ class DashboardNewsCardOut(BaseModel):
     image_url: str | None
     date_label: str
 
+    @model_validator(mode="before")
+    @classmethod
+    def _resolve_dashboard_news_image(cls, value: Any) -> Any:
+        if value is None:
+            return value
+        if isinstance(value, dict):
+            payload = dict(value)
+            news_id = payload.get("id")
+            version = payload.get("updated_at") or payload.get("created_at")
+        else:
+            payload = {field_name: getattr(value, field_name, None) for field_name in cls.model_fields}
+            news_id = getattr(value, "id", None)
+            version = getattr(value, "updated_at", None) or getattr(value, "created_at", None)
+
+        if news_id is None:
+            return payload
+        try:
+            entity_id = int(news_id)
+        except (TypeError, ValueError):
+            return payload
+
+        payload["image_url"] = resolve_media_display_url(
+            payload.get("image_url"),
+            kind="dashboard-news-image",
+            entity_id=entity_id,
+            version=version,
+        )
+        return payload
+
 
 class DashboardNewsCardUpdateRequest(BaseModel):
     category: str = Field(min_length=1, max_length=80)
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=10_000)
-    image_url: str | None = Field(default=None, max_length=3_000_000)
+    image_url: str | None = Field(default=None, max_length=4_000_000)
     date_label: str = Field(min_length=1, max_length=80)
 
 
@@ -416,7 +464,7 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=6_000, le=32_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=64_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -455,7 +503,7 @@ class StoryGameCloneRequest(BaseModel):
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=6_000, le=32_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=64_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)

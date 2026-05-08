@@ -32,9 +32,13 @@ import sidebarPlusIconMarkup from '../assets/icons/custom/plus.svg?raw'
 import sidebarVectorAltIconMarkup from '../assets/icons/custom/vector-1.svg?raw'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
+import ImageCropper from '../components/ImageCropper'
 import quickStartDashboardImage from '../assets/images/dashboard/quick-start.png'
 import newWorldDashboardImage from '../assets/images/dashboard/new-world.png'
 import shopDashboardImage from '../assets/images/dashboard/shop.png'
+import cardsWorldIconMarkup from '../assets/icons/cards-world.svg?raw'
+import cardsCharactersIconMarkup from '../assets/icons/cards-characters.svg?raw'
+import cardsRulesIconMarkup from '../assets/icons/cards-rules.svg?raw'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
@@ -185,14 +189,31 @@ const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) =
 const HOME_COMMUNITY_WORLD_LIMIT = 12
 
 /** Section header with title, subtitle, and "Показать все" button */
-function HomeSliderHeader({ title, subtitle, onShowAll }: { title: string; subtitle: string; onShowAll: () => void }) {
+function HomeSliderHeader({
+  title,
+  subtitle,
+  iconMarkup,
+  onShowAll,
+}: {
+  title: string
+  subtitle: string
+  iconMarkup: string
+  onShowAll: () => void
+}) {
   return (
     <Stack sx={{ mb: 'var(--morius-cards-title-gap)', mt: 'var(--morius-cards-title-gap)' }}>
       {/* Title row: always inline, button right-aligned */}
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
-          {title}
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={0.85} sx={{ minWidth: 0 }}>
+          <ThemedSvgIcon
+            markup={iconMarkup}
+            size={28}
+            sx={{ color: 'var(--morius-accent)', flexShrink: 0, opacity: 0.96 }}
+          />
+          <Typography sx={{ fontSize: { xs: '1.6rem', md: '1.9rem' }, fontWeight: 800, color: APP_TEXT_PRIMARY }}>
+            {title}
+          </Typography>
+        </Stack>
         <Button
           onClick={onShowAll}
           sx={{
@@ -452,6 +473,10 @@ function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTempla
 const MOBILE_CARD_HEIGHT = 130
 
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const DASHBOARD_NEWS_IMAGE_MAX_BYTES = 8 * 1024 * 1024
+const DASHBOARD_NEWS_IMAGE_ASPECT = 2.1
+const DASHBOARD_NEWS_IMAGE_OUTPUT_WIDTH = 1600
+const DASHBOARD_NEWS_IMAGE_OUTPUT_HEIGHT = Math.round(DASHBOARD_NEWS_IMAGE_OUTPUT_WIDTH / DASHBOARD_NEWS_IMAGE_ASPECT)
 const DASHBOARD_RECENT_GAME_LIMIT = 12
 const COMMUNITY_WORLD_REFRESH_INTERVAL_MS = 30 * 60 * 1000
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
@@ -529,6 +554,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isDashboardNewsSaving, setIsDashboardNewsSaving] = useState(false)
   const [dashboardNewsEditorError, setDashboardNewsEditorError] = useState('')
   const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
+  const [dashboardNewsEditingId, setDashboardNewsEditingId] = useState<number | null>(null)
+  const [dashboardNewsImageCropSource, setDashboardNewsImageCropSource] = useState<string | null>(null)
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
   const [isBgImageLoaded, setIsBgImageLoaded] = useState(false)
   useEffect(() => {
@@ -557,6 +584,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [isCommunityWorldMyGamesSaving, setIsCommunityWorldMyGamesSaving] = useState(false)
   const [newsProgressKey, setNewsProgressKey] = useState(0)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const dashboardNewsImageInputRef = useRef<HTMLInputElement | null>(null)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
   const handledMobileActionRef = useRef<string | null>(null)
   const newsAutoAdvanceTimerRef = useRef<number | null>(null)
@@ -831,9 +859,13 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     () => dashboardNews.find((item) => item.id === selectedDashboardNewsId) ?? dashboardNews[0] ?? null,
     [dashboardNews, selectedDashboardNewsId],
   )
+  const dashboardNewsEditingItem = useMemo(
+    () => dashboardNews.find((item) => item.id === dashboardNewsEditingId) ?? null,
+    [dashboardNews, dashboardNewsEditingId],
+  )
   const dashboardNewsOriginalDraft = useMemo(
-    () => createDashboardNewsDraft(selectedDashboardNews),
-    [selectedDashboardNews],
+    () => createDashboardNewsDraft(dashboardNewsEditingItem),
+    [dashboardNewsEditingItem],
   )
   const hasDashboardNewsDraftChanges =
     dashboardNewsDraft.category !== dashboardNewsOriginalDraft.category ||
@@ -841,6 +873,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     dashboardNewsDraft.description !== dashboardNewsOriginalDraft.description ||
     dashboardNewsDraft.image_url !== dashboardNewsOriginalDraft.image_url ||
     dashboardNewsDraft.date_label !== dashboardNewsOriginalDraft.date_label
+  const dashboardNewsEditorPreviewImage =
+    dashboardNewsDraft.image_url.trim() ||
+    getDashboardNewsFallbackImage(dashboardNewsEditingItem?.slot ?? selectedDashboardNews?.slot ?? 1)
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -1272,6 +1307,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       return
     }
     setDashboardNewsEditorError('')
+    setDashboardNewsEditingId(selectedDashboardNews.id)
     setDashboardNewsDraft(createDashboardNewsDraft(selectedDashboardNews))
     setIsDashboardNewsEditorOpen(true)
   }, [isDashboardNewsEditor, selectedDashboardNews])
@@ -1283,7 +1319,43 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setIsDashboardNewsCloseConfirmOpen(false)
     setIsDashboardNewsEditorOpen(false)
     setDashboardNewsEditorError('')
+    setDashboardNewsEditingId(null)
+    setDashboardNewsImageCropSource(null)
   }, [isDashboardNewsSaving])
+
+  const handleChooseDashboardNewsImage = useCallback(() => {
+    if (isDashboardNewsSaving) {
+      return
+    }
+    dashboardNewsImageInputRef.current?.click()
+  }, [isDashboardNewsSaving])
+
+  const handleDashboardNewsImageChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0]
+    event.target.value = ''
+    if (!selectedFile) {
+      return
+    }
+
+    if (!selectedFile.type.startsWith('image/')) {
+      setDashboardNewsEditorError('Выберите файл изображения: PNG, JPEG, WEBP или GIF.')
+      return
+    }
+
+    if (selectedFile.size > DASHBOARD_NEWS_IMAGE_MAX_BYTES) {
+      setDashboardNewsEditorError('Слишком большой файл. Максимум 8 МБ.')
+      return
+    }
+
+    setDashboardNewsEditorError('')
+    try {
+      const dataUrl = await readFileAsDataUrl(selectedFile)
+      setDashboardNewsImageCropSource(dataUrl)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось подготовить изображение'
+      setDashboardNewsEditorError(detail)
+    }
+  }, [])
 
   const handleRequestCloseDashboardNewsEditor = useCallback(() => {
     if (isDashboardNewsSaving) {
@@ -1297,7 +1369,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   }, [handleCloseDashboardNewsEditor, hasDashboardNewsDraftChanges, isDashboardNewsSaving])
 
   const handleSaveDashboardNews = useCallback(async () => {
-    if (!selectedDashboardNews || !isDashboardNewsEditor || isDashboardNewsSaving) {
+    if (!dashboardNewsEditingItem || !isDashboardNewsEditor || isDashboardNewsSaving) {
       return
     }
 
@@ -1306,7 +1378,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     try {
       const updatedItem = await updateDashboardNews({
         token: authToken,
-        news_id: selectedDashboardNews.id,
+        news_id: dashboardNewsEditingItem.id,
         category: dashboardNewsDraft.category,
         title: dashboardNewsDraft.title,
         description: dashboardNewsDraft.description,
@@ -1315,6 +1387,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       })
       setDashboardNews((previous) => previous.map((item) => (item.id === updatedItem.id ? updatedItem : item)))
       setSelectedDashboardNewsId(updatedItem.id)
+      setDashboardNewsEditingId(null)
+      setDashboardNewsImageCropSource(null)
       setIsDashboardNewsEditorOpen(false)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось сохранить новость'
@@ -1324,6 +1398,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     }
   }, [
     authToken,
+    dashboardNewsEditingItem,
     dashboardNewsDraft.category,
     dashboardNewsDraft.date_label,
     dashboardNewsDraft.description,
@@ -1331,7 +1406,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     dashboardNewsDraft.title,
     isDashboardNewsEditor,
     isDashboardNewsSaving,
-    selectedDashboardNews,
   ])
 
   useEffect(() => {
@@ -1348,6 +1422,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   // Auto-advance news selection every 15 s; newsProgressKey acts as the reset trigger
   useEffect(() => {
     if (dashboardNews.length <= 1) {
+      return
+    }
+    if (isDashboardNewsEditorOpen || isDashboardNewsCloseConfirmOpen) {
       return
     }
     if (newsAutoAdvanceTimerRef.current !== null) {
@@ -1367,7 +1444,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         newsAutoAdvanceTimerRef.current = null
       }
     }
-  }, [dashboardNews, newsProgressKey])
+  }, [dashboardNews, isDashboardNewsCloseConfirmOpen, isDashboardNewsEditorOpen, newsProgressKey])
 
   const selectedCommunityWorldGameIds = selectedCommunityWorld
     ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
@@ -2036,7 +2113,25 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               },
                             }}
                           >
-                            <Stack spacing={0.45} sx={{ width: '100%', height: '100%', minHeight: 0 }}>
+                            {isSelected ? (
+                              <Box
+                                key={newsProgressKey}
+                                aria-hidden
+                                sx={{
+                                  position: 'absolute',
+                                  top: 0,
+                                  bottom: 0,
+                                  left: 0,
+                                  width: '0%',
+                                  background:
+                                    'linear-gradient(90deg, color-mix(in srgb, var(--morius-card-bg) 86%, black 14%) 0%, color-mix(in srgb, var(--morius-card-bg) 74%, black 26%) 100%)',
+                                  opacity: 0.82,
+                                  animation: 'morius-news-progress 15s linear forwards',
+                                  pointerEvents: 'none',
+                                }}
+                              />
+                            ) : null}
+                            <Stack spacing={0.45} sx={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', minHeight: 0 }}>
                               <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                                 {item.category}
                               </Typography>
@@ -2069,22 +2164,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                                 {item.description}
                               </Typography>
                             </Stack>
-                            {/* Auto-advance progress bar */}
-                            {isSelected ? (
-                              <Box
-                                key={newsProgressKey}
-                                aria-hidden
-                                sx={{
-                                  position: 'absolute',
-                                  bottom: 0,
-                                  left: 0,
-                                  height: '2px',
-                                  background: 'var(--morius-accent)',
-                                  opacity: 0.75,
-                                  animation: 'morius-news-progress 15s linear forwards',
-                                }}
-                              />
-                            ) : null}
                           </ButtonBase>
                         )
                       })}
@@ -2257,6 +2336,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <HomeSliderHeader
               title="Миры"
               subtitle="Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры."
+              iconMarkup={cardsWorldIconMarkup}
               onShowAll={() => onNavigate('/games/all?tab=worlds')}
             />
             {communityWorldsError ? (
@@ -2312,6 +2392,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <HomeSliderHeader
               title="Персонажи"
               subtitle="Публичные персонажи игроков"
+              iconMarkup={cardsCharactersIconMarkup}
               onShowAll={() => onNavigate('/games/all?tab=characters')}
             />
             {communityCharactersError ? (
@@ -2360,6 +2441,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             <HomeSliderHeader
               title="Правила"
               subtitle="Публичные правила игроков"
+              iconMarkup={cardsRulesIconMarkup}
               onShowAll={() => onNavigate('/games/all?tab=rules')}
             />
             {communityRulesError ? (
@@ -2472,12 +2554,91 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, date_label: event.target.value }))}
             fullWidth
           />
-          <TextField
-            label="URL изображения"
-            value={dashboardNewsDraft.image_url}
-            onChange={(event) => setDashboardNewsDraft((previous) => ({ ...previous, image_url: event.target.value }))}
-            fullWidth
-          />
+          <Box>
+            <Box
+              component="input"
+              ref={dashboardNewsImageInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                void handleDashboardNewsImageChange(event)
+              }}
+              sx={{ display: 'none' }}
+            />
+            <Stack spacing={0.8}>
+              <Box
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  aspectRatio: `${DASHBOARD_NEWS_IMAGE_ASPECT} / 1`,
+                  overflow: 'hidden',
+                  borderRadius: '14px',
+                  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                  backgroundColor: APP_CARD_BACKGROUND,
+                }}
+              >
+                <Box
+                  component="img"
+                  src={dashboardNewsEditorPreviewImage}
+                  alt=""
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    objectPosition: 'center',
+                  }}
+                />
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    inset: 0,
+                    background:
+                      'linear-gradient(180deg, rgba(4, 8, 14, 0.02) 0%, rgba(4, 8, 14, 0.42) 100%)',
+                  }}
+                />
+              </Box>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                <Button
+                  onClick={handleChooseDashboardNewsImage}
+                  disabled={isDashboardNewsSaving}
+                  sx={{
+                    minHeight: 40,
+                    borderRadius: '12px',
+                    border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: APP_CARD_BACKGROUND,
+                    color: APP_TEXT_PRIMARY,
+                    textTransform: 'none',
+                    fontWeight: 800,
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  Выбрать картинку
+                </Button>
+                {dashboardNewsDraft.image_url.trim() ? (
+                  <Button
+                    onClick={() => setDashboardNewsDraft((previous) => ({ ...previous, image_url: '' }))}
+                    disabled={isDashboardNewsSaving}
+                    sx={{
+                      minHeight: 40,
+                      borderRadius: '12px',
+                      color: APP_TEXT_SECONDARY,
+                      textTransform: 'none',
+                      fontWeight: 800,
+                      '&:hover': { backgroundColor: APP_BUTTON_HOVER, color: APP_TEXT_PRIMARY },
+                    }}
+                  >
+                    Убрать картинку
+                  </Button>
+                ) : null}
+              </Stack>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.35 }}>
+                Изображение обрежется под формат главной новости.
+              </Typography>
+            </Stack>
+          </Box>
           <TextField
             label="Текст"
             value={dashboardNewsDraft.description}
@@ -2585,6 +2746,31 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         }}
         onSave={(croppedDataUrl) => void handleSaveCroppedAvatar(croppedDataUrl)}
       />
+
+      {dashboardNewsImageCropSource ? (
+        <ImageCropper
+          imageSrc={dashboardNewsImageCropSource}
+          aspect={DASHBOARD_NEWS_IMAGE_ASPECT}
+          frameRadius={14}
+          title="Обрезка картинки новости"
+          cancelLabel="Отмена"
+          saveLabel="Применить"
+          isSaving={isDashboardNewsSaving}
+          outputWidth={DASHBOARD_NEWS_IMAGE_OUTPUT_WIDTH}
+          outputHeight={DASHBOARD_NEWS_IMAGE_OUTPUT_HEIGHT}
+          outputMime="image/webp"
+          outputQuality={0.9}
+          onCancel={() => {
+            if (!isDashboardNewsSaving) {
+              setDashboardNewsImageCropSource(null)
+            }
+          }}
+          onSave={(croppedDataUrl) => {
+            setDashboardNewsDraft((previous) => ({ ...previous, image_url: croppedDataUrl }))
+            setDashboardNewsImageCropSource(null)
+          }}
+        />
+      ) : null}
 
       <PaymentSuccessDialog
         open={paymentSuccessCoins !== null}

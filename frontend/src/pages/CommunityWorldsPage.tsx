@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import {
   Alert,
   Box,
@@ -41,6 +41,7 @@ import ProfileDialog from '../components/profile/ProfileDialog'
 import TopUpDialog from '../components/profile/TopUpDialog'
 import Footer from '../components/Footer'
 import TextLimitIndicator from '../components/TextLimitIndicator'
+import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 
 import {
   createCoinTopUpPayment,
@@ -113,6 +114,8 @@ const COMMUNITY_WORLD_SKELETON_CARD_KEYS = Array.from({ length: 12 }, (_, index)
 const COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 const COMMUNITY_CARD_BATCH_SIZE = 12
 const COMMUNITY_PUBLIC_CARD_HERO_HEIGHT = 138
+const GENRE_DRAG_THRESHOLD_PX = 6
+const COMMUNITY_WORLD_GENRE_OPTIONS: string[] = [...WORLD_GENRE_OPTIONS]
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 
@@ -230,6 +233,13 @@ function normalizeSearchValue(value: string): string {
 function parseSortDateValue(value: string): number {
   const parsed = Date.parse(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function compareCommunityDateDesc(
+  left: { id: number; created_at: string },
+  right: { id: number; created_at: string },
+): number {
+  return parseSortDateValue(right.created_at) - parseSortDateValue(left.created_at) || right.id - left.id
 }
 
 type CommunityCharacterCardProps = {
@@ -511,11 +521,19 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [instructionSortMode, setInstructionSortMode] = useState<CommunityCardSortMode>('updated_desc')
   const [worldAgeFilter, setWorldAgeFilter] = useState<CommunityWorldAgeFilter>('all')
   const [worldGenreFilter, setWorldGenreFilter] = useState<CommunityWorldGenreFilter>('all')
-  const [lastStableWorldGenreOptions, setLastStableWorldGenreOptions] = useState<string[]>([])
   const [characterAddedFilter, setCharacterAddedFilter] = useState<CommunityAddedFilter>('all')
   const [instructionAddedFilter, setInstructionAddedFilter] = useState<CommunityAddedFilter>('all')
   const [hasPageScrollInteraction, setHasPageScrollInteraction] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const genreScrollRef = useRef<HTMLDivElement | null>(null)
+  const genreDragRef = useRef<{
+    pointerId: number
+    startX: number
+    startScrollLeft: number
+    isDragging: boolean
+    hasPointerCapture: boolean
+  } | null>(null)
+  const shouldSuppressGenreClickRef = useRef(false)
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
   const communityWorldsLoadMoreTriggeredRef = useRef(false)
   const communityCharactersLoadMoreTriggeredRef = useRef(false)
@@ -527,63 +545,142 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const communityCharactersRequestInFlightRef = useRef(false)
   const communityInstructionTemplatesRequestInFlightRef = useRef(false)
   const deferredSearchQuery = useDeferredValue(searchQuery)
+  const [isGenreStripHovered, setIsGenreStripHovered] = useState(false)
+  const [canScrollGenresLeft, setCanScrollGenresLeft] = useState(false)
+  const [canScrollGenresRight, setCanScrollGenresRight] = useState(false)
 
-  const worldGenreOptions = useMemo(() => {
-    const uniqueGenres = new Set<string>()
-    communityWorlds.forEach((world) => {
-      world.genres.forEach((genre) => {
-        const normalizedGenre = genre.replace(/\s+/g, ' ').trim()
-        if (normalizedGenre) {
-          uniqueGenres.add(normalizedGenre)
-        }
-      })
-    })
-    return Array.from(uniqueGenres).sort((left, right) => left.localeCompare(right, 'ru'))
-  }, [communityWorlds])
+  const displayedWorldGenreOptions = COMMUNITY_WORLD_GENRE_OPTIONS
 
   const serverWorldGenreFilter = useMemo(
-    () => (typeof worldGenreFilter === 'string' && worldGenreFilter !== 'all' ? worldGenreFilter : null),
+    () => {
+      if (Array.isArray(worldGenreFilter)) {
+        return worldGenreFilter.length === 1 ? worldGenreFilter[0] : null
+      }
+      return typeof worldGenreFilter === 'string' && worldGenreFilter !== 'all' ? worldGenreFilter : null
+    },
     [worldGenreFilter],
   )
 
-  useEffect(() => {
-    if (activeSection !== 'worlds') {
+  const syncGenreScrollControls = useCallback(() => {
+    const element = genreScrollRef.current
+    if (!element) {
+      setCanScrollGenresLeft(false)
+      setCanScrollGenresRight(false)
       return
     }
-    if (worldGenreOptions.length > 0) {
-      setLastStableWorldGenreOptions(worldGenreOptions)
-      return
-    }
-    if (!isCommunityWorldsLoading && !isCommunityWorldsLoadingMore) {
-      setLastStableWorldGenreOptions([])
-    }
-  }, [activeSection, isCommunityWorldsLoading, isCommunityWorldsLoadingMore, worldGenreOptions])
 
-  const displayedWorldGenreOptions = useMemo(() => {
-    if (worldGenreOptions.length > 0) {
-      return worldGenreOptions
+    setCanScrollGenresLeft(element.scrollLeft > 4)
+    setCanScrollGenresRight(element.scrollLeft < element.scrollWidth - element.clientWidth - 4)
+  }, [])
+
+  useEffect(() => {
+    syncGenreScrollControls()
+    const element = genreScrollRef.current
+    if (!element) {
+      return
     }
-    if (activeSection === 'worlds' && (isCommunityWorldsLoading || isCommunityWorldsLoadingMore)) {
-      return lastStableWorldGenreOptions
+
+    const observer = new ResizeObserver(syncGenreScrollControls)
+    observer.observe(element)
+    window.addEventListener('resize', syncGenreScrollControls)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', syncGenreScrollControls)
     }
-    return worldGenreOptions
-  }, [
-    activeSection,
-    isCommunityWorldsLoading,
-    isCommunityWorldsLoadingMore,
-    lastStableWorldGenreOptions,
-    worldGenreOptions,
-  ])
+  }, [displayedWorldGenreOptions.length, syncGenreScrollControls])
+
+  const scrollGenreStrip = useCallback((direction: 'left' | 'right') => {
+    const element = genreScrollRef.current
+    if (!element) {
+      return
+    }
+    element.scrollBy({
+      left: direction === 'left' ? -Math.max(240, element.clientWidth * 0.62) : Math.max(240, element.clientWidth * 0.62),
+      behavior: 'smooth',
+    })
+  }, [])
+
+  const handleGenreWheel = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    const element = genreScrollRef.current
+    if (!element || element.scrollWidth <= element.clientWidth) {
+      return
+    }
+
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+    if (delta === 0) {
+      return
+    }
+
+    event.preventDefault()
+    element.scrollLeft += delta
+    window.requestAnimationFrame(syncGenreScrollControls)
+  }, [syncGenreScrollControls])
+
+  const handleGenrePointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = genreScrollRef.current
+    if (!element || element.scrollWidth <= element.clientWidth || event.button !== 0) {
+      return
+    }
+
+    genreDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startScrollLeft: element.scrollLeft,
+      isDragging: false,
+      hasPointerCapture: false,
+    }
+  }, [])
+
+  const handleGenrePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = genreScrollRef.current
+    const dragState = genreDragRef.current
+    if (!element || !dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const dragDelta = event.clientX - dragState.startX
+    if (!dragState.isDragging && Math.abs(dragDelta) < GENRE_DRAG_THRESHOLD_PX) {
+      return
+    }
+
+    dragState.isDragging = true
+    shouldSuppressGenreClickRef.current = true
+    if (!dragState.hasPointerCapture) {
+      element.setPointerCapture(event.pointerId)
+      dragState.hasPointerCapture = true
+    }
+
+    event.preventDefault()
+    element.scrollLeft = dragState.startScrollLeft - dragDelta
+    syncGenreScrollControls()
+  }, [syncGenreScrollControls])
+
+  const stopGenrePointerDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const element = genreScrollRef.current
+    const dragState = genreDragRef.current
+    if (!element || !dragState || dragState.pointerId !== event.pointerId) {
+      return
+    }
+
+    const wasDragging = dragState.isDragging
+    if (dragState.hasPointerCapture && element.hasPointerCapture(event.pointerId)) {
+      element.releasePointerCapture(event.pointerId)
+    }
+    genreDragRef.current = null
+
+    if (wasDragging) {
+      window.setTimeout(() => {
+        shouldSuppressGenreClickRef.current = false
+      }, 0)
+    }
+  }, [])
 
   useEffect(() => {
     if (worldGenreFilter === 'all') {
       return
     }
-    if (worldGenreOptions.length === 0) {
-      return
-    }
     const selectedGenres = Array.isArray(worldGenreFilter) ? worldGenreFilter : [worldGenreFilter]
-    const validGenres = selectedGenres.filter((genre) => worldGenreOptions.includes(genre))
+    const validGenres = selectedGenres.filter((genre) => COMMUNITY_WORLD_GENRE_OPTIONS.includes(genre))
     if (validGenres.length === selectedGenres.length) {
       return
     }
@@ -592,7 +689,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     } else {
       setWorldGenreFilter(validGenres)
     }
-  }, [worldGenreFilter, worldGenreOptions])
+  }, [worldGenreFilter])
 
   const normalizedSearchQuery = useMemo(() => normalizeSearchValue(deferredSearchQuery), [deferredSearchQuery])
 
@@ -656,15 +753,15 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     const sorted = [...filtered]
     sorted.sort((left, right) => {
       if (worldSortMode === 'rating_desc') {
-        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count
+        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count || compareCommunityDateDesc(left, right)
       }
       if (worldSortMode === 'launches_desc') {
-        return right.community_launches - left.community_launches || parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+        return right.community_launches - left.community_launches || compareCommunityDateDesc(left, right)
       }
       if (worldSortMode === 'views_desc') {
-        return right.community_views - left.community_views || parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+        return right.community_views - left.community_views || compareCommunityDateDesc(left, right)
       }
-      return parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+      return compareCommunityDateDesc(left, right)
     })
     return sorted
   }, [communityWorlds, normalizedSearchQuery, worldAgeFilter, worldGenreFilter, worldSortMode])
@@ -692,12 +789,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     const sorted = [...filtered]
     sorted.sort((left, right) => {
       if (characterSortMode === 'rating_desc') {
-        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count
+        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count || compareCommunityDateDesc(left, right)
       }
       if (characterSortMode === 'additions_desc') {
-        return right.community_additions_count - left.community_additions_count || parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+        return right.community_additions_count - left.community_additions_count || compareCommunityDateDesc(left, right)
       }
-      return parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+      return compareCommunityDateDesc(left, right)
     })
     return sorted
   }, [characterAddedFilter, characterSortMode, communityCharacters, normalizedSearchQuery])
@@ -721,12 +818,12 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     const sorted = [...filtered]
     sorted.sort((left, right) => {
       if (instructionSortMode === 'rating_desc') {
-        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count
+        return right.community_rating_avg - left.community_rating_avg || right.community_rating_count - left.community_rating_count || compareCommunityDateDesc(left, right)
       }
       if (instructionSortMode === 'additions_desc') {
-        return right.community_additions_count - left.community_additions_count || parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+        return right.community_additions_count - left.community_additions_count || compareCommunityDateDesc(left, right)
       }
-      return parseSortDateValue(right.updated_at) - parseSortDateValue(left.updated_at)
+      return compareCommunityDateDesc(left, right)
     })
     return sorted
   }, [communityInstructionTemplates, instructionAddedFilter, instructionSortMode, normalizedSearchQuery])
@@ -2076,81 +2173,157 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           {/* Genre Filters — pill buttons with darker bg per engineer feedback */}
           {activeSection === 'worlds' && displayedWorldGenreOptions.length > 0 ? (
             <Box
+              onMouseEnter={() => setIsGenreStripHovered(true)}
+              onMouseLeave={() => setIsGenreStripHovered(false)}
               sx={{
-                display: 'flex',
-                flexWrap: { xs: 'nowrap', md: 'wrap' },
-                alignItems: 'center',
-                gap: '8px',
+                position: 'relative',
                 mb: '16px',
                 width: '100%',
                 maxWidth: '100%',
-                overflowX: { xs: 'auto', md: 'visible' },
-                overflowY: 'hidden',
-                overscrollBehaviorX: 'contain',
-                WebkitOverflowScrolling: 'touch',
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
-                px: { xs: '1px', md: 0 },
-                pb: { xs: '4px', md: 0 },
-                '&::-webkit-scrollbar': {
-                  display: 'none',
-                },
+                overflow: 'hidden',
               }}
             >
-              {displayedWorldGenreOptions.map((genre) => {
-                const isSelected = Array.isArray(worldGenreFilter) && worldGenreFilter.includes(genre)
-                return (
-                  <Box
-                    key={genre}
-                    component="button"
-                    type="button"
-                    onClick={() => {
-                      if (Array.isArray(worldGenreFilter)) {
-                        if (isSelected) {
-                          const newFilter = worldGenreFilter.filter((g) => g !== genre)
-                          setWorldGenreFilter(newFilter.length === 0 ? 'all' : newFilter)
-                        } else {
-                          setWorldGenreFilter([...worldGenreFilter, genre])
+              <IconButton
+                aria-label="Прокрутить жанры влево"
+                onClick={() => scrollGenreStrip('left')}
+                sx={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 3,
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 90%, black 10%)',
+                  color: APP_TEXT_PRIMARY,
+                  opacity: isGenreStripHovered && canScrollGenresLeft ? 1 : 0,
+                  pointerEvents: isGenreStripHovered && canScrollGenresLeft ? 'auto' : 'none',
+                  transition: 'opacity 160ms ease, background-color 160ms ease',
+                  '&:hover': {
+                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, black 22%)',
+                  },
+                }}
+              >
+                <SvgIcon sx={{ width: 20, height: 20 }}>
+                  <path d="M15.41 7.41 14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor" />
+                </SvgIcon>
+              </IconButton>
+              <Box
+                ref={genreScrollRef}
+                onScroll={syncGenreScrollControls}
+                onWheel={handleGenreWheel}
+                onPointerDown={handleGenrePointerDown}
+                onPointerMove={handleGenrePointerMove}
+                onPointerUp={stopGenrePointerDrag}
+                onPointerCancel={stopGenrePointerDrag}
+                sx={{
+                  display: 'flex',
+                  flexWrap: 'nowrap',
+                  alignItems: 'center',
+                  gap: '8px',
+                  width: '100%',
+                  maxWidth: '100%',
+                  overflowX: 'auto',
+                  overflowY: 'hidden',
+                  overscrollBehaviorX: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  scrollbarWidth: 'none',
+                  msOverflowStyle: 'none',
+                  px: '1px',
+                  pb: '4px',
+                  cursor: genreDragRef.current ? 'grabbing' : 'grab',
+                  touchAction: 'pan-x',
+                  '&::-webkit-scrollbar': {
+                    display: 'none',
+                  },
+                }}
+              >
+                {displayedWorldGenreOptions.map((genre) => {
+                  const isSelected = Array.isArray(worldGenreFilter) && worldGenreFilter.includes(genre)
+                  return (
+                    <Box
+                      key={genre}
+                      component="button"
+                      type="button"
+                      onClick={() => {
+                        if (shouldSuppressGenreClickRef.current) {
+                          shouldSuppressGenreClickRef.current = false
+                          return
                         }
-                      } else {
-                        setWorldGenreFilter([genre])
-                      }
-                    }}
-                    sx={{
-                      flex: '0 0 auto',
-                      whiteSpace: 'nowrap',
-                      px: '14px',
-                      py: '8px',
-                      border: '1px solid',
-                      borderColor: isSelected
-                        ? 'color-mix(in srgb, var(--morius-accent) 28%, transparent)'
-                        : 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
-                      outline: 'none',
-                      cursor: 'pointer',
-                      borderRadius: '9999px',
-                      fontSize: '16px',
-                      fontWeight: isSelected ? 700 : 500,
-                      fontFamily: 'inherit',
-                      lineHeight: 1.4,
-                      userSelect: 'none',
-                      backgroundColor: isSelected
-                        ? 'color-mix(in srgb, var(--morius-app-bg) 76%, var(--morius-accent))'
-                        : 'color-mix(in srgb, var(--morius-app-bg) 78%, black)',
-                      color: isSelected ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
-                      transition: 'background-color 150ms ease, border-color 150ms ease, color 150ms ease',
-                      '&:hover': {
+                        if (Array.isArray(worldGenreFilter)) {
+                          if (isSelected) {
+                            const newFilter = worldGenreFilter.filter((g) => g !== genre)
+                            setWorldGenreFilter(newFilter.length === 0 ? 'all' : newFilter)
+                          } else {
+                            setWorldGenreFilter([...worldGenreFilter, genre])
+                          }
+                        } else {
+                          setWorldGenreFilter([genre])
+                        }
+                      }}
+                      sx={{
+                        flex: '0 0 auto',
+                        whiteSpace: 'nowrap',
+                        px: '14px',
+                        py: '8px',
+                        border: '1px solid',
+                        borderColor: isSelected
+                          ? 'color-mix(in srgb, var(--morius-accent) 28%, transparent)'
+                          : 'color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                        outline: 'none',
+                        cursor: 'pointer',
+                        borderRadius: '9999px',
+                        fontSize: '16px',
+                        fontWeight: isSelected ? 700 : 500,
+                        fontFamily: 'inherit',
+                        lineHeight: 1.4,
+                        userSelect: 'none',
                         backgroundColor: isSelected
-                          ? 'color-mix(in srgb, var(--morius-app-bg) 70%, var(--morius-accent))'
-                          : 'color-mix(in srgb, var(--morius-app-bg) 72%, black)',
-                        color: isSelected ? 'var(--morius-accent)' : 'var(--morius-title-text)',
-                      },
-                      '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
-                    }}
-                  >
-                    {genre}
-                  </Box>
-                )
-              })}
+                          ? 'color-mix(in srgb, var(--morius-app-bg) 76%, var(--morius-accent))'
+                          : 'color-mix(in srgb, var(--morius-app-bg) 78%, black)',
+                        color: isSelected ? 'var(--morius-accent)' : APP_TEXT_SECONDARY,
+                        transition: 'background-color 150ms ease, border-color 150ms ease, color 150ms ease',
+                        '&:hover': {
+                          backgroundColor: isSelected
+                            ? 'color-mix(in srgb, var(--morius-app-bg) 70%, var(--morius-accent))'
+                            : 'color-mix(in srgb, var(--morius-app-bg) 72%, black)',
+                          color: isSelected ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                        },
+                        '&:focus-visible': { outline: '2px solid rgba(205, 223, 246, 0.56)', outlineOffset: '2px' },
+                      }}
+                    >
+                      {genre}
+                    </Box>
+                  )
+                })}
+              </Box>
+              <IconButton
+                aria-label="Прокрутить жанры вправо"
+                onClick={() => scrollGenreStrip('right')}
+                sx={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  zIndex: 3,
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 90%, black 10%)',
+                  color: APP_TEXT_PRIMARY,
+                  opacity: isGenreStripHovered && canScrollGenresRight ? 1 : 0,
+                  pointerEvents: isGenreStripHovered && canScrollGenresRight ? 'auto' : 'none',
+                  transition: 'opacity 160ms ease, background-color 160ms ease',
+                  '&:hover': {
+                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, black 22%)',
+                  },
+                }}
+              >
+                <SvgIcon sx={{ width: 20, height: 20 }}>
+                  <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="currentColor" />
+                </SvgIcon>
+              </IconButton>
             </Box>
           ) : null}
 

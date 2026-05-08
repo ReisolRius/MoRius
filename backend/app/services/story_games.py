@@ -120,7 +120,7 @@ STORY_GAME_GENRE_VALUES = {
     "Школьное аниме",
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
-STORY_CONTEXT_LIMIT_MAX_TOKENS = 32_000
+STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_MEMORY_OPTIMIZATION_MODE_STANDARD = "standard"
 STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED = "enhanced"
@@ -140,9 +140,10 @@ STORY_DEFAULT_REPETITION_PENALTY = 1.05
 STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6_000
 STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
-STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4)
-STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8)
-STORY_TURN_COST_GLM51_TIERS = (3, 6, 12)
+STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
+STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4, 8)
+STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8, 16)
+STORY_TURN_COST_GLM51_TIERS = (3, 6, 12, 24)
 STORY_ENVIRONMENT_TIME_MODE_GROK = "grok"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
@@ -204,10 +205,10 @@ STORY_TOP_K_MAX = 200
 STORY_DEFAULT_TOP_K = 55
 STORY_TOP_R_MIN = 0.1
 STORY_TOP_R_MAX = 1.0
-STORY_DEFAULT_TOP_R = 0.85
+STORY_DEFAULT_TOP_R = 0.75
 STORY_TEMPERATURE_MIN = 0.0
 STORY_TEMPERATURE_MAX = 2.0
-STORY_DEFAULT_TEMPERATURE = 0.85
+STORY_DEFAULT_TEMPERATURE = 0.75
 STORY_DEFAULT_SHOW_GG_THOUGHTS = False
 STORY_DEFAULT_SHOW_NPC_THOUGHTS = False
 STORY_DEFAULT_EMOTION_VISUALIZATION_ENABLED = False
@@ -223,10 +224,12 @@ STORY_OPENING_SCENE_MAX_LENGTH = 12_000
 STORY_WORLD_CARD_KIND_WORLD = "world"
 STORY_WORLD_CARD_KIND_NPC = "npc"
 STORY_WORLD_CARD_KIND_MAIN_HERO = "main_hero"
+STORY_WORLD_CARD_KIND_WORLD_PROFILE = "world_profile"
 STORY_WORLD_CARD_KINDS = {
     STORY_WORLD_CARD_KIND_WORLD,
     STORY_WORLD_CARD_KIND_NPC,
     STORY_WORLD_CARD_KIND_MAIN_HERO,
+    STORY_WORLD_CARD_KIND_WORLD_PROFILE,
 }
 STORY_WORLD_CARD_TRIGGER_ACTIVE_TURNS = 5
 STORY_WORLD_CARD_NPC_TRIGGER_ACTIVE_TURNS = 3
@@ -398,7 +401,7 @@ def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
-def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int]:
+def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int, int]:
     normalized_model_name = coerce_story_llm_model(model_name)
     if normalized_model_name == STORY_LLM_MODEL_GLM51:
         return STORY_TURN_COST_GLM51_TIERS
@@ -411,12 +414,14 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
 
 def get_story_turn_cost_tokens(context_usage_tokens: int | None, model_name: str | None = None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
-    tier_1_cost, tier_2_cost, tier_3_cost = get_story_model_turn_cost_tiers(model_name)
+    tier_1_cost, tier_2_cost, tier_3_cost, tier_4_cost = get_story_model_turn_cost_tiers(model_name)
     if normalized_usage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX:
         return tier_1_cost
     if normalized_usage <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX:
         return tier_2_cost
-    return tier_3_cost
+    if normalized_usage <= STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX:
+        return tier_3_cost
+    return tier_4_cost
 
 
 def coerce_story_llm_model(value: str | None) -> str:
@@ -629,7 +634,7 @@ def serialize_story_environment_weather(value: dict[str, Any] | None) -> str:
     if not isinstance(value, dict):
         return ""
     try:
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(repair_likely_utf8_mojibake_deep(value), ensure_ascii=False)
     except (TypeError, ValueError):
         return ""
 
@@ -1262,7 +1267,7 @@ def _normalize_story_world_card_source(value: str | None) -> str:
 
 def _normalize_story_world_card_memory_turns_for_storage(raw_value: int | None, *, kind: str) -> int:
     normalized_kind = _normalize_story_world_card_kind(kind)
-    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+    if normalized_kind in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_WORLD_PROFILE}:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS
     if raw_value is None:
         return STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS

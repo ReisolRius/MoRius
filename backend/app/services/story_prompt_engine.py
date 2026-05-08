@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app import main as monolith_main
+from app.services.text_encoding import repair_likely_utf8_mojibake_deep, sanitize_likely_utf8_mojibake
 
 
 def _bind_monolith_names() -> None:
@@ -570,16 +571,16 @@ def _extract_story_character_state_prompt_cards_for_guidance(
     plot_cards: list[dict[str, str]],
 ) -> list[dict[str, str]]:
     is_prompt_card = getattr(monolith_main, "_is_story_character_state_prompt_card", None)
-    main_hero_title = str(
-        getattr(monolith_main, "STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE", "Состояние: Главный герой")
+    main_hero_title = sanitize_likely_utf8_mojibake(
+        str(getattr(monolith_main, "STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE", "Состояние: Главный герой"))
     )
-    npc_title_prefix = str(
-        getattr(monolith_main, "STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX", "Состояние NPC:")
+    npc_title_prefix = sanitize_likely_utf8_mojibake(
+        str(getattr(monolith_main, "STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX", "Состояние NPC:"))
     )
     extracted_cards: list[dict[str, str]] = []
     for card in plot_cards:
-        title = " ".join(str(card.get("title", "")).replace("\r\n", " ").split()).strip()
-        content = str(card.get("content", "")).replace("\r\n", "\n").strip()
+        title = " ".join(sanitize_likely_utf8_mojibake(str(card.get("title", ""))).replace("\r\n", " ").split()).strip()
+        content = sanitize_likely_utf8_mojibake(str(card.get("content", ""))).replace("\r\n", "\n").strip()
         if not title or not content:
             continue
         if callable(is_prompt_card):
@@ -597,35 +598,37 @@ def _extract_story_character_state_prompt_cards_for_guidance(
 
 def _extract_story_character_state_prompt_field_local(content: str, label: str) -> str:
     extractor = getattr(monolith_main, "_extract_story_character_state_prompt_field", None)
+    normalized_label = sanitize_likely_utf8_mojibake(label)
+    normalized_content_for_extractor = sanitize_likely_utf8_mojibake(content)
     if callable(extractor):
         try:
-            return str(extractor(content, label) or "").strip()
+            return str(extractor(normalized_content_for_extractor, normalized_label) or "").strip()
         except Exception:
             pass
-    normalized_content = str(content or "").replace("\r\n", "\n").strip()
-    if not normalized_content or not label:
+    normalized_content = str(normalized_content_for_extractor or "").replace("\r\n", "\n").strip()
+    if not normalized_content or not normalized_label:
         return ""
     for raw_line in normalized_content.split("\n"):
         line = raw_line.strip()
-        if not line.startswith(label):
+        if not line.startswith(normalized_label):
             continue
-        return line[len(label) :].strip()
+        return line[len(normalized_label) :].strip()
     return ""
 
 
 def _build_story_character_state_guidance_cards_payload(
     plot_cards: list[dict[str, str]],
 ) -> list[dict[str, Any]]:
-    main_hero_title = str(
-        getattr(monolith_main, "STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE", "Состояние: Главный герой")
+    main_hero_title = sanitize_likely_utf8_mojibake(
+        str(getattr(monolith_main, "STORY_CHARACTER_STATE_MAIN_HERO_PROMPT_TITLE", "Состояние: Главный герой"))
     )
-    npc_title_prefix = str(
-        getattr(monolith_main, "STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX", "Состояние NPC:")
+    npc_title_prefix = sanitize_likely_utf8_mojibake(
+        str(getattr(monolith_main, "STORY_CHARACTER_STATE_NPC_PROMPT_TITLE_PREFIX", "Состояние NPC:"))
     )
     guidance_cards: list[dict[str, Any]] = []
     for card in _extract_story_character_state_prompt_cards_for_guidance(plot_cards):
         raw_title = card["title"]
-        raw_content = card["content"]
+        raw_content = sanitize_likely_utf8_mojibake(card["content"])
         if raw_title == main_hero_title:
             kind = "main_hero"
             name = "Main hero"
@@ -806,6 +809,7 @@ def _build_story_provider_messages(
     model_name: str | None = None,
     story_narrator_mode: str | None = None,
     story_romance_enabled: bool = False,
+    reroll_discarded_assistant_text: str | None = None,
     show_gg_thoughts: bool = False,
     show_npc_thoughts: bool = False,
 ) -> list[dict[str, str]]:
@@ -823,13 +827,20 @@ def _build_story_provider_messages(
         use_plot_memory=use_plot_memory,
     )
     history = selected_history
-    instruction_cards_for_prompt = _fit_story_instruction_cards_to_context_share_limit(
-        instruction_cards,
-        effective_context_limit_tokens,
-    )
-    plot_cards_for_prompt = _fit_story_plot_cards_to_context_share_limit(
-        plot_cards,
-        effective_context_limit_tokens,
+    instruction_cards_for_prompt = [
+        card
+        for card in instruction_cards
+        if str(card.get("title", "")).strip() and str(card.get("content", "")).strip()
+    ]
+    reserved_history_tokens = _estimate_story_history_tokens(history)
+    plot_cards_for_prompt = _fit_story_plot_cards_to_context_limit(
+        instruction_cards=instruction_cards_for_prompt,
+        plot_cards=plot_cards,
+        world_cards=world_cards,
+        context_limit_tokens=effective_context_limit_tokens,
+        reserved_history_tokens=reserved_history_tokens,
+        model_name=model_name,
+        response_max_tokens=response_max_tokens,
     )
     if use_plot_memory:
         memory_summary, memory_preview = _summarize_story_prompt_memory_cards(plot_cards_for_prompt)
@@ -856,8 +867,6 @@ def _build_story_provider_messages(
         world_cards,
         model_name=model_name,
         response_max_tokens=response_max_tokens,
-        story_narrator_mode=story_narrator_mode,
-        story_romance_enabled=story_romance_enabled,
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
     )
@@ -871,10 +880,6 @@ def _build_story_provider_messages(
             reserved_history_tokens=0,
             model_name=model_name,
             response_max_tokens=response_max_tokens,
-            story_narrator_mode=story_narrator_mode,
-            story_romance_enabled=story_romance_enabled,
-            show_gg_thoughts=show_gg_thoughts,
-            show_npc_thoughts=show_npc_thoughts,
         )
         system_prompt = _build_story_system_prompt(
             instruction_cards_for_prompt,
@@ -882,8 +887,6 @@ def _build_story_provider_messages(
             world_cards,
             model_name=model_name,
             response_max_tokens=response_max_tokens,
-            story_narrator_mode=story_narrator_mode,
-            story_romance_enabled=story_romance_enabled,
             show_gg_thoughts=show_gg_thoughts,
             show_npc_thoughts=show_npc_thoughts,
         )
@@ -936,9 +939,13 @@ def _build_story_provider_messages(
             ]
 
     messages_payload = [{"role": "system", "content": system_prompt}]
+    reroll_system_message = _build_story_reroll_system_message(reroll_discarded_assistant_text)
+    if reroll_system_message is not None:
+        messages_payload.append(reroll_system_message)
     if state_guidance_prompt:
         messages_payload.append({"role": "system", "content": state_guidance_prompt})
     messages_payload.extend(history)
+    messages_payload = repair_likely_utf8_mojibake_deep(messages_payload)
     if not translate_for_model:
         return messages_payload
 

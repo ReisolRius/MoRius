@@ -397,9 +397,9 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         ? Math.max(1, Math.min(2, Math.round(game.story_repetition_penalty * 100) / 100))
         : STORY_DEFAULT_REPETITION_PENALTY,
     story_top_k: typeof game.story_top_k === 'number' && Number.isFinite(game.story_top_k) ? Math.trunc(game.story_top_k) : 0,
-    story_top_r: typeof game.story_top_r === 'number' && Number.isFinite(game.story_top_r) ? game.story_top_r : 1,
+    story_top_r: typeof game.story_top_r === 'number' && Number.isFinite(game.story_top_r) ? game.story_top_r : 0.75,
     story_temperature:
-      typeof game.story_temperature === 'number' && Number.isFinite(game.story_temperature) ? game.story_temperature : 1,
+      typeof game.story_temperature === 'number' && Number.isFinite(game.story_temperature) ? game.story_temperature : 0.75,
     show_gg_thoughts: Boolean(game.show_gg_thoughts),
     show_npc_thoughts: Boolean(game.show_npc_thoughts),
     ambient_enabled: Boolean(game.ambient_enabled),
@@ -1970,6 +1970,18 @@ export async function refreshStoryMessageSceneEmotionCue(payload: {
   messageId: number
 }): Promise<StoryMessage> {
   return request<StoryMessage>(`/api/story/games/${payload.gameId}/messages/${payload.messageId}/scene-emotion/refresh`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${payload.token}`,
+    },
+  })
+}
+
+export async function cancelStoryGeneration(payload: {
+  token: string
+  gameId: number
+}): Promise<void> {
+  await request<{ message: string }>(`/api/story/games/${payload.gameId}/generation/cancel`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
