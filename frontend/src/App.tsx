@@ -30,6 +30,7 @@ type AuthSession = {
 }
 
 type WorldEditSource = 'my-games' | 'my-publications'
+type AuthRouteMode = 'login' | 'register' | 'reset'
 type PageLoader = () => Promise<unknown>
 
 function resolveScrollTargetElement(target: EventTarget | null): HTMLElement | null {
@@ -79,6 +80,18 @@ function isAuthenticatedPath(pathname: string): boolean {
 
 function isLegalPath(pathname: string): boolean {
   return pathname === '/privacy-policy' || pathname === '/terms-of-service'
+}
+
+function isStaticPublicPath(pathname: string): boolean {
+  return pathname === '/' || pathname === '/auth' || isLegalPath(pathname)
+}
+
+function parseAuthRouteMode(search: string): AuthRouteMode {
+  const mode = new URLSearchParams(search).get('mode')
+  if (mode === 'register' || mode === 'reset') {
+    return mode
+  }
+  return 'login'
 }
 
 function isReferralPath(pathname: string): boolean {
@@ -223,6 +236,7 @@ function clearAuthSession(): void {
 
 const initialSession = loadAuthSession()
 const loadPublicLandingPage = () => import('./pages/PublicLandingPage')
+const loadAuthPage = () => import('./pages/AuthPage')
 const loadAuthenticatedHomePage = () => import('./pages/AuthenticatedHomePage')
 const loadStoryGamePage = () => import('./pages/StoryGamePage')
 const loadAdminBugReportPage = () => import('./pages/AdminBugReportPage')
@@ -235,6 +249,7 @@ const loadProfilePage = () => import('./pages/ProfilePage')
 const loadOnboardingTour = () => import('./components/onboarding/OnboardingTour')
 
 const PublicLandingPage = lazy(loadPublicLandingPage)
+const AuthPage = lazy(loadAuthPage)
 const AuthenticatedHomePage = lazy(loadAuthenticatedHomePage)
 const StoryGamePage = lazy(loadStoryGamePage)
 const AdminBugReportPage = lazy(loadAdminBugReportPage)
@@ -334,8 +349,11 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      triggerRouteTransition()
-      setPath(normalizePath(window.location.pathname))
+      const nextPath = normalizePath(window.location.pathname)
+      if (!isStaticPublicPath(nextPath)) {
+        triggerRouteTransition()
+      }
+      setPath(nextPath)
     }
     window.addEventListener('popstate', handlePopState)
     if ('scrollRestoration' in window.history) {
@@ -360,7 +378,7 @@ function App() {
           loadStoryGamePage,
           loadMyGamesPage,
         ]
-      : [loadPublicLandingPage]
+      : [loadPublicLandingPage, loadAuthPage]
 
     return warmPageLoaders(loaders)
   }, [isAuthenticated])
@@ -409,7 +427,9 @@ function App() {
   const navigate = useCallback((targetPath: string, options?: { replace?: boolean }) => {
     const normalizedTarget = normalizeNavigationTarget(targetPath)
     if (getCurrentNavigationHref() !== normalizedTarget.href) {
-      triggerRouteTransition()
+      if (!isStaticPublicPath(normalizedTarget.pathname)) {
+        triggerRouteTransition()
+      }
       if (options?.replace) {
         window.history.replaceState({}, '', normalizedTarget.href)
       } else {
@@ -598,6 +618,8 @@ function App() {
   const shouldShowProfilePage = isAuthenticated && (path === '/profile' || profileUserId !== null)
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
+  const shouldShowAuthPage = !isAuthenticated && path === '/auth'
+  const shouldShowRouteTransition = isRouteTransitionVisible && !isStaticPublicPath(path)
 
   let pageContent: ReactNode
 
@@ -618,6 +640,16 @@ function App() {
           title="Пользовательское соглашение"
           content={TERMS_OF_SERVICE_TEXT}
           onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowAuthPage) {
+    pageContent = (
+      <Suspense fallback={null}>
+        <AuthPage
+          initialMode={parseAuthRouteMode(window.location.search)}
+          onNavigate={navigate}
+          onAuthSuccess={handleAuthSuccess}
         />
       </Suspense>
     )
@@ -726,7 +758,6 @@ function App() {
           pendingReferralCode={pendingReferralCode}
           onNavigate={navigate}
           onGoHome={() => navigate('/dashboard')}
-          onAuthSuccess={handleAuthSuccess}
         />
       </Suspense>
     )
@@ -734,7 +765,7 @@ function App() {
 
   return (
     <>
-      <FantasyRouteTransition active={isRouteTransitionVisible} />
+      <FantasyRouteTransition active={shouldShowRouteTransition} />
       {pageContent}
       {isAuthenticated && authUser && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
         <Suspense fallback={null}>

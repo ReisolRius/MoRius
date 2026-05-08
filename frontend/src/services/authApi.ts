@@ -585,7 +585,12 @@ function normalizeOnboardingGuideState(rawState: OnboardingGuideState | null | u
   }
 }
 
-export async function registerWithEmail(payload: { email: string; password: string }): Promise<MessageResponse> {
+export async function registerWithEmail(payload: {
+  email: string
+  display_name?: string
+  password: string
+  accepted_terms?: boolean
+}): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     '/api/auth/register',
     {
@@ -624,6 +629,43 @@ export async function loginWithGoogle(idToken: string): Promise<AuthResponse> {
     {
       method: 'POST',
       body: JSON.stringify({ id_token: idToken }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function loginWithGoogleAccessToken(accessToken: string): Promise<AuthResponse> {
+  return requestJson<AuthResponse>(
+    '/api/auth/google',
+    {
+      method: 'POST',
+      body: JSON.stringify({ access_token: accessToken }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function requestPasswordReset(payload: { email: string }): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    '/api/auth/password-reset',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function verifyPasswordReset(payload: {
+  email: string
+  code: string
+  password: string
+}): Promise<AuthResponse> {
+  return requestJson<AuthResponse>(
+    '/api/auth/password-reset/verify',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
     },
     AUTH_NETWORK_ERROR,
   )

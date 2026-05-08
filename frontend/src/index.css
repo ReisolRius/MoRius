@@ -17,19 +17,6 @@
   initial-value: 0%;
 }
 
-* {
-  scrollbar-width: thin;
-  --morius-scrollbar-thumb-opacity: 0%;
-  scrollbar-color: color-mix(in srgb, var(--morius-accent) var(--morius-scrollbar-thumb-opacity), transparent) transparent;
-  transition: --morius-scrollbar-thumb-opacity 220ms ease, scrollbar-color 220ms ease;
-}
-
-*:hover,
-*:focus-within,
-.morius-scroll-active {
-  --morius-scrollbar-thumb-opacity: 62%;
-}
-
 html,
 body,
 #root {
@@ -44,6 +31,51 @@ body {
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
   font-family: "Nunito Sans", "Segoe UI", sans-serif;
+}
+
+body.morius-auth-route,
+body.morius-auth-route #root {
+  width: 100vw !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  overflow: hidden !important;
+  background: #121212 !important;
+}
+
+body.morius-auth-route .morius-auth-page-root {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483000 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  width: 100vw !important;
+  max-width: 100vw !important;
+  height: 100dvh !important;
+  min-height: 100dvh !important;
+  overflow: hidden !important;
+  background: #121212 !important;
+  isolation: isolate;
+}
+
+body.morius-auth-route #root > :not(.morius-auth-page-root),
+body.morius-auth-route #root > .morius-auth-page-root ~ *,
+body.morius-auth-route #root :has(> .morius-auth-page-root) > :not(.morius-auth-page-root) {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+@media (max-width: 899.95px) {
+  body.morius-auth-route .morius-auth-page-root {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+body.morius-auth-route .MuiDialog-root,
+body.morius-auth-route .MuiModal-root {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
 }
 
 body,
@@ -175,6 +207,33 @@ select {
 .morius-app-shell .MuiIconButton-root:hover,
 .morius-app-shell .MuiIconButton-root:active {
   color: var(--morius-accent) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-daily-rewards-button {
+  width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  min-width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  min-height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  max-width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  max-height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
+  border-radius: 9999px !important;
+  background: var(--morius-elevated-bg) !important;
+  color: var(--morius-daily-rewards-color, var(--morius-text-secondary)) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-daily-rewards-button:hover {
+  background: color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important;
+  color: var(--morius-title-text) !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-daily-rewards-button:active {
+  background: color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-daily-rewards-button svg {
+  width: var(--morius-daily-rewards-icon-size, var(--morius-action-icon-size)) !important;
+  height: var(--morius-daily-rewards-icon-size, var(--morius-action-icon-size)) !important;
 }
 
 .morius-app-shell h1,

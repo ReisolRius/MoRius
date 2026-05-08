@@ -5,6 +5,11 @@ type FantasyRouteTransitionProps = {
   active: boolean
 }
 
+function isStaticPublicPathname(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '').toLowerCase() || '/'
+  return normalized === '/' || normalized === '/auth' || normalized === '/privacy-policy' || normalized === '/terms-of-service'
+}
+
 const overlayFade = keyframes`
   0% { opacity: 0; }
   18% { opacity: 1; }
@@ -52,7 +57,7 @@ const waveSweep = keyframes`
 `
 
 function FantasyRouteTransition({ active }: FantasyRouteTransitionProps) {
-  if (!active) {
+  if (!active || (typeof window !== 'undefined' && isStaticPublicPathname(window.location.pathname))) {
     return null
   }
 

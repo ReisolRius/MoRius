@@ -29,10 +29,8 @@ import arrowNextIcon from '../assets/icons/landing-arrow-next.svg'
 import landingCoinIcon from '../assets/icons/landing-coin.svg'
 import landingControlsIcon from '../assets/icons/landing-controls.svg'
 import landingSendIcon from '../assets/icons/landing-send.svg'
-import AuthDialog, { type AuthMode } from '../components/AuthDialog'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import Footer from '../components/Footer'
-import type { AuthResponse } from '../types/auth'
 
 /* --- Constants ----------------------------------------------------------- */
 
@@ -264,7 +262,6 @@ type PublicLandingPageProps = {
   pendingReferralCode?: string | null
   onNavigate: (path: string) => void
   onGoHome: () => void
-  onAuthSuccess: (payload: AuthResponse) => void
 }
 
 /* --- Main Component ------------------------------------------------------- */
@@ -274,15 +271,12 @@ export default function PublicLandingPage({
   pendingReferralCode,
   onNavigate,
   onGoHome,
-  onAuthSuccess,
 }: PublicLandingPageProps) {
   const storySectionRef = useRef<HTMLElement | null>(null)
   const openedReferralCodeRef = useRef<string | null>(null)
   const [animationStarted, setAnimationStarted] = useState(false)
   const [typedText, setTypedText] = useState('')
   const [promptText, setPromptText] = useState('')
-  const [authDialogOpen, setAuthDialogOpen] = useState(false)
-  const [authDialogMode, setAuthDialogMode] = useState<AuthMode>('login')
   const [currentSlide, setCurrentSlide] = useState(0)
   const [currentFeatureSlide, setCurrentFeatureSlide] = useState(0)
   const [currentPlanSlide, setCurrentPlanSlide] = useState(1)
@@ -347,16 +341,14 @@ export default function PublicLandingPage({
     }
     openedReferralCodeRef.current = pendingReferralCode
     const timerId = window.setTimeout(() => {
-      setAuthDialogMode('register')
-      setAuthDialogOpen(true)
+      onNavigate('/auth?mode=register')
     }, 0)
     return () => window.clearTimeout(timerId)
-  }, [isAuthenticated, pendingReferralCode])
+  }, [isAuthenticated, onNavigate, pendingReferralCode])
 
-  const openAuthDialog = (mode: AuthMode) => {
+  const openAuthPage = (mode: 'login' | 'register') => {
     if (isAuthenticated) { onGoHome(); return }
-    setAuthDialogMode(mode)
-    setAuthDialogOpen(true)
+    onNavigate(`/auth?mode=${mode}`)
   }
 
   const handlePrevSlide = () => setCurrentSlide((i) => Math.max(0, i - 1))
@@ -486,7 +478,7 @@ export default function PublicLandingPage({
               animationDelay: '200ms',
             }}
           >
-            <Button variant="contained" onClick={() => openAuthDialog('login')} sx={ctaButtonSx}>
+            <Button variant="contained" onClick={() => openAuthPage('login')} sx={ctaButtonSx}>
               Начать играть
             </Button>
           </Box>
@@ -594,7 +586,7 @@ export default function PublicLandingPage({
                   создавая пространство для уникальных приключений, диалогов и нелинейных историй
                 </Typography>
                 <Box>
-                  <Button variant="contained" onClick={() => openAuthDialog('login')} sx={ctaButtonSx}>
+                  <Button variant="contained" onClick={() => openAuthPage('login')} sx={ctaButtonSx}>
                     Начать играть
                   </Button>
                 </Box>
@@ -740,7 +732,7 @@ export default function PublicLandingPage({
               </Box>
 
               <Box sx={{ textAlign: 'center', mt: 5 }}>
-                <Button variant="contained" onClick={() => openAuthDialog('register')} sx={ctaButtonSx}>
+                <Button variant="contained" onClick={() => openAuthPage('register')} sx={ctaButtonSx}>
                   Начать играть
                 </Button>
               </Box>
@@ -1475,7 +1467,7 @@ export default function PublicLandingPage({
                         </Stack>
                         <Button
                           variant="contained"
-                          onClick={() => openAuthDialog('register')}
+                          onClick={() => openAuthPage('register')}
                           sx={{ ...ctaButtonSx, width: '100%', mt: 1 }}
                         >
                           {BUY_PLAN_CTA_LABEL}
@@ -1629,7 +1621,7 @@ export default function PublicLandingPage({
                     </Stack>
                     <Button
                       variant="contained"
-                      onClick={() => openAuthDialog('register')}
+                      onClick={() => openAuthPage('register')}
                       sx={{ ...ctaButtonSx, width: '100%', mt: 1 }}
                     >
                       Купить
@@ -1674,7 +1666,7 @@ export default function PublicLandingPage({
               Зарегистрируйся и начни играть
             </Typography>
             <Box sx={{ pt: 1 }}>
-              <Button variant="contained" onClick={() => openAuthDialog('register')} sx={ctaButtonSx}>
+              <Button variant="contained" onClick={() => openAuthPage('register')} sx={ctaButtonSx}>
                 Начать играть
               </Button>
             </Box>
@@ -1687,12 +1679,6 @@ export default function PublicLandingPage({
       ================================================================== */}
       <Footer socialLinks={footerSocialLinks} infoLinks={footerInfoLinks} onNavigate={onNavigate} />
 
-      <AuthDialog
-        open={authDialogOpen}
-        initialMode={authDialogMode}
-        onClose={() => setAuthDialogOpen(false)}
-        onAuthSuccess={onAuthSuccess}
-      />
     </Box>
   )
 }
