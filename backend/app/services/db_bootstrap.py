@@ -8,6 +8,10 @@ from sqlalchemy import inspect, or_, text
 
 from app.database import Base, SessionLocal, engine
 from app.models import (
+    AiAssistantActionBatch,
+    AiAssistantConversation,
+    AiAssistantMessage,
+    AiAssistantUsage,
     CoinPurchase,
     DashboardNewsCard,
     EmailVerification,
@@ -85,6 +89,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (User.__tablename__, "notify_new_follower"): True,
     (User.__tablename__, "notify_moderation_report"): True,
     (User.__tablename__, "notify_moderation_queue"): True,
+    (User.__tablename__, "ai_assistant_visible"): True,
     (StoryGame.__tablename__, "response_max_tokens_enabled"): False,
     (StoryGame.__tablename__, "memory_optimization_enabled"): True,
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
@@ -212,6 +217,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN notify_moderation_report INTEGER NOT NULL DEFAULT 1")
     if "notify_moderation_queue" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN notify_moderation_queue INTEGER NOT NULL DEFAULT 1")
+    if "ai_assistant_visible" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN ai_assistant_visible INTEGER NOT NULL DEFAULT 1")
     if "daily_reward_claimed_days" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN daily_reward_claimed_days INTEGER NOT NULL DEFAULT 0")
     if "daily_reward_last_claimed_at" not in user_columns:

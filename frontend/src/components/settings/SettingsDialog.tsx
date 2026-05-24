@@ -195,7 +195,6 @@ function SettingsDialog({
   onClose,
   onLogout,
   onUserUpdate,
-  onOpenTopUp: _onOpenTopUp,
   avatarInputRef,
   avatarError = '',
   isAvatarSaving = false,
@@ -219,6 +218,7 @@ function SettingsDialog({
     notify_moderation_queue: user.notify_moderation_queue ?? false,
     email_notifications_enabled: user.email_notifications_enabled ?? false,
   })
+  const [aiAssistantVisible, setAiAssistantVisible] = useState(user.ai_assistant_visible ?? true)
   const [privacy, setPrivacy] = useState({
     show_subscriptions: user.show_subscriptions ?? false,
     show_public_worlds: user.show_public_worlds ?? false,
@@ -243,6 +243,7 @@ function SettingsDialog({
     [editingThemeId, savedCustomThemes],
   )
   const canCreateMoreCustomThemes = savedCustomThemes.length < CURRENT_USER_CUSTOM_THEME_LIMIT
+  const isAdministrator = String(user.role || '').trim().toLowerCase() === 'administrator'
 
   const applyResolvedTheme = useCallback((settings: CurrentUserThemeSettings | null) => {
     if (!settings) {
@@ -280,6 +281,7 @@ function SettingsDialog({
       notify_moderation_queue: user.notify_moderation_queue ?? false,
       email_notifications_enabled: user.email_notifications_enabled ?? false,
     })
+    setAiAssistantVisible(user.ai_assistant_visible ?? true)
     setPrivacy({
       show_subscriptions: user.show_subscriptions ?? false,
       show_public_worlds: user.show_public_worlds ?? false,
@@ -335,12 +337,13 @@ function SettingsDialog({
     notifications.notify_moderation_report !== (user.notify_moderation_report ?? false) ||
     notifications.notify_moderation_queue !== (user.notify_moderation_queue ?? false) ||
     notifications.email_notifications_enabled !== (user.email_notifications_enabled ?? false) ||
+    (isAdministrator && aiAssistantVisible !== (user.ai_assistant_visible ?? true)) ||
     privacy.show_subscriptions !== (user.show_subscriptions ?? false) ||
     privacy.show_public_worlds !== (user.show_public_worlds ?? false) ||
     privacy.show_private_worlds !== (user.show_private_worlds ?? false) ||
     privacy.show_public_characters !== (user.show_public_characters ?? false) ||
     privacy.show_public_instruction_templates !== (user.show_public_instruction_templates ?? false)
-  ), [displayName, notifications, privacy, profileDescription, user])
+  ), [aiAssistantVisible, displayName, isAdministrator, notifications, privacy, profileDescription, user])
 
   const hasThemeDraftUnsavedChanges = useMemo(() => {
     if (!editingThemeId) {
@@ -516,6 +519,7 @@ function SettingsDialog({
         notify_new_follower: notifications.notify_new_follower,
         notify_moderation_report: notifications.notify_moderation_report,
         notify_moderation_queue: notifications.notify_moderation_queue,
+        ai_assistant_visible: isAdministrator ? aiAssistantVisible : undefined,
         email_notifications_enabled: notifications.email_notifications_enabled,
       })
       const updatedPrivacy = await updateCurrentUserProfilePrivacy({
@@ -878,6 +882,12 @@ function SettingsDialog({
                         ))}
                       </Stack>
                     </Box>
+                    {isAdministrator ? (
+                      <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>AI-помощник</Typography>
+                        <SettingsSwitchRow label="Показывать AI-помощника" checked={aiAssistantVisible} onChange={setAiAssistantVisible} />
+                      </Box>
+                    ) : null}
                   </Stack>
 
                   <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: 1.35, alignSelf: 'start' }}>

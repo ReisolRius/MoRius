@@ -16,6 +16,7 @@ export type AuthUser = {
   notify_new_follower?: boolean
   notify_moderation_report?: boolean
   notify_moderation_queue?: boolean
+  ai_assistant_visible?: boolean
   email_notifications_enabled?: boolean
   show_subscriptions?: boolean
   show_public_worlds?: boolean

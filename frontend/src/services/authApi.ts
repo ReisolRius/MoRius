@@ -759,6 +759,7 @@ export async function updateCurrentUserProfile(payload: {
   notify_new_follower?: boolean
   notify_moderation_report?: boolean
   notify_moderation_queue?: boolean
+  ai_assistant_visible?: boolean
   email_notifications_enabled?: boolean
 }): Promise<AuthUser> {
   const requestBody: Record<string, string | boolean | null> = {}
@@ -788,6 +789,9 @@ export async function updateCurrentUserProfile(payload: {
   }
   if (typeof payload.notify_moderation_queue === 'boolean') {
     requestBody.notify_moderation_queue = payload.notify_moderation_queue
+  }
+  if (typeof payload.ai_assistant_visible === 'boolean') {
+    requestBody.ai_assistant_visible = payload.ai_assistant_visible
   }
   if (typeof payload.email_notifications_enabled === 'boolean') {
     requestBody.email_notifications_enabled = payload.email_notifications_enabled

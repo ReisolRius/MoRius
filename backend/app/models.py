@@ -42,6 +42,7 @@ class User(Base):
     notify_new_follower: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     notify_moderation_report: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     notify_moderation_queue: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    ai_assistant_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     daily_reward_claimed_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     daily_reward_last_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     daily_reward_cycle_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -1020,4 +1021,81 @@ class StoryWorldCardChangeEvent(Base):
     before_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     after_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiAssistantConversation(Base):
+    __tablename__ = "ai_assistant_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    last_route: Mapped[str] = mapped_column(String(512), nullable=False, default="", server_default="")
+    metadata_json: Mapped[str] = mapped_column("metadata", Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AiAssistantMessage(Base):
+    __tablename__ = "ai_assistant_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_assistant_conversations.id"),
+        nullable=False,
+        index=True,
+    )
+    role: Mapped[str] = mapped_column(String(24), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    tool_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    metadata_json: Mapped[str] = mapped_column("metadata", Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AiAssistantActionBatch(Base):
+    __tablename__ = "ai_assistant_action_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_assistant_conversations.id"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", server_default="pending")
+    requested_action_summary: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_entity_refs: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    updated_entity_refs: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    error_json: Mapped[str] = mapped_column("error", Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class AiAssistantUsage(Base):
+    __tablename__ = "ai_assistant_usage"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("ai_assistant_conversations.id"),
+        nullable=False,
+        index=True,
+    )
+    message_id: Mapped[int | None] = mapped_column(ForeignKey("ai_assistant_messages.id"), nullable=True, index=True)
+    model: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    cost_rub: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, server_default="0")
+    charged_sols: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    polza_request_id: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

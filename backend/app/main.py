@@ -258,6 +258,11 @@ except Exception:  # pragma: no cover - optional router should not break API sta
     admin_moderation_router = None
 
 try:
+    from app.routers.ai_assistant import router as ai_assistant_router
+except Exception:  # pragma: no cover - optional router should not break API startup
+    ai_assistant_router = None
+
+try:
     import pymorphy3
 except Exception:  # pragma: no cover - optional dependency in runtime
     pymorphy3 = None
@@ -1524,6 +1529,9 @@ else:
     logger.warning("Story games router is unavailable and will be skipped")
 if admin_moderation_router is not None:
     app.include_router(admin_moderation_router)
+
+if ai_assistant_router is not None:
+    app.include_router(ai_assistant_router)
 else:
     logger.warning("Admin moderation router is unavailable and will be skipped")
 

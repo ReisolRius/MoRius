@@ -9,6 +9,7 @@ import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDoc
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
+import AiAssistantPanel from './components/ai/AiAssistantPanel'
 import { getMoriusThemeById, useMoriusThemeController } from './theme'
 import { buildPresetFromCustomTheme } from './theme/customTheme'
 import {
@@ -200,6 +201,7 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
       typeof value.notify_moderation_report === 'boolean' ? value.notify_moderation_report : true,
     notify_moderation_queue:
       typeof value.notify_moderation_queue === 'boolean' ? value.notify_moderation_queue : true,
+    ai_assistant_visible: typeof value.ai_assistant_visible === 'boolean' ? value.ai_assistant_visible : true,
     email_notifications_enabled:
       typeof value.email_notifications_enabled === 'boolean' ? value.email_notifications_enabled : false,
     show_subscriptions: typeof value.show_subscriptions === 'boolean' ? value.show_subscriptions : false,
@@ -771,6 +773,15 @@ function App() {
         <Suspense fallback={null}>
           <OnboardingTour userId={authUser.id} authToken={authToken!} path={path} onNavigate={navigate} />
         </Suspense>
+      ) : null}
+      {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
+        <AiAssistantPanel
+          user={authUser}
+          authToken={authToken}
+          path={path}
+          onNavigate={navigate}
+          onUserUpdate={handleUserUpdate}
+        />
       ) : null}
     </>
   )

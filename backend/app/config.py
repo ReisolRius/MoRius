@@ -9,6 +9,7 @@ from dotenv import dotenv_values, load_dotenv
 VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 POLZA_CHAT_COMPLETIONS_URL = "https://polza.ai/api/v1/chat/completions"
 POLZA_MEDIA_URL = "https://polza.ai/api/v1/media"
+POLZA_API_BASE_URL = "https://polza.ai/api/v1"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
 POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
@@ -49,6 +50,16 @@ def _to_int(value: str | None, default: int, *, minimum: int = 0) -> int:
         return max(default, minimum)
     try:
         parsed = int(value.strip())
+    except ValueError:
+        return max(default, minimum)
+    return max(parsed, minimum)
+
+
+def _to_float(value: str | None, default: float, *, minimum: float = 0.0) -> float:
+    if value is None or not value.strip():
+        return max(default, minimum)
+    try:
+        parsed = float(value.strip())
     except ValueError:
         return max(default, minimum)
     return max(parsed, minimum)
@@ -248,6 +259,14 @@ class Settings:
     story_model_language: str
     enable_canonical_state_pipeline: bool
     canonical_state_safe_fallback: bool
+    ai_assistant_enabled: bool
+    ai_assistant_model: str
+    ai_assistant_base_url: str
+    ai_assistant_min_sols: int
+    ai_assistant_markup: float
+    ai_assistant_rub_per_sol_cost_basis: float
+    ai_assistant_max_completion_tokens: int
+    ai_assistant_request_timeout_ms: int
 
 
 settings = Settings(
@@ -351,4 +370,16 @@ settings = Settings(
     story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",
     enable_canonical_state_pipeline=_to_bool(os.getenv("ENABLE_CANONICAL_STATE_PIPELINE"), default=True),
     canonical_state_safe_fallback=_to_bool(os.getenv("CANONICAL_STATE_SAFE_FALLBACK"), default=False),
+    ai_assistant_enabled=_to_bool(_env("AI_ASSISTANT_ENABLED", "false"), default=False),
+    ai_assistant_model=_env("AI_ASSISTANT_MODEL", "deepseek/deepseek-v4-flash").strip(),
+    ai_assistant_base_url=_env("AI_ASSISTANT_BASE_URL", POLZA_API_BASE_URL).strip().rstrip("/"),
+    ai_assistant_min_sols=_to_int(_env("AI_ASSISTANT_MIN_SOLS", "1"), 1, minimum=1),
+    ai_assistant_markup=_to_float(_env("AI_ASSISTANT_MARKUP", "5"), 5.0, minimum=0.1),
+    ai_assistant_rub_per_sol_cost_basis=_to_float(
+        _env("AI_ASSISTANT_RUB_PER_SOL_COST_BASIS", "1"),
+        1.0,
+        minimum=0.01,
+    ),
+    ai_assistant_max_completion_tokens=_to_int(_env("AI_ASSISTANT_MAX_COMPLETION_TOKENS", "1800"), 1800, minimum=128),
+    ai_assistant_request_timeout_ms=_to_int(_env("AI_ASSISTANT_REQUEST_TIMEOUT_MS", "60000"), 60000, minimum=1000),
 )

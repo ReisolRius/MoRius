@@ -33,6 +33,20 @@ body {
   font-family: "Nunito Sans", "Segoe UI", sans-serif;
 }
 
+@keyframes morius-ai-orb-pulse {
+  0%,
+  100% {
+    transform: scale(0.82);
+    opacity: 0.58;
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--morius-accent) 30%, transparent);
+  }
+  50% {
+    transform: scale(1.08);
+    opacity: 1;
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--morius-accent) 0%, transparent);
+  }
+}
+
 body.morius-auth-route,
 body.morius-auth-route #root {
   width: 100vw !important;

@@ -1091,6 +1091,8 @@ def update_profile(
         user.notify_moderation_report = bool(payload.notify_moderation_report)
     if "notify_moderation_queue" in payload.model_fields_set:
         user.notify_moderation_queue = bool(payload.notify_moderation_queue)
+    if "ai_assistant_visible" in payload.model_fields_set:
+        user.ai_assistant_visible = bool(payload.ai_assistant_visible)
     if "email_notifications_enabled" in payload.model_fields_set:
         user.email_notifications_enabled = bool(payload.email_notifications_enabled)
 

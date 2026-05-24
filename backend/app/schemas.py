@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     notify_new_follower: bool = True
     notify_moderation_report: bool = True
     notify_moderation_queue: bool = True
+    ai_assistant_visible: bool = True
     email_notifications_enabled: bool = False
     show_subscriptions: bool = False
     show_public_worlds: bool = False
@@ -228,6 +229,7 @@ class ProfileUpdateRequest(BaseModel):
     notify_new_follower: bool | None = None
     notify_moderation_report: bool | None = None
     notify_moderation_queue: bool | None = None
+    ai_assistant_visible: bool | None = None
     email_notifications_enabled: bool | None = None
 
 
