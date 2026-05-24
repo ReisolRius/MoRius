@@ -204,10 +204,10 @@ def _optimize_story_card_text_content(
         },
     ]
     try:
-        optimized_raw = _request_openrouter_story_text(
+        optimized_raw = _request_polza_story_text(
             messages_payload,
             model_name=model_name,
-            allow_free_fallback=False,
+            allow_service_fallback=False,
             translate_input=False,
             fallback_model_names=fallback_model_names,
             temperature=0.2,

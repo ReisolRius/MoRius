@@ -357,7 +357,7 @@ const STORY_DEFAULT_TEMPERATURE = 0.85
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
-const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
+const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'qwen/qwen3.5-flash-02-23-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image'
 const STORY_IMAGE_MODEL_GROK_LEGACY_ID: StoryImageModelId = 'grok-imagine-image-pro'
@@ -2958,7 +2958,7 @@ function clampStoryTemperature(value: number): number {
 
 function normalizeStoryNarratorModelId(value: string | null | undefined): StoryNarratorModelId {
   const rawValue = (value ?? '').trim()
-  const normalized = (rawValue === 'arcee-ai/trinity-large-preview:free' ? 'xiaomi/mimo-v2-flash' : rawValue) as StoryNarratorModelId
+  const normalized = (rawValue === 'xiaomi/mimo-v2-flash' ? 'xiaomi/mimo-v2-flash' : rawValue) as StoryNarratorModelId
   if (STORY_NARRATOR_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }

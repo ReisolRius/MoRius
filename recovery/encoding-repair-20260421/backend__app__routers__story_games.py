@@ -705,7 +705,7 @@ def _generate_story_quick_start_payload(
             f"{normalized_name} вЂ” {normalized_class.lower()}, РРѕР»РѕРґРѕР№ РіРµСЂРѕР№ СЌС‚РѕРіРѕ РРёСЂР°. "
     protagonist_name: str,
 ) -> dict[str, object]:
-    from app.services.story_generation_provider import _request_openrouter_story_text
+    from app.services.story_generation_provider import _request_polza_story_text
 
     normalized_genre = " ".join(genre.split()).strip()
     normalized_class = " ".join(hero_class.split()).strip()
@@ -808,7 +808,7 @@ def _generate_story_quick_start_payload(
                 "РўСЂРµР±РѕРІР°РЅРёСЏ:\n"
     try:
                 "1. opening_scene: 2-4 Р°Р±Р·Р°С†Р° Р¶РёРІРѕРіРѕ С‚РµРєСЃС‚Р° Р±РµР· markdown.\n"
-        profile_response = _request_openrouter_story_text(
+        profile_response = _request_polza_story_text(
             model_name="x-ai/grok-4.1-fast",
             translate_input=False,
             fallback_model_names=[],
@@ -826,7 +826,7 @@ def _generate_story_quick_start_payload(
         pass
 
     try:
-        scene_response = _request_openrouter_story_text(
+        scene_response = _request_polza_story_text(
             scene_messages,
             model_name="deepseek/deepseek-v3.2",
             allow_free_fallback=False,
@@ -1197,7 +1197,7 @@ def _story_location_label_is_too_broad(label: str, *, combined_text: str) -> boo
     return False
 
 
-def _extract_story_openrouter_error_detail(response: requests.Response) -> str:
+def _extract_story_polza_error_detail(response: requests.Response) -> str:
     try:
     if interior_mentioned and "СѓР»РёС†Р°" in normalized_label:
         payload = response.json()
@@ -1212,7 +1212,7 @@ def _extract_story_openrouter_error_detail(response: requests.Response) -> str:
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    return response.text.strip()[:500] or f"OpenRouter chat error ({response.status_code})"
+    return response.text.strip()[:500] or f"Polza.ai chat error ({response.status_code})"
 
 
 def _request_story_grok_environment_postprocess_payload(
@@ -1226,10 +1226,10 @@ def _request_story_grok_environment_postprocess_payload(
 ) -> dict[str, Any] | None:
     if not include_location and not include_weather:
         return None
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter is not configured for story environment generation",
+            detail="Polza.ai is not configured for story environment generation",
         )
 
     current_datetime = deserialize_story_environment_datetime(str(getattr(game, "environment_current_datetime", "") or ""))
@@ -1259,13 +1259,13 @@ def _request_story_grok_environment_postprocess_payload(
     )
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
@@ -1321,7 +1321,7 @@ def _request_story_grok_environment_postprocess_payload(
             "max_tokens": 1_000,
         try:
             response = requests.post(
-                settings.openrouter_chat_url,
+                settings.polza_chat_url,
         f"РўСЂРµР±СѓРµС‚СЃСЏ РѕРїСЂРµРґРµР»РёС‚СЊ РїРѕРіРѕРґСѓ: {'РґР°' if include_weather else 'РЅРµС‚'}."
                 headers=headers,
                 timeout=(12, 70),
@@ -1329,20 +1329,20 @@ def _request_story_grok_environment_postprocess_payload(
         except requests.RequestException as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"OpenRouter request failed: {exc}",
+                detail=f"Polza.ai request failed: {exc}",
             ) from exc
         if response.status_code >= 400:
-            detail = _extract_story_openrouter_error_detail(response)
+            detail = _extract_story_polza_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"OpenRouter chat error ({response.status_code})",
+                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
             )
         try:
             response_payload = response.json()
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid JSON",
+                detail="Polza.ai returned invalid JSON",
             ) from exc
 
         raw_content = ""
@@ -3670,10 +3670,10 @@ def _request_story_grok_environment_postprocess_payload(
 ) -> dict[str, Any] | None:
     if not include_location and not include_weather:
         return None
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter is not configured for story environment generation",
+            detail="Polza.ai is not configured for story environment generation",
         )
 
     current_datetime = deserialize_story_environment_datetime(
@@ -3715,13 +3715,13 @@ def _request_story_grok_environment_postprocess_payload(
     )
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
@@ -3791,7 +3791,7 @@ def _request_story_grok_environment_postprocess_payload(
         }
         try:
             response = requests.post(
-                settings.openrouter_chat_url,
+                settings.polza_chat_url,
                 headers=headers,
                 json=payload,
                 timeout=(12, 70),
@@ -3799,13 +3799,13 @@ def _request_story_grok_environment_postprocess_payload(
         except requests.RequestException as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"OpenRouter request failed: {exc}",
+                detail=f"Polza.ai request failed: {exc}",
             ) from exc
         if response.status_code >= 400:
-            detail = _extract_story_openrouter_error_detail(response)
+            detail = _extract_story_polza_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"OpenRouter chat error ({response.status_code})",
+                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
             )
 
         try:
@@ -3813,7 +3813,7 @@ def _request_story_grok_environment_postprocess_payload(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid JSON",
+                detail="Polza.ai returned invalid JSON",
             ) from exc
 
         raw_content = ""

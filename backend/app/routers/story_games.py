@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, load_only
 
 from app.database import get_db
-from app.config import settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, settings
 from app.models import (
     StoryBugReport,
     StoryCommunityWorldComment,
@@ -84,6 +84,11 @@ from app.services.story_games import (
     deserialize_story_game_genres,
     get_story_game_public_cards_out,
     normalize_story_ambient_enabled,
+    normalize_story_appearance_background_mode,
+    normalize_story_appearance_color,
+    normalize_story_appearance_gradient_enabled,
+    normalize_story_appearance_text_style,
+    normalize_story_appearance_ui_style,
     normalize_story_canonical_state_pipeline_enabled,
     normalize_story_canonical_state_safe_fallback_enabled,
     normalize_story_character_state_enabled,
@@ -118,13 +123,12 @@ from app.services.story_games import (
     delete_story_game_with_relations,
     story_game_summary_to_compact_out,
     story_game_summary_to_out,
+    STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+    STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+    STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
 )
 from app.services.story_cards import story_plot_card_to_out
 from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
-from app.services.story_events import (
-    story_plot_card_change_event_to_out,
-    story_world_card_change_event_to_out,
-)
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_LOCATION,
@@ -144,11 +148,9 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
-    list_story_plot_card_events,
     list_story_plot_cards,
     touch_story_game,
     list_story_turn_images,
-    list_story_world_card_events,
     list_story_world_cards,
 )
 from app.services.story_world_comments import (
@@ -242,7 +244,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
 
     def coerce_story_environment_time_mode(value: str | None) -> str:
         _ = value
-        return "grok"
+        return "service"
 
     def normalize_story_environment_turn_step_minutes(value: int | None) -> int:
         _ = value
@@ -364,6 +366,7 @@ STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8_000
 STORY_GAME_TITLE_MAX_LENGTH = 160
 STORY_CLONE_TITLE_SUFFIX = " (копия)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
+PRIVILEGED_STORY_APPEARANCE_ROLES = {"administrator", "moderator"}
 STORY_LIST_PREVIEW_MAX_CHARS = 145
 STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
 STORY_QUICK_START_ALLOWED_START_MODES = {"calm", "action"}
@@ -701,7 +704,7 @@ def _generate_story_quick_start_payload(
     protagonist_name: str,
     start_mode: str,
 ) -> dict[str, object]:
-    from app.services.story_generation_provider import _request_openrouter_story_text
+    from app.services.story_generation_provider import _request_polza_story_text
 
     normalized_genre = " ".join(genre.split()).strip()
     normalized_class = " ".join(hero_class.split()).strip()
@@ -781,10 +784,10 @@ def _generate_story_quick_start_payload(
     ]
 
     try:
-        profile_response = _request_openrouter_story_text(
+        profile_response = _request_polza_story_text(
             profile_messages,
-            model_name="x-ai/grok-4.1-fast",
-            allow_free_fallback=False,
+            model_name=POLZA_GEMINI_25_FLASH_LITE_MODEL,
+            allow_service_fallback=False,
             translate_input=False,
             fallback_model_names=[],
             temperature=0.7,
@@ -801,10 +804,10 @@ def _generate_story_quick_start_payload(
         pass
 
     try:
-        scene_response = _request_openrouter_story_text(
+        scene_response = _request_polza_story_text(
             scene_messages,
-            model_name="deepseek/deepseek-v3.2",
-            allow_free_fallback=False,
+            model_name=POLZA_GEMINI_25_FLASH_LITE_MODEL,
+            allow_service_fallback=False,
             translate_input=False,
             fallback_model_names=[],
             temperature=0.92,
@@ -863,7 +866,7 @@ def _normalize_story_environment_location_label(value: str | None) -> str:
     return " ".join(str(value).replace("\r", " ").replace("\n", " ").split()).strip()[:160]
 
 
-_STORY_ENVIRONMENT_GROK_MODEL = "x-ai/grok-4.1-fast"
+_STORY_ENVIRONMENT_SERVICE_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
 _STORY_ENVIRONMENT_TIMELINE_SLOTS: tuple[tuple[str, str], ...] = (
     ("00:00", "06:00"),
     ("06:00", "12:00"),
@@ -954,7 +957,7 @@ def _normalize_story_environment_slot_payload(
     }
 
 
-def _normalize_story_environment_weather_payload_from_grok(
+def _normalize_story_environment_weather_payload_from_service(
     raw_payload: dict[str, Any] | None,
     *,
     reference_datetime: datetime | None,
@@ -1154,7 +1157,7 @@ def _story_location_label_is_too_broad(label: str, *, combined_text: str) -> boo
     return False
 
 
-def _request_story_grok_environment_postprocess_payload(
+def _request_story_environment_postprocess_payload(
     *,
     game: StoryGame,
     latest_user_prompt: str,
@@ -1166,10 +1169,10 @@ def _request_story_grok_environment_postprocess_payload(
 ) -> dict[str, Any] | None:
     if not include_location and not include_weather:
         return None
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter is not configured for story environment generation",
+            detail="Polza.ai is not configured for story environment generation",
         )
 
     current_datetime = deserialize_story_environment_datetime(
@@ -1211,13 +1214,13 @@ def _request_story_grok_environment_postprocess_payload(
     )
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
@@ -1280,14 +1283,14 @@ def _request_story_grok_environment_postprocess_payload(
             },
         ]
         payload = {
-            "model": _STORY_ENVIRONMENT_GROK_MODEL,
+            "model": _STORY_ENVIRONMENT_SERVICE_MODEL,
             "messages": request_messages,
             "temperature": 1.05 if force_weather_refresh and include_weather else 0.95,
             "max_tokens": 1_000,
         }
         try:
             response = requests.post(
-                settings.openrouter_chat_url,
+                settings.polza_chat_url,
                 headers=headers,
                 json=payload,
                 timeout=(12, 70),
@@ -1295,13 +1298,13 @@ def _request_story_grok_environment_postprocess_payload(
         except requests.RequestException as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"OpenRouter request failed: {exc}",
+                detail=f"Polza.ai request failed: {exc}",
             ) from exc
         if response.status_code >= 400:
-            detail = _extract_story_openrouter_error_detail(response)
+            detail = _extract_story_polza_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"OpenRouter chat error ({response.status_code})",
+                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
             )
 
         try:
@@ -1309,7 +1312,7 @@ def _request_story_grok_environment_postprocess_payload(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid JSON",
+                detail="Polza.ai returned invalid JSON",
             ) from exc
 
         raw_content = ""
@@ -1344,14 +1347,14 @@ def _request_story_grok_environment_postprocess_payload(
         generated_current_signature = ""
         generated_tomorrow_signature = ""
         if include_weather:
-            next_current_weather = _normalize_story_environment_weather_payload_from_grok(
+            next_current_weather = _normalize_story_environment_weather_payload_from_service(
                 parsed_payload.get("current_weather")
                 if isinstance(parsed_payload.get("current_weather"), dict)
                 else None,
                 reference_datetime=current_datetime,
                 include_timeline=True,
             )
-            next_tomorrow_weather = _normalize_story_environment_weather_payload_from_grok(
+            next_tomorrow_weather = _normalize_story_environment_weather_payload_from_service(
                 parsed_payload.get("tomorrow_weather")
                 if isinstance(parsed_payload.get("tomorrow_weather"), dict)
                 else None,
@@ -1428,11 +1431,11 @@ def _request_story_grok_environment_postprocess_payload(
 
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
-        detail="Failed to obtain a valid Grok environment payload",
+        detail="Failed to obtain a valid story environment payload",
     )
 
 
-def _build_story_grok_environment_postprocess_payload(
+def _build_story_environment_postprocess_payload(
     *,
     game: StoryGame,
     latest_user_prompt: str,
@@ -1441,7 +1444,7 @@ def _build_story_grok_environment_postprocess_payload(
     include_location: bool,
     include_weather: bool,
 ) -> dict[str, Any] | None:
-    return _request_story_grok_environment_postprocess_payload(
+    return _request_story_environment_postprocess_payload(
         game=game,
         latest_user_prompt=latest_user_prompt,
         previous_assistant_text=previous_assistant_text,
@@ -1472,10 +1475,8 @@ def _build_story_game_snapshot_payload(db: Session, game: StoryGame) -> dict[str
     turn_images = list_story_turn_images(db, game.id)
     instruction_cards = list_story_instruction_cards(db, game.id)
     plot_cards = list_story_plot_cards(db, game.id)
-    plot_card_events = list_story_plot_card_events(db, game.id)
     memory_blocks = list_story_memory_blocks(db, game.id)
     world_cards = list_story_world_cards(db, game.id)
-    world_card_events = list_story_world_card_events(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
 
     payload = StoryGameOut(
@@ -1484,10 +1485,10 @@ def _build_story_game_snapshot_payload(db: Session, game: StoryGame) -> dict[str
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
-        plot_card_events=[story_plot_card_change_event_to_out(event) for event in plot_card_events],
+        plot_card_events=[],
         memory_blocks=[StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks],
         world_cards=[story_world_card_to_out(card) for card in world_cards],
-        world_card_events=[story_world_card_change_event_to_out(event) for event in world_card_events],
+        world_card_events=[],
         can_redo_assistant_step=can_redo_assistant_step,
     )
     return payload.model_dump(mode="json")
@@ -1676,7 +1677,10 @@ def _create_story_game_publication_copy_from_source(
         community_launches=0,
         community_rating_sum=0,
         community_rating_count=0,
-        context_limit_chars=normalize_story_context_limit_chars(source_game.context_limit_chars),
+        context_limit_chars=normalize_story_context_limit_chars(
+            source_game.context_limit_chars,
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
         response_max_tokens=source_game.response_max_tokens,
         response_max_tokens_enabled=source_game.response_max_tokens_enabled,
         story_llm_model=source_game.story_llm_model,
@@ -1698,6 +1702,26 @@ def _create_story_game_publication_copy_from_source(
         show_gg_thoughts=source_game.show_gg_thoughts,
         show_npc_thoughts=source_game.show_npc_thoughts,
         ambient_enabled=source_game.ambient_enabled,
+        appearance_background_mode=normalize_story_appearance_background_mode(
+            getattr(source_game, "appearance_background_mode", None)
+        ),
+        appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
+            getattr(source_game, "appearance_gradient_enabled", None)
+        ),
+        appearance_gradient_from=normalize_story_appearance_color(
+            getattr(source_game, "appearance_gradient_from", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        ),
+        appearance_gradient_to=normalize_story_appearance_color(
+            getattr(source_game, "appearance_gradient_to", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        ),
+        appearance_solid_color=normalize_story_appearance_color(
+            getattr(source_game, "appearance_solid_color", None),
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        ),
+        appearance_ui_style=normalize_story_appearance_ui_style(getattr(source_game, "appearance_ui_style", None)),
+        appearance_text_style=normalize_story_appearance_text_style(getattr(source_game, "appearance_text_style", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(source_game, "character_state_enabled", None)
         ),
@@ -2075,7 +2099,10 @@ def launch_story_community_world(
         community_launches=0,
         community_rating_sum=0,
         community_rating_count=0,
-        context_limit_chars=normalize_story_context_limit_chars(world.context_limit_chars),
+        context_limit_chars=normalize_story_context_limit_chars(
+            world.context_limit_chars,
+            model_name=getattr(world, "story_llm_model", None),
+        ),
         response_max_tokens=normalize_story_response_max_tokens(getattr(world, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(world, "response_max_tokens_enabled", None)
@@ -2104,6 +2131,26 @@ def launch_story_community_world(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(world, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(world, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(world, "ambient_enabled", None)),
+        appearance_background_mode=normalize_story_appearance_background_mode(
+            getattr(world, "appearance_background_mode", None)
+        ),
+        appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
+            getattr(world, "appearance_gradient_enabled", None)
+        ),
+        appearance_gradient_from=normalize_story_appearance_color(
+            getattr(world, "appearance_gradient_from", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        ),
+        appearance_gradient_to=normalize_story_appearance_color(
+            getattr(world, "appearance_gradient_to", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        ),
+        appearance_solid_color=normalize_story_appearance_color(
+            getattr(world, "appearance_solid_color", None),
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        ),
+        appearance_ui_style=normalize_story_appearance_ui_style(getattr(world, "appearance_ui_style", None)),
+        appearance_text_style=normalize_story_appearance_text_style(getattr(world, "appearance_text_style", None)),
         environment_enabled=normalize_story_environment_enabled(getattr(world, "environment_enabled", None)),
         environment_time_enabled=normalize_story_environment_time_enabled(
             getattr(world, "environment_time_enabled", None),
@@ -2486,10 +2533,13 @@ def create_story_game(
     cover_scale = normalize_story_cover_scale(payload.cover_scale)
     cover_position_x = normalize_story_cover_position(payload.cover_position_x)
     cover_position_y = normalize_story_cover_position(payload.cover_position_y)
-    context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
     response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
     response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(payload.response_max_tokens_enabled)
     story_llm_model = normalize_story_llm_model(payload.story_llm_model)
+    context_limit_chars = normalize_story_context_limit_chars(
+        payload.context_limit_chars,
+        model_name=story_llm_model,
+    )
     image_model = normalize_story_image_model(payload.image_model)
     image_style_prompt = normalize_story_image_style_prompt(payload.image_style_prompt)
     memory_optimization_enabled = normalize_story_memory_optimization_enabled(payload.memory_optimization_enabled)
@@ -2504,6 +2554,51 @@ def create_story_game(
     show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
+    can_update_appearance = str(getattr(user, "role", "") or "").strip().lower() in PRIVILEGED_STORY_APPEARANCE_ROLES
+    appearance_background_mode = (
+        normalize_story_appearance_background_mode(payload.appearance_background_mode)
+        if can_update_appearance
+        else normalize_story_appearance_background_mode(None)
+    )
+    appearance_gradient_enabled = (
+        normalize_story_appearance_gradient_enabled(payload.appearance_gradient_enabled)
+        if can_update_appearance
+        else normalize_story_appearance_gradient_enabled(None)
+    )
+    appearance_gradient_from = (
+        normalize_story_appearance_color(
+            payload.appearance_gradient_from,
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        )
+        if can_update_appearance
+        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM)
+    )
+    appearance_gradient_to = (
+        normalize_story_appearance_color(
+            payload.appearance_gradient_to,
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        )
+        if can_update_appearance
+        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO)
+    )
+    appearance_solid_color = (
+        normalize_story_appearance_color(
+            payload.appearance_solid_color,
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        )
+        if can_update_appearance
+        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR)
+    )
+    appearance_ui_style = (
+        normalize_story_appearance_ui_style(payload.appearance_ui_style)
+        if can_update_appearance
+        else normalize_story_appearance_ui_style(None)
+    )
+    appearance_text_style = (
+        normalize_story_appearance_text_style(payload.appearance_text_style)
+        if can_update_appearance
+        else normalize_story_appearance_text_style(None)
+    )
     environment_time_enabled = normalize_story_environment_time_enabled(
         payload.environment_time_enabled,
         legacy_environment_enabled=payload.environment_enabled,
@@ -2551,6 +2646,13 @@ def create_story_game(
         show_gg_thoughts=show_gg_thoughts,
         show_npc_thoughts=show_npc_thoughts,
         ambient_enabled=ambient_enabled,
+        appearance_background_mode=appearance_background_mode,
+        appearance_gradient_enabled=appearance_gradient_enabled,
+        appearance_gradient_from=appearance_gradient_from,
+        appearance_gradient_to=appearance_gradient_to,
+        appearance_solid_color=appearance_solid_color,
+        appearance_ui_style=appearance_ui_style,
+        appearance_text_style=appearance_text_style,
         environment_enabled=environment_enabled,
         environment_time_enabled=environment_time_enabled,
         environment_weather_enabled=environment_weather_enabled,
@@ -2756,7 +2858,10 @@ def clone_story_game(
         community_launches=0,
         community_rating_sum=0,
         community_rating_count=0,
-        context_limit_chars=normalize_story_context_limit_chars(source_game.context_limit_chars),
+        context_limit_chars=normalize_story_context_limit_chars(
+            source_game.context_limit_chars,
+            model_name=getattr(source_game, "story_llm_model", None),
+        ),
         response_max_tokens=normalize_story_response_max_tokens(getattr(source_game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(source_game, "response_max_tokens_enabled", None)
@@ -2789,6 +2894,26 @@ def clone_story_game(
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(source_game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(source_game, "show_npc_thoughts", None)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(source_game, "ambient_enabled", None)),
+        appearance_background_mode=normalize_story_appearance_background_mode(
+            getattr(source_game, "appearance_background_mode", None)
+        ),
+        appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
+            getattr(source_game, "appearance_gradient_enabled", None)
+        ),
+        appearance_gradient_from=normalize_story_appearance_color(
+            getattr(source_game, "appearance_gradient_from", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        ),
+        appearance_gradient_to=normalize_story_appearance_color(
+            getattr(source_game, "appearance_gradient_to", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        ),
+        appearance_solid_color=normalize_story_appearance_color(
+            getattr(source_game, "appearance_solid_color", None),
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        ),
+        appearance_ui_style=normalize_story_appearance_ui_style(getattr(source_game, "appearance_ui_style", None)),
+        appearance_text_style=normalize_story_appearance_text_style(getattr(source_game, "appearance_text_style", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(source_game, "character_state_enabled", None)
         ),
@@ -2926,6 +3051,24 @@ def update_story_game_settings(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
+    appearance_setting_fields = {
+        "appearance_background_mode",
+        "appearance_gradient_enabled",
+        "appearance_gradient_from",
+        "appearance_gradient_to",
+        "appearance_solid_color",
+        "appearance_ui_style",
+        "appearance_text_style",
+    }
+    has_appearance_setting_update = any(field_name in payload.model_fields_set for field_name in appearance_setting_fields)
+    if (
+        has_appearance_setting_update
+        and str(getattr(user, "role", "") or "").strip().lower() not in PRIVILEGED_STORY_APPEARANCE_ROLES
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Story appearance settings are available to moderators and administrators",
+        )
     current_environment_enabled = normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
     next_environment_time_enabled = normalize_story_environment_time_enabled(
         getattr(game, "environment_time_enabled", None),
@@ -2942,7 +3085,15 @@ def update_story_game_settings(
         game.story_llm_model = next_story_model
     story_model_changed = next_story_model != current_story_model
     if payload.context_limit_chars is not None:
-        game.context_limit_chars = normalize_story_context_limit_chars(payload.context_limit_chars)
+        game.context_limit_chars = normalize_story_context_limit_chars(
+            payload.context_limit_chars,
+            model_name=next_story_model,
+        )
+    elif story_model_changed:
+        game.context_limit_chars = normalize_story_context_limit_chars(
+            getattr(game, "context_limit_chars", None),
+            model_name=next_story_model,
+        )
     if payload.response_max_tokens is not None:
         game.response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
     if payload.response_max_tokens_enabled is not None:
@@ -2984,6 +3135,31 @@ def update_story_game_settings(
         game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     if payload.ambient_enabled is not None:
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
+    if "appearance_background_mode" in payload.model_fields_set:
+        game.appearance_background_mode = normalize_story_appearance_background_mode(payload.appearance_background_mode)
+    if "appearance_gradient_enabled" in payload.model_fields_set:
+        game.appearance_gradient_enabled = normalize_story_appearance_gradient_enabled(
+            payload.appearance_gradient_enabled
+        )
+    if "appearance_gradient_from" in payload.model_fields_set:
+        game.appearance_gradient_from = normalize_story_appearance_color(
+            payload.appearance_gradient_from,
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        )
+    if "appearance_gradient_to" in payload.model_fields_set:
+        game.appearance_gradient_to = normalize_story_appearance_color(
+            payload.appearance_gradient_to,
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        )
+    if "appearance_solid_color" in payload.model_fields_set:
+        game.appearance_solid_color = normalize_story_appearance_color(
+            payload.appearance_solid_color,
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        )
+    if "appearance_ui_style" in payload.model_fields_set:
+        game.appearance_ui_style = normalize_story_appearance_ui_style(payload.appearance_ui_style)
+    if "appearance_text_style" in payload.model_fields_set:
+        game.appearance_text_style = normalize_story_appearance_text_style(payload.appearance_text_style)
     if payload.character_state_enabled is not None:
         game.character_state_enabled = normalize_story_character_state_enabled(payload.character_state_enabled)
         sync_story_character_state_payload_from_world_cards(
@@ -3223,7 +3399,7 @@ def _regenerate_story_game_environment_weather_safe(
         )
         db.refresh(game)
         return _story_game_summary_response(db, game)
-def _regenerate_story_game_environment_weather_grok_safe(
+def _regenerate_story_game_environment_weather_service_safe(
     *,
     user: User,
     game: StoryGame,
@@ -3266,7 +3442,7 @@ def _regenerate_story_game_environment_weather_grok_safe(
     )
 
     try:
-        postprocess_payload = _build_story_grok_environment_postprocess_payload(
+        postprocess_payload = _build_story_environment_postprocess_payload(
             game=game,
             latest_user_prompt=latest_user_prompt,
             latest_assistant_text=latest_assistant_text,
@@ -3275,7 +3451,7 @@ def _regenerate_story_game_environment_weather_grok_safe(
             include_weather=True,
             force_weather_refresh=True,
         )
-        _apply_story_grok_environment_postprocess_payload(
+        _apply_story_environment_postprocess_payload(
             db=db,
             game=game,
             assistant_message=latest_assistant_message if isinstance(latest_assistant_message, StoryMessage) else None,
@@ -3294,13 +3470,13 @@ def _regenerate_story_game_environment_weather_grok_safe(
     except Exception:
         db.rollback()
         logger.exception(
-            "Story environment regenerate via Grok crashed: game_id=%s user_id=%s",
+            "Story environment regenerate via service model crashed: game_id=%s user_id=%s",
             game.id,
             user.id,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to regenerate story environment with Grok",
+            detail="Failed to regenerate story environment with service model",
         )
 
 
@@ -3325,7 +3501,7 @@ def regenerate_story_game_environment_weather(
             datetime.now().replace(second=0, microsecond=0, tzinfo=None)
         )
         db.flush()
-    return _regenerate_story_game_environment_weather_grok_safe(user=user, game=game, db=db)
+    return _regenerate_story_game_environment_weather_service_safe(user=user, game=game, db=db)
 
     from app.services import story_memory_pipeline
 
@@ -3477,7 +3653,7 @@ def _story_weather_payload_signature(
     reference_datetime: datetime | None,
     include_timeline: bool,
 ) -> str:
-    normalized_payload = _normalize_story_environment_weather_payload_from_grok(
+    normalized_payload = _normalize_story_environment_weather_payload_from_service(
         payload if isinstance(payload, dict) else None,
         reference_datetime=reference_datetime,
         include_timeline=include_timeline,
@@ -3637,7 +3813,7 @@ def _story_location_label_is_too_broad(label: str, *, combined_text: str) -> boo
     return False
 
 
-def _request_story_grok_environment_postprocess_payload(
+def _request_story_environment_postprocess_payload(
     *,
     game: StoryGame,
     latest_user_prompt: str,
@@ -3649,10 +3825,10 @@ def _request_story_grok_environment_postprocess_payload(
 ) -> dict[str, Any] | None:
     if not include_location and not include_weather:
         return None
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter is not configured for story environment generation",
+            detail="Polza.ai is not configured for story environment generation",
         )
 
     current_datetime = deserialize_story_environment_datetime(
@@ -3694,13 +3870,13 @@ def _request_story_grok_environment_postprocess_payload(
     )
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     system_prompt = (
         "You analyze a Russian fantasy RPG scene and return strict JSON only without markdown. "
@@ -3763,14 +3939,14 @@ def _request_story_grok_environment_postprocess_payload(
             },
         ]
         payload = {
-            "model": _STORY_ENVIRONMENT_GROK_MODEL,
+            "model": _STORY_ENVIRONMENT_SERVICE_MODEL,
             "messages": request_messages,
             "temperature": 1.05 if force_weather_refresh and include_weather else 0.95,
             "max_tokens": 1_000,
         }
         try:
             response = requests.post(
-                settings.openrouter_chat_url,
+                settings.polza_chat_url,
                 headers=headers,
                 json=payload,
                 timeout=(12, 70),
@@ -3778,13 +3954,13 @@ def _request_story_grok_environment_postprocess_payload(
         except requests.RequestException as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"OpenRouter request failed: {exc}",
+                detail=f"Polza.ai request failed: {exc}",
             ) from exc
         if response.status_code >= 400:
-            detail = _extract_story_openrouter_error_detail(response)
+            detail = _extract_story_polza_error_detail(response)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=detail[:500] or f"OpenRouter chat error ({response.status_code})",
+                detail=detail[:500] or f"Polza.ai chat error ({response.status_code})",
             )
 
         try:
@@ -3792,7 +3968,7 @@ def _request_story_grok_environment_postprocess_payload(
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OpenRouter returned invalid JSON",
+                detail="Polza.ai returned invalid JSON",
             ) from exc
 
         raw_content = ""
@@ -3827,14 +4003,14 @@ def _request_story_grok_environment_postprocess_payload(
         generated_current_signature = ""
         generated_tomorrow_signature = ""
         if include_weather:
-            next_current_weather = _normalize_story_environment_weather_payload_from_grok(
+            next_current_weather = _normalize_story_environment_weather_payload_from_service(
                 parsed_payload.get("current_weather")
                 if isinstance(parsed_payload.get("current_weather"), dict)
                 else None,
                 reference_datetime=current_datetime,
                 include_timeline=True,
             )
-            next_tomorrow_weather = _normalize_story_environment_weather_payload_from_grok(
+            next_tomorrow_weather = _normalize_story_environment_weather_payload_from_service(
                 parsed_payload.get("tomorrow_weather")
                 if isinstance(parsed_payload.get("tomorrow_weather"), dict)
                 else None,
@@ -3911,11 +4087,11 @@ def _request_story_grok_environment_postprocess_payload(
 
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
-        detail="Failed to obtain a valid Grok environment payload",
+        detail="Failed to obtain a valid story environment payload",
     )
 
 
-def _build_story_grok_environment_postprocess_payload(
+def _build_story_environment_postprocess_payload(
     *,
     game: StoryGame,
     latest_user_prompt: str,
@@ -3925,7 +4101,7 @@ def _build_story_grok_environment_postprocess_payload(
     include_weather: bool,
     force_weather_refresh: bool = False,
 ) -> dict[str, Any] | None:
-    return _request_story_grok_environment_postprocess_payload(
+    return _request_story_environment_postprocess_payload(
         game=game,
         latest_user_prompt=latest_user_prompt,
         previous_assistant_text=previous_assistant_text,

@@ -83,7 +83,7 @@ const advantageSlides: AdvantageSlide[] = [
     number: '03',
     title: 'РАССКАЗЧИКИ',
     description:
-      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2, MiMo V2 Flash и Grok 4.1 Fast уже ждут, чтобы начать ваше приключение.',
+      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2 и MiMo V2 Flash уже ждут, чтобы начать ваше приключение.',
     preview: advantageStorytellersPreview,
   },
   {

@@ -13,6 +13,9 @@
   StoryCommunityInstructionTemplateSummary,
   StoryCommunityWorldPayload,
   StoryCommunityWorldSummary,
+  StoryAppearanceBackgroundMode,
+  StoryAppearanceTextStyle,
+  StoryAppearanceUiStyle,
   StoryGamePayload,
   StoryGameSummary,
   StoryGameVisibility,
@@ -58,6 +61,32 @@ const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
   reviewer_user_id: null,
   rejection_reason: null,
 }
+const STORY_APPEARANCE_HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+
+function normalizeStoryAppearanceBackgroundMode(value: unknown): StoryAppearanceBackgroundMode {
+  return value === 'custom' ? 'custom' : 'default'
+}
+
+function normalizeStoryAppearanceUiStyle(value: unknown): StoryAppearanceUiStyle {
+  if (value === 'cyberpunk' || value === 'fantasy' || value === 'modern') {
+    return value
+  }
+  return 'default'
+}
+
+function normalizeStoryAppearanceTextStyle(value: unknown): StoryAppearanceTextStyle {
+  if (value === 'serif' || value === 'terminal') {
+    return value
+  }
+  return 'default'
+}
+
+function normalizeStoryAppearanceColor(value: unknown, fallback: string): string {
+  if (typeof value !== 'string' || !STORY_APPEARANCE_HEX_COLOR_PATTERN.test(value.trim())) {
+    return fallback
+  }
+  return value.trim().toUpperCase()
+}
 
 function normalizeRequestMethod(method: string | undefined): string {
   return (method ?? 'GET').toUpperCase()
@@ -86,7 +115,7 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
   let cleanedDetail = normalizedDetail
   const loweredDetail = normalizedDetail.toLocaleLowerCase()
   const structuredPayloadStart = normalizedDetail.indexOf('{')
-  if (loweredDetail.startsWith('openrouter chat error') && structuredPayloadStart >= 0) {
+  if (loweredDetail.startsWith('polza chat error') && structuredPayloadStart >= 0) {
     cleanedDetail = normalizedDetail.slice(0, structuredPayloadStart).replace(/[.:,\s]+$/, '').trim()
   }
 
@@ -404,6 +433,13 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     show_npc_thoughts: Boolean(game.show_npc_thoughts),
     ambient_enabled: Boolean(game.ambient_enabled),
     character_state_enabled: Boolean(game.character_state_enabled),
+    appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
+    appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
+    appearance_gradient_from: normalizeStoryAppearanceColor(game.appearance_gradient_from, '#050506'),
+    appearance_gradient_to: normalizeStoryAppearanceColor(game.appearance_gradient_to, '#2A1408'),
+    appearance_solid_color: normalizeStoryAppearanceColor(game.appearance_solid_color, '#050506'),
+    appearance_ui_style: normalizeStoryAppearanceUiStyle(game.appearance_ui_style),
+    appearance_text_style: normalizeStoryAppearanceTextStyle(game.appearance_text_style),
     canonical_state_pipeline_enabled: game.canonical_state_pipeline_enabled !== false,
     canonical_state_safe_fallback_enabled: Boolean(game.canonical_state_safe_fallback_enabled),
     environment_enabled: Boolean(game.environment_enabled),
@@ -552,7 +588,7 @@ function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePaylo
           .map((item) => normalizeStoryPlotCardPayload(item))
           .filter((item) => item.id > 0)
       : [],
-    plot_card_events: Array.isArray(payload.plot_card_events) ? payload.plot_card_events.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    plot_card_events: [],
     memory_blocks: Array.isArray(payload.memory_blocks) ? payload.memory_blocks.filter((item) => Boolean(item) && typeof item === 'object') : [],
     world_cards: Array.isArray(payload.world_cards)
       ? payload.world_cards
@@ -560,7 +596,7 @@ function normalizeStoryGamePayload(rawPayload: StoryGamePayload): StoryGamePaylo
           .map((item) => normalizeStoryWorldCardPayload(item))
           .filter((item) => item.id > 0)
       : [],
-    world_card_events: Array.isArray(payload.world_card_events) ? payload.world_card_events.filter((item) => Boolean(item) && typeof item === 'object') : [],
+    world_card_events: [],
     can_redo_assistant_step: Boolean(payload.can_redo_assistant_step),
   }
 }
@@ -1753,6 +1789,13 @@ export async function updateStoryGameSettings(payload: {
   showNpcThoughts?: boolean
   ambientEnabled?: boolean
   characterStateEnabled?: boolean
+  appearanceBackgroundMode?: StoryAppearanceBackgroundMode
+  appearanceGradientEnabled?: boolean
+  appearanceGradientFrom?: string
+  appearanceGradientTo?: string
+  appearanceSolidColor?: string
+  appearanceUiStyle?: StoryAppearanceUiStyle
+  appearanceTextStyle?: StoryAppearanceTextStyle
   emotionVisualizationEnabled?: boolean
   canonicalStatePipelineEnabled?: boolean
   canonicalStateSafeFallbackEnabled?: boolean
@@ -1812,6 +1855,27 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.characterStateEnabled === 'boolean') {
     requestPayload.character_state_enabled = payload.characterStateEnabled
+  }
+  if (typeof payload.appearanceBackgroundMode === 'string') {
+    requestPayload.appearance_background_mode = payload.appearanceBackgroundMode
+  }
+  if (typeof payload.appearanceGradientEnabled === 'boolean') {
+    requestPayload.appearance_gradient_enabled = payload.appearanceGradientEnabled
+  }
+  if (typeof payload.appearanceGradientFrom === 'string') {
+    requestPayload.appearance_gradient_from = payload.appearanceGradientFrom
+  }
+  if (typeof payload.appearanceGradientTo === 'string') {
+    requestPayload.appearance_gradient_to = payload.appearanceGradientTo
+  }
+  if (typeof payload.appearanceSolidColor === 'string') {
+    requestPayload.appearance_solid_color = payload.appearanceSolidColor
+  }
+  if (typeof payload.appearanceUiStyle === 'string') {
+    requestPayload.appearance_ui_style = payload.appearanceUiStyle
+  }
+  if (typeof payload.appearanceTextStyle === 'string') {
+    requestPayload.appearance_text_style = payload.appearanceTextStyle
   }
   if (typeof payload.emotionVisualizationEnabled === 'boolean') {
     requestPayload.emotion_visualization_enabled = payload.emotionVisualizationEnabled
@@ -2165,21 +2229,23 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
     }
   }
 
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) {
-      break
-    }
-
-    buffer += decoder.decode(value, { stream: true })
-    processBufferedBlocks(false)
-    if (streamTerminalEventReceived) {
-      try {
-        await reader.cancel()
-      } catch {
-        // Ignore cancel failures; stream is already terminal.
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) {
+        break
       }
-      break
+
+      if (streamTerminalEventReceived) {
+        continue
+      }
+
+      buffer += decoder.decode(value, { stream: true })
+      processBufferedBlocks(false)
+    }
+  } catch (error) {
+    if (!streamTerminalEventReceived) {
+      streamError = toStreamError(error, 'Generation stream connection was interrupted')
     }
   }
 

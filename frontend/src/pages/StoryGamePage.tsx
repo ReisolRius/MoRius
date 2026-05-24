@@ -44,7 +44,6 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
-import narratorIlonPortrait from '../assets/images/narrators/ilon.svg'
 import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
@@ -150,6 +149,9 @@ import {
 import type { AuthUser } from '../types/auth'
 import type {
   StoryAmbientProfile,
+  StoryAppearanceBackgroundMode,
+  StoryAppearanceTextStyle,
+  StoryAppearanceUiStyle,
   StoryCharacter,
   StoryCharacterEmotionAssets,
   StoryCharacterEmotionId,
@@ -233,6 +235,16 @@ type StorySettingsOverride = {
   canonicalStateSafeFallbackEnabled?: boolean
 }
 
+type StoryAppearanceSettingsPatch = {
+  appearanceBackgroundMode?: StoryAppearanceBackgroundMode
+  appearanceGradientEnabled?: boolean
+  appearanceGradientFrom?: string
+  appearanceGradientTo?: string
+  appearanceSolidColor?: string
+  appearanceUiStyle?: StoryAppearanceUiStyle
+  appearanceTextStyle?: StoryAppearanceTextStyle
+}
+
 type CharacterRaceOption = {
   label: string
   value: string
@@ -299,7 +311,7 @@ const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STREAMING_CARET_CLASS_NAME = 'morius-streaming-caret'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
-const STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS = 120_000
+const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 120_000
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
@@ -316,7 +328,7 @@ const STORY_GAME_TITLE_MAX_LENGTH = 160
 const STORY_CARD_TITLE_MAX_LENGTH = 120
 const STORY_MEMORY_BLOCK_TITLE_MAX_LENGTH = 160
 const STORY_MEMORY_BLOCK_CONTENT_MAX_LENGTH = 64000
-const STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH = 5
+const STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH = 6
 const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
 const STORY_CHARACTER_NAME_MAX_LENGTH = 120
 const STORY_CHARACTER_NOTE_MAX_LENGTH = 20
@@ -337,7 +349,8 @@ const filterCharacterRaceOptions = createFilterOptions<CharacterRaceOption>()
 const filterWorldDetailTypeOptions = createFilterOptions<WorldDetailTypeAutocompleteOption>()
 const STORY_MESSAGE_MAX_LENGTH = 20000
 const STORY_CONTEXT_LIMIT_MIN = 6000
-const STORY_CONTEXT_LIMIT_MAX = 64000
+const STORY_CONTEXT_LIMIT_STANDARD_MAX = 64000
+const STORY_CONTEXT_LIMIT_GLM51_MAX = 128000
 const STORY_DEFAULT_CONTEXT_LIMIT = 6000
 const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
@@ -348,14 +361,14 @@ const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
-const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number, number] = [1, 2, 4, 8]
-const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number] = [2, 4, 8, 16]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number] = [3, 6, 12, 24]
+const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
+const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number, number, number] = [1, 2, 4, 6, 6]
+const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 16]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 6, 12, 18, 35]
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-chat-v3-0324',
   'deepseek/deepseek-v3.2',
   'z-ai/glm-4.7',
-  'x-ai/grok-4.1-fast',
   'xiaomi/mimo-v2-flash',
   'mistralai/mistral-nemo',
 ])
@@ -378,12 +391,63 @@ const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
-const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
+const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance/seedream-4.5'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
-const STORY_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image'
-const STORY_IMAGE_MODEL_GROK_LEGACY_ID: StoryImageModelId = 'grok-imagine-image-pro'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
+const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'default'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = false
+const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#050506'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#2A1408'
+const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#050506'
+const STORY_APPEARANCE_DEFAULT_UI_STYLE: StoryAppearanceUiStyle = 'default'
+const STORY_APPEARANCE_DEFAULT_TEXT_STYLE: StoryAppearanceTextStyle = 'default'
+const STORY_APPEARANCE_HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
+  id: StoryAppearanceUiStyle
+  label: string
+  description: string
+  accent: string
+  previewBackground: string
+}> = [
+  {
+    id: 'default',
+    label: 'Стандарт',
+    description: 'Наш привычный MoRius',
+    accent: 'var(--morius-accent)',
+    previewBackground: 'linear-gradient(135deg, #181c23 0%, #0b0d12 100%)',
+  },
+  {
+    id: 'cyberpunk',
+    label: 'Киберпанк',
+    description: 'Неон, стекло, резкие контуры',
+    accent: '#00E5FF',
+    previewBackground: 'linear-gradient(135deg, #041a24 0%, #130629 100%)',
+  },
+  {
+    id: 'fantasy',
+    label: 'Фэнтези',
+    description: 'Теплый металл и темная магия',
+    accent: '#F4B968',
+    previewBackground: 'linear-gradient(135deg, #21150b 0%, #10161d 100%)',
+  },
+  {
+    id: 'modern',
+    label: 'Современность',
+    description: 'Чистые панели и мягкий контраст',
+    accent: '#7DD3FC',
+    previewBackground: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)',
+  },
+]
+const STORY_APPEARANCE_TEXT_STYLE_OPTIONS: Array<{
+  id: StoryAppearanceTextStyle
+  label: string
+  cssFontFamily: string
+}> = [
+  { id: 'default', label: 'Стандарт', cssFontFamily: '"Nunito Sans", system-ui, sans-serif' },
+  { id: 'serif', label: 'Засечки', cssFontFamily: 'Georgia, "Times New Roman", "Noto Serif", serif' },
+  { id: 'terminal', label: 'Терминал', cssFontFamily: '"Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace' },
+]
 const STORY_AUTOSCROLL_BOTTOM_THRESHOLD = 72
 const STORY_VISIBLE_ASSISTANT_TURNS_INITIAL = 20
 const STORY_VISIBLE_ASSISTANT_TURNS_PAGE = 20
@@ -553,12 +617,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
-  'x-ai/grok-4.1-fast': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
-  },
   'mistralai/mistral-nemo': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
@@ -652,19 +710,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'x-ai/grok-4.1-fast',
-    title: 'Grok 4.1 Fast',
-    description:
-      'Очень быстрая модель с резким темпом ответа. Может быть смелой и поверхностной, поэтому лучше подходит для динамичных сцен, чем для тонкой дисциплины.',
-    portraitSrc: narratorIlonPortrait,
-    portraitAlt: 'Grok 4.1 Fast',
-    stats: [
-      { label: 'Интеллект', value: 5 },
-      { label: 'Скорость', value: 5 },
-      { label: 'Глубина', value: 1 },
-    ],
-  },
-  {
     id: 'xiaomi/mimo-v2-flash',
     title: 'MiMo V2 Flash',
     description:
@@ -750,20 +795,14 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
     description: '30 sols per scene generation.',
     priceLabel: '30 \u0441\u043e\u043b\u043e\u0432',
   },
-  {
-    id: STORY_IMAGE_MODEL_GROK_ID,
-    title: 'Grok (VPN!)',
-    description: '30 солов за генерацию кадра.',
-    priceLabel: '30 \u0441\u043e\u043b\u043e\u0432',
-  },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3.2 быстрее и агрессивнее двигает сюжет, GLM 5.0 стабильнее держит инструкции и язык, MiMo V2 Flash легче и быстрее для простых сцен, а Grok 4.1 Fast отвечает очень быстро, но может быть поверхностнее.',
+    'Выберите модель рассказчика. DeepSeek V3.2 быстрее и агрессивнее двигает сюжет, GLM 5.0 стабильнее держит инструкции и язык, а MiMo V2 Flash легче и быстрее для простых сцен.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
-    'Ограничение памяти истории для ИИ. Чем выше лимит, тем дороже ход. Новый максимум — 64000, а стоимость зависит и от диапазона контекста, и от выбранного рассказчика.',
+    'Ограничение памяти истории для ИИ. GLM 5.1 может держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
   responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах. ИИ получает инструкцию завершать мысль внутри выбранного бюджета, а не писать до обрыва.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
@@ -1059,12 +1098,8 @@ function RightPanelEmptyState({
 }
 
 function getStoryTurnImageRequestTimeoutMs(modelId: StoryImageModelId): number {
-  if (
-    modelId === STORY_IMAGE_MODEL_GROK_ID ||
-    modelId === STORY_IMAGE_MODEL_GROK_LEGACY_ID ||
-    modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID
-  ) {
-    return STORY_TURN_IMAGE_REQUEST_TIMEOUT_GROK_MS
+  if (modelId === STORY_IMAGE_MODEL_NANO_BANANO_2_ID) {
+    return STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS
   }
   return STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS
 }
@@ -2884,156 +2919,6 @@ function extractSpeakerLookupValues(rawSpeakerName: string): string[] {
   return [...values]
 }
 
-function upsertStoryPlotCard(cards: StoryPlotCard[], card: StoryPlotCard): StoryPlotCard[] {
-  const existingIndex = cards.findIndex((item) => item.id === card.id)
-  if (existingIndex < 0) {
-    return [...cards, card]
-  }
-  const nextCards = [...cards]
-  nextCards[existingIndex] = card
-  return nextCards
-}
-
-function upsertStoryWorldCard(cards: StoryWorldCard[], card: StoryWorldCard): StoryWorldCard[] {
-  const existingIndex = cards.findIndex((item) => item.id === card.id)
-  if (existingIndex < 0) {
-    return [...cards, card]
-  }
-  const nextCards = [...cards]
-  nextCards[existingIndex] = card
-  return nextCards
-}
-
-function mapPlotSnapshotToCard(
-  snapshot: StoryPlotCardEvent['before_snapshot'] | StoryPlotCardEvent['after_snapshot'],
-  gameId: number,
-  fallbackId: number | null,
-  nowIso: string,
-): StoryPlotCard | null {
-  if (!snapshot) {
-    return null
-  }
-  const cardId = snapshot.id ?? fallbackId
-  if (!cardId) {
-    return null
-  }
-  const normalizedSource = snapshot.source === 'ai' ? 'ai' : 'user'
-  const normalizedMemoryTurns =
-    typeof snapshot.memory_turns === 'number' && Number.isFinite(snapshot.memory_turns) ? snapshot.memory_turns : null
-  return {
-    id: cardId,
-    game_id: gameId,
-    title: toStoryText(snapshot.title),
-    content: toStoryText(snapshot.content),
-    triggers: toStoryStringList(snapshot.triggers),
-    memory_turns: normalizedMemoryTurns,
-    ai_edit_enabled: Boolean(snapshot.ai_edit_enabled),
-    is_enabled: Boolean(snapshot.is_enabled),
-    source: normalizedSource,
-    created_at: nowIso,
-    updated_at: nowIso,
-  }
-}
-
-function mapWorldSnapshotToCard(
-  snapshot: StoryWorldCardEvent['before_snapshot'] | StoryWorldCardEvent['after_snapshot'],
-  gameId: number,
-  fallbackId: number | null,
-  nowIso: string,
-): StoryWorldCard | null {
-  if (!snapshot) {
-    return null
-  }
-  const cardId = snapshot.id ?? fallbackId
-  if (!cardId) {
-    return null
-  }
-  const normalizedKind: StoryWorldCardKind =
-    snapshot.kind === 'npc' || snapshot.kind === 'main_hero' || snapshot.kind === 'world' || snapshot.kind === 'world_profile'
-      ? snapshot.kind
-      : 'world'
-  const normalizedAvatarScale =
-    typeof snapshot.avatar_scale === 'number' && Number.isFinite(snapshot.avatar_scale) ? snapshot.avatar_scale : 1
-  const normalizedCharacterId =
-    typeof snapshot.character_id === 'number' && Number.isFinite(snapshot.character_id) ? snapshot.character_id : null
-  const normalizedMemoryTurns =
-    typeof snapshot.memory_turns === 'number' && Number.isFinite(snapshot.memory_turns) ? snapshot.memory_turns : null
-  const normalizedSource = snapshot.source === 'ai' ? 'ai' : 'user'
-  const normalizedAvatarUrl = toStoryText(snapshot.avatar_url)
-  return {
-    id: cardId,
-    game_id: gameId,
-    title: toStoryText(snapshot.title),
-    content: toStoryText(snapshot.content),
-    race: normalizeCharacterRaceValue(snapshot.race),
-    clothing: normalizeCharacterAdditionalValue(snapshot.clothing),
-    inventory: normalizeCharacterAdditionalValue(snapshot.inventory),
-    health_status: normalizeCharacterAdditionalValue(snapshot.health_status),
-    triggers: toStoryStringList(snapshot.triggers),
-    kind: normalizedKind,
-    detail_type: normalizeStoryWorldDetailTypeValue(snapshot.detail_type),
-    avatar_url: normalizedAvatarUrl || null,
-    avatar_scale: normalizedAvatarScale,
-    character_id: normalizedCharacterId,
-    memory_turns: normalizedMemoryTurns,
-    is_locked: Boolean(snapshot.is_locked),
-    ai_edit_enabled: Boolean(snapshot.ai_edit_enabled),
-    source: normalizedSource,
-    created_at: nowIso,
-    updated_at: nowIso,
-  }
-}
-
-function reapplyPlotCardsByEvents(
-  cards: StoryPlotCard[],
-  events: StoryPlotCardEvent[],
-  gameId: number,
-): StoryPlotCard[] {
-  let nextCards = [...cards]
-  const nowIso = new Date().toISOString()
-  const forwardEvents = [...events].sort((left, right) => left.id - right.id)
-  forwardEvents.forEach((event) => {
-    if (event.action === 'deleted') {
-      const removedCardId = event.plot_card_id ?? event.before_snapshot?.id ?? null
-      if (removedCardId) {
-        nextCards = nextCards.filter((card) => card.id !== removedCardId)
-      }
-      return
-    }
-
-    const appliedCard = mapPlotSnapshotToCard(event.after_snapshot, gameId, event.plot_card_id, nowIso)
-    if (appliedCard) {
-      nextCards = upsertStoryPlotCard(nextCards, appliedCard)
-    }
-  })
-  return nextCards
-}
-
-function reapplyWorldCardsByEvents(
-  cards: StoryWorldCard[],
-  events: StoryWorldCardEvent[],
-  gameId: number,
-): StoryWorldCard[] {
-  let nextCards = [...cards]
-  const nowIso = new Date().toISOString()
-  const forwardEvents = [...events].sort((left, right) => left.id - right.id)
-  forwardEvents.forEach((event) => {
-    if (event.action === 'deleted') {
-      const removedCardId = event.world_card_id ?? event.before_snapshot?.id ?? null
-      if (removedCardId) {
-        nextCards = nextCards.filter((card) => card.id !== removedCardId)
-      }
-      return
-    }
-
-    const appliedCard = mapWorldSnapshotToCard(event.after_snapshot, gameId, event.world_card_id, nowIso)
-    if (appliedCard) {
-      nextCards = upsertStoryWorldCard(nextCards, appliedCard)
-    }
-  })
-  return nextCards
-}
-
 function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
   return [...games].sort(
     (left, right) =>
@@ -3102,6 +2987,32 @@ function normalizeStoryMemoryOptimizationMode(value: string | null | undefined):
   return 'standard'
 }
 
+function normalizeStoryAppearanceBackgroundMode(value: string | null | undefined): StoryAppearanceBackgroundMode {
+  return value === 'custom' ? 'custom' : STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE
+}
+
+function normalizeStoryAppearanceUiStyle(value: string | null | undefined): StoryAppearanceUiStyle {
+  if (value === 'cyberpunk' || value === 'fantasy' || value === 'modern') {
+    return value
+  }
+  return STORY_APPEARANCE_DEFAULT_UI_STYLE
+}
+
+function normalizeStoryAppearanceTextStyle(value: string | null | undefined): StoryAppearanceTextStyle {
+  if (value === 'serif' || value === 'terminal') {
+    return value
+  }
+  return STORY_APPEARANCE_DEFAULT_TEXT_STYLE
+}
+
+function normalizeStoryAppearanceColor(value: string | null | undefined, fallback: string): string {
+  const normalized = (value ?? '').trim()
+  if (!STORY_APPEARANCE_HEX_COLOR_PATTERN.test(normalized)) {
+    return fallback
+  }
+  return normalized.toUpperCase()
+}
+
 function getStoryMemoryLayerLabel(
   layer: 'raw' | 'compressed' | 'super',
   mode: StoryMemoryOptimizationMode,
@@ -3112,11 +3023,15 @@ function getStoryMemoryLayerLabel(
   return `${title} · ${legacyLabelExists ? share : share}%`
 }
 
-function clampStoryContextLimit(value: number): number {
+function getStoryContextLimitMax(modelId: StoryNarratorModelId | string | null | undefined): number {
+  return modelId === 'z-ai/glm-5.1' ? STORY_CONTEXT_LIMIT_GLM51_MAX : STORY_CONTEXT_LIMIT_STANDARD_MAX
+}
+
+function clampStoryContextLimit(value: number, modelId?: StoryNarratorModelId | string | null): number {
   if (!Number.isFinite(value)) {
     return STORY_DEFAULT_CONTEXT_LIMIT
   }
-  return Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
+  return Math.min(getStoryContextLimitMax(modelId), Math.max(STORY_CONTEXT_LIMIT_MIN, Math.round(value)))
 }
 
 function clampStoryResponseMaxTokens(value: number): number {
@@ -3198,7 +3113,7 @@ function parseStorySceneEmotionPayload(rawValue: string | null | undefined): Sto
   }
 }
 
-function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly [number, number, number, number] {
+function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly [number, number, number, number, number] {
   if (modelId === 'z-ai/glm-5.1') {
     return STORY_TURN_COST_GLM51_TIERS
   }
@@ -3215,11 +3130,11 @@ function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста:',
     '',
-    'DeepSeek V3.2, Grok 4.1 Fast, MiMo V2 Flash:',
+    'DeepSeek V3, DeepSeek V3.2, MiMo V2 Flash:',
     'до 6000 — 1 сол',
     '6001–16000 — 2 сола',
     '16001–32000 — 4 сола',
-    '32001–64000 — 8 солов',
+    '32001–64000 — 6 солов',
     '',
     'GLM 5.0, Aion Labs, Xiaomi MiMo V2 Pro:',
     'до 6000 — 2 сола',
@@ -3231,7 +3146,8 @@ function getStoryTurnCostTooltipText(): string {
     'до 6000 — 3 сола',
     '6001–16000 — 6 солов',
     '16001–32000 — 12 солов',
-    '32001–64000 — 24 сола',
+    '32001–64000 — 18 солов',
+    '64001–128000 — 35 солов',
     'Эмбиент подсветка: +1 сол за ход',
     'Визуализация эмоций: +1 сол за ход',
   ].join('\n')
@@ -3244,14 +3160,16 @@ function getStoryTurnCostTokens(
   emotionVisualizationEnabled = false,
 ): number {
   const normalizedUsage = Math.max(0, Math.round(contextUsageTokens))
-  const [tier1Cost, tier2Cost, tier3Cost, tier4Cost] = getStoryNarratorTurnCostTiers(narratorModelId)
-  let totalCost = tier4Cost
+  const [tier1Cost, tier2Cost, tier3Cost, tier4Cost, tier5Cost] = getStoryNarratorTurnCostTiers(narratorModelId)
+  let totalCost = tier5Cost
   if (normalizedUsage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX) {
     totalCost = tier1Cost
   } else if (normalizedUsage <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX) {
     totalCost = tier2Cost
   } else if (normalizedUsage <= STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX) {
     totalCost = tier3Cost
+  } else if (normalizedUsage <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX) {
+    totalCost = tier4Cost
   }
   if (ambientEnabled) {
     totalCost += 1
@@ -3295,7 +3213,7 @@ function clampStoryTemperature(value: number): number {
 
 function normalizeStoryNarratorModelId(value: string | null | undefined): StoryNarratorModelId {
   const rawValue = (value ?? '').trim()
-  const normalized = (rawValue === 'arcee-ai/trinity-large-preview:free' ? 'xiaomi/mimo-v2-flash' : rawValue) as StoryNarratorModelId
+  const normalized = rawValue as StoryNarratorModelId
   if (STORY_NARRATOR_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }
@@ -3312,10 +3230,8 @@ function getStoryNarratorSamplingDefaults(modelId: StoryNarratorModelId): StoryN
 }
 
 function normalizeStoryImageModelId(value: string | null | undefined): StoryImageModelId {
-  const normalized = (value ?? '').trim() as StoryImageModelId
-  if (normalized === STORY_IMAGE_MODEL_GROK_LEGACY_ID) {
-    return STORY_IMAGE_MODEL_GROK_ID
-  }
+  const rawValue = (value ?? '').trim()
+  const normalized = (rawValue === 'bytedance-seed/seedream-4.5' ? STORY_IMAGE_MODEL_SEEDREAM_ID : rawValue) as StoryImageModelId
   if (STORY_IMAGE_MODEL_OPTIONS.some((option) => option.id === normalized)) {
     return normalized
   }
@@ -4479,10 +4395,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const {
     themeId,
     activeTheme,
-    storyHistoryFontFamily,
     storyHistoryFontWeight,
     voiceInputEnabled,
-    storyHistoryFontFamilyOptions,
     storyHistoryFontWeightOptions,
   } = useMoriusThemeController()
   const isGrayTheme = themeId === 'gray'
@@ -4904,6 +4818,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
   const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(false)
   const [isFineTuneSettingsExpanded, setIsFineTuneSettingsExpanded] = useState(false)
+  const [isAppearanceSettingsExpanded, setIsAppearanceSettingsExpanded] = useState(false)
   const [smoothStreamingEnabled, setSmoothStreamingEnabled] = useState(() => readSmoothStreamingPreference())
   const [isContextUsageExpanded, setIsContextUsageExpanded] = useState(false)
   const [isSavingContextLimit, setIsSavingContextLimit] = useState(false)
@@ -4931,6 +4846,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [showNpcThoughts, setShowNpcThoughts] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [characterStateEnabled, setCharacterStateEnabled] = useState(false)
+  const [appearanceBackgroundMode, setAppearanceBackgroundMode] = useState<StoryAppearanceBackgroundMode>(
+    STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE,
+  )
+  const [appearanceGradientEnabled, setAppearanceGradientEnabled] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED)
+  const [appearanceGradientFrom, setAppearanceGradientFrom] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_FROM)
+  const [appearanceGradientTo, setAppearanceGradientTo] = useState(STORY_APPEARANCE_DEFAULT_GRADIENT_TO)
+  const [appearanceSolidColor, setAppearanceSolidColor] = useState(STORY_APPEARANCE_DEFAULT_SOLID_COLOR)
+  const [appearanceUiStyle, setAppearanceUiStyle] = useState<StoryAppearanceUiStyle>(STORY_APPEARANCE_DEFAULT_UI_STYLE)
+  const [appearanceTextStyle, setAppearanceTextStyle] = useState<StoryAppearanceTextStyle>(
+    STORY_APPEARANCE_DEFAULT_TEXT_STYLE,
+  )
   const [emotionVisualizationEnabled, setEmotionVisualizationEnabled] = useState(false)
   const [canonicalStatePipelineEnabled, setCanonicalStatePipelineEnabled] = useState(true)
   const [canonicalStateSafeFallbackEnabled, setCanonicalStateSafeFallbackEnabled] = useState(false)
@@ -4962,6 +4888,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
+  const [isSavingStoryAppearance, setIsSavingStoryAppearance] = useState(false)
   const [isSavingEmotionVisualizationEnabled, setIsSavingEmotionVisualizationEnabled] = useState(false)
   const [isSavingCanonicalStatePipeline, setIsSavingCanonicalStatePipeline] = useState(false)
   const [isSavingCanonicalStateSafeFallback, setIsSavingCanonicalStateSafeFallback] = useState(false)
@@ -5224,8 +5151,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [activeAmbientProfile, ambientEnabled, isGenerating])
   const storyHistoryTextFontFamily = useMemo(() => {
-    return storyHistoryFontFamilyOptions.find((option) => option.id === storyHistoryFontFamily)?.cssFontFamily ?? 'inherit'
-  }, [storyHistoryFontFamily, storyHistoryFontFamilyOptions])
+    return (
+      STORY_APPEARANCE_TEXT_STYLE_OPTIONS.find((option) => option.id === appearanceTextStyle)?.cssFontFamily ??
+      STORY_APPEARANCE_TEXT_STYLE_OPTIONS[0].cssFontFamily
+    )
+  }, [appearanceTextStyle])
   const storyHistoryTextFontWeight = useMemo(() => {
     return storyHistoryFontWeightOptions.find((option) => option.id === storyHistoryFontWeight)?.cssFontWeight ?? 400
   }, [storyHistoryFontWeight, storyHistoryFontWeightOptions])
@@ -5236,6 +5166,94 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }),
     [storyHistoryTextFontFamily, storyHistoryTextFontWeight],
   )
+  const storyAppearanceBackground = useMemo(() => {
+    if (appearanceBackgroundMode !== 'custom') {
+      return 'var(--morius-app-bg)'
+    }
+    if (!appearanceGradientEnabled) {
+      return 'var(--morius-app-bg)'
+    }
+    return [
+      `radial-gradient(95% 80% at 8% 2%, color-mix(in srgb, ${appearanceGradientFrom} 42%, transparent) 0%, transparent 58%)`,
+      `radial-gradient(85% 90% at 96% 100%, color-mix(in srgb, ${appearanceGradientTo} 38%, transparent) 0%, transparent 62%)`,
+      `linear-gradient(135deg, ${appearanceGradientFrom} 0%, ${appearanceGradientTo} 100%)`,
+    ].join(', ')
+  }, [appearanceBackgroundMode, appearanceGradientEnabled, appearanceGradientFrom, appearanceGradientTo])
+  const storyAppearanceRootSx = useMemo(() => {
+    const palette =
+      appearanceUiStyle === 'cyberpunk'
+        ? {
+            '--morius-accent': '#00E5FF',
+            '--morius-card-bg': '#071018',
+            '--morius-elevated-bg': '#0B1721',
+            '--morius-button-bg': '#0D2330',
+            '--morius-button-hover': '#112C3A',
+            '--morius-button-active': '#123746',
+            '--morius-card-border': 'rgba(0, 229, 255, 0.34)',
+            '--morius-title-text': '#E7FBFF',
+            '--morius-text-primary': '#D6F6FF',
+            '--morius-text-secondary': '#85AFC0',
+          }
+        : appearanceUiStyle === 'fantasy'
+          ? {
+              '--morius-accent': '#F4B968',
+              '--morius-card-bg': '#18100B',
+              '--morius-elevated-bg': '#22160D',
+              '--morius-button-bg': '#2B1A0E',
+              '--morius-button-hover': '#342011',
+              '--morius-button-active': '#3F2714',
+              '--morius-card-border': 'rgba(244, 185, 104, 0.26)',
+              '--morius-title-text': '#FFF0D6',
+              '--morius-text-primary': '#EBD8BA',
+              '--morius-text-secondary': '#B89A73',
+            }
+          : appearanceUiStyle === 'modern'
+            ? {
+                '--morius-accent': '#7DD3FC',
+                '--morius-card-bg': '#101722',
+                '--morius-elevated-bg': '#151F2D',
+                '--morius-button-bg': '#172334',
+                '--morius-button-hover': '#1D2B3E',
+                '--morius-button-active': '#23344A',
+                '--morius-card-border': 'rgba(148, 163, 184, 0.26)',
+                '--morius-title-text': '#F8FAFC',
+                '--morius-text-primary': '#DDE7F3',
+                '--morius-text-secondary': '#94A3B8',
+              }
+            : {}
+
+    const styledDefaultBackground =
+      appearanceUiStyle === 'default' ? null : `linear-gradient(135deg, var(--morius-card-bg) 0%, #050607 100%)`
+    const customGradientBackground =
+      appearanceBackgroundMode === 'custom' && appearanceGradientEnabled ? storyAppearanceBackground : null
+    const effectiveBackground = customGradientBackground ?? styledDefaultBackground
+
+    return {
+      ...palette,
+      ...(effectiveBackground ? { '--morius-app-bg': effectiveBackground } : {}),
+      background: effectiveBackground ?? 'var(--morius-app-bg)',
+      transition: 'background 240ms ease',
+      '& .MuiButton-root': {
+        transition:
+          'background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease, transform 140ms ease',
+      },
+      ...(appearanceUiStyle === 'cyberpunk'
+        ? {
+            '& .MuiButton-root:not(.MuiIconButton-root)': {
+              boxShadow: 'inset 0 0 0 1px color-mix(in srgb, var(--morius-accent) 18%, transparent)',
+            },
+          }
+        : {}),
+      ...(appearanceUiStyle === 'fantasy'
+        ? {
+            '& .MuiButton-root:not(.MuiIconButton-root)': {
+              boxShadow:
+                'inset 0 1px 0 rgba(255, 240, 210, 0.08), 0 12px 26px rgba(62, 36, 14, 0.2)',
+            },
+          }
+        : {}),
+    }
+  }, [appearanceBackgroundMode, appearanceGradientEnabled, appearanceUiStyle, storyAppearanceBackground])
   const selectedNarratorOption = useMemo(
     () => STORY_NARRATOR_MODEL_OPTIONS.find((option) => option.id === storyLlmModel) ?? STORY_NARRATOR_MODEL_OPTIONS[0],
     [storyLlmModel],
@@ -5246,11 +5264,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const applyStoryGameSettings = useCallback((game: StoryGameSummary) => {
-    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars)
-    setContextLimitChars(normalizedContextLimit)
-    setContextLimitDraft(String(normalizedContextLimit))
     const runtimeGame = game as Partial<StoryGameSummary>
     const normalizedRuntimeStoryModel = normalizeStoryNarratorModelId(runtimeGame.story_llm_model)
+    const override = storySettingsOverridesRef.current[game.id]
+    const effectiveContextModel = override ? normalizeStoryNarratorModelId(override.storyLlmModel) : normalizedRuntimeStoryModel
+    const normalizedContextLimit = clampStoryContextLimit(game.context_limit_chars, effectiveContextModel)
+    setContextLimitChars(normalizedContextLimit)
+    setContextLimitDraft(String(normalizedContextLimit))
     const runtimeSamplingDefaults = getStoryNarratorSamplingDefaults(normalizedRuntimeStoryModel)
     const normalizedRuntimeMemoryOptimizationMode = normalizeStoryMemoryOptimizationMode(runtimeGame.memory_optimization_mode)
     const normalizedRuntimeStoryTemperature =
@@ -5283,7 +5303,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedRuntimeCanonicalStateSafeFallbackEnabled = Boolean(
       runtimeGame.canonical_state_safe_fallback_enabled,
     )
-    const override = storySettingsOverridesRef.current[game.id]
+    setAppearanceBackgroundMode(normalizeStoryAppearanceBackgroundMode(runtimeGame.appearance_background_mode))
+    setAppearanceGradientEnabled(Boolean(runtimeGame.appearance_gradient_enabled))
+    setAppearanceGradientFrom(
+      normalizeStoryAppearanceColor(runtimeGame.appearance_gradient_from, STORY_APPEARANCE_DEFAULT_GRADIENT_FROM),
+    )
+    setAppearanceGradientTo(
+      normalizeStoryAppearanceColor(runtimeGame.appearance_gradient_to, STORY_APPEARANCE_DEFAULT_GRADIENT_TO),
+    )
+    setAppearanceSolidColor(
+      normalizeStoryAppearanceColor(runtimeGame.appearance_solid_color, STORY_APPEARANCE_DEFAULT_SOLID_COLOR),
+    )
+    setAppearanceUiStyle(normalizeStoryAppearanceUiStyle(runtimeGame.appearance_ui_style))
+    setAppearanceTextStyle(normalizeStoryAppearanceTextStyle(runtimeGame.appearance_text_style))
     if (override) {
       setStoryLlmModel(override.storyLlmModel)
       setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
@@ -5463,6 +5495,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const isAdministrator = user.role === 'administrator'
+  const canEditStoryAppearance = isAdministrator || user.role === 'moderator'
   const canViewDevMemoryTab = isAdministrator
   const isRightPanelSecondTabVisible =
     rightPanelMode === 'world' || (rightPanelMode === 'memory' && canViewDevMemoryTab)
@@ -5876,6 +5909,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const cardsContextUsagePercent =
     contextLimitChars > 0 ? Math.min(100, (cardsContextCharsUsed / contextLimitChars) * 100) : 100
   const plotContextOverflowTokens = Math.max(rawPlotContextTokensUsed - plotBudgetTokens, 0)
+  const currentStoryContextLimitMax = getStoryContextLimitMax(storyLlmModel)
   const recommendedContextLimitForBudget = useMemo(() => {
     if (plotContextOverflowTokens <= 0) {
       return contextLimitChars
@@ -5883,13 +5917,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const plotCapRequirement = Math.ceil(rawPlotContextTokensUsed / STORY_PLOT_CONTEXT_MAX_SHARE)
     const fixedBudgetRequirement =
       instructionContextTokensUsed + worldContextTokensUsed + keyMemoryBudgetTokens + rawPlotContextTokensUsed + 1000
-    return clampStoryContextLimit(Math.min(STORY_CONTEXT_LIMIT_MAX, Math.max(plotCapRequirement, fixedBudgetRequirement)))
+    return clampStoryContextLimit(
+      Math.min(currentStoryContextLimitMax, Math.max(plotCapRequirement, fixedBudgetRequirement)),
+      storyLlmModel,
+    )
   }, [
     contextLimitChars,
+    currentStoryContextLimitMax,
     instructionContextTokensUsed,
     keyMemoryBudgetTokens,
     plotContextOverflowTokens,
     rawPlotContextTokensUsed,
+    storyLlmModel,
     worldContextTokensUsed,
   ])
   const currentTurnCostTokens = useMemo(
@@ -5944,6 +5983,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingThoughtVisibility ||
     isSavingAmbientEnabled ||
     isSavingCharacterStateEnabled ||
+    isSavingStoryAppearance ||
     isSavingEmotionVisualizationEnabled ||
     isSavingCanonicalStatePipeline ||
     isSavingCanonicalStateSafeFallback
@@ -7060,15 +7100,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [])
 
   const applyWorldCardEvents = useCallback((nextEvents: StoryWorldCardEvent[]) => {
-    setWorldCardEvents(nextEvents)
-    const eventIds = new Set(nextEvents.map((event) => event.id))
+    void nextEvents
+    setWorldCardEvents([])
+    const eventIds = new Set<number>()
     setDismissedWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setExpandedWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setUndoingWorldCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
   }, [])
   const applyPlotCardEvents = useCallback((nextEvents: StoryPlotCardEvent[]) => {
-    setPlotCardEvents(nextEvents)
-    const eventIds = new Set(nextEvents.map((event) => event.id))
+    void nextEvents
+    setPlotCardEvents([])
+    const eventIds = new Set<number>()
     setDismissedPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setExpandedPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
     setUndoingPlotCardEventIds((previousIds) => previousIds.filter((eventId) => eventIds.has(eventId)))
@@ -10533,7 +10575,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
 
-      const normalizedValue = clampStoryContextLimit(nextValue)
+      const normalizedValue = clampStoryContextLimit(nextValue, storyLlmModel)
       setContextLimitChars(normalizedValue)
       setContextLimitDraft(String(normalizedValue))
       setErrorMessage('')
@@ -10547,8 +10589,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showGgThoughts: showGgThoughts,
           showNpcThoughts: showNpcThoughts,
         })
+        const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
+        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel)
+        setContextLimitChars(persistedContextLimit)
+        setContextLimitDraft(String(persistedContextLimit))
         setGames((previousGames) =>
-          sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
+          sortGamesByActivity(
+            previousGames.map((game) =>
+              game.id === updatedGame.id ? { ...updatedGame, context_limit_chars: persistedContextLimit } : game,
+            ),
+          ),
         )
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит контекста'
@@ -10571,6 +10621,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingThoughtVisibility,
       showGgThoughts,
       showNpcThoughts,
+      storyLlmModel,
     ],
   )
 
@@ -10692,7 +10743,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const previousAmbientEnabled = ambientEnabled
       const previousResponseMaxTokens = responseMaxTokens
       const previousResponseMaxTokensEnabled = responseMaxTokensEnabled
+      const previousContextLimitChars = contextLimitChars
+      const previousContextLimitDraft = contextLimitDraft
+      const nextContextLimitChars = clampStoryContextLimit(contextLimitChars, normalizedModel)
       setStoryLlmModel(normalizedModel)
+      setContextLimitChars(nextContextLimitChars)
+      setContextLimitDraft(String(nextContextLimitChars))
       setStoryTemperature(nextSamplingDefaults.storyTemperature)
       setStoryRepetitionPenalty(nextSamplingDefaults.storyRepetitionPenalty)
       setStoryRepetitionPenaltyDraft(nextSamplingDefaults.storyRepetitionPenalty.toFixed(2))
@@ -10723,7 +10779,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: targetGameId,
           storyLlmModel: normalizedModel,
-          contextLimitTokens: contextLimitChars,
+          contextLimitTokens: nextContextLimitChars,
           responseMaxTokens: previousResponseMaxTokens,
           responseMaxTokensEnabled: previousResponseMaxTokensEnabled,
           memoryOptimizationEnabled: previousMemoryOptimizationEnabled,
@@ -10735,10 +10791,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           showNpcThoughts: previousShowNpcThoughts,
           ambientEnabled: previousAmbientEnabled,
         })
-        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars)
+        const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
+        const persistedContextLimit = clampStoryContextLimit(updatedGame.context_limit_chars, persistedModel)
         setContextLimitChars(persistedContextLimit)
         setContextLimitDraft(String(persistedContextLimit))
-        const persistedModel = normalizeStoryNarratorModelId(updatedGame.story_llm_model)
         const persistedTemperature =
           typeof updatedGame.story_temperature === 'number'
             ? clampStoryTemperature(updatedGame.story_temperature)
@@ -10785,6 +10841,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               game.id === updatedGame.id
                 ? {
                     ...updatedGame,
+                    context_limit_chars: persistedContextLimit,
                     story_llm_model: persistedModel,
                     memory_optimization_enabled: previousMemoryOptimizationEnabled,
                     story_temperature: persistedTemperature,
@@ -10800,6 +10857,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         )
       } catch (error) {
         setStoryLlmModel(previousStoryLlmModel)
+        setContextLimitChars(previousContextLimitChars)
+        setContextLimitDraft(previousContextLimitDraft)
         setStoryTemperature(previousStoryTemperature)
         setStoryRepetitionPenalty(previousStoryRepetitionPenalty)
         setStoryRepetitionPenaltyDraft(previousStoryRepetitionPenalty.toFixed(2))
@@ -10842,6 +10901,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingThoughtVisibility,
       isSavingStoryLlmModel,
       contextLimitChars,
+      contextLimitDraft,
       responseMaxTokens,
       responseMaxTokensEnabled,
       memoryOptimizationEnabled,
@@ -11113,6 +11173,151 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const handleImageStylePromptCommit = useCallback(async () => {
     await persistImageStylePrompt(imageStylePromptDraft)
   }, [imageStylePromptDraft, persistImageStylePrompt])
+
+  const persistStoryAppearanceSettings = useCallback(
+    async (patch: StoryAppearanceSettingsPatch) => {
+      const targetGameId = activeGameId
+      if (
+        !targetGameId ||
+        !canEditStoryAppearance ||
+        isSavingStoryAppearance ||
+        isSavingResponseMaxTokens ||
+        isSavingResponseMaxTokensEnabled ||
+        isSavingContextLimit ||
+        isSavingStoryLlmModel ||
+        isSavingStoryImageModel ||
+        isSavingImageStylePrompt ||
+        isSavingMemoryOptimization ||
+        isSavingStorySampling ||
+        isSavingThoughtVisibility ||
+        isSavingAmbientEnabled ||
+        isGenerating
+      ) {
+        return
+      }
+
+      const nextBackgroundMode = normalizeStoryAppearanceBackgroundMode(
+        patch.appearanceBackgroundMode ?? appearanceBackgroundMode,
+      )
+      const nextGradientEnabled = patch.appearanceGradientEnabled ?? appearanceGradientEnabled
+      const nextGradientFrom = normalizeStoryAppearanceColor(
+        patch.appearanceGradientFrom ?? appearanceGradientFrom,
+        STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+      )
+      const nextGradientTo = normalizeStoryAppearanceColor(
+        patch.appearanceGradientTo ?? appearanceGradientTo,
+        STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+      )
+      const nextSolidColor = normalizeStoryAppearanceColor(
+        patch.appearanceSolidColor ?? appearanceSolidColor,
+        STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+      )
+      const nextUiStyle = normalizeStoryAppearanceUiStyle(patch.appearanceUiStyle ?? appearanceUiStyle)
+      const nextTextStyle = normalizeStoryAppearanceTextStyle(patch.appearanceTextStyle ?? appearanceTextStyle)
+
+      if (
+        nextBackgroundMode === appearanceBackgroundMode &&
+        nextGradientEnabled === appearanceGradientEnabled &&
+        nextGradientFrom === appearanceGradientFrom &&
+        nextGradientTo === appearanceGradientTo &&
+        nextSolidColor === appearanceSolidColor &&
+        nextUiStyle === appearanceUiStyle &&
+        nextTextStyle === appearanceTextStyle
+      ) {
+        return
+      }
+
+      const previousBackgroundMode = appearanceBackgroundMode
+      const previousGradientEnabled = appearanceGradientEnabled
+      const previousGradientFrom = appearanceGradientFrom
+      const previousGradientTo = appearanceGradientTo
+      const previousSolidColor = appearanceSolidColor
+      const previousUiStyle = appearanceUiStyle
+      const previousTextStyle = appearanceTextStyle
+
+      setAppearanceBackgroundMode(nextBackgroundMode)
+      setAppearanceGradientEnabled(nextGradientEnabled)
+      setAppearanceGradientFrom(nextGradientFrom)
+      setAppearanceGradientTo(nextGradientTo)
+      setAppearanceSolidColor(nextSolidColor)
+      setAppearanceUiStyle(nextUiStyle)
+      setAppearanceTextStyle(nextTextStyle)
+      setErrorMessage('')
+      setIsSavingStoryAppearance(true)
+
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: targetGameId,
+          appearanceBackgroundMode: nextBackgroundMode,
+          appearanceGradientEnabled: nextGradientEnabled,
+          appearanceGradientFrom: nextGradientFrom,
+          appearanceGradientTo: nextGradientTo,
+          appearanceSolidColor: nextSolidColor,
+          appearanceUiStyle: nextUiStyle,
+          appearanceTextStyle: nextTextStyle,
+        })
+        const persistedBackgroundMode = normalizeStoryAppearanceBackgroundMode(updatedGame.appearance_background_mode)
+        const persistedGradientFrom = normalizeStoryAppearanceColor(
+          updatedGame.appearance_gradient_from,
+          STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        )
+        const persistedGradientTo = normalizeStoryAppearanceColor(
+          updatedGame.appearance_gradient_to,
+          STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        )
+        const persistedSolidColor = normalizeStoryAppearanceColor(
+          updatedGame.appearance_solid_color,
+          STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        )
+        setAppearanceBackgroundMode(persistedBackgroundMode)
+        setAppearanceGradientEnabled(Boolean(updatedGame.appearance_gradient_enabled))
+        setAppearanceGradientFrom(persistedGradientFrom)
+        setAppearanceGradientTo(persistedGradientTo)
+        setAppearanceSolidColor(persistedSolidColor)
+        setAppearanceUiStyle(normalizeStoryAppearanceUiStyle(updatedGame.appearance_ui_style))
+        setAppearanceTextStyle(normalizeStoryAppearanceTextStyle(updatedGame.appearance_text_style))
+        applyUpdatedGameSummary(updatedGame)
+      } catch (error) {
+        setAppearanceBackgroundMode(previousBackgroundMode)
+        setAppearanceGradientEnabled(previousGradientEnabled)
+        setAppearanceGradientFrom(previousGradientFrom)
+        setAppearanceGradientTo(previousGradientTo)
+        setAppearanceSolidColor(previousSolidColor)
+        setAppearanceUiStyle(previousUiStyle)
+        setAppearanceTextStyle(previousTextStyle)
+        const detail = error instanceof Error ? error.message : 'Не удалось обновить оформление игры'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingStoryAppearance(false)
+      }
+    },
+    [
+      activeGameId,
+      applyUpdatedGameSummary,
+      appearanceBackgroundMode,
+      appearanceGradientEnabled,
+      appearanceGradientFrom,
+      appearanceGradientTo,
+      appearanceSolidColor,
+      appearanceTextStyle,
+      appearanceUiStyle,
+      authToken,
+      canEditStoryAppearance,
+      isGenerating,
+      isSavingAmbientEnabled,
+      isSavingContextLimit,
+      isSavingImageStylePrompt,
+      isSavingMemoryOptimization,
+      isSavingResponseMaxTokens,
+      isSavingResponseMaxTokensEnabled,
+      isSavingStoryAppearance,
+      isSavingStoryImageModel,
+      isSavingStoryLlmModel,
+      isSavingStorySampling,
+      isSavingThoughtVisibility,
+    ],
+  )
 
   const toggleShowNpcThoughts = useCallback(async () => {
     const targetGameId = activeGameId
@@ -11977,10 +12182,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleContextLimitSliderChange = useCallback((_event: Event, nextValue: number | number[]) => {
     const rawValue = Array.isArray(nextValue) ? nextValue[0] : nextValue
-    const normalizedValue = clampStoryContextLimit(rawValue)
+    const normalizedValue = clampStoryContextLimit(rawValue, storyLlmModel)
     setContextLimitChars(normalizedValue)
     setContextLimitDraft(String(normalizedValue))
-  }, [])
+  }, [storyLlmModel])
 
   const handleContextLimitSliderCommit = useCallback(
     async (_event: unknown, nextValue: number | number[]) => {
@@ -12000,8 +12205,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (Number.isNaN(parsed)) {
       return
     }
-    setContextLimitChars(clampStoryContextLimit(parsed))
-  }, [])
+    setContextLimitChars(clampStoryContextLimit(parsed, storyLlmModel))
+  }, [storyLlmModel])
 
   const handleImageStylePromptDraftChange = useCallback((value: string) => {
     setImageStylePromptDraft(sanitizeStoryImageStylePromptDraft(value))
@@ -12009,18 +12214,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
   const handleContextLimitDraftCommit = useCallback(async () => {
     if (!contextLimitDraft.trim()) {
-      const normalized = clampStoryContextLimit(contextLimitChars)
+      const normalized = clampStoryContextLimit(contextLimitChars, storyLlmModel)
       setContextLimitDraft(String(normalized))
       await persistContextLimit(normalized)
       return
     }
 
     const parsed = Number.parseInt(contextLimitDraft, 10)
-    const normalized = clampStoryContextLimit(Number.isNaN(parsed) ? contextLimitChars : parsed)
+    const normalized = clampStoryContextLimit(Number.isNaN(parsed) ? contextLimitChars : parsed, storyLlmModel)
     setContextLimitChars(normalized)
     setContextLimitDraft(String(normalized))
     await persistContextLimit(normalized)
-  }, [contextLimitChars, contextLimitDraft, persistContextLimit])
+  }, [contextLimitChars, contextLimitDraft, persistContextLimit, storyLlmModel])
 
   const persistStorySamplingSettings = useCallback(
     async (nextTemperature: number, nextRepetitionPenalty: number, nextTopK: number, nextTopR: number) => {
@@ -12713,8 +12918,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             const nextAiMemoryBlocks = payload.ai_memory_blocks ?? null
             if (nextPlotCards !== null) {
               setPlotCards(normalizeStoryPlotCards(nextPlotCards))
-            } else if (nextPlotEvents.length > 0) {
-              setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, nextPlotEvents, options.gameId))
             }
             if (nextAiMemoryBlocks !== null) {
               setAiMemoryBlocks(normalizeStoryMemoryBlocks(nextAiMemoryBlocks))
@@ -12743,16 +12946,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             const nextWorldCards = payload.world_cards ?? null
             if (nextPlotCards !== null) {
               setPlotCards(normalizeStoryPlotCards(nextPlotCards))
-            } else if (nextPlotEvents.length > 0) {
-              setPlotCards((previousCards) => reapplyPlotCardsByEvents(previousCards, nextPlotEvents, options.gameId))
             }
             if (nextAiMemoryBlocks !== null) {
               setAiMemoryBlocks(normalizeStoryMemoryBlocks(nextAiMemoryBlocks))
             }
             if (nextWorldCards !== null) {
               setWorldCards(normalizeStoryWorldCards(nextWorldCards))
-            } else if (nextWorldEvents.length > 0) {
-              setWorldCards((previousCards) => reapplyWorldCardsByEvents(previousCards, nextWorldEvents, options.gameId))
             }
             applyPlotCardEvents(nextPlotEvents)
             applyWorldCardEvents(nextWorldEvents)
@@ -12830,11 +13029,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
         streamingAssistantTextStore.clear(completedAssistantMessageId ?? startedAssistantMessageId ?? undefined)
 
-        const shouldOptimizeStoryMemory =
-          !generationFailed &&
-          !wasAborted &&
-          streamStarted &&
-          completedAssistantMessageId !== null
+        // The backend stream already performs the bounded memory rebalance for this turn.
+        // Running /memory/optimize here added extra hidden model calls after every answer.
+        const shouldOptimizeStoryMemory = false
         const shouldReloadGameSnapshot =
           generationFailed ||
           wasAborted ||
@@ -13865,9 +14062,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       sx={{
         height: '100svh',
         color: 'var(--morius-text-primary)',
-        background: 'var(--morius-app-bg)',
         position: 'relative',
         overflow: 'hidden',
+        ...storyAppearanceRootSx,
       }}
     >
       <AppHeader
@@ -16171,7 +16368,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Slider
                             value={contextLimitChars}
                             min={STORY_CONTEXT_LIMIT_MIN}
-                            max={STORY_CONTEXT_LIMIT_MAX}
+                            max={currentStoryContextLimitMax}
                             step={1}
                             onChange={handleContextLimitSliderChange}
                             onChangeCommitted={(event, value) => {
@@ -16199,7 +16396,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               {STORY_CONTEXT_LIMIT_MIN}
                             </Typography>
                             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
-                              {STORY_CONTEXT_LIMIT_MAX}
+                              {currentStoryContextLimitMax}
                             </Typography>
                           </Stack>
                         </Box>
@@ -16637,6 +16834,326 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Box>
                     </Collapse>
                   </Box>
+
+                  {canEditStoryAppearance ? (
+                    <Box sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                      <Button
+                        onClick={() => setIsAppearanceSettingsExpanded((previous) => !previous)}
+                        sx={{
+                          width: '100%',
+                          minHeight: 54,
+                          px: 0,
+                          borderRadius: 0,
+                          justifyContent: 'space-between',
+                          textTransform: 'none',
+                          color: 'var(--morius-title-text)',
+                          backgroundColor: 'transparent',
+                          border: 'none',
+                          boxShadow: 'none',
+                          '&:hover': { backgroundColor: 'transparent', boxShadow: 'none' },
+                          '&:active': { backgroundColor: 'transparent' },
+                          '&.Mui-focusVisible': { backgroundColor: 'transparent' },
+                        }}
+                      >
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 700 }}>Оформление</Typography>
+                        <SvgIcon
+                          sx={{
+                            fontSize: 21,
+                            color: 'var(--morius-text-secondary)',
+                            transform: isAppearanceSettingsExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                            transition: 'transform 200ms ease',
+                          }}
+                        >
+                          <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
+                        </SvgIcon>
+                      </Button>
+                      <Collapse in={isAppearanceSettingsExpanded} timeout={200} unmountOnExit>
+                        <Box sx={{ pb: 0.95, pt: 0.08 }}>
+                          <Stack spacing={1.05}>
+                            <Box>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ mb: 0.65 }}>
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800 }}>
+                                  Фон
+                                </Typography>
+                                <Button
+                                  onClick={() => {
+                                    void persistStoryAppearanceSettings({
+                                      appearanceBackgroundMode: 'custom',
+                                      appearanceGradientEnabled: true,
+                                      appearanceGradientFrom: STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+                                      appearanceGradientTo: STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+                                    })
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  sx={{
+                                    minHeight: 28,
+                                    px: 0.9,
+                                    borderRadius: '999px',
+                                    textTransform: 'none',
+                                    color: 'var(--morius-text-secondary)',
+                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    backgroundColor: 'transparent',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 800,
+                                    '&:hover': {
+                                      color: 'var(--morius-title-text)',
+                                      borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
+                                      backgroundColor: 'color-mix(in srgb, var(--morius-accent) 8%, transparent)',
+                                    },
+                                  }}
+                                >
+                                  Сбросить
+                                </Button>
+                              </Stack>
+                              <Box
+                                sx={{
+                                  p: 0.75,
+                                  borderRadius: '14px',
+                                  border: appearanceGradientEnabled
+                                    ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
+                                    : 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                                  boxShadow: appearanceGradientEnabled
+                                    ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 14%, transparent) inset'
+                                    : 'none',
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    height: 58,
+                                    borderRadius: '11px',
+                                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                                    background: appearanceGradientEnabled
+                                      ? `linear-gradient(135deg, ${appearanceGradientFrom}, ${appearanceGradientTo})`
+                                      : 'linear-gradient(135deg, var(--morius-card-bg), var(--morius-elevated-bg))',
+                                    boxShadow: appearanceGradientEnabled
+                                      ? 'inset 0 0 26px color-mix(in srgb, #fff 8%, transparent)'
+                                      : 'none',
+                                  }}
+                                />
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ mt: 0.72 }}>
+                                  <Stack spacing={0.12}>
+                                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.86rem', fontWeight: 850 }}>
+                                      Градиент
+                                    </Typography>
+                                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', lineHeight: 1.16 }}>
+                                      {appearanceGradientEnabled ? 'Цветной фон истории' : 'Фон темы без градиента'}
+                                    </Typography>
+                                  </Stack>
+                                  <Switch
+                                    checked={appearanceGradientEnabled}
+                                    onChange={() => {
+                                      const nextGradientEnabled = !appearanceGradientEnabled
+                                      void persistStoryAppearanceSettings({
+                                        appearanceGradientEnabled: nextGradientEnabled,
+                                        appearanceBackgroundMode: nextGradientEnabled ? 'custom' : 'default',
+                                      })
+                                    }}
+                                    disabled={isSavingStorySettings || isGenerating}
+                                    sx={{
+                                      '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
+                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                        backgroundColor: switchCheckedTrackColor,
+                                        opacity: 1,
+                                      },
+                                      '& .MuiSwitch-track': {
+                                        backgroundColor: switchTrackColor,
+                                        opacity: 1,
+                                      },
+                                    }}
+                                  />
+                                </Stack>
+                                {appearanceGradientEnabled ? (
+                                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.65, mt: 0.72 }}>
+                                    {([
+                                      ['Начало', appearanceGradientFrom, 'appearanceGradientFrom'] as const,
+                                      ['Конец', appearanceGradientTo, 'appearanceGradientTo'] as const,
+                                    ]).map(([label, value, fieldName]) => (
+                                      <Stack key={fieldName} spacing={0.35}>
+                                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 700 }}>
+                                          {label}
+                                        </Typography>
+                                        <Box
+                                          component="input"
+                                          type="color"
+                                          value={value}
+                                          onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                            const nextColor = normalizeStoryAppearanceColor(event.target.value, value)
+                                            if (fieldName === 'appearanceGradientFrom') {
+                                              setAppearanceGradientFrom(nextColor)
+                                            } else {
+                                              setAppearanceGradientTo(nextColor)
+                                            }
+                                          }}
+                                          onBlur={() => {
+                                            if (fieldName === 'appearanceGradientFrom') {
+                                              void persistStoryAppearanceSettings({
+                                                appearanceBackgroundMode: 'custom',
+                                                appearanceGradientEnabled: true,
+                                                appearanceGradientFrom,
+                                              })
+                                            } else {
+                                              void persistStoryAppearanceSettings({
+                                                appearanceBackgroundMode: 'custom',
+                                                appearanceGradientEnabled: true,
+                                                appearanceGradientTo,
+                                              })
+                                            }
+                                          }}
+                                          disabled={isSavingStorySettings || isGenerating}
+                                          sx={{
+                                            width: '100%',
+                                            height: 34,
+                                            p: 0.25,
+                                            borderRadius: '10px',
+                                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                            backgroundColor: 'var(--morius-card-bg)',
+                                            cursor: 'pointer',
+                                          }}
+                                        />
+                                      </Stack>
+                                    ))}
+                                  </Box>
+                                ) : null}
+                              </Box>
+                            </Box>
+
+                            <Box sx={{ pt: 0.85, borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800, mb: 0.65 }}>
+                                Стили
+                              </Typography>
+                              <Stack spacing={0.65}>
+                                {STORY_APPEARANCE_UI_STYLE_OPTIONS.map((option) => {
+                                  const isSelected = appearanceUiStyle === option.id
+                                  return (
+                                    <Button
+                                      key={option.id}
+                                      onClick={() => {
+                                        void persistStoryAppearanceSettings({ appearanceUiStyle: option.id })
+                                      }}
+                                      disabled={isSavingStorySettings || isGenerating}
+                                      sx={{
+                                        minHeight: 70,
+                                        borderRadius: '14px',
+                                        p: 0.7,
+                                        justifyContent: 'flex-start',
+                                        textTransform: 'none',
+                                        border: isSelected
+                                          ? `var(--morius-border-width) solid ${option.accent}`
+                                          : 'var(--morius-border-width) solid var(--morius-card-border)',
+                                        backgroundColor: isSelected
+                                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
+                                          : 'var(--morius-elevated-bg)',
+                                        color: 'var(--morius-title-text)',
+                                        '&:hover': {
+                                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg))',
+                                          borderColor: option.accent,
+                                        },
+                                      }}
+                                    >
+                                      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
+                                        <Box
+                                          sx={{
+                                            width: 18,
+                                            height: 18,
+                                            borderRadius: '50%',
+                                            border: `var(--morius-border-width) solid ${isSelected ? option.accent : 'var(--morius-card-border)'}`,
+                                            backgroundColor: isSelected ? option.accent : 'transparent',
+                                            flexShrink: 0,
+                                          }}
+                                        />
+                                        <Stack spacing={0.18} sx={{ flex: 1, minWidth: 0 }}>
+                                          <Typography sx={{ fontSize: '0.84rem', fontWeight: 850, lineHeight: 1.12, textAlign: 'left' }}>
+                                            {option.label}
+                                          </Typography>
+                                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', lineHeight: 1.15, textAlign: 'left' }}>
+                                            {option.description}
+                                          </Typography>
+                                        </Stack>
+                                        <Box
+                                          sx={{
+                                            width: 104,
+                                            height: 44,
+                                            borderRadius: '10px',
+                                            border: `var(--morius-border-width) solid ${option.accent}`,
+                                            background: option.previewBackground,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            color: option.accent,
+                                            fontSize: '1.05rem',
+                                            fontWeight: 900,
+                                            fontFamily: '"Nunito Sans", system-ui, sans-serif',
+                                            boxShadow: `inset 0 0 18px color-mix(in srgb, ${option.accent} 18%, transparent)`,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          Aa
+                                        </Box>
+                                      </Stack>
+                                    </Button>
+                                  )
+                                })}
+                              </Stack>
+                            </Box>
+
+                            <Box sx={{ pt: 0.85, borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800, mb: 0.65 }}>
+                                Стиль текста
+                              </Typography>
+                              <Box
+                                sx={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(3, 1fr)',
+                                  gap: 0.45,
+                                  p: 0.45,
+                                  borderRadius: '14px',
+                                  backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, #000 28%)',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                }}
+                              >
+                                {STORY_APPEARANCE_TEXT_STYLE_OPTIONS.map((option) => {
+                                  const isSelected = appearanceTextStyle === option.id
+                                  return (
+                                    <Button
+                                      key={option.id}
+                                      onClick={() => {
+                                        void persistStoryAppearanceSettings({ appearanceTextStyle: option.id })
+                                      }}
+                                      disabled={isSavingStorySettings || isGenerating}
+                                      sx={{
+                                        minHeight: 44,
+                                        borderRadius: '11px',
+                                        px: 0.4,
+                                        textTransform: 'none',
+                                        color: isSelected ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
+                                        backgroundColor: isSelected ? 'var(--morius-button-active)' : 'transparent',
+                                        border: 'none',
+                                        fontFamily: option.cssFontFamily,
+                                        fontWeight: 850,
+                                        fontSize: '0.8rem',
+                                        '&:hover': {
+                                          backgroundColor: isSelected
+                                            ? 'var(--morius-button-active)'
+                                            : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)',
+                                        },
+                                      }}
+                                    >
+                                      {option.label}
+                                    </Button>
+                                  )
+                                })}
+                              </Box>
+                            </Box>
+
+                            {isSavingStoryAppearance ? (
+                              <CircularProgress size={14} sx={{ color: 'var(--morius-accent)' }} />
+                            ) : null}
+                          </Stack>
+                        </Box>
+                      </Collapse>
+                    </Box>
+                  ) : null}
                 </>
               )}
             </Box>
@@ -19023,7 +19540,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <Button
             variant="contained"
             onClick={() => {
-              const recommendedLimit = clampStoryContextLimit(contextBudgetWarning?.recommendedLimit ?? contextLimitChars)
+              const recommendedLimit = clampStoryContextLimit(
+                contextBudgetWarning?.recommendedLimit ?? contextLimitChars,
+                storyLlmModel,
+              )
               setContextBudgetWarning(null)
               void persistContextLimit(recommendedLimit)
             }}

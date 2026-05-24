@@ -157,9 +157,18 @@ export function createSmoothStreamingTextController(
       return
     }
     targetChars = splitText(finalText)
-    if (displayedChars.length > targetChars.length || !finalText.startsWith(getDisplayedText())) {
-      displayedChars = []
+    if (!finalText.startsWith(getDisplayedText())) {
+      displayedChars = [...targetChars]
       charBudget = 0
+      options.onUpdate(getDisplayedText())
+      resolveFinishers()
+      return
+    }
+    if (displayedChars.length > targetChars.length) {
+      displayedChars = [...targetChars]
+      options.onUpdate(getDisplayedText())
+      resolveFinishers()
+      return
     }
     if (!shouldAnimate) {
       flushToTarget()

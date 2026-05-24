@@ -464,7 +464,7 @@ class StoryGameCreateRequest(BaseModel):
     cover_scale: float | None = Field(default=None, ge=1.0, le=3.0)
     cover_position_x: float | None = Field(default=None, ge=0.0, le=100.0)
     cover_position_y: float | None = Field(default=None, ge=0.0, le=100.0)
-    context_limit_chars: int | None = Field(default=None, ge=6_000, le=64_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=128_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -480,6 +480,13 @@ class StoryGameCreateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    appearance_background_mode: str | None = Field(default=None, max_length=32)
+    appearance_gradient_enabled: bool | None = None
+    appearance_gradient_from: str | None = Field(default=None, max_length=16)
+    appearance_gradient_to: str | None = Field(default=None, max_length=16)
+    appearance_solid_color: str | None = Field(default=None, max_length=16)
+    appearance_ui_style: str | None = Field(default=None, max_length=32)
+    appearance_text_style: str | None = Field(default=None, max_length=32)
     canonical_state_pipeline_enabled: bool | None = None
     canonical_state_safe_fallback_enabled: bool | None = None
     environment_enabled: bool | None = None
@@ -503,7 +510,7 @@ class StoryGameCloneRequest(BaseModel):
 
 
 class StoryGameSettingsUpdateRequest(BaseModel):
-    context_limit_chars: int | None = Field(default=None, ge=6_000, le=64_000)
+    context_limit_chars: int | None = Field(default=None, ge=6_000, le=128_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=800)
     response_max_tokens_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
@@ -519,6 +526,13 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     show_npc_thoughts: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
+    appearance_background_mode: str | None = Field(default=None, max_length=32)
+    appearance_gradient_enabled: bool | None = None
+    appearance_gradient_from: str | None = Field(default=None, max_length=16)
+    appearance_gradient_to: str | None = Field(default=None, max_length=16)
+    appearance_solid_color: str | None = Field(default=None, max_length=16)
+    appearance_ui_style: str | None = Field(default=None, max_length=32)
+    appearance_text_style: str | None = Field(default=None, max_length=32)
     canonical_state_pipeline_enabled: bool | None = None
     canonical_state_safe_fallback_enabled: bool | None = None
     environment_enabled: bool | None = None
@@ -1304,6 +1318,13 @@ class StoryGameSummaryOut(BaseModel):
     show_npc_thoughts: bool
     ambient_enabled: bool
     character_state_enabled: bool = False
+    appearance_background_mode: str = "default"
+    appearance_gradient_enabled: bool = False
+    appearance_gradient_from: str = "#050506"
+    appearance_gradient_to: str = "#2A1408"
+    appearance_solid_color: str = "#050506"
+    appearance_ui_style: str = "default"
+    appearance_text_style: str = "default"
     canonical_state_pipeline_enabled: bool = True
     canonical_state_safe_fallback_enabled: bool = False
     environment_enabled: bool = False

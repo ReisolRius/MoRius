@@ -261,6 +261,13 @@ def upsert_story_game_publication_copy_from_source(
             show_gg_thoughts=normalized_source.show_gg_thoughts,
             show_npc_thoughts=normalized_source.show_npc_thoughts,
             ambient_enabled=normalized_source.ambient_enabled,
+            appearance_background_mode=normalized_source.appearance_background_mode,
+            appearance_gradient_enabled=normalized_source.appearance_gradient_enabled,
+            appearance_gradient_from=normalized_source.appearance_gradient_from,
+            appearance_gradient_to=normalized_source.appearance_gradient_to,
+            appearance_solid_color=normalized_source.appearance_solid_color,
+            appearance_ui_style=normalized_source.appearance_ui_style,
+            appearance_text_style=normalized_source.appearance_text_style,
             environment_enabled=normalized_source.environment_enabled,
             environment_time_enabled=normalized_source.environment_time_enabled,
             environment_weather_enabled=normalized_source.environment_weather_enabled,
@@ -328,6 +335,13 @@ def upsert_story_game_publication_copy_from_source(
     publication.show_gg_thoughts = normalized_source.show_gg_thoughts
     publication.show_npc_thoughts = normalized_source.show_npc_thoughts
     publication.ambient_enabled = normalized_source.ambient_enabled
+    publication.appearance_background_mode = normalized_source.appearance_background_mode
+    publication.appearance_gradient_enabled = normalized_source.appearance_gradient_enabled
+    publication.appearance_gradient_from = normalized_source.appearance_gradient_from
+    publication.appearance_gradient_to = normalized_source.appearance_gradient_to
+    publication.appearance_solid_color = normalized_source.appearance_solid_color
+    publication.appearance_ui_style = normalized_source.appearance_ui_style
+    publication.appearance_text_style = normalized_source.appearance_text_style
     publication.environment_enabled = normalized_source.environment_enabled
     publication.environment_time_enabled = normalized_source.environment_time_enabled
     publication.environment_weather_enabled = normalized_source.environment_weather_enabled

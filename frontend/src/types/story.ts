@@ -28,19 +28,19 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-chat-v3-0324'
   | 'deepseek/deepseek-v3.2'
-  | 'x-ai/grok-4.1-fast'
   | 'mistralai/mistral-nemo'
   | 'xiaomi/mimo-v2-flash'
   | 'xiaomi/mimo-v2-pro'
   | 'aion-labs/aion-2.0'
 export type StoryMemoryOptimizationMode = 'standard' | 'enhanced' | 'maximum'
+export type StoryAppearanceBackgroundMode = 'default' | 'custom'
+export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'
+export type StoryAppearanceTextStyle = 'default' | 'serif' | 'terminal'
 export type StoryImageModelId =
   | 'black-forest-labs/flux.2-pro'
-  | 'bytedance-seed/seedream-4.5'
+  | 'bytedance/seedream-4.5'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
-  | 'grok-imagine-image'
-  | 'grok-imagine-image-pro'
 export type StoryCharacterEmotionId =
   | 'calm'
   | 'angry'
@@ -104,6 +104,13 @@ export type StoryGameSummary = {
   show_npc_thoughts: boolean
   ambient_enabled: boolean
   character_state_enabled: boolean
+  appearance_background_mode: StoryAppearanceBackgroundMode
+  appearance_gradient_enabled: boolean
+  appearance_gradient_from: string
+  appearance_gradient_to: string
+  appearance_solid_color: string
+  appearance_ui_style: StoryAppearanceUiStyle
+  appearance_text_style: StoryAppearanceTextStyle
   canonical_state_pipeline_enabled?: boolean
   canonical_state_safe_fallback_enabled?: boolean
   environment_enabled?: boolean

@@ -42,10 +42,15 @@ def _bind_monolith_names() -> None:
 
 _bind_monolith_names()
 
+if "STORY_SERVICE_TEXT_MODEL" not in globals():
+    STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "google/gemini-2.5-flash-lite")
+if "STORY_CHARACTER_STATE_GENERATION_MODEL" not in globals():
+    STORY_CHARACTER_STATE_GENERATION_MODEL = STORY_SERVICE_TEXT_MODEL
 
-def _request_openrouter_story_text(messages_payload: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
+
+def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
     repaired_messages = repair_likely_utf8_mojibake_deep(messages_payload)
-    return monolith_main._request_openrouter_story_text(repaired_messages, *args, **kwargs)
+    return monolith_main._request_polza_story_text(repaired_messages, *args, **kwargs)
 
 STORY_CHARACTER_STATE_KIND_MAIN_HERO = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_MAIN_HERO", "main_hero")
 STORY_CHARACTER_STATE_KIND_NPC = getattr(monolith_main, "STORY_CHARACTER_STATE_KIND_NPC", "npc")
@@ -1460,14 +1465,14 @@ def _legacy__extract_story_location_memory_payload_v1(
 
         return fallback_from_player_turn
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return fallback_from_player_turn
 
     if not normalized_current_location and not normalized_previous_assistant and not normalized_latest_assistant:
         return None
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -1549,12 +1554,12 @@ def _legacy__extract_story_location_memory_payload_v1(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
-                model_name="x-ai/grok-4.1-fast",
-                allow_free_fallback=False,
+                model_name=STORY_SERVICE_TEXT_MODEL,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -1702,7 +1707,7 @@ def _extract_story_location_memory_payload(
     ):
         return None
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return None
 
 
@@ -1752,10 +1757,10 @@ def _extract_story_location_memory_payload(
 
     for attempt_index in range(2):
         try:
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
                 messages_payload,
-                model_name="x-ai/grok-4.1-fast",
-                allow_free_fallback=False,
+                model_name=STORY_SERVICE_TEXT_MODEL,
+                allow_service_fallback=False,
                 translate_input=False,
                 fallback_model_names=[],
                 temperature=0.0,
@@ -4856,15 +4861,13 @@ def _story_character_state_location_from_scene(value: str) -> str:
     ).rstrip(" .!?…")
 
     compact = " ".join(compact.split()).strip()
-
-
-
-
+    return compact or normalized.rstrip(" .!?…")
 
 
 def _merge_story_character_state_text_field(
     *,
     field_name: str,
+    existing_card: dict[str, Any],
     updated_card: dict[str, Any],
     scene_location_fallback: str,
     consume_manual_override_turns: bool = False,
@@ -6120,7 +6123,7 @@ def _request_story_character_state_seed_cards(
 
     ]
 
-    if not normalized_candidates or not settings.openrouter_api_key:
+    if not normalized_candidates or not settings.polza_api_key:
 
         return []
 
@@ -6271,13 +6274,13 @@ def _request_story_character_state_seed_cards(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=STORY_CHARACTER_STATE_GENERATION_MODEL,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -6374,7 +6377,7 @@ def _request_story_character_state_missing_location_cards(
 
     normalized_cards = _normalize_story_character_state_cards_payload(cards)
 
-    if not normalized_cards or not settings.openrouter_api_key:
+    if not normalized_cards or not settings.polza_api_key:
 
         return []
 
@@ -6546,13 +6549,13 @@ def _request_story_character_state_missing_location_cards(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=STORY_CHARACTER_STATE_GENERATION_MODEL,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -6639,7 +6642,7 @@ def _request_story_character_state_missing_body_field_cards(
     latest_assistant_text: str,
 ) -> list[dict[str, Any]]:
     normalized_cards = _normalize_story_character_state_cards_payload(cards)
-    if not normalized_cards or not settings.openrouter_api_key:
+    if not normalized_cards or not settings.polza_api_key:
         return []
 
     normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
@@ -6773,10 +6776,10 @@ def _request_story_character_state_missing_body_field_cards(
 
     for attempt_index in range(2):
         try:
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
                 messages_payload,
-                model_name="x-ai/grok-4.1-fast",
-                allow_free_fallback=False,
+                model_name=STORY_SERVICE_TEXT_MODEL,
+                allow_service_fallback=False,
                 translate_input=False,
                 fallback_model_names=[],
                 temperature=0.0,
@@ -7891,7 +7894,7 @@ def _extract_story_postprocess_memory_payload(
     scene_emotion_allowed_emotions: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -8001,8 +8004,6 @@ def _extract_story_postprocess_memory_payload(
         player_name=main_hero_name_for_memory,
         known_character_names=known_character_names_for_memory,
     )
-
-
     requested_sections: list[str] = []
 
     if raw_memory_enabled:
@@ -8067,8 +8068,6 @@ def _extract_story_postprocess_memory_payload(
         if scene_emotion_enabled
         else []
     )
-
-
     system_parts = [
 
         "Analyze exactly one RPG turn for continuity and memory.",
@@ -8164,7 +8163,7 @@ def _extract_story_postprocess_memory_payload(
 
                 "For environment: manage only the current in-world date/time and weather state.",
 
-                "Grok alone manages in-world time progression for environment continuity.",
+                "The service model manages in-world time progression for environment continuity.",
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous.",
                 "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes.",
                 "Actions that realistically take about one or two minutes should usually stay within a 1-3 minute shift, not jump by ten minutes.",
@@ -8297,6 +8296,8 @@ def _extract_story_postprocess_memory_payload(
                 "Be detailed but practical, without turning into obsessive inventory.",
 
                 "equipment must be concrete and definite. Never write alternatives or uncertainty such as 'или', '/', 'возможно', or 'скорее всего'.",
+
+                "For the main hero and any NPC whose is_active=true in this turn, equipment must never be empty: infer carried items from explicit text, the character's own source description, role, and current scene; if no carried items are supported, write a short concrete Russian absence like 'без явно указанных предметов'.",
 
                 "If details are unclear, choose one conservative concrete version instead of listing options.",
 
@@ -8441,12 +8442,12 @@ def _extract_story_postprocess_memory_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
-                model_name="x-ai/grok-4.1-fast",
-                allow_free_fallback=False,
+                model_name=STORY_SERVICE_TEXT_MODEL,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -8553,7 +8554,6 @@ def _extract_story_postprocess_memory_payload(
             requested_sections=requested_sections,
 
         )
-
         if raw_memory_enabled:
             raw_memory_payload = _normalize_story_raw_memory_summary_payload(raw_raw_memory_payload)
 
@@ -8646,7 +8646,7 @@ def _extract_story_environment_state_payload(
 
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -8727,7 +8727,7 @@ def _extract_story_environment_state_payload(
 
                 "Do not change tomorrow's forecast unless the in-world date has advanced to a new day or the text explicitly establishes a multi-day skip. "
 
-                "Grok alone manages in-world time progression for environment continuity. "
+                "The service model manages in-world time progression for environment continuity. "
                 f"Minimal fallback step is {turn_step_minutes} minutes if the scene clearly continues but the exact elapsed time stays ambiguous. "
                 "For short dialogue turns, a glance, a few phrases, or one quick action, advance only a few minutes rather than 30-60 minutes. "
                 "Actions that realistically take about one or two minutes should usually stay within a 1-3 minute shift, not jump by ten minutes. "
@@ -8779,13 +8779,13 @@ def _extract_story_environment_state_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=STORY_ENVIRONMENT_ANALYSIS_MODEL,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -9506,7 +9506,7 @@ def _seed_story_environment_weather_payload(
 
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -9640,13 +9640,13 @@ def _seed_story_environment_weather_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=STORY_ENVIRONMENT_ANALYSIS_MODEL,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -11976,7 +11976,7 @@ def _compress_story_memory_block_with_model(
             known_character_names=known_character_names,
         )
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         if allow_local_fallback:
 
@@ -12126,13 +12126,13 @@ def _compress_story_memory_block_with_model(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=model_name,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 translate_input=False,
 
@@ -12299,10 +12299,14 @@ def _rebalance_story_memory_layers(
 
     raw_keep_limit = max(int(STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS or 0), 1)
     compressed_keep_recent_limit = max(raw_keep_limit * 2, 4)
-    context_limit_tokens = _normalize_story_context_limit_chars(game.context_limit_chars)
+    context_limit_tokens = _normalize_story_context_limit_chars(
+        game.context_limit_chars,
+        model_name=getattr(game, "story_llm_model", None),
+    )
     effective_memory_budget_tokens = max(context_limit_tokens, 1)
     budgets = _build_story_memory_layer_budgets(
         effective_memory_budget_tokens,
+        model_name=getattr(game, "story_llm_model", None),
         optimization_mode=getattr(game, "memory_optimization_mode", None),
     )
     latest_raw_assistant_ids = {
@@ -12530,7 +12534,7 @@ def _rebalance_story_memory_layers(
                         player_name=main_hero_name_for_memory,
                         known_character_names=known_character_names_for_memory,
                         allow_local_fallback=not require_model_compaction,
-                        max_attempts=1 if require_model_compaction else 2,
+                        max_attempts=1,
                     )
                 except Exception:
                     if require_model_compaction:
@@ -12616,7 +12620,7 @@ def _rebalance_story_memory_layers(
                         player_name=main_hero_name_for_memory,
                         known_character_names=known_character_names_for_memory,
                         allow_local_fallback=not require_model_compaction,
-                        max_attempts=1 if require_model_compaction else 2,
+                        max_attempts=1,
                     )
                 except Exception:
                     if require_model_compaction:
@@ -12864,7 +12868,7 @@ def _extract_story_important_plot_card_payload(
 
 
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -12942,13 +12946,13 @@ def _extract_story_important_plot_card_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
                 model_name=model_name,
 
-                allow_free_fallback=False,
+                allow_service_fallback=False,
 
                 fallback_model_names=fallback_model_names,
 

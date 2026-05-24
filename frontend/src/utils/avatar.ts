@@ -1,8 +1,8 @@
 const DEFAULT_TARGET_MIME = 'image/webp'
 const TRANSPARENT_TARGET_MIME = 'image/png'
 // Requests send images as base64 data URLs inside JSON bodies.
-// Keeping the decoded payload around 1.5 MB avoids proxy-side 413s once base64 expansion is added.
-const JSON_DATA_URL_REQUEST_SAFE_MAX_BYTES = 1_500_000
+// Keep decoded payloads below ~1 MB after base64 expansion and JSON wrapping.
+const JSON_DATA_URL_REQUEST_SAFE_MAX_BYTES = 700_000
 
 function estimateDataUrlBytes(dataUrl: string): number {
   const commaIndex = dataUrl.indexOf(',')
@@ -600,6 +600,12 @@ export async function prepareAvatarPayloadForRequest(
 
   const normalizedAvatarOriginalUrl = (options.avatarOriginalUrl ?? '').trim()
   if (!normalizedAvatarOriginalUrl) {
+    return {
+      avatarUrl,
+      avatarOriginalUrl: null,
+    }
+  }
+  if (normalizedAvatarOriginalUrl.startsWith('data:image/') || normalizedAvatarOriginalUrl.startsWith('blob:')) {
     return {
       avatarUrl,
       avatarOriginalUrl: null,

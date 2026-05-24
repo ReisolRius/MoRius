@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 import hashlib
@@ -63,8 +63,6 @@ STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE = monolith_main.STORY_TURN_IMAGE_GENDER_
 STORY_TURN_IMAGE_GENDER_PATTERNS_MALE = monolith_main.STORY_TURN_IMAGE_GENDER_PATTERNS_MALE
 STORY_TURN_IMAGE_MODEL_FLUX = monolith_main.STORY_TURN_IMAGE_MODEL_FLUX
 STORY_TURN_IMAGE_MODEL_SEEDREAM = monolith_main.STORY_TURN_IMAGE_MODEL_SEEDREAM
-STORY_TURN_IMAGE_MODEL_GROK = monolith_main.STORY_TURN_IMAGE_MODEL_GROK
-STORY_TURN_IMAGE_MODEL_GROK_LEGACY = monolith_main.STORY_TURN_IMAGE_MODEL_GROK_LEGACY
 STORY_TURN_IMAGE_COST_BY_MODEL = monolith_main.STORY_TURN_IMAGE_COST_BY_MODEL
 STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED = monolith_main.STORY_CHARACTER_EMOTION_JOB_STATUS_QUEUED
 STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING = monolith_main.STORY_CHARACTER_EMOTION_JOB_STATUS_RUNNING
@@ -99,7 +97,7 @@ _extract_story_npc_profile_field = monolith_main._extract_story_npc_profile_fiel
 _sanitize_story_npc_profile_value = monolith_main._sanitize_story_npc_profile_value
 _is_story_dialogue_like_fragment = monolith_main._is_story_dialogue_like_fragment
 _normalize_story_markup_to_plain_text = monolith_main._normalize_story_markup_to_plain_text
-_build_openrouter_image_provider_payload = monolith_main._build_openrouter_image_provider_payload
+_build_polza_image_provider_payload = monolith_main._build_polza_image_provider_payload
 _normalize_story_prompt_text = monolith_main._normalize_story_prompt_text
 _prepare_story_messages_for_model = monolith_main._prepare_story_messages_for_model
 _extract_text_from_model_content = monolith_main._extract_text_from_model_content
@@ -135,7 +133,7 @@ def _request_story_scene_emotion_payload(
     latest_assistant_text: str | None,
     world_cards: list[dict[str, Any]],
 ) -> str | None:
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         return _serialize_story_scene_emotion_payload(
             {
                 "show_visualization": False,
@@ -180,14 +178,14 @@ def _request_story_scene_emotion_payload(
     )
     tool_definition = _build_story_scene_emotion_tool_definition(active_cast_entries, scene_blocks)
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     payload: dict[str, Any] = {
         "model": STORY_SCENE_EMOTION_ANALYSIS_MODEL,
@@ -207,7 +205,7 @@ def _request_story_scene_emotion_payload(
 
     try:
         response = HTTP_SESSION.post(
-            settings.openrouter_chat_url,
+            settings.polza_chat_url,
             headers=headers,
             json=payload,
             timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
@@ -364,34 +362,16 @@ def _request_story_scene_emotion_payload(
             "blocks": [],
         }
     )
-def _is_story_turn_image_xai_model(model_name: str | None) -> bool:
-    normalized_model = str(model_name or "").strip()
-    return normalized_model in {STORY_TURN_IMAGE_MODEL_GROK, STORY_TURN_IMAGE_MODEL_GROK_LEGACY}
-
-
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
-    if _is_story_turn_image_xai_model(model_name):
-        if not settings.xai_image_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="xAI image provider is not configured: set XAI_IMAGE_API_KEY",
-            )
-        if not settings.xai_image_url:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="xAI image endpoint is not configured: set XAI_IMAGE_URL",
-            )
-        return
-
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter provider is not configured: set OPENROUTER_API_KEY",
+            detail="Polza.ai provider is not configured: set POLZA_API_KEY",
         )
-    if not settings.openrouter_chat_url and not settings.openrouter_image_url:
+    if not settings.polza_chat_url and not settings.polza_image_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter image endpoint is not configured: set OPENROUTER_CHAT_URL or OPENROUTER_IMAGE_URL",
+            detail="Polza.ai image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
         )
 
 
@@ -523,7 +503,7 @@ def _extract_story_turn_image_gender_hint_from_card(
     lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
 
     profile_gender = _sanitize_story_npc_profile_value(
-        _extract_story_npc_profile_field(lines, ("пол", "gender"))
+        _extract_story_npc_profile_field(lines, ("РїРѕР»", "gender"))
     )
     profile_gender_hint = _extract_story_turn_image_gender_hint_from_text(profile_gender)
     if profile_gender_hint:
@@ -534,7 +514,7 @@ def _extract_story_turn_image_gender_hint_from_card(
         return content_gender_hint
 
     inferred_gender = _infer_story_npc_gender_from_context(raw_title, user_prompt, assistant_text)
-    if inferred_gender in {"женский", "мужской"}:
+    if inferred_gender in {"Р¶РµРЅСЃРєРёР№", "РјСѓР¶СЃРєРѕР№"}:
         return inferred_gender
     return ""
 
@@ -566,29 +546,29 @@ def _extract_story_turn_image_gender_hint_from_text(text: str) -> str:
     if female_score <= 0 and male_score <= 0:
         return ""
     if female_score > male_score:
-        return "женский"
+        return "Р¶РµРЅСЃРєРёР№"
     if male_score > female_score:
-        return "мужской"
+        return "РјСѓР¶СЃРєРѕР№"
     return ""
 
 
 def _story_turn_image_gender_hint_for_prompt(gender_hint: str) -> str:
     normalized = str(gender_hint or "").strip().casefold()
-    if normalized == "мужской":
-        return "male (мужской)"
-    if normalized == "женский":
-        return "female (женский)"
+    if normalized == "РјСѓР¶СЃРєРѕР№":
+        return "male (РјСѓР¶СЃРєРѕР№)"
+    if normalized == "Р¶РµРЅСЃРєРёР№":
+        return "female (Р¶РµРЅСЃРєРёР№)"
     return ""
 
 
 def _story_turn_image_gender_lock_for_prompt(gender_hint: str) -> str:
     normalized = str(gender_hint or "").strip().casefold()
-    if normalized == "женский":
+    if normalized == "Р¶РµРЅСЃРєРёР№":
         return (
             "gender-lock female ONLY: must be clearly depicted as a woman; "
             "forbidden male/man/boy presentation."
         )
-    if normalized == "мужской":
+    if normalized == "РјСѓР¶СЃРєРѕР№":
         return (
             "gender-lock male ONLY: must be clearly depicted as a man; "
             "forbidden female/woman/girl presentation."
@@ -598,22 +578,22 @@ def _story_turn_image_gender_lock_for_prompt(gender_hint: str) -> str:
 
 def _extract_story_turn_image_visual_sentences(plain_content: str) -> list[str]:
     visual_keywords = (
-        "внеш",
-        "волос",
-        "глаз",
-        "одежд",
-        "куртк",
-        "рубаш",
-        "плать",
-        "юбк",
-        "брюк",
-        "футбол",
-        "телослож",
-        "рост",
-        "лиц",
-        "шрам",
-        "причес",
-        "цвет волос",
+        "РІРЅРµС€",
+        "РІРѕР»РѕСЃ",
+        "РіР»Р°Р·",
+        "РѕРґРµР¶Рґ",
+        "РєСѓСЂС‚Рє",
+        "СЂСѓР±Р°С€",
+        "РїР»Р°С‚СЊ",
+        "СЋР±Рє",
+        "Р±СЂСЋРє",
+        "С„СѓС‚Р±РѕР»",
+        "С‚РµР»РѕСЃР»РѕР¶",
+        "СЂРѕСЃС‚",
+        "Р»РёС†",
+        "С€СЂР°Рј",
+        "РїСЂРёС‡РµСЃ",
+        "С†РІРµС‚ РІРѕР»РѕСЃ",
         "hair",
         "eyes",
         "outfit",
@@ -667,13 +647,13 @@ def _extract_story_turn_image_appearance_lock_from_card(card: dict[str, Any]) ->
         appearance_fragments.append(normalized_value)
 
     profile_field_groups: tuple[tuple[str, ...], ...] = (
-        ("внешность", "appearance", "облик"),
-        ("лицо", "черты лица", "facial features", "face"),
-        ("волосы", "цвет волос", "длина волос", "прическа", "hair", "hair color", "hair length", "hairstyle"),
-        ("глаза", "цвет глаз", "eyes", "eye color"),
-        ("телосложение", "рост", "build", "body type", "height"),
-        ("особые приметы", "приметы", "шрам", "тату", "marks", "scar", "tattoo"),
-        ("одежда", "style", "outfit", "clothes"),
+        ("РІРЅРµС€РЅРѕСЃС‚СЊ", "appearance", "РѕР±Р»РёРє"),
+        ("Р»РёС†Рѕ", "С‡РµСЂС‚С‹ Р»РёС†Р°", "facial features", "face"),
+        ("РІРѕР»РѕСЃС‹", "С†РІРµС‚ РІРѕР»РѕСЃ", "РґР»РёРЅР° РІРѕР»РѕСЃ", "РїСЂРёС‡РµСЃРєР°", "hair", "hair color", "hair length", "hairstyle"),
+        ("РіР»Р°Р·Р°", "С†РІРµС‚ РіР»Р°Р·", "eyes", "eye color"),
+        ("С‚РµР»РѕСЃР»РѕР¶РµРЅРёРµ", "СЂРѕСЃС‚", "build", "body type", "height"),
+        ("РѕСЃРѕР±С‹Рµ РїСЂРёРјРµС‚С‹", "РїСЂРёРјРµС‚С‹", "С€СЂР°Рј", "С‚Р°С‚Сѓ", "marks", "scar", "tattoo"),
+        ("РѕРґРµР¶РґР°", "style", "outfit", "clothes"),
     )
     for prefixes in profile_field_groups:
         field_value = _extract_story_npc_profile_field(lines, prefixes)
@@ -709,7 +689,7 @@ def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) ->
         return ""
     lines = [line.strip() for line in plain_content.split("\n") if line.strip()]
     profile_appearance = _sanitize_story_npc_profile_value(
-        _extract_story_npc_profile_field(lines, ("внешность", "appearance", "облик"))
+        _extract_story_npc_profile_field(lines, ("РІРЅРµС€РЅРѕСЃС‚СЊ", "appearance", "РѕР±Р»РёРє"))
     )
     appearance_fragments: list[str] = []
     if profile_appearance and not _is_story_dialogue_like_fragment(profile_appearance):
@@ -759,14 +739,14 @@ def _build_story_turn_image_style_instructions(style_prompt: str) -> str:
         "Treat the style as mandatory for linework, rendering language, proportions, and overall visual identity.",
         "Do not weaken, reinterpret, or partially apply the requested style.",
     ]
-    if any(token in normalized_casefold for token in ("аниме", "anime", "манга", "manga")):
+    if any(token in normalized_casefold for token in ("Р°РЅРёРјРµ", "anime", "РјР°РЅРіР°", "manga")):
         style_parts.append(
             "Strict anime look: 2D illustration, clean lineart, cel-shading, stylized facial features."
         )
         style_parts.append(
             "Avoid photorealism, avoid semi-realistic rendering."
         )
-    if any(token in normalized_casefold for token in ("реал", "photoreal", "realistic")):
+    if any(token in normalized_casefold for token in ("СЂРµР°Р»", "photoreal", "realistic")):
         style_parts.append(
             "Keep realistic human proportions, lighting, and materials."
         )
@@ -1222,7 +1202,7 @@ def _build_story_turn_image_prompt(
     return _join_story_turn_image_prompt_parts(prompt_parts)
 
 
-def _extract_openrouter_error_detail(response: requests.Response) -> str:
+def _extract_polza_error_detail(response: requests.Response) -> str:
     detail = ""
     error_payload: Any = None
     try:
@@ -1297,28 +1277,7 @@ def _resolve_story_turn_image_aspect_ratio(image_size: str) -> str | None:
     return closest_ratio
 
 
-def _resolve_story_turn_image_xai_aspect_ratio(image_size: str) -> str | None:
-    aspect_ratio = _resolve_story_turn_image_aspect_ratio(image_size)
-    if aspect_ratio in {"1:1", "4:3", "3:4", "16:9", "9:16"}:
-        return aspect_ratio
-    return None
-
-
-def _resolve_story_turn_image_xai_resolution(image_size: str) -> str | None:
-    normalized_size = str(image_size or "").strip().lower()
-    if not normalized_size:
-        return None
-
-    size_match = re.match(r"^\s*(\d{2,5})\s*[x:]\s*(\d{2,5})\s*$", normalized_size)
-    if size_match is None:
-        return None
-
-    width = max(int(size_match.group(1)), 1)
-    height = max(int(size_match.group(2)), 1)
-    return "2k" if max(width, height) >= 1536 else "1k"
-
-
-def _build_story_turn_image_openrouter_payload(
+def _build_story_turn_image_polza_payload(
     *,
     prompt: str,
     selected_model: str,
@@ -1341,9 +1300,9 @@ def _build_story_turn_image_openrouter_payload(
             "messages": [{"role": "user", "content": message_content}],
             "modalities": ["image"],
             "stream": False,
-            "provider": _build_openrouter_image_provider_payload(selected_model),
+            "provider": _build_polza_image_provider_payload(selected_model),
         }
-        aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.openrouter_image_size)
+        aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
         if aspect_ratio:
             payload["image_config"] = {"aspect_ratio": aspect_ratio}
         return payload
@@ -1353,19 +1312,19 @@ def _build_story_turn_image_openrouter_payload(
         "prompt": prompt,
         "n": 1,
     }
-    image_size = str(settings.openrouter_image_size or "").strip()
+    image_size = str(settings.polza_image_size or "").strip()
     if image_size:
         payload["size"] = image_size
     return payload
 
 
-def _parse_openrouter_story_turn_image_payload(
+def _parse_polza_story_turn_image_payload(
     payload_value: Any,
     *,
     selected_model: str,
 ) -> dict[str, str | None]:
     if not isinstance(payload_value, dict):
-        raise RuntimeError("OpenRouter image endpoint returned empty payload")
+        raise RuntimeError("Polza.ai image endpoint returned empty payload")
 
     # Legacy OpenAI-style response: {"data":[{"url":...}]}
     data_items = payload_value.get("data")
@@ -1386,7 +1345,7 @@ def _parse_openrouter_story_turn_image_payload(
             mime_type = raw_mime_type if "/" in raw_mime_type else f"image/{raw_mime_type}"
             image_data_url = f"data:{mime_type};base64,{b64_payload}" if b64_payload else None
             if image_url is None and image_data_url is None:
-                raise RuntimeError("OpenRouter image endpoint returned no image URL")
+                raise RuntimeError("Polza.ai image endpoint returned no image URL")
             revised_prompt = (
                 str(image_item.get("revised_prompt") or payload_value.get("revised_prompt") or "").strip() or None
             )
@@ -1400,7 +1359,7 @@ def _parse_openrouter_story_turn_image_payload(
     # Chat-completions response with image modalities.
     choices = payload_value.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise RuntimeError("OpenRouter image endpoint returned no images")
+        raise RuntimeError("Polza.ai image endpoint returned no images")
 
     image_candidates: list[str] = []
     revised_prompt: str | None = None
@@ -1507,7 +1466,7 @@ def _parse_openrouter_story_turn_image_payload(
     )
 
     if image_url is None and image_data_url is None:
-        raise RuntimeError("OpenRouter image endpoint returned no usable image")
+        raise RuntimeError("Polza.ai image endpoint returned no usable image")
 
     return {
         "model": str(payload_value.get("model") or selected_model),
@@ -1517,201 +1476,21 @@ def _parse_openrouter_story_turn_image_payload(
     }
 
 
-def _request_openrouter_story_turn_image(
+def _request_polza_story_turn_image(
     *,
     prompt: str,
     model_name: str | None = None,
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
-
-    selected_model = (model_name or settings.openrouter_image_model or STORY_TURN_IMAGE_MODEL_FLUX).strip()
-    if not selected_model:
-        raise RuntimeError("OpenRouter image model is not configured")
-
-    endpoint_candidates: list[tuple[str, str, bool]] = []
-    chat_url = str(settings.openrouter_chat_url or "").strip()
-    if chat_url:
-        endpoint_candidates.append(("chat", chat_url, True))
-    image_url = str(settings.openrouter_image_url or "").strip()
-    normalized_reference_image_url = str(reference_image_url or "").strip()
-    normalized_reference_image_data_url = str(reference_image_data_url or "").strip()
-    normalized_reference_image_input = (
-        normalized_reference_image_url
-        if normalized_reference_image_url.startswith(("https://", "http://"))
-        else normalized_reference_image_data_url
+    return monolith_main._request_polza_story_turn_image(
+        prompt=prompt,
+        model_name=model_name,
+        reference_image_url=reference_image_url,
+        reference_image_data_url=reference_image_data_url,
     )
-    if image_url and image_url not in {chat_url} and not normalized_reference_image_input:
-        endpoint_candidates.append(("images", image_url, False))
-
-    if not endpoint_candidates:
-        raise RuntimeError("OpenRouter image endpoint is not configured")
-
-    last_error: RuntimeError | None = None
-    for index, (endpoint_kind, endpoint_url, use_chat_completions) in enumerate(endpoint_candidates):
-        read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
-        request_payload = _build_story_turn_image_openrouter_payload(
-            prompt=prompt,
-            selected_model=selected_model,
-            use_chat_completions=use_chat_completions,
-            reference_image_input=normalized_reference_image_input,
-        )
-        try:
-            response = HTTP_SESSION.post(
-                endpoint_url,
-                headers=headers,
-                json=request_payload,
-                timeout=(
-                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                    read_timeout_seconds,
-                ),
-            )
-        except requests.RequestException as exc:
-            last_error = RuntimeError("Failed to reach OpenRouter image endpoint")
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "OpenRouter image request transport failed, trying fallback endpoint: model=%s endpoint=%s",
-                    selected_model,
-                    endpoint_kind,
-                )
-                continue
-            raise last_error from exc
-
-        if response.status_code >= 400:
-            detail = _extract_openrouter_error_detail(response)
-            error_text = f"OpenRouter image error ({response.status_code})"
-            if detail:
-                error_text = f"{error_text}: {detail}"
-            last_error = RuntimeError(error_text)
-
-            can_fallback = index < len(endpoint_candidates) - 1 and response.status_code in {404, 405, 415, 422}
-            if can_fallback:
-                logger.warning(
-                    "OpenRouter image request returned %s via %s, trying fallback endpoint for model=%s",
-                    response.status_code,
-                    endpoint_kind,
-                    selected_model,
-                )
-                continue
-            raise last_error
-
-        try:
-            payload_value = response.json()
-        except ValueError as exc:
-            last_error = RuntimeError("OpenRouter image endpoint returned invalid payload")
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "OpenRouter image payload parsing failed via %s, trying fallback endpoint for model=%s",
-                    endpoint_kind,
-                    selected_model,
-                )
-                continue
-            raise last_error from exc
-
-        try:
-            return _parse_openrouter_story_turn_image_payload(
-                payload_value,
-                selected_model=selected_model,
-            )
-        except RuntimeError as exc:
-            last_error = exc
-            if index < len(endpoint_candidates) - 1:
-                logger.warning(
-                    "OpenRouter image payload shape mismatch via %s, trying fallback endpoint for model=%s: %s",
-                    endpoint_kind,
-                    selected_model,
-                    exc,
-                )
-                continue
-            raise
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("OpenRouter image endpoint is unavailable")
 
 
-def _request_xai_story_turn_image(
-    *,
-    prompt: str,
-    model_name: str | None = None,
-    reference_image_data_url: str | None = None,
-) -> dict[str, str | None]:
-    selected_model = (model_name or STORY_TURN_IMAGE_MODEL_GROK).strip()
-    if selected_model == STORY_TURN_IMAGE_MODEL_GROK_LEGACY:
-        selected_model = STORY_TURN_IMAGE_MODEL_GROK
-    if not selected_model:
-        raise RuntimeError("xAI image model is not configured")
-
-    endpoint_url = str(settings.xai_image_url or "").strip()
-    if not endpoint_url:
-        raise RuntimeError("xAI image endpoint is not configured")
-
-    headers = {
-        "Authorization": f"Bearer {settings.xai_image_api_key}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    request_payload: dict[str, Any] = {
-        "model": selected_model,
-        "prompt": prompt,
-        "n": 1,
-    }
-    normalized_reference_image_data_url = str(reference_image_data_url or "").strip()
-    if normalized_reference_image_data_url:
-        request_payload["image_url"] = normalized_reference_image_data_url
-    image_size = str(settings.openrouter_image_size or "").strip()
-    aspect_ratio = _resolve_story_turn_image_xai_aspect_ratio(image_size)
-    if aspect_ratio:
-        request_payload["aspect_ratio"] = aspect_ratio
-    resolution = _resolve_story_turn_image_xai_resolution(image_size)
-    if resolution:
-        request_payload["resolution"] = resolution
-
-    read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
-    try:
-        response = HTTP_SESSION.post(
-            endpoint_url,
-            headers=headers,
-            json=request_payload,
-            timeout=(
-                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                read_timeout_seconds,
-            ),
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("Failed to reach xAI image endpoint") from exc
-
-    if response.status_code >= 400:
-        detail = _extract_openrouter_error_detail(response)
-        detail_lower = detail.lower()
-        if response.status_code == status.HTTP_403_FORBIDDEN and "not available in your region" in detail_lower:
-            raise RuntimeError(
-                "Сервис генерации xAI недоступен в текущем регионе сервера. "
-                "Выберите другую модель изображения или разверните backend в регионе, поддерживаемом xAI."
-            )
-        error_text = f"xAI image error ({response.status_code})"
-        if detail:
-            error_text = f"{error_text}: {detail}"
-        raise RuntimeError(error_text)
-
-    try:
-        payload_value = response.json()
-    except ValueError as exc:
-        raise RuntimeError("xAI image endpoint returned invalid payload") from exc
-
-    return _parse_openrouter_story_turn_image_payload(
-        payload_value,
-        selected_model=selected_model,
-    )
 
 
 def _request_story_turn_image(
@@ -1721,13 +1500,7 @@ def _request_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    if _is_story_turn_image_xai_model(model_name):
-        return _request_xai_story_turn_image(
-            prompt=prompt,
-            model_name=model_name,
-            reference_image_data_url=reference_image_data_url,
-        )
-    return _request_openrouter_story_turn_image(
+    return _request_polza_story_turn_image(
         prompt=prompt,
         model_name=model_name,
         reference_image_url=reference_image_url,
@@ -1894,7 +1667,7 @@ def _build_story_character_emotion_edit_prompt(
 
 
 def _normalize_story_scene_emotion_lookup_value(value: Any) -> str:
-    normalized = str(value or "").strip().lower().replace("ё", "е")
+    normalized = str(value or "").strip().lower().replace("С‘", "Рµ")
     normalized = re.sub(r"[^0-9a-z\u0400-\u04FF\s-]+", " ", normalized)
     return re.sub(r"\s+", " ", normalized).strip()
 
@@ -2269,17 +2042,17 @@ def _detect_story_scene_emotion_keyword(normalized_text: str) -> str | None:
         return None
 
     keyword_map: tuple[tuple[str, tuple[str, ...]], ...] = (
-        ("embarrassed", ("смущ", "неловк", "румян", "засмущ", "fluster", "blush", "awkward", "bashful")),
-        ("confused", ("растерян", "замешатель", "не понима", "сбит с толку", "confus", "disorient", "hesitan")),
-        ("scared", ("испуган", "напуган", "страх", "боит", "ужас", "дрож", "terrified", "afraid", "scared")),
-        ("angry", ("зл", "гнев", "ярост", "в бешен", "furious", "angry", "rage")),
-        ("irritated", ("раздраж", "недоволь", "ворчит", "annoy", "irritat", "impatient")),
-        ("alert", ("насторож", "подозр", "напряг", "угроз", "опасн", "враг", "бандит", "alert", "wary", "danger")),
-        ("happy", ("счастлив", "счастье", "радост", "доволен", "happy", "joyful", "delighted")),
-        ("cheerful", ("весел", "оживлен", "бодр", "cheerful", "lively", "playful")),
-        ("smiling", ("улыба", "улыб", "smiling", "smile", "grin")),
-        ("sly", ("хитр", "лукав", "усмеш", "sly", "cunning", "smirk")),
-        ("calm", ("споко", "ровно", "calm", "composed", "steady")),
+        ("embarrassed", ("СЃРјСѓС‰", "РЅРµР»РѕРІРє", "СЂСѓРјСЏРЅ", "Р·Р°СЃРјСѓС‰", "fluster", "blush", "awkward", "bashful")),
+        ("confused", ("СЂР°СЃС‚РµСЂСЏРЅ", "Р·Р°РјРµС€Р°С‚РµР»СЊ", "РЅРµ РїРѕРЅРёРјР°", "СЃР±РёС‚ СЃ С‚РѕР»РєСѓ", "confus", "disorient", "hesitan")),
+        ("scared", ("РёСЃРїСѓРіР°РЅ", "РЅР°РїСѓРіР°РЅ", "СЃС‚СЂР°С…", "Р±РѕРёС‚", "СѓР¶Р°СЃ", "РґСЂРѕР¶", "terrified", "afraid", "scared")),
+        ("angry", ("Р·Р»", "РіРЅРµРІ", "СЏСЂРѕСЃС‚", "РІ Р±РµС€РµРЅ", "furious", "angry", "rage")),
+        ("irritated", ("СЂР°Р·РґСЂР°Р¶", "РЅРµРґРѕРІРѕР»СЊ", "РІРѕСЂС‡РёС‚", "annoy", "irritat", "impatient")),
+        ("alert", ("РЅР°СЃС‚РѕСЂРѕР¶", "РїРѕРґРѕР·СЂ", "РЅР°РїСЂСЏРі", "СѓРіСЂРѕР·", "РѕРїР°СЃРЅ", "РІСЂР°Рі", "Р±Р°РЅРґРёС‚", "alert", "wary", "danger")),
+        ("happy", ("СЃС‡Р°СЃС‚Р»РёРІ", "СЃС‡Р°СЃС‚СЊРµ", "СЂР°РґРѕСЃС‚", "РґРѕРІРѕР»РµРЅ", "happy", "joyful", "delighted")),
+        ("cheerful", ("РІРµСЃРµР»", "РѕР¶РёРІР»РµРЅ", "Р±РѕРґСЂ", "cheerful", "lively", "playful")),
+        ("smiling", ("СѓР»С‹Р±Р°", "СѓР»С‹Р±", "smiling", "smile", "grin")),
+        ("sly", ("С…РёС‚СЂ", "Р»СѓРєР°РІ", "СѓСЃРјРµС€", "sly", "cunning", "smirk")),
+        ("calm", ("СЃРїРѕРєРѕ", "СЂРѕРІРЅРѕ", "calm", "composed", "steady")),
     )
     keyword_map += (
         ("stern", ("strict", "authoritative", "severe")),
@@ -2325,24 +2098,24 @@ def _build_story_scene_emotion_keyword_fallback_payload(
     non_hero_entries = [entry for entry in mentioned_entries if not entry.get("is_main_hero")]
 
     original_assistant_text = latest_assistant_text or ""
-    has_dialogue = any(token in original_assistant_text for token in ("—", "«", "»", "\""))
+    has_dialogue = any(token in original_assistant_text for token in ("вЂ”", "В«", "В»", "\""))
     interaction_markers = (
-        " рядом с ",
-        " вместе ",
-        " говорит ",
-        " сказал ",
-        " сказала ",
-        " отвечает ",
-        " ответил ",
-        " ответила ",
-        " встрет",
-        " смотрит на ",
-        " идет с ",
-        " идешь с ",
-        " пошел с ",
-        " пошла с ",
-        " мы оба ",
-        " оба ",
+        " СЂСЏРґРѕРј СЃ ",
+        " РІРјРµСЃС‚Рµ ",
+        " РіРѕРІРѕСЂРёС‚ ",
+        " СЃРєР°Р·Р°Р» ",
+        " СЃРєР°Р·Р°Р»Р° ",
+        " РѕС‚РІРµС‡Р°РµС‚ ",
+        " РѕС‚РІРµС‚РёР» ",
+        " РѕС‚РІРµС‚РёР»Р° ",
+        " РІСЃС‚СЂРµС‚",
+        " СЃРјРѕС‚СЂРёС‚ РЅР° ",
+        " РёРґРµС‚ СЃ ",
+        " РёРґРµС€СЊ СЃ ",
+        " РїРѕС€РµР» СЃ ",
+        " РїРѕС€Р»Р° СЃ ",
+        " РјС‹ РѕР±Р° ",
+        " РѕР±Р° ",
     )
     has_interaction = has_dialogue or any(marker in f" {combined_text} " for marker in interaction_markers)
     if not has_interaction and len(non_hero_entries) >= 2:
@@ -2443,7 +2216,7 @@ def _build_story_scene_emotion_analysis_messages(
             "- If a named character encounters danger, choose alert or scared depending on the severity.",
             "- If the scene is interactive but emotion is mild, use calm or smiling.",
             "- Use embarrassed for shyness, awkwardness, blush, or social discomfort.",
-            "- If a block explicitly describes blush, shy body language, awkward silence, bashfulness, fluster, смущение, смущённую улыбку, неловкость, or a hesitant romantic reaction, npc_emotion must be embarrassed.",
+            "- If a block explicitly describes blush, shy body language, awkward silence, bashfulness, fluster, СЃРјСѓС‰РµРЅРёРµ, СЃРјСѓС‰С‘РЅРЅСѓСЋ СѓР»С‹Р±РєСѓ, РЅРµР»РѕРІРєРѕСЃС‚СЊ, or a hesitant romantic reaction, npc_emotion must be embarrassed.",
             "- Use confused for uncertainty, disorientation, misunderstanding, or visible confusion.",
             "- Use stern for authoritative, strict, cold, severe, or hard-line reactions.",
             "- Use thoughtful for reflective pauses, deep thinking, hesitation with introspection, or pensive silence.",
@@ -2486,13 +2259,14 @@ def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | N
         "Accept": "image/*,*/*;q=0.8",
         "User-Agent": "MoRius/1.0",
     }
-    if "openrouter.ai" in normalized_url.lower() and settings.openrouter_api_key:
-        request_headers["Authorization"] = f"Bearer {settings.openrouter_api_key}"
-    if settings.openrouter_site_url:
-        request_headers["HTTP-Referer"] = settings.openrouter_site_url
-        request_headers["Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        request_headers["X-Title"] = settings.openrouter_app_name
+    lowered_url = normalized_url.lower()
+    if ("polza.ai" in lowered_url or "polza.ai" in lowered_url) and settings.polza_api_key:
+        request_headers["Authorization"] = f"Bearer {settings.polza_api_key}"
+    if settings.polza_site_url:
+        request_headers["HTTP-Referer"] = settings.polza_site_url
+        request_headers["Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        request_headers["X-Title"] = settings.polza_app_name
 
     try:
         response = HTTP_SESSION.get(

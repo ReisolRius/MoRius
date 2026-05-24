@@ -1602,7 +1602,7 @@ def _legacy__extract_story_location_memory_payload_v1(
 
         return fallback_from_player_turn
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
     lowered = normalized.casefold()
     if lowered.startswith(
         (
@@ -1729,14 +1729,14 @@ def _legacy__extract_story_location_memory_payload_v1(
 
         return fallback_from_player_turn
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return fallback_from_player_turn
 
     if not normalized_current_location and not normalized_previous_assistant and not normalized_latest_assistant:
         return None
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -1818,7 +1818,7 @@ def _legacy__extract_story_location_memory_payload_v1(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -1971,7 +1971,7 @@ def _extract_story_location_memory_payload(
     ):
         return None
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return None
 
 
@@ -2021,7 +2021,7 @@ def _extract_story_location_memory_payload(
 
     for attempt_index in range(2):
         try:
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
                 messages_payload,
                 model_name="x-ai/grok-4.1-fast",
                 allow_free_fallback=False,
@@ -6511,7 +6511,7 @@ def _request_story_character_state_seed_cards(
 
     ]
 
-    if not normalized_candidates or not settings.openrouter_api_key:
+    if not normalized_candidates or not settings.polza_api_key:
 
         return []
 
@@ -6662,7 +6662,7 @@ def _request_story_character_state_seed_cards(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -6765,7 +6765,7 @@ def _request_story_character_state_missing_location_cards(
 
     normalized_cards = _normalize_story_character_state_cards_payload(cards)
 
-    if not normalized_cards or not settings.openrouter_api_key:
+    if not normalized_cards or not settings.polza_api_key:
 
         return []
 
@@ -6937,7 +6937,7 @@ def _request_story_character_state_missing_location_cards(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -7030,7 +7030,7 @@ def _request_story_character_state_missing_body_field_cards(
     latest_assistant_text: str,
 ) -> list[dict[str, Any]]:
     normalized_cards = _normalize_story_character_state_cards_payload(cards)
-    if not normalized_cards or not settings.openrouter_api_key:
+    if not normalized_cards or not settings.polza_api_key:
         return []
 
     normalized_user_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
@@ -7164,7 +7164,7 @@ def _request_story_character_state_missing_body_field_cards(
 
     for attempt_index in range(2):
         try:
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
                 messages_payload,
                 model_name="x-ai/grok-4.1-fast",
                 allow_free_fallback=False,
@@ -8282,7 +8282,7 @@ def _extract_story_postprocess_memory_payload(
     scene_emotion_allowed_emotions: list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -8832,7 +8832,7 @@ def _extract_story_postprocess_memory_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -9037,7 +9037,7 @@ def _extract_story_environment_state_payload(
 
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -9170,7 +9170,7 @@ def _extract_story_environment_state_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -9873,7 +9873,7 @@ def _seed_story_environment_weather_payload(
 
 ) -> dict[str, Any] | None:
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -10007,7 +10007,7 @@ def _seed_story_environment_weather_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -12418,7 +12418,7 @@ def _compress_story_memory_block_with_model(
             known_character_names=known_character_names,
         )
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         if allow_local_fallback:
 
@@ -12572,7 +12572,7 @@ def _compress_story_memory_block_with_model(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 
@@ -13310,7 +13310,7 @@ def _extract_story_important_plot_card_payload(
 
 
 
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
 
         return None
 
@@ -13389,7 +13389,7 @@ def _extract_story_important_plot_card_payload(
 
         try:
 
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
 
                 messages_payload,
 

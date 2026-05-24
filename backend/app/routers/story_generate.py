@@ -23,10 +23,6 @@ from app.services.story_cards import (
     normalize_story_plot_card_triggers,
     story_plot_card_to_out,
 )
-from app.services.story_events import (
-    story_plot_card_change_event_to_out,
-    story_world_card_change_event_to_out,
-)
 from app.services.story_games import (
     STORY_DEFAULT_TITLE,
     coerce_story_llm_model,
@@ -66,15 +62,15 @@ logger = logging.getLogger(__name__)
 
 _FALLBACK_STREAM_PERSIST_MIN_CHARS = 120
 _FALLBACK_STREAM_PERSIST_MAX_INTERVAL_SECONDS = 1.5
-_FALLBACK_OPENROUTER_FAILURE_MARKERS = (
+_FALLBACK_POLZA_FAILURE_MARKERS = (
     "provider returned error",
     "internal server error",
     "server_error",
     "upstream",
-    "openrouter chat error (500)",
-    "openrouter chat error (502)",
-    "openrouter chat error (503)",
-    "openrouter chat error (504)",
+    "polza chat error (500)",
+    "polza chat error (502)",
+    "polza chat error (503)",
+    "polza chat error (504)",
 )
 _FALLBACK_REROLL_REFERENCE_MAX_CHARS = 1_800
 
@@ -103,12 +99,12 @@ def _fallback_is_story_provider_failure_detail(detail: str | None) -> bool:
     normalized_detail = str(detail or "").casefold()
     if not normalized_detail:
         return False
-    return any(marker in normalized_detail for marker in _FALLBACK_OPENROUTER_FAILURE_MARKERS)
+    return any(marker in normalized_detail for marker in _FALLBACK_POLZA_FAILURE_MARKERS)
 
 
 def _fallback_public_story_provider_failure_detail(detail: str | None) -> str:
     normalized_detail = re.sub(r"\s+", " ", str(detail or "").replace("\r\n", "\n").strip())
-    if normalized_detail.casefold().startswith("openrouter chat error") and "{" in normalized_detail:
+    if normalized_detail.casefold().startswith("polza chat error") and "{" in normalized_detail:
         normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")
     return normalized_detail[:500] or "Provider returned error"
 
@@ -314,11 +310,7 @@ def _fallback_seed_story_opening_scene_memory_block(**kwargs: Any) -> bool:
     return False
 
 
-def _fallback_persist_generated_world_cards(**kwargs: Any) -> list[Any]:
-    return []
-
-
-def _fallback_extract_openrouter_error_detail(response: requests.Response) -> str:
+def _fallback_extract_polza_error_detail(response: requests.Response) -> str:
     try:
         payload = response.json()
     except ValueError:
@@ -333,10 +325,10 @@ def _fallback_extract_openrouter_error_detail(response: requests.Response) -> st
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
-    return response.text.strip()[:500] or f"OpenRouter chat error ({response.status_code})"
+    return response.text.strip()[:500] or f"Polza.ai chat error ({response.status_code})"
 
 
-def _fallback_extract_openrouter_content(response_payload: dict[str, Any]) -> str:
+def _fallback_extract_polza_content(response_payload: dict[str, Any]) -> str:
     choices = response_payload.get("choices")
     if not isinstance(choices, list) or not choices:
         return ""
@@ -619,14 +611,14 @@ def _fallback_iter_story_provider_chunks(
         )
         return
 
-    selected_model_name = (story_model_name or settings.openrouter_model).strip()
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url or not selected_model_name:
+    selected_model_name = (story_model_name or settings.polza_model).strip()
+    if not settings.polza_api_key or not settings.polza_chat_url or not selected_model_name:
         raise RuntimeError(
-            "OpenRouter chat error (503): story provider is not configured for the fallback runtime"
+            "Polza.ai chat error (503): story provider is not configured for the fallback runtime"
         )
 
     if not context_messages:
-        raise RuntimeError("OpenRouter chat error (500): story context is empty")
+        raise RuntimeError("Polza.ai chat error (500): story context is empty")
 
     game: StoryGame | None = None
     latest_message = context_messages[-1] if context_messages else None
@@ -639,14 +631,14 @@ def _fallback_iter_story_provider_chunks(
             game = maybe_game
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     request_payload = {
         "model": selected_model_name,
@@ -670,18 +662,18 @@ def _fallback_iter_story_provider_chunks(
 
     try:
         response = requests.post(
-            settings.openrouter_chat_url,
+            settings.polza_chat_url,
             headers=headers,
             json=request_payload,
             timeout=(20, 180),
             stream=True,
         )
     except requests.RequestException as exc:
-        raise RuntimeError(f"OpenRouter chat error (503): {exc}") from exc
+        raise RuntimeError(f"Polza.ai chat error (503): {exc}") from exc
 
     if response.status_code >= 400:
-        detail = _fallback_extract_openrouter_error_detail(response)
-        raise RuntimeError(f"OpenRouter chat error ({response.status_code}): {detail}")
+        detail = _fallback_extract_polza_error_detail(response)
+        raise RuntimeError(f"Polza.ai chat error ({response.status_code}): {detail}")
 
     response.encoding = "utf-8"
     raw_chunks: list[str] = []
@@ -707,7 +699,7 @@ def _fallback_iter_story_provider_chunks(
             error_value = chunk_payload.get("error")
             if isinstance(error_value, dict):
                 error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+                raise RuntimeError(error_detail or "Polza.ai stream returned an error")
             if isinstance(error_value, str) and error_value.strip():
                 raise RuntimeError(error_value.strip())
 
@@ -762,29 +754,29 @@ def _fallback_iter_story_provider_chunks(
         fallback_payload["max_tokens"] = max(normalize_story_response_max_tokens(None) * 3, 1_200)
     try:
         fallback_response = requests.post(
-            settings.openrouter_chat_url,
+            settings.polza_chat_url,
             headers={key: value for key, value in headers.items() if key != "Accept"},
             json=fallback_payload,
             timeout=(20, 180),
         )
     except requests.RequestException as exc:
-        raise RuntimeError(f"OpenRouter chat error (503): {exc}") from exc
+        raise RuntimeError(f"Polza.ai chat error (503): {exc}") from exc
 
     if fallback_response.status_code >= 400:
-        detail = _fallback_extract_openrouter_error_detail(fallback_response)
-        raise RuntimeError(f"OpenRouter chat error ({fallback_response.status_code}): {detail}")
+        detail = _fallback_extract_polza_error_detail(fallback_response)
+        raise RuntimeError(f"Polza.ai chat error ({fallback_response.status_code}): {detail}")
     try:
         fallback_response_payload = fallback_response.json()
     except ValueError as exc:
-        raise RuntimeError("OpenRouter chat error (500): invalid JSON response") from exc
+        raise RuntimeError("Polza.ai chat error (500): invalid JSON response") from exc
 
-    fallback_output_text = _fallback_extract_openrouter_content(fallback_response_payload).replace("\r\n", "\n").strip()
+    fallback_output_text = _fallback_extract_polza_content(fallback_response_payload).replace("\r\n", "\n").strip()
     if not fallback_output_text and output_text:
         if raw_output_collector is not None:
             raw_output_collector["raw_output"] = output_text
         return
     if not fallback_output_text:
-        raise RuntimeError("OpenRouter chat error (500): empty response")
+        raise RuntimeError("Polza.ai chat error (500): empty response")
     if output_text:
         suffix_text = _extract_novel_suffix(output_text, fallback_output_text)
         merged_output = f"{output_text}{suffix_text}"
@@ -873,7 +865,7 @@ def _fallback_resolve_story_turn_postprocess_payload(
             break
 
     try:
-        return story_games_router._build_story_grok_environment_postprocess_payload(
+        return story_games_router._build_story_environment_postprocess_payload(
             game=game,
             latest_user_prompt=latest_user_prompt,
             latest_assistant_text=latest_assistant_text,
@@ -885,14 +877,14 @@ def _fallback_resolve_story_turn_postprocess_payload(
         raise
     except Exception:
         logger.exception(
-            "Fallback runtime failed to obtain Grok environment payload: game_id=%s assistant_message_id=%s",
+            "Fallback runtime failed to obtain story environment payload: game_id=%s assistant_message_id=%s",
             game.id,
             assistant_message.id,
         )
         return None
 
 
-def _fallback_apply_story_grok_postprocess_payload(
+def _fallback_apply_story_environment_postprocess_payload(
     *,
     db: Session,
     game: StoryGame,
@@ -906,7 +898,7 @@ def _fallback_apply_story_grok_postprocess_payload(
         return False
 
     try:
-        story_games_router._apply_story_grok_environment_postprocess_payload(
+        story_games_router._apply_story_environment_postprocess_payload(
             db=db,
             game=game,
             assistant_message=assistant_message,
@@ -918,7 +910,7 @@ def _fallback_apply_story_grok_postprocess_payload(
         return True
     except Exception:
         logger.exception(
-            "Fallback runtime failed to apply Grok environment payload: game_id=%s assistant_message_id=%s",
+            "Fallback runtime failed to apply story environment payload: game_id=%s assistant_message_id=%s",
             game.id,
             assistant_message.id,
         )
@@ -945,7 +937,7 @@ def _fallback_sync_story_memory_and_environment(
             assistant_message.id,
         )
         if isinstance(resolved_postprocess_payload_override, dict):
-            return _fallback_apply_story_grok_postprocess_payload(
+            return _fallback_apply_story_environment_postprocess_payload(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
@@ -1100,7 +1092,7 @@ def _fallback_sync_story_memory_and_environment(
             )
         if should_force_memory_rebalance or memory_changed or key_memory_changed:
             try:
-                story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game)
+                story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
                 rebalance_changed = True
             except Exception:
                 logger.exception(
@@ -1126,7 +1118,7 @@ def _fallback_sync_story_memory_and_environment(
         )
         db.rollback()
         if isinstance(resolved_postprocess_payload_override, dict):
-            return _fallback_apply_story_grok_postprocess_payload(
+            return _fallback_apply_story_environment_postprocess_payload(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
@@ -1207,7 +1199,6 @@ def _fallback_build_story_runtime_deps() -> StoryRuntimeDeps:
         add_user_tokens=_fallback_add_user_tokens,
         stream_story_provider_chunks=_fallback_iter_story_provider_chunks,
         normalize_generated_story_output=_fallback_normalize_generated_story_output,
-        persist_generated_world_cards=_fallback_persist_generated_world_cards,
         upsert_story_plot_memory_card=_fallback_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_fallback_list_story_prompt_memory_cards,
         list_story_memory_blocks=list_story_memory_blocks,
@@ -1215,8 +1206,6 @@ def _fallback_build_story_runtime_deps() -> StoryRuntimeDeps:
         memory_block_to_out=story_memory_block_to_out,
         plot_card_to_out=story_plot_card_to_out,
         world_card_to_out=story_world_card_to_out,
-        world_card_event_to_out=story_world_card_change_event_to_out,
-        plot_card_event_to_out=story_plot_card_change_event_to_out,
         resolve_story_ambient_profile=lambda **kwargs: None,
         resolve_story_scene_emotion_payload=lambda **kwargs: None,
         resolve_story_turn_postprocess_payload=_fallback_resolve_story_turn_postprocess_payload,
@@ -1231,15 +1220,15 @@ def _fallback_build_story_runtime_deps() -> StoryRuntimeDeps:
 
 
 def _fallback_validate_provider_config() -> None:
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: missing OPENROUTER_API_KEY",
+            detail="Story provider is not configured: missing POLZA_API_KEY",
         )
-    if not settings.openrouter_chat_url:
+    if not settings.polza_chat_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: missing OPENROUTER_CHAT_URL",
+            detail="Story provider is not configured: missing POLZA_CHAT_URL",
         )
 
 

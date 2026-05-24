@@ -1596,6 +1596,19 @@ export async function rejectModerationCharacterForAdmin(payload: any): Promise<A
   )
 }
 
+export async function returnCharacterToModerationAsAdmin(payload: any): Promise<MessageResponse> {
+  const token = extractCompatToken(payload)
+  const characterId = extractCompatNumber(payload, 'character_id', 'characterId', 'id')
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/moderation/characters/${characterId}/return`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function getModerationInstructionTemplateForAdmin(payload: any): Promise<AdminModerationInstructionTemplateDetail> {
   const token = extractCompatToken(payload)
   const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
@@ -1651,6 +1664,19 @@ export async function rejectModerationInstructionTemplateForAdmin(payload: any):
   )
 }
 
+export async function returnInstructionTemplateToModerationAsAdmin(payload: any): Promise<MessageResponse> {
+  const token = extractCompatToken(payload)
+  const templateId = extractCompatNumber(payload, 'template_id', 'templateId', 'instruction_template_id', 'id')
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/moderation/instruction-templates/${templateId}/return`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function getModerationWorldForAdmin(payload: any): Promise<AdminModerationWorldDetail> {
   const token = extractCompatToken(payload)
   const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
@@ -1684,6 +1710,19 @@ export async function approveModerationWorldForAdmin(payload: any): Promise<Admi
   const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
   return requestJson<AdminModerationWorldDetail>(
     `/api/auth/admin/moderation/worlds/${worldId}/approve`,
+    {
+      method: 'POST',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function returnWorldToModerationAsAdmin(payload: any): Promise<MessageResponse> {
+  const token = extractCompatToken(payload)
+  const worldId = extractCompatNumber(payload, 'world_id', 'worldId', 'id')
+  return requestJson<MessageResponse>(
+    `/api/auth/admin/moderation/worlds/${worldId}/return`,
     {
       method: 'POST',
       headers: buildCompatAuthHeaders(token),

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type Ref,
 } from 'react'
@@ -23,9 +24,6 @@ import {
   useMediaQuery,
   type GrowProps,
 } from '@mui/material'
-import tavernBgImage from '../assets/images/tavern-bg.png'
-import riusDungeonHomeBgImage from '../assets/images/rius-dungeon-home-bg.jpg'
-import { useMoriusThemeController } from '../theme'
 import dashboardContinueIconMarkup from '../assets/icons/dashboard-continue.svg?raw'
 import dashboardQuickStartIconMarkup from '../assets/icons/dashboard-quick-start.svg?raw'
 import sidebarPlusIconMarkup from '../assets/icons/custom/plus.svg?raw'
@@ -45,6 +43,12 @@ import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
+import {
+  CommunityModerationCardFrame,
+  CommunityModerationMenu,
+  canModerateCommunityContent,
+  type CommunityModerationTarget,
+} from '../components/community/CommunityModerationActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
 import DeferredImage from '../components/media/DeferredImage'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
@@ -62,6 +66,9 @@ import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
   listDashboardNews,
+  returnCharacterToModerationAsAdmin,
+  returnInstructionTemplateToModerationAsAdmin,
+  returnWorldToModerationAsAdmin,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
@@ -125,6 +132,7 @@ type DashboardQuickAction = {
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
+const DASHBOARD_BACKGROUND_FADE_MS = 900
 
 /**
  * Crossfade layer for the news hero image.
@@ -176,6 +184,126 @@ function NewsXfLayer({ src, onReady }: { src: string; onReady: (src: string) => 
         pointerEvents: 'none',
       }}
     />
+  )
+}
+
+type DashboardNewsBackgroundLayer = {
+  id: number
+  src: string
+  visible: boolean
+}
+
+function DashboardNewsBackgroundImage({ src }: { src: string }) {
+  const normalizedInitialSrc = src.trim()
+  const [layers, setLayers] = useState<DashboardNewsBackgroundLayer[]>(
+    normalizedInitialSrc ? [{ id: 0, src: normalizedInitialSrc, visible: true }] : [],
+  )
+  const latestSrcRef = useRef(normalizedInitialSrc)
+  const latestLayerIdRef = useRef(0)
+  const nextLayerIdRef = useRef(0)
+  const cleanupTimerRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    const nextSrc = src.trim()
+    if (nextSrc === latestSrcRef.current) {
+      return
+    }
+
+    latestSrcRef.current = nextSrc
+
+    if (!nextSrc) {
+      latestLayerIdRef.current = -1
+      setLayers([])
+      return
+    }
+
+    const nextLayerId = nextLayerIdRef.current + 1
+    nextLayerIdRef.current = nextLayerId
+    latestLayerIdRef.current = nextLayerId
+    setLayers((previousLayers) => [
+      ...previousLayers.filter((layer) => layer.src !== nextSrc),
+      { id: nextLayerId, src: nextSrc, visible: false },
+    ])
+  }, [src])
+
+  useEffect(() => {
+    return () => {
+      if (cleanupTimerRef.current !== null) {
+        window.clearTimeout(cleanupTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleLayerReady = useCallback((layerId: number) => {
+    if (layerId !== latestLayerIdRef.current) {
+      setLayers((previousLayers) => previousLayers.filter((layer) => layer.id !== layerId))
+      return
+    }
+
+    setLayers((previousLayers) =>
+      previousLayers.map((layer) => ({
+        ...layer,
+        visible: layer.id === layerId,
+      })),
+    )
+
+    if (cleanupTimerRef.current !== null) {
+      window.clearTimeout(cleanupTimerRef.current)
+    }
+    cleanupTimerRef.current = window.setTimeout(() => {
+      setLayers((previousLayers) => previousLayers.filter((layer) => layer.id === layerId))
+      cleanupTimerRef.current = null
+    }, DASHBOARD_BACKGROUND_FADE_MS + 180)
+  }, [])
+
+  const handleLayerError = useCallback((layerId: number) => {
+    setLayers((previousLayers) => {
+      const nextLayers = previousLayers.filter((layer) => layer.id !== layerId)
+      if (layerId !== latestLayerIdRef.current || nextLayers.length === 0) {
+        return nextLayers
+      }
+      const fallbackLayer = nextLayers[nextLayers.length - 1]
+      latestLayerIdRef.current = fallbackLayer.id
+      latestSrcRef.current = fallbackLayer.src
+      return nextLayers.map((layer) => ({
+        ...layer,
+        visible: layer.id === fallbackLayer.id,
+      }))
+    })
+  }, [])
+
+  const imageSx = {
+    position: 'absolute',
+    inset: '-12%',
+    width: '124%',
+    height: '124%',
+    objectFit: 'cover',
+    objectPosition: 'center',
+    filter: 'blur(118px) saturate(0.84) brightness(0.72)',
+    transform: 'scale(1.08)',
+    willChange: 'opacity',
+  }
+
+  return (
+    <>
+      {layers.map((layer) => (
+        <Box
+          key={layer.id}
+          component="img"
+          src={layer.src}
+          alt=""
+          fetchPriority="low"
+          decoding="async"
+          onLoad={() => handleLayerReady(layer.id)}
+          onError={() => handleLayerError(layer.id)}
+          sx={{
+            ...imageSx,
+            opacity: layer.visible ? 1 : 0,
+            transition: `opacity ${DASHBOARD_BACKGROUND_FADE_MS}ms ease-in-out`,
+          }}
+        />
+      ))}
+    </>
   )
 }
 const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
@@ -526,8 +654,6 @@ function getDashboardNewsFallbackImage(slot: number): string {
 }
 
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
-  const { themeId } = useMoriusThemeController()
-  const heroBgImage = themeId === 'rius-dungeon' ? riusDungeonHomeBgImage : tavernBgImage
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
@@ -557,10 +683,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [dashboardNewsEditingId, setDashboardNewsEditingId] = useState<number | null>(null)
   const [dashboardNewsImageCropSource, setDashboardNewsImageCropSource] = useState<string | null>(null)
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
-  const [isBgImageLoaded, setIsBgImageLoaded] = useState(false)
-  useEffect(() => {
-    setIsBgImageLoaded(false)
-  }, [heroBgImage])
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
@@ -577,6 +699,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityRules, setCommunityRules] = useState<StoryCommunityInstructionTemplateSummary[]>([])
   const [isCommunityRulesLoading, setIsCommunityRulesLoading] = useState(false)
   const [communityRulesError, setCommunityRulesError] = useState('')
+  const [communityModerationAnchorEl, setCommunityModerationAnchorEl] = useState<HTMLElement | null>(null)
+  const [communityModerationTarget, setCommunityModerationTarget] = useState<CommunityModerationTarget | null>(null)
+  const [isCommunityModerationSaving, setIsCommunityModerationSaving] = useState(false)
   const [storyGames, setStoryGames] = useState<StoryGameSummary[]>([])
   const [isDashboardDataLoading, setIsDashboardDataLoading] = useState(true)
   const [isDashboardContinueResolving, setIsDashboardContinueResolving] = useState(false)
@@ -1450,6 +1575,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     ? communityWorldGameIds[selectedCommunityWorld.world.id] ?? []
     : []
   const isSelectedCommunityWorldInMyGames = selectedCommunityWorldGameIds.length > 0
+  const canModerateCommunityCards = canModerateCommunityContent(user.role)
   const profileName = user.display_name || 'Игрок'
   const communityWorldsPreview = communityWorlds.slice(0, HOME_COMMUNITY_WORLD_LIMIT)
   const dashboardLastPlayedGame = useMemo(() => selectLastPlayedGame(storyGames), [storyGames])
@@ -1466,6 +1592,68 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 50
   const selectedDashboardNewsImage =
     selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
+
+  const handleOpenCommunityModerationMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, target: CommunityModerationTarget) => {
+      if (!canModerateCommunityCards || isCommunityModerationSaving) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      setCommunityModerationAnchorEl(event.currentTarget)
+      setCommunityModerationTarget(target)
+    },
+    [canModerateCommunityCards, isCommunityModerationSaving],
+  )
+
+  const handleCloseCommunityModerationMenu = useCallback(() => {
+    if (isCommunityModerationSaving) {
+      return
+    }
+    setCommunityModerationAnchorEl(null)
+    setCommunityModerationTarget(null)
+  }, [isCommunityModerationSaving])
+
+  const handleReturnCommunityTargetToModeration = useCallback(
+    async (target: CommunityModerationTarget) => {
+      if (!canModerateCommunityCards || isCommunityModerationSaving) {
+        return
+      }
+      setIsCommunityModerationSaving(true)
+      setCommunityWorldsError('')
+      setCommunityCharactersError('')
+      setCommunityRulesError('')
+      try {
+        if (target.kind === 'world') {
+          await returnWorldToModerationAsAdmin({ token: authToken, world_id: target.id })
+          setCommunityWorlds((previous) => previous.filter((item) => item.id !== target.id))
+          setSelectedCommunityWorld((previous) =>
+            previous?.world.id === target.id ? null : previous,
+          )
+        } else if (target.kind === 'character') {
+          await returnCharacterToModerationAsAdmin({ token: authToken, character_id: target.id })
+          setCommunityCharacters((previous) => previous.filter((item) => item.id !== target.id))
+        } else {
+          await returnInstructionTemplateToModerationAsAdmin({ token: authToken, template_id: target.id })
+          setCommunityRules((previous) => previous.filter((item) => item.id !== target.id))
+        }
+        setCommunityModerationAnchorEl(null)
+        setCommunityModerationTarget(null)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось вернуть карточку на модерацию'
+        if (target.kind === 'world') {
+          setCommunityWorldsError(detail)
+        } else if (target.kind === 'character') {
+          setCommunityCharactersError(detail)
+        } else {
+          setCommunityRulesError(detail)
+        }
+      } finally {
+        setIsCommunityModerationSaving(false)
+      }
+    },
+    [authToken, canModerateCommunityCards, isCommunityModerationSaving],
+  )
 
   useEffect(() => {
     rememberLastPlayedGameCard(dashboardLastPlayedGame)
@@ -1619,6 +1807,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setNewsXfCurrentSrc(src)
     setNewsXfNextSrc(undefined)
   }, [])
+  const dashboardBackgroundImage = selectedDashboardNewsImage
 
   return (
     <Box
@@ -1649,26 +1838,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           maskImage: 'linear-gradient(to bottom, black 0%, black 45%, transparent 88%)',
         }}
       >
-        <Box
-          key={heroBgImage}
-          component="img"
-          src={heroBgImage}
-          alt=""
-          fetchPriority="low"
-          decoding="async"
-          onLoad={() => setIsBgImageLoaded(true)}
-          sx={{
-            position: 'absolute',
-            inset: '-8%',
-            width: '116%',
-            height: '116%',
-            objectFit: 'cover',
-            objectPosition: 'center 40%',
-            filter: 'blur(56px) saturate(0.65) brightness(0.52)',
-            opacity: isBgImageLoaded ? 1 : 0,
-            transition: 'opacity 900ms ease',
-          }}
-        />
+        <DashboardNewsBackgroundImage src={dashboardBackgroundImage} />
       </Box>
 
       <AppHeader
@@ -2351,15 +2521,24 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     ))
                   : communityWorldsPreview.map((world) => (
                       <SliderCard key={world.id}>
-                        <CommunityWorldCard
-                          world={world}
-                          onClick={() => void handleOpenCommunityWorld(world.id)}
-                          onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                          disabled={isCommunityWorldDialogLoading}
-                          showFavoriteButton
-                          isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                          onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                        />
+                        <CommunityModerationCardFrame
+                          canModerate={canModerateCommunityCards}
+                          disabled={isCommunityModerationSaving}
+                          actionOffsetRight={50}
+                          onOpenMenu={(event) =>
+                            handleOpenCommunityModerationMenu(event, { kind: 'world', id: world.id, title: world.title })
+                          }
+                        >
+                          <CommunityWorldCard
+                            world={world}
+                            onClick={() => void handleOpenCommunityWorld(world.id)}
+                            onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                            disabled={isCommunityWorldDialogLoading}
+                            showFavoriteButton
+                            isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                            onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                          />
+                        </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
               </HomeCardSlider>
@@ -2381,6 +2560,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       authorAvatarUrl={world.author_avatar_url}
                       stat1={`${world.community_launches} ▶`}
                       stat2={`${world.community_rating_avg.toFixed(1)} ★`}
+                      onMenuClick={
+                        canModerateCommunityCards
+                          ? (event) =>
+                              handleOpenCommunityModerationMenu(event, {
+                                kind: 'world',
+                                id: world.id,
+                                title: world.title,
+                              })
+                          : undefined
+                      }
                       onClick={() => void handleOpenCommunityWorld(world.id)}
                     />
                   ))}
@@ -2409,7 +2598,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     ))
                   : communityCharacters.map((item) => (
                       <SliderCard key={item.id}>
-                        <HomeCharacterCard item={item} onClick={() => onNavigate('/games/all?tab=characters')} />
+                        <CommunityModerationCardFrame
+                          canModerate={canModerateCommunityCards}
+                          disabled={isCommunityModerationSaving}
+                          onOpenMenu={(event) =>
+                            handleOpenCommunityModerationMenu(event, { kind: 'character', id: item.id, title: item.name })
+                          }
+                        >
+                          <HomeCharacterCard item={item} onClick={() => onNavigate('/games/all?tab=characters')} />
+                        </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
               </HomeCardSlider>
@@ -2430,6 +2627,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       authorAvatarUrl={item.author_avatar_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      onMenuClick={
+                        canModerateCommunityCards
+                          ? (event) =>
+                              handleOpenCommunityModerationMenu(event, {
+                                kind: 'character',
+                                id: item.id,
+                                title: item.name,
+                              })
+                          : undefined
+                      }
                       onClick={() => onNavigate('/games/all?tab=characters')}
                     />
                   ))}
@@ -2458,7 +2665,15 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                     ))
                   : communityRules.map((item) => (
                       <SliderCard key={item.id}>
-                        <HomeRuleCard item={item} onClick={() => onNavigate('/games/all?tab=rules')} />
+                        <CommunityModerationCardFrame
+                          canModerate={canModerateCommunityCards}
+                          disabled={isCommunityModerationSaving}
+                          onOpenMenu={(event) =>
+                            handleOpenCommunityModerationMenu(event, { kind: 'instruction_template', id: item.id, title: item.title })
+                          }
+                        >
+                          <HomeRuleCard item={item} onClick={() => onNavigate('/games/all?tab=rules')} />
+                        </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
               </HomeCardSlider>
@@ -2479,6 +2694,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       authorAvatarUrl={item.author_avatar_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
+                      onMenuClick={
+                        canModerateCommunityCards
+                          ? (event) =>
+                              handleOpenCommunityModerationMenu(event, {
+                                kind: 'instruction_template',
+                                id: item.id,
+                                title: item.title,
+                              })
+                          : undefined
+                      }
                       onClick={() => onNavigate('/games/all?tab=rules')}
                     />
                   ))}
@@ -2488,6 +2713,16 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
 
         </Box>
       </Box>
+
+      <CommunityModerationMenu
+        anchorEl={communityModerationAnchorEl}
+        target={communityModerationTarget}
+        isSaving={isCommunityModerationSaving}
+        onClose={handleCloseCommunityModerationMenu}
+        onReturnToModeration={(target) => {
+          void handleReturnCommunityTargetToModeration(target)
+        }}
+      />
 
       <QuickStartWizardDialog
         open={isQuickStartDialogOpen}

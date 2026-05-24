@@ -181,8 +181,8 @@ def optimize_story_memory(
                 game=game,
                 starting_assistant_message_id=starting_assistant_message_id,
                 max_assistant_messages=int(payload.max_assistant_messages or 48),
-                max_model_requests=2,
-                require_model_compaction=True,
+                max_model_requests=1,
+                require_model_compaction=False,
             )
             db.commit()
         except Exception as exc:

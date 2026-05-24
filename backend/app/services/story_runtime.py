@@ -84,13 +84,12 @@ class StoryRuntimeDeps:
     list_story_world_cards: Callable[[Session, int], list[Any]]
     select_story_world_cards_for_prompt: Callable[[list[StoryMessage], list[Any]], list[dict[str, Any]]]
     select_story_world_cards_triggered_by_text: Callable[[str, list[Any]], list[dict[str, Any]]]
-    normalize_context_limit_chars: Callable[[int | None], int]
+    normalize_context_limit_chars: Callable[..., int]
     get_story_turn_cost_tokens: Callable[[int | None, str | None], int]
     spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
     add_user_tokens: Callable[[Session, int, int], None]
     stream_story_provider_chunks: Callable[..., Any]
     normalize_generated_story_output: Callable[..., str]
-    persist_generated_world_cards: Callable[..., list[Any]]
     upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
     list_story_prompt_memory_cards: Callable[[Session, StoryGame, bool, list[StoryMessage] | None], list[dict[str, str]]]
     list_story_memory_blocks: Callable[[Session, int], list[Any]]
@@ -98,8 +97,6 @@ class StoryRuntimeDeps:
     memory_block_to_out: Callable[[Any], Any]
     plot_card_to_out: Callable[[Any], Any]
     world_card_to_out: Callable[[Any], Any]
-    world_card_event_to_out: Callable[[Any], Any]
-    plot_card_event_to_out: Callable[[Any], Any]
     resolve_story_ambient_profile: Callable[..., dict[str, Any] | None]
     resolve_story_scene_emotion_payload: Callable[..., str | None]
     resolve_story_turn_postprocess_payload: Callable[..., dict[str, Any] | None]
@@ -164,7 +161,7 @@ def _public_story_error_detail(exc: Exception) -> str:
         return "Text generation failed"
     if is_database_busy_session_error(exc):
         return STORY_SQLITE_BUSY_DETAIL
-    if detail.casefold().startswith("openrouter chat error") and "{" in detail:
+    if detail.casefold().startswith("polza chat error") and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
 
@@ -497,7 +494,7 @@ def _best_effort_sync_story_turn_memory_and_environment(
 
     if (memory_changed or should_force_memory_rebalance) and story_memory_pipeline is not None:
         try:
-            story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game)
+            story_memory_pipeline._rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
         except Exception:
             logger.exception(
                 "Story fallback memory rebalance failed: game_id=%s assistant_message_id=%s",
@@ -680,7 +677,26 @@ def _stream_story_response(
         logger.exception("Story generation failed")
         db.rollback()
         error_detail = _public_story_error_detail(exc)
+        try:
+            if assistant_message is not None:
+                db.delete(assistant_message)
+            if turn_cost_tokens > 0:
+                deps.add_user_tokens(db, int(user.id), turn_cost_tokens)
+            deps.touch_story_game(game)
+            commit_with_retry(db)
+            try:
+                db.refresh(user)
+            except Exception:
+                pass
+        except Exception:
+            logger.exception(
+                "Failed to clean up failed story stream: game_id=%s assistant_message_id=%s",
+                game.id,
+                getattr(assistant_message, "id", None),
+            )
+            db.rollback()
         yield _sse_event("error", {"detail": error_detail})
+        return
 
     if aborted:
         try:
@@ -929,13 +945,9 @@ def _stream_story_response(
             memory_optimization_enabled,
         )
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "memory_sync"})
-        world_card_events_out: list[Any] = []
-        plot_card_events_out: list[Any] = []
         plot_card_created = False
         postprocess_pending = False
         postprocess_failed = False
-        environment_enabled_for_turn = bool(getattr(game, "environment_enabled", None))
-        previous_environment_datetime = str(getattr(game, "environment_current_datetime", "") or "")
 
         def _assistant_has_memory_block(items: list[Any]) -> bool:
             for item in items:
@@ -952,7 +964,7 @@ def _stream_story_response(
             return False
 
         try:
-            plot_card_created, generated_plot_events = deps.upsert_story_plot_memory_card(
+            plot_card_created, _generated_plot_events = deps.upsert_story_plot_memory_card(
                 db=db,
                 game=game,
                 assistant_message=assistant_message,
@@ -987,12 +999,9 @@ def _stream_story_response(
                 str(getattr(game, "environment_current_datetime", "") or ""),
             )
             if memory_optimization_enabled:
-                plot_card_events_out = [
-                    deps.plot_card_event_to_out(event) for event in generated_plot_events if event.undone_at is None
-                ]
                 plot_memory_payload = {
                     "assistant_message_id": assistant_message.id,
-                    "plot_card_events": _safe_dump_stream_events(plot_card_events_out),
+                    "plot_card_events": [],
                     "plot_cards": _safe_dump_stream_items(
                         [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
                     ),
@@ -1008,15 +1017,8 @@ def _stream_story_response(
             postprocess_failed = True
 
         memory_blocks_after_postprocess = deps.list_story_memory_blocks(db, game.id)
-        current_environment_datetime = str(getattr(game, "environment_current_datetime", "") or "")
         needs_baseline_sync = postprocess_failed or (
             memory_optimization_enabled and not _assistant_has_memory_block(memory_blocks_after_postprocess)
-        ) or (
-            environment_enabled_for_turn
-            and (
-                not current_environment_datetime
-                or current_environment_datetime == previous_environment_datetime
-            )
         )
 
         baseline_synced = False
@@ -1037,23 +1039,6 @@ def _stream_story_response(
                 assistant_message.id,
             )
 
-        yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "world_cards"})
-        try:
-            generated_events = deps.persist_generated_world_cards(
-                db=db,
-                game=game,
-                assistant_message=assistant_message,
-                prompt=prompt,
-                assistant_text=assistant_text_for_postprocess,
-                memory_optimization_enabled=memory_optimization_enabled,
-            )
-            world_card_events_out.extend(
-                deps.world_card_event_to_out(event) for event in generated_events if event.undone_at is None
-            )
-        except Exception:
-            logger.exception("Failed to persist generated world cards")
-            db.rollback()
-
         ai_memory_blocks_payload = _safe_dump_stream_items(
             [deps.memory_block_to_out(block) for block in deps.list_story_memory_blocks(db, game.id)]
         )
@@ -1069,8 +1054,8 @@ def _stream_story_response(
             },
             "user": UserOut.model_validate(user).model_dump(mode="json"),
             "turn_cost_tokens": turn_cost_tokens,
-            "world_card_events": _safe_dump_stream_events(world_card_events_out),
-            "plot_card_events": _safe_dump_stream_events(plot_card_events_out),
+            "world_card_events": [],
+            "plot_card_events": [],
             "plot_cards": _safe_dump_stream_items(
                 [deps.plot_card_to_out(card) for card in deps.list_story_plot_cards(db, game.id)]
             ),
@@ -1276,7 +1261,10 @@ def _generate_story_response_locked(
         story_response_max_tokens_enabled = True
     if not story_response_max_tokens_enabled:
         story_response_max_tokens = None
-    context_limit_chars = deps.normalize_context_limit_chars(game.context_limit_chars)
+    context_limit_chars = deps.normalize_context_limit_chars(
+        game.context_limit_chars,
+        model_name=story_model_name,
+    )
     turn_cost_tokens = 0
     messages = deps.list_story_messages(db, game.id)
     discard_last_assistant_steps = max(int(payload.discard_last_assistant_steps or 0), 0)

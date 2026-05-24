@@ -61,7 +61,7 @@ import {
   compressImageDataUrl,
   compressImageFileToDataUrl,
   getJsonDataUrlRequestSafeMaxBytes,
-  prepareAvatarUrlForRequest,
+  prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
 
@@ -238,6 +238,61 @@ function createInstructionTemplateSignature(title: string, content: string): str
   const normalizedTitle = title.replace(/\s+/g, ' ').trim().toLowerCase()
   const normalizedContent = content.replace(/\s+/g, ' ').trim().toLowerCase()
   return `${normalizedTitle}::${normalizedContent}`
+}
+
+function normalizeSaveSignaturePart(value: string | null | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase()
+}
+
+function createPlotCardSignature(values: {
+  title: string
+  content: string
+  triggers?: string | string[] | null
+  is_enabled?: boolean | null
+}): string {
+  const triggers = Array.isArray(values.triggers)
+    ? values.triggers
+    : parseOptionalTriggers(values.triggers ?? '')
+  const normalizedTriggers = triggers.map(normalizeSaveSignaturePart).filter(Boolean).sort().join(',')
+  return [
+    normalizeSaveSignaturePart(values.title),
+    normalizeSaveSignaturePart(values.content),
+    normalizedTriggers,
+    values.is_enabled ? '1' : '0',
+  ].join('::')
+}
+
+function createWorldCharacterSignature(
+  kind: 'main_hero' | 'npc',
+  values: {
+    character_id?: number | null
+    name?: string | null
+    title?: string | null
+    description?: string | null
+    content?: string | null
+    race?: string | null
+    clothing?: string | null
+    inventory?: string | null
+    health_status?: string | null
+    triggers?: string | string[] | null
+  },
+): string {
+  if (typeof values.character_id === 'number' && values.character_id > 0) {
+    return `${kind}:character:${values.character_id}`
+  }
+  const triggers = Array.isArray(values.triggers)
+    ? values.triggers
+    : parseTriggers(values.triggers ?? '', values.name ?? values.title ?? '')
+  return [
+    kind,
+    normalizeSaveSignaturePart(values.name ?? values.title),
+    normalizeSaveSignaturePart(values.description ?? values.content),
+    normalizeSaveSignaturePart(values.race),
+    normalizeSaveSignaturePart(values.clothing),
+    normalizeSaveSignaturePart(values.inventory),
+    normalizeSaveSignaturePart(values.health_status),
+    triggers.map(normalizeSaveSignaturePart).filter(Boolean).sort().join(','),
+  ].join('::')
 }
 
 function buildCommunityFeedCacheKey(userId: number): string {
@@ -703,6 +758,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
   const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
   const publishWithoutMainHeroConfirmedRef = useRef(false)
+  const isSaveInFlightRef = useRef(false)
+  const draftGameIdRef = useRef<number | null>(editingGameId)
   const sortedCharacters = useMemo(() => [...characters].sort((a, b) => a.name.localeCompare(b.name, 'ru-RU')), [characters])
   const selectedInstructionTemplateSignatures = useMemo(
     () => instructionCards.map((card) => createInstructionTemplateSignature(card.title, card.content)),
@@ -1057,12 +1114,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   useEffect(() => {
     if (!isEditMode || editingGameId === null) {
+      draftGameIdRef.current = editingGameId
       setResolvedEditingGameId(editingGameId)
       setIsLoading(false)
       return
     }
     let active = true
     setIsLoading(true)
+    draftGameIdRef.current = editingGameId
     setResolvedEditingGameId(editingGameId)
     const loadEditingPayload = async () => {
       const initialPayload = await getStoryGame({ token: authToken, gameId: editingGameId })
@@ -1083,6 +1142,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     void loadEditingPayload()
       .then((payload) => {
         if (!active) return
+        draftGameIdRef.current = payload.game.id
         setResolvedEditingGameId(payload.game.id)
         setTitle(payload.game.title)
         setDescription(payload.game.description)
@@ -1350,11 +1410,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         if (!targetCharacterId) {
           const normalizedName = card.name.replace(/\s+/g, ' ').trim() || (target === 'main_hero' ? 'Main hero' : 'NPC')
           const normalizedDescription = card.description.replace(/\r\n/g, '\n').trim() || 'World card character'
-          const preparedMirroredAvatarUrl = await prepareAvatarUrlForRequest(card.avatar_url, {
-            maxBytes: CHARACTER_AVATAR_MAX_BYTES,
-            maxDimension: 1200,
-          })
-          const preparedMirroredAvatarOriginalUrl = await prepareAvatarUrlForRequest(card.avatar_original_url ?? card.avatar_url, {
+          const preparedMirroredAvatarPayload = await prepareAvatarPayloadForRequest({
+            avatarUrl: card.avatar_url,
+            avatarOriginalUrl: card.avatar_original_url ?? card.avatar_url,
             maxBytes: CHARACTER_AVATAR_MAX_BYTES,
             maxDimension: 1200,
           })
@@ -1369,8 +1427,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               health_status: normalizeCharacterAdditionalField(card.health_status),
               note: normalizeCharacterNote(card.note),
               triggers: parseTriggers(card.triggers, normalizedName),
-              avatar_url: preparedMirroredAvatarUrl,
-              avatar_original_url: preparedMirroredAvatarOriginalUrl,
+              avatar_url: preparedMirroredAvatarPayload.avatarUrl,
+              avatar_original_url: preparedMirroredAvatarPayload.avatarOriginalUrl,
               avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
               emotion_assets: card.emotion_assets ?? {},
               emotion_model: card.emotion_model ?? null,
@@ -1393,7 +1451,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     health_status: normalizeCharacterAdditionalField(mirroredCharacter.health_status),
                     note: normalizeCharacterNote(mirroredCharacter.note),
                     avatar_url: mirroredCharacter.avatar_url ?? previous.avatar_url,
-                    avatar_original_url: mirroredCharacter.avatar_original_url ?? previous.avatar_original_url ?? previous.avatar_url,
+                    avatar_original_url:
+                      mirroredCharacter.avatar_original_url ?? preparedMirroredAvatarPayload.avatarOriginalUrl,
                     emotion_assets: mirroredCharacter.emotion_assets ?? {},
                     emotion_model: mirroredCharacter.emotion_model ?? '',
                     emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
@@ -1414,7 +1473,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       health_status: normalizeCharacterAdditionalField(mirroredCharacter.health_status),
                       note: normalizeCharacterNote(mirroredCharacter.note),
                       avatar_url: mirroredCharacter.avatar_url ?? item.avatar_url,
-                      avatar_original_url: mirroredCharacter.avatar_original_url ?? item.avatar_original_url ?? item.avatar_url,
+                      avatar_original_url:
+                        mirroredCharacter.avatar_original_url ?? preparedMirroredAvatarPayload.avatarOriginalUrl,
                       emotion_assets: mirroredCharacter.emotion_assets ?? {},
                       emotion_model: mirroredCharacter.emotion_model ?? '',
                       emotion_prompt_lock: mirroredCharacter.emotion_prompt_lock ?? null,
@@ -1680,6 +1740,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   )
 
   const handleSaveWorld = useCallback(async () => {
+    if (isSaveInFlightRef.current) return
     if (!canSubmit) return
     if (shouldConfirmPublishWithoutMainHero && !publishWithoutMainHeroConfirmedRef.current) {
       setIsPublishWithoutMainHeroDialogOpen(true)
@@ -1690,11 +1751,12 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       setErrorMessage('Удалите дубли персонажей: ГГ и NPC не могут ссылаться на одного персонажа, а NPC не должны повторяться.')
       return
     }
+    isSaveInFlightRef.current = true
     setIsSubmitting(true)
     setIsPublishWithoutMainHeroDialogOpen(false)
     setErrorMessage('')
     try {
-      let gameId = resolvedEditingGameId
+      let gameId = draftGameIdRef.current ?? resolvedEditingGameId
       const normalizedTitle = title.trim()
       const normalizedDescription = description.trim()
       const normalizedOpeningScene = openingScene.replace(/\r\n/g, '\n').trim()
@@ -1704,14 +1766,22 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             maxDimension: 1800,
           })
         : coverImageUrl
-      const prepareAvatarForRequest = async (avatarUrl: string | null): Promise<string | null> => {
-        return prepareAvatarUrlForRequest(avatarUrl, {
+      const prepareCharacterAvatarPayloadForRequest = async (
+        card: Pick<EditableCharacterCard, 'avatar_url' | 'avatar_original_url'>,
+      ): Promise<{ avatarUrl: string | null; avatarOriginalUrl: string | null }> => {
+        return prepareAvatarPayloadForRequest({
+          avatarUrl: card.avatar_url,
+          avatarOriginalUrl: card.avatar_original_url ?? card.avatar_url,
           maxBytes: CHARACTER_AVATAR_MAX_BYTES,
           maxDimension: 1200,
         })
       }
-      const prepareWorldBannerForRequest = async (avatarUrl: string | null): Promise<string | null> => {
-        return prepareAvatarUrlForRequest(avatarUrl, {
+      const prepareWorldBannerPayloadForRequest = async (
+        card: Pick<EditableWorldProfileCard, 'avatar_url' | 'avatar_original_url'>,
+      ): Promise<{ avatarUrl: string | null; avatarOriginalUrl: string | null }> => {
+        return prepareAvatarPayloadForRequest({
+          avatarUrl: card.avatar_url,
+          avatarOriginalUrl: card.avatar_original_url ?? card.avatar_url,
           maxBytes: WORLD_PROFILE_BANNER_MAX_BYTES,
           maxDimension: 1800,
         })
@@ -1729,8 +1799,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
         const normalizedCharacterName = card.name.replace(/\s+/g, ' ').trim() || 'Персонаж'
         const normalizedCharacterDescription = card.description.replace(/\r\n/g, '\n').trim() || 'Описание персонажа'
-        const preparedCharacterAvatarUrl = await prepareAvatarForRequest(card.avatar_url)
-        const preparedCharacterAvatarOriginalUrl = await prepareAvatarForRequest(card.avatar_original_url ?? card.avatar_url)
+        const preparedCharacterAvatarPayload = await prepareCharacterAvatarPayloadForRequest(card)
         const createdCharacter = await createStoryCharacter({
           token: authToken,
           input: {
@@ -1742,8 +1811,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             health_status: normalizeCharacterAdditionalField(card.health_status),
             note: normalizeCharacterNote(card.note),
             triggers: parseTriggers(card.triggers, normalizedCharacterName),
-            avatar_url: preparedCharacterAvatarUrl,
-            avatar_original_url: preparedCharacterAvatarOriginalUrl,
+            avatar_url: preparedCharacterAvatarPayload.avatarUrl,
+            avatar_original_url: preparedCharacterAvatarPayload.avatarOriginalUrl,
             avatar_scale: clamp(card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
             emotion_assets: card.emotion_assets ?? {},
             emotion_model: card.emotion_model ?? null,
@@ -1752,7 +1821,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           },
         })
         setCharacters((previous) => [...previous.filter((item) => item.id !== createdCharacter.id), createdCharacter])
-        return {
+        const resolvedCard = {
           ...card,
           character_id: createdCharacter.id,
           source_character_id: createdCharacter.source_character_id ?? card.source_character_id,
@@ -1761,12 +1830,15 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           inventory: normalizeCharacterAdditionalField(createdCharacter.inventory || card.inventory),
           health_status: normalizeCharacterAdditionalField(createdCharacter.health_status || card.health_status),
           avatar_url: createdCharacter.avatar_url ?? card.avatar_url,
-          avatar_original_url: createdCharacter.avatar_original_url ?? card.avatar_original_url ?? card.avatar_url,
+          avatar_original_url: createdCharacter.avatar_original_url ?? preparedCharacterAvatarPayload.avatarOriginalUrl,
           avatar_scale: clamp(createdCharacter.avatar_scale ?? card.avatar_scale ?? 1, AVATAR_SCALE_MIN, AVATAR_SCALE_MAX),
           emotion_assets: createdCharacter.emotion_assets ?? card.emotion_assets,
           emotion_model: createdCharacter.emotion_model ?? card.emotion_model,
           emotion_prompt_lock: createdCharacter.emotion_prompt_lock ?? card.emotion_prompt_lock,
         }
+        setMainHero((previous) => (previous?.localId === card.localId ? resolvedCard : previous))
+        setNpcs((previous) => previous.map((item) => (item.localId === card.localId ? resolvedCard : item)))
+        return resolvedCard
       }
       if (gameId === null) {
         const created = await createStoryGame({
@@ -1783,30 +1855,75 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           cover_position_y: coverPositionY,
         })
         gameId = created.id
+        draftGameIdRef.current = created.id
+        setResolvedEditingGameId(created.id)
       }
       const latest = await getStoryGame({ token: authToken, gameId })
       const existingInstructionById = new Map(latest.instruction_cards.map((card) => [card.id, card]))
+      const existingInstructionBySignature = new Map(
+        latest.instruction_cards.map((card) => [createInstructionTemplateSignature(card.title, card.content), card]),
+      )
+      const savedInstructionIds = new Set<number>()
       for (const card of instructionCards) {
-        if (card.id && existingInstructionById.has(card.id)) await updateStoryInstructionCard({ token: authToken, gameId, instructionId: card.id, title: card.title, content: card.content })
-        else await createStoryInstructionCard({ token: authToken, gameId, title: card.title, content: card.content })
+        const existingCard =
+          (card.id ? existingInstructionById.get(card.id) : undefined) ??
+          existingInstructionBySignature.get(createInstructionTemplateSignature(card.title, card.content))
+        if (existingCard) {
+          const updatedCard = await updateStoryInstructionCard({
+            token: authToken,
+            gameId,
+            instructionId: existingCard.id,
+            title: card.title,
+            content: card.content,
+          })
+          savedInstructionIds.add(updatedCard.id)
+          if (card.id !== updatedCard.id) {
+            setInstructionCards((previous) =>
+              previous.map((item) => (item.localId === card.localId ? { ...item, id: updatedCard.id } : item)),
+            )
+          }
+        } else {
+          const createdCard = await createStoryInstructionCard({ token: authToken, gameId, title: card.title, content: card.content })
+          savedInstructionIds.add(createdCard.id)
+          setInstructionCards((previous) =>
+            previous.map((item) => (item.localId === card.localId ? { ...item, id: createdCard.id } : item)),
+          )
+        }
       }
-      for (const card of latest.instruction_cards) if (!instructionCards.some((item) => item.id === card.id)) await deleteStoryInstructionCard({ token: authToken, gameId, instructionId: card.id })
+      for (const card of latest.instruction_cards) {
+        if (!savedInstructionIds.has(card.id)) {
+          await deleteStoryInstructionCard({ token: authToken, gameId, instructionId: card.id })
+        }
+      }
       const existingPlotById = new Map(latest.plot_cards.map((card) => [card.id, card]))
+      const existingPlotBySignature = new Map(
+        latest.plot_cards.map((card) => [createPlotCardSignature(card), card]),
+      )
+      const savedPlotIds = new Set<number>()
       for (const card of plotCards) {
         const desiredEnabled = Boolean(card.is_enabled)
         const normalizedTriggers = parseOptionalTriggers(card.triggers ?? '')
-        if (card.id && existingPlotById.has(card.id)) {
-          await updateStoryPlotCard({
+        const existingCard =
+          (card.id ? existingPlotById.get(card.id) : undefined) ??
+          existingPlotBySignature.get(createPlotCardSignature(card))
+        if (existingCard) {
+          const updatedCard = await updateStoryPlotCard({
             token: authToken,
             gameId,
-            cardId: card.id,
+            cardId: existingCard.id,
             title: card.title,
             content: card.content,
             triggers: normalizedTriggers,
             is_enabled: desiredEnabled,
           })
+          savedPlotIds.add(updatedCard.id)
+          if (card.id !== updatedCard.id) {
+            setPlotCards((previous) =>
+              previous.map((item) => (item.localId === card.localId ? { ...item, id: updatedCard.id } : item)),
+            )
+          }
         } else {
-          await createStoryPlotCard({
+          const createdCard = await createStoryPlotCard({
             token: authToken,
             gameId,
             title: card.title,
@@ -1814,15 +1931,20 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             triggers: normalizedTriggers,
             is_enabled: desiredEnabled,
           })
+          savedPlotIds.add(createdCard.id)
+          setPlotCards((previous) =>
+            previous.map((item) => (item.localId === card.localId ? { ...item, id: createdCard.id } : item)),
+          )
         }
       }
-      for (const card of latest.plot_cards) if (!plotCards.some((item) => item.id === card.id)) await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
+      for (const card of latest.plot_cards) {
+        if (!savedPlotIds.has(card.id)) {
+          await deleteStoryPlotCard({ token: authToken, gameId, cardId: card.id })
+        }
+      }
       const existingWorldProfile = latest.world_cards.find((card) => card.kind === 'world_profile') ?? null
       if (worldProfile) {
-        const preparedWorldProfileBannerUrl = await prepareWorldBannerForRequest(worldProfile.avatar_url)
-        const preparedWorldProfileBannerOriginalUrl = await prepareWorldBannerForRequest(
-          worldProfile.avatar_original_url ?? worldProfile.avatar_url,
-        )
+        const preparedWorldProfileBannerPayload = await prepareWorldBannerPayloadForRequest(worldProfile)
         const worldProfileTargetId = existingWorldProfile?.id ?? worldProfile.id
         if (worldProfileTargetId) {
           await updateStoryWorldCard({
@@ -1838,23 +1960,27 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             token: authToken,
             gameId,
             cardId: worldProfileTargetId,
-            avatar_url: preparedWorldProfileBannerUrl,
-            avatar_original_url: preparedWorldProfileBannerOriginalUrl ?? preparedWorldProfileBannerUrl,
+            avatar_url: preparedWorldProfileBannerPayload.avatarUrl,
+            avatar_original_url: preparedWorldProfileBannerPayload.avatarOriginalUrl,
             avatar_scale: worldProfile.avatar_scale,
           })
+          if (worldProfile.id !== worldProfileTargetId) {
+            setWorldProfile((previous) => (previous ? { ...previous, id: worldProfileTargetId } : previous))
+          }
         } else {
-          await createStoryWorldCard({
+          const createdWorldProfile = await createStoryWorldCard({
             token: authToken,
             gameId,
             kind: 'world_profile',
             title: worldProfile.title,
             content: worldProfile.content,
             triggers: parseTriggers('', worldProfile.title),
-            avatar_url: preparedWorldProfileBannerUrl,
-            avatar_original_url: preparedWorldProfileBannerOriginalUrl ?? preparedWorldProfileBannerUrl,
+            avatar_url: preparedWorldProfileBannerPayload.avatarUrl,
+            avatar_original_url: preparedWorldProfileBannerPayload.avatarOriginalUrl,
             avatar_scale: worldProfile.avatar_scale,
             memory_turns: null,
           })
+          setWorldProfile((previous) => (previous ? { ...previous, id: createdWorldProfile.id } : previous))
         }
       } else if (existingWorldProfile) {
         await deleteStoryWorldCard({ token: authToken, gameId, cardId: existingWorldProfile.id })
@@ -1867,9 +1993,9 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       if (!isMyGamesEdit && !isMyPublicationsEdit) {
         const existingMainHero = latest.world_cards.find((card) => card.kind === 'main_hero') ?? null
         if (resolvedMainHero) {
-          const preparedMainHeroAvatarUrl = await prepareAvatarForRequest(resolvedMainHero.avatar_url)
+          const preparedMainHeroAvatarPayload = await prepareCharacterAvatarPayloadForRequest(resolvedMainHero)
           if (existingMainHero) {
-            await updateStoryWorldCard({
+            const updatedMainHero = await updateStoryWorldCard({
               token: authToken,
               gameId,
               cardId: existingMainHero.id,
@@ -1886,12 +2012,15 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               token: authToken,
               gameId,
               cardId: existingMainHero.id,
-              avatar_url: preparedMainHeroAvatarUrl,
-              avatar_original_url: resolvedMainHero.avatar_original_url ?? resolvedMainHero.avatar_url,
+              avatar_url: preparedMainHeroAvatarPayload.avatarUrl,
+              avatar_original_url: preparedMainHeroAvatarPayload.avatarOriginalUrl,
               avatar_scale: resolvedMainHero.avatar_scale,
             })
+            setMainHero((previous) =>
+              previous?.localId === resolvedMainHero.localId ? { ...previous, id: updatedMainHero.id } : previous,
+            )
           } else {
-            await createStoryWorldCard({
+            const createdMainHero = await createStoryWorldCard({
               token: authToken,
               gameId,
               kind: 'main_hero',
@@ -1902,11 +2031,14 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               inventory: normalizeCharacterAdditionalField(resolvedMainHero.inventory),
               health_status: normalizeCharacterAdditionalField(resolvedMainHero.health_status),
               triggers: parseTriggers(resolvedMainHero.triggers, resolvedMainHero.name),
-              avatar_url: preparedMainHeroAvatarUrl,
-              avatar_original_url: resolvedMainHero.avatar_original_url ?? resolvedMainHero.avatar_url,
+              avatar_url: preparedMainHeroAvatarPayload.avatarUrl,
+              avatar_original_url: preparedMainHeroAvatarPayload.avatarOriginalUrl,
               avatar_scale: resolvedMainHero.avatar_scale,
               character_id: resolvedMainHero.character_id ?? null,
             })
+            setMainHero((previous) =>
+              previous?.localId === resolvedMainHero.localId ? { ...previous, id: createdMainHero.id } : previous,
+            )
           }
         } else if (existingMainHero) {
           await deleteStoryWorldCard({
@@ -1918,13 +2050,29 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         }
       }
       const existingNpcs = latest.world_cards.filter((card) => card.kind === 'npc')
+      const savedNpcIds = new Set<number>()
+      const findExistingNpcForDraft = (npc: EditableCharacterCard): StoryWorldCard | null => {
+        if (npc.id) {
+          const existingById = existingNpcs.find((item) => item.id === npc.id)
+          if (existingById && !savedNpcIds.has(existingById.id)) {
+            return existingById
+          }
+        }
+        const signature = createWorldCharacterSignature('npc', npc)
+        return (
+          existingNpcs.find(
+            (item) => !savedNpcIds.has(item.id) && createWorldCharacterSignature('npc', item) === signature,
+          ) ?? null
+        )
+      }
       for (const npc of resolvedNpcs) {
-        const preparedNpcAvatarUrl = await prepareAvatarForRequest(npc.avatar_url)
-        if (npc.id && existingNpcs.some((item) => item.id === npc.id)) {
-          await updateStoryWorldCard({
+        const preparedNpcAvatarPayload = await prepareCharacterAvatarPayloadForRequest(npc)
+        const existingNpc = findExistingNpcForDraft(npc)
+        if (existingNpc) {
+          const updatedNpc = await updateStoryWorldCard({
             token: authToken,
             gameId,
-            cardId: npc.id,
+            cardId: existingNpc.id,
             title: npc.name,
             content: npc.description,
             race: normalizeCharacterRace(npc.race),
@@ -1937,13 +2085,17 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           await updateStoryWorldCardAvatar({
             token: authToken,
             gameId,
-            cardId: npc.id,
-            avatar_url: preparedNpcAvatarUrl,
-            avatar_original_url: npc.avatar_original_url ?? npc.avatar_url,
+            cardId: existingNpc.id,
+            avatar_url: preparedNpcAvatarPayload.avatarUrl,
+            avatar_original_url: preparedNpcAvatarPayload.avatarOriginalUrl,
             avatar_scale: npc.avatar_scale,
           })
+          savedNpcIds.add(updatedNpc.id)
+          setNpcs((previous) =>
+            previous.map((item) => (item.localId === npc.localId ? { ...item, id: updatedNpc.id } : item)),
+          )
         } else {
-          await createStoryWorldCard({
+          const createdNpc = await createStoryWorldCard({
             token: authToken,
             gameId,
             kind: 'npc',
@@ -1954,14 +2106,22 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
             inventory: normalizeCharacterAdditionalField(npc.inventory),
             health_status: normalizeCharacterAdditionalField(npc.health_status),
             triggers: parseTriggers(npc.triggers, npc.name),
-            avatar_url: preparedNpcAvatarUrl,
-            avatar_original_url: npc.avatar_original_url ?? npc.avatar_url,
+            avatar_url: preparedNpcAvatarPayload.avatarUrl,
+            avatar_original_url: preparedNpcAvatarPayload.avatarOriginalUrl,
             avatar_scale: npc.avatar_scale,
             character_id: npc.character_id ?? null,
           })
+          savedNpcIds.add(createdNpc.id)
+          setNpcs((previous) =>
+            previous.map((item) => (item.localId === npc.localId ? { ...item, id: createdNpc.id } : item)),
+          )
         }
       }
-      for (const npc of existingNpcs) if (!npcs.some((item) => item.id === npc.id)) await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
+      for (const npc of existingNpcs) {
+        if (!savedNpcIds.has(npc.id)) {
+          await deleteStoryWorldCard({ token: authToken, gameId, cardId: npc.id })
+        }
+      }
       await updateStoryGameMeta({
         token: authToken,
         gameId,
@@ -1995,6 +2155,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Не удалось сохранить мир')
     } finally {
+      isSaveInFlightRef.current = false
       setIsSubmitting(false)
     }
   }, [ageRating, authToken, canSubmit, coverImageUrl, coverPositionX, coverPositionY, coverScale, description, genres, hasTemplateConflicts, instructionCards, isMyGamesEdit, isMyPublicationsEdit, mainHero, npcs, onNavigate, openingScene, persistTitleForGame, plotCards, resolvedEditingGameId, shouldConfirmPublishWithoutMainHero, title, user.id, visibility, worldProfile])

@@ -1,3 +1,17 @@
+x-backend-polza-env: &backend_polza_env
+  STORY_LLM_PROVIDER: "${STORY_LLM_PROVIDER:-polza}"
+  POLZA_API_KEY: "${POLZA_API_KEY:-}"
+  POLZA_CHAT_URL: "${POLZA_CHAT_URL:-https://polza.ai/api/v1/chat/completions}"
+  POLZA_MODEL: "${POLZA_MODEL:-z-ai/glm-5}"
+  POLZA_WORLD_CARD_MODEL: "${POLZA_WORLD_CARD_MODEL:-google/gemini-2.5-flash-lite}"
+  POLZA_TRANSLATION_MODEL: "${POLZA_TRANSLATION_MODEL:-google/gemini-2.5-flash-lite}"
+  POLZA_PLOT_CARD_MODEL: "${POLZA_PLOT_CARD_MODEL:-google/gemini-2.5-flash-lite}"
+  POLZA_IMAGE_URL: "${POLZA_IMAGE_URL:-https://polza.ai/api/v1/media}"
+  POLZA_IMAGE_MODEL: "${POLZA_IMAGE_MODEL:-black-forest-labs/flux.2-pro}"
+  POLZA_IMAGE_SIZE: "${POLZA_IMAGE_SIZE:-1024x1024}"
+  POLZA_SITE_URL: "${POLZA_SITE_URL:-https://morius-ai.ru}"
+  POLZA_APP_NAME: "${POLZA_APP_NAME:-MoRius}"
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -20,6 +34,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      <<: *backend_polza_env
       APP_MODE: gateway
       PORT: 8000
       DB_BOOTSTRAP_ON_STARTUP: "true"
@@ -47,6 +62,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      <<: *backend_polza_env
       APP_MODE: auth
       PORT: 8001
       DB_BOOTSTRAP_ON_STARTUP: "false"
@@ -74,6 +90,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      <<: *backend_polza_env
       APP_MODE: story
       PORT: 8002
       DB_BOOTSTRAP_ON_STARTUP: "false"
@@ -101,6 +118,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
+      <<: *backend_polza_env
       APP_MODE: payments
       PORT: 8003
       DB_BOOTSTRAP_ON_STARTUP: "false"

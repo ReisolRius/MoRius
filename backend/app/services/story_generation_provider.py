@@ -84,12 +84,12 @@ def _build_story_provider_messages(
     return repair_likely_utf8_mojibake_deep(messages_payload)
 
 
-def _should_lock_openrouter_story_request_to_selected_model(model_name: str | None) -> bool:
+def _should_lock_polza_story_request_to_selected_model(model_name: str | None) -> bool:
     _ = model_name
     return False
 
 
-def _apply_openrouter_story_response_limit(payload: dict[str, Any], max_tokens: int | None) -> None:
+def _apply_polza_story_response_limit(payload: dict[str, Any], max_tokens: int | None) -> None:
     if max_tokens is None:
         return
     payload["max_tokens"] = int(max_tokens)
@@ -131,10 +131,10 @@ def _select_story_presence_penalty_value(
     return None
 
 
-OPENROUTER_RETRY_DELAYS_SECONDS = (1.1, 2.4)
-OPENROUTER_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
-OPENROUTER_FALLBACK_STATUS_CODES = {404, 429, *OPENROUTER_TRANSIENT_STATUS_CODES}
-OPENROUTER_PROVIDER_TEMPORARY_ERROR_MARKERS = (
+POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4)
+POLZA_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
+POLZA_FALLBACK_STATUS_CODES = {404, 429, *POLZA_TRANSIENT_STATUS_CODES}
+POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
     "server_error",
@@ -142,15 +142,15 @@ OPENROUTER_PROVIDER_TEMPORARY_ERROR_MARKERS = (
 )
 
 
-def _apply_openrouter_story_reasoning_preferences(
+def _apply_polza_story_reasoning_preferences(
     payload: dict[str, Any],
     *,
     model_name: str | None,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name == "z-ai/glm-5":
+    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
         payload["reasoning"] = {
-            "effort": "minimal",
+            "effort": "none",
             "exclude": True,
         }
         return
@@ -158,7 +158,7 @@ def _apply_openrouter_story_reasoning_preferences(
         payload["reasoning"] = {"exclude": True}
 
 
-def _format_openrouter_usage_summary(usage_payload: Any) -> str:
+def _format_polza_usage_summary(usage_payload: Any) -> str:
     if not isinstance(usage_payload, dict):
         return ""
 
@@ -170,7 +170,7 @@ def _format_openrouter_usage_summary(usage_payload: Any) -> str:
     return ", ".join(parts)
 
 
-def _log_openrouter_completion_finish(
+def _log_polza_completion_finish(
     *,
     mode: str,
     model_name: str | None,
@@ -182,9 +182,9 @@ def _log_openrouter_completion_finish(
     if not normalized_finish_reason:
         return
 
-    usage_summary = _format_openrouter_usage_summary(usage_payload)
+    usage_summary = _format_polza_usage_summary(usage_payload)
     logger.info(
-        "OpenRouter %s finish: model=%s finish_reason=%s max_tokens=%s usage=%s",
+        "Polza.ai %s finish: model=%s finish_reason=%s max_tokens=%s usage=%s",
         mode,
         model_name,
         normalized_finish_reason,
@@ -193,7 +193,7 @@ def _log_openrouter_completion_finish(
     )
     if normalized_finish_reason.casefold() == "length":
         logger.warning(
-            "OpenRouter %s response hit token limit: model=%s max_tokens=%s usage=%s",
+            "Polza.ai %s response hit token limit: model=%s max_tokens=%s usage=%s",
             mode,
             model_name,
             max_tokens,
@@ -201,7 +201,7 @@ def _log_openrouter_completion_finish(
         )
 
 
-def _extract_openrouter_chat_error_detail(response: requests.Response) -> str:
+def _extract_polza_chat_error_detail(response: requests.Response) -> str:
     detail = ""
     try:
         error_payload = response.json()
@@ -225,22 +225,22 @@ def _extract_openrouter_chat_error_detail(response: requests.Response) -> str:
     return detail
 
 
-def _is_openrouter_temporary_provider_failure(status_code: int, detail: str) -> bool:
-    if status_code in OPENROUTER_TRANSIENT_STATUS_CODES:
+def _is_polza_temporary_provider_failure(status_code: int, detail: str) -> bool:
+    if status_code in POLZA_TRANSIENT_STATUS_CODES:
         return True
     normalized_detail = str(detail or "").casefold()
-    return any(marker in normalized_detail for marker in OPENROUTER_PROVIDER_TEMPORARY_ERROR_MARKERS)
+    return any(marker in normalized_detail for marker in POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS)
 
 
-def _should_retry_openrouter_chat_request(*, status_code: int, detail: str, attempt_index: int) -> bool:
-    if attempt_index >= len(OPENROUTER_RETRY_DELAYS_SECONDS):
+def _should_retry_polza_chat_request(*, status_code: int, detail: str, attempt_index: int) -> bool:
+    if attempt_index >= len(POLZA_RETRY_DELAYS_SECONDS):
         return False
     if status_code == 429:
         return True
-    return _is_openrouter_temporary_provider_failure(status_code, detail)
+    return _is_polza_temporary_provider_failure(status_code, detail)
 
 
-def _should_try_openrouter_fallback_model(
+def _should_try_polza_fallback_model(
     *,
     status_code: int,
     detail: str,
@@ -249,21 +249,21 @@ def _should_try_openrouter_fallback_model(
 ) -> bool:
     if candidate_model == candidate_models[-1]:
         return False
-    if status_code in OPENROUTER_FALLBACK_STATUS_CODES:
+    if status_code in POLZA_FALLBACK_STATUS_CODES:
         return True
-    return _is_openrouter_temporary_provider_failure(status_code, detail)
+    return _is_polza_temporary_provider_failure(status_code, detail)
 
 
-def _sleep_openrouter_retry(attempt_index: int) -> None:
-    normalized_index = max(0, min(attempt_index, len(OPENROUTER_RETRY_DELAYS_SECONDS) - 1))
-    time.sleep(OPENROUTER_RETRY_DELAYS_SECONDS[normalized_index])
+def _sleep_polza_retry(attempt_index: int) -> None:
+    normalized_index = max(0, min(attempt_index, len(POLZA_RETRY_DELAYS_SECONDS) - 1))
+    time.sleep(POLZA_RETRY_DELAYS_SECONDS[normalized_index])
 
 
-def _resolve_openrouter_story_provider_payload_for_attempt(
+def _resolve_polza_story_provider_payload_for_attempt(
     model_name: str | None,
     attempt_index: int,
 ) -> dict[str, Any] | None:
-    provider_payload = _build_openrouter_provider_payload(model_name)
+    provider_payload = _build_polza_provider_payload(model_name)
     if provider_payload is None:
         return None
     if attempt_index == 0:
@@ -271,7 +271,7 @@ def _resolve_openrouter_story_provider_payload_for_attempt(
     return None
 
 
-def _resolve_openrouter_provider_attempt_label(provider_payload: dict[str, Any] | None) -> str:
+def _resolve_polza_provider_attempt_label(provider_payload: dict[str, Any] | None) -> str:
     if not provider_payload:
         return "auto"
     order_value = provider_payload.get("order")
@@ -280,10 +280,10 @@ def _resolve_openrouter_provider_attempt_label(provider_payload: dict[str, Any] 
     return "auto"
 
 
-def _build_openrouter_story_candidate_models(
+def _build_polza_story_candidate_models(
     primary_model: str,
     *,
-    allow_free_fallback: bool,
+    allow_service_fallback: bool,
     fallback_model_names: list[str] | None = None,
 ) -> list[str]:
     candidate_models = [primary_model]
@@ -301,8 +301,8 @@ def _build_openrouter_story_candidate_models(
                 continue
             candidate_models.append(normalized_fallback_model)
 
-    if allow_free_fallback and primary_model != "openrouter/free" and "openrouter/free" not in candidate_models:
-        candidate_models.append("openrouter/free")
+    if allow_service_fallback and primary_model != STORY_SERVICE_TEXT_MODEL and STORY_SERVICE_TEXT_MODEL not in candidate_models:
+        candidate_models.append(STORY_SERVICE_TEXT_MODEL)
 
     return candidate_models
 
@@ -518,7 +518,7 @@ def _iter_gigachat_story_stream_chunks(
     finally:
         response.close()
 
-def _iter_openrouter_story_stream_chunks(
+def _iter_polza_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
@@ -577,31 +577,31 @@ def _iter_openrouter_story_stream_chunks(
     )
     messages_payload = repair_likely_utf8_mojibake_deep(messages_payload)
     if len(messages_payload) <= 1:
-        raise RuntimeError("No messages to send to OpenRouter")
+        raise RuntimeError("No messages to send to Polza.ai")
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    primary_model = (model_name or settings.openrouter_model).strip()
+    primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("Polza.ai chat model is not configured")
 
-    candidate_models = _build_openrouter_story_candidate_models(
+    candidate_models = _build_polza_story_candidate_models(
         primary_model,
-        allow_free_fallback=not _should_lock_openrouter_story_request_to_selected_model(primary_model),
+        allow_service_fallback=not _should_lock_polza_story_request_to_selected_model(primary_model),
     )
 
     last_error: RuntimeError | None = None
 
     for model_name in candidate_models:
-        for attempt_index in range(len(OPENROUTER_RETRY_DELAYS_SECONDS) + 1):
+        for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
             if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                 raise StoryGenerationCancelled("Story generation cancelled")
             payload = {
@@ -609,7 +609,7 @@ def _iter_openrouter_story_stream_chunks(
                 "messages": messages_payload,
                 "stream": True,
             }
-            provider_payload = _resolve_openrouter_story_provider_payload_for_attempt(
+            provider_payload = _resolve_polza_story_provider_payload_for_attempt(
                 model_name,
                 attempt_index,
             )
@@ -627,19 +627,19 @@ def _iter_openrouter_story_stream_chunks(
                 payload["top_k"] = top_k
             if top_p is not None:
                 payload["top_p"] = top_p
-            _apply_openrouter_story_response_limit(payload, max_tokens)
-            _apply_openrouter_story_reasoning_preferences(payload, model_name=model_name)
-            provider_label = _resolve_openrouter_provider_attempt_label(provider_payload)
+            _apply_polza_story_response_limit(payload, max_tokens)
+            _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
+            provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at_attempt = time.monotonic()
             logger.info(
-                "OpenRouter stream request started: model=%s provider=%s attempt=%s",
+                "Polza.ai stream request started: model=%s provider=%s attempt=%s",
                 model_name,
                 provider_label,
                 attempt_index + 1,
             )
             try:
                 response = HTTP_SESSION.post(
-                    settings.openrouter_chat_url,
+                    settings.polza_chat_url,
                     headers=headers,
                     json=payload,
                     timeout=(20, 120),
@@ -653,57 +653,57 @@ def _iter_openrouter_story_stream_chunks(
             except requests.RequestException as exc:
                 if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                     raise StoryGenerationCancelled("Story generation cancelled") from exc
-                if attempt_index < len(OPENROUTER_RETRY_DELAYS_SECONDS):
+                if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter stream request transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
+                        "Polza.ai stream request transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
                         model_name,
                         provider_label,
                         attempt_index + 1,
                         exc,
                     )
-                    _sleep_openrouter_retry(attempt_index)
+                    _sleep_polza_retry(attempt_index)
                     continue
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach Polza.ai chat endpoint") from exc
 
             try:
                 logger.info(
-                    "OpenRouter stream response opened: model=%s provider=%s status=%s latency=%.3fs",
+                    "Polza.ai stream response opened: model=%s provider=%s status=%s latency=%.3fs",
                     model_name,
                     provider_label,
                     response.status_code,
                     time.monotonic() - request_started_at_attempt,
                 )
                 if response.status_code >= 400:
-                    detail = _extract_openrouter_chat_error_detail(response)
+                    detail = _extract_polza_chat_error_detail(response)
 
-                    if _should_retry_openrouter_chat_request(
+                    if _should_retry_polza_chat_request(
                         status_code=response.status_code,
                         detail=detail,
                         attempt_index=attempt_index,
                     ):
                         logger.warning(
-                            "OpenRouter stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
+                            "Polza.ai stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
                             model_name,
                             provider_label,
                             response.status_code,
                             detail or "n/a",
                             attempt_index + 2,
                         )
-                        _sleep_openrouter_retry(attempt_index)
+                        _sleep_polza_retry(attempt_index)
                         continue
 
-                    error_text = f"OpenRouter chat error ({response.status_code})"
+                    error_text = f"Polza.ai chat error ({response.status_code})"
                     if detail:
                         error_text = f"{error_text}: {detail}"
 
-                    if _should_try_openrouter_fallback_model(
+                    if _should_try_polza_fallback_model(
                         status_code=response.status_code,
                         detail=detail,
                         candidate_model=model_name,
                         candidate_models=candidate_models,
                     ):
                         logger.warning(
-                            "OpenRouter stream failed for model=%s provider=%s; trying fallback model. status=%s detail=%s",
+                            "Polza.ai stream failed for model=%s provider=%s; trying fallback model. status=%s detail=%s",
                             model_name,
                             provider_label,
                             response.status_code,
@@ -756,7 +756,7 @@ def _iter_openrouter_story_stream_chunks(
                         error_value = chunk_payload.get("error")
                         if isinstance(error_value, dict):
                             error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                            raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+                            raise RuntimeError(error_detail or "Polza.ai stream returned an error")
                         if isinstance(error_value, str) and error_value.strip():
                             raise RuntimeError(error_value.strip())
 
@@ -777,7 +777,7 @@ def _iter_openrouter_story_stream_chunks(
                                 if first_content_emitted_at is None:
                                     first_content_emitted_at = time.monotonic()
                                     logger.info(
-                                        "OpenRouter stream first token latency: %.3fs model=%s",
+                                        "Polza.ai stream first token latency: %.3fs model=%s",
                                         first_content_emitted_at - request_started_at,
                                         model_name,
                                     )
@@ -800,7 +800,7 @@ def _iter_openrouter_story_stream_chunks(
                                 if first_content_emitted_at is None:
                                     first_content_emitted_at = time.monotonic()
                                     logger.info(
-                                        "OpenRouter stream first token latency (message payload): %.3fs model=%s",
+                                        "Polza.ai stream first token latency (message payload): %.3fs model=%s",
                                         first_content_emitted_at - request_started_at,
                                         model_name,
                                     )
@@ -810,13 +810,13 @@ def _iter_openrouter_story_stream_chunks(
                 except requests.RequestException as exc:
                     if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                         raise StoryGenerationCancelled("Story generation cancelled") from exc
-                    raise RuntimeError("Failed while reading OpenRouter chat stream") from exc
+                    raise RuntimeError("Failed while reading Polza.ai chat stream") from exc
 
                 if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                     raise StoryGenerationCancelled("Story generation cancelled")
 
                 if emitted_delta:
-                    _log_openrouter_completion_finish(
+                    _log_polza_completion_finish(
                         mode="stream",
                         model_name=model_name,
                         finish_reason=finish_reason,
@@ -832,16 +832,16 @@ def _iter_openrouter_story_stream_chunks(
                         if fallback_max_tokens is None and model_hit_length_limit:
                             fallback_max_tokens = max(STORY_DEFAULT_RESPONSE_MAX_TOKENS * 3, 1_200)
                         logger.warning(
-                            "OpenRouter stream may be incomplete; attempting tail recovery: model=%s finish_reason=%s done=%s fallback_max_tokens=%s",
+                            "Polza.ai stream may be incomplete; attempting tail recovery: model=%s finish_reason=%s done=%s fallback_max_tokens=%s",
                             model_name,
                             finish_reason or "",
                             saw_done_marker,
                             fallback_max_tokens,
                         )
-                        fallback_text = _request_openrouter_story_text(
+                        fallback_text = _request_polza_story_text(
                             messages_payload,
                             model_name=model_name,
-                            allow_free_fallback=False,
+                            allow_service_fallback=False,
                             temperature=temperature,
                             top_k=top_k,
                             top_p=top_p,
@@ -850,7 +850,7 @@ def _iter_openrouter_story_stream_chunks(
                         suffix_text = _extract_story_novel_suffix(emitted_text, fallback_text)
                         if suffix_text:
                             logger.info(
-                                "OpenRouter stream recovery appended tail: model=%s chars=%s",
+                                "Polza.ai stream recovery appended tail: model=%s chars=%s",
                                 model_name,
                                 len(suffix_text),
                             )
@@ -858,7 +858,7 @@ def _iter_openrouter_story_stream_chunks(
                                 yield chunk
                     return
 
-                raise RuntimeError("OpenRouter stream completed without textual content")
+                raise RuntimeError("Polza.ai stream completed without textual content")
             finally:
                 unregister_story_generation_response(
                     story_generation_game_id,
@@ -873,7 +873,7 @@ def _iter_openrouter_story_stream_chunks(
     if last_error is not None:
         raise last_error
 
-    raise RuntimeError("OpenRouter chat request failed")
+    raise RuntimeError("Polza.ai chat request failed")
 
 def _request_gigachat_story_text(
     messages_payload: list[dict[str, str]],
@@ -937,11 +937,11 @@ def _request_gigachat_story_text(
         return ""
     return _extract_text_from_model_content(message_value.get("content"))
 
-def _request_openrouter_story_text(
+def _request_polza_story_text(
     messages_payload: list[dict[str, str]],
     *,
     model_name: str | None = None,
-    allow_free_fallback: bool = True,
+    allow_service_fallback: bool = True,
     translate_input: bool = True,
     fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
@@ -953,22 +953,22 @@ def _request_openrouter_story_text(
     request_timeout: tuple[int, int] | None = None,
 ) -> str:
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    primary_model = (model_name or settings.openrouter_model).strip()
+    primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("Polza.ai chat model is not configured")
 
-    candidate_models = _build_openrouter_story_candidate_models(
+    candidate_models = _build_polza_story_candidate_models(
         primary_model,
-        allow_free_fallback=allow_free_fallback,
+        allow_service_fallback=allow_service_fallback,
         fallback_model_names=fallback_model_names,
     )
 
@@ -979,13 +979,13 @@ def _request_openrouter_story_text(
         translate_input=translate_input,
     )
     for candidate_model in candidate_models:
-        for attempt_index in range(len(OPENROUTER_RETRY_DELAYS_SECONDS) + 1):
+        for attempt_index in range(len(POLZA_RETRY_DELAYS_SECONDS) + 1):
             payload = {
                 "model": candidate_model,
                 "messages": prepared_messages_payload,
                 "stream": False,
             }
-            provider_payload = _resolve_openrouter_story_provider_payload_for_attempt(
+            provider_payload = _resolve_polza_story_provider_payload_for_attempt(
                 candidate_model,
                 attempt_index,
             )
@@ -1001,38 +1001,38 @@ def _request_openrouter_story_text(
                 payload["top_k"] = top_k
             if top_p is not None:
                 payload["top_p"] = top_p
-            _apply_openrouter_story_response_limit(payload, max_tokens)
-            _apply_openrouter_story_reasoning_preferences(payload, model_name=candidate_model)
-            provider_label = _resolve_openrouter_provider_attempt_label(provider_payload)
+            _apply_polza_story_response_limit(payload, max_tokens)
+            _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
+            provider_label = _resolve_polza_provider_attempt_label(provider_payload)
             request_started_at = time.monotonic()
             logger.info(
-                "OpenRouter text request started: model=%s provider=%s attempt=%s",
+                "Polza.ai text request started: model=%s provider=%s attempt=%s",
                 candidate_model,
                 provider_label,
                 attempt_index + 1,
             )
             try:
                 response = HTTP_SESSION.post(
-                    settings.openrouter_chat_url,
+                    settings.polza_chat_url,
                     headers=headers,
                     json=payload,
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                if attempt_index < len(OPENROUTER_RETRY_DELAYS_SECONDS):
+                if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
                     logger.warning(
-                        "OpenRouter text transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
+                        "Polza.ai text transport failed; retrying: model=%s provider=%s attempt=%s error=%s",
                         candidate_model,
                         provider_label,
                         attempt_index + 1,
                         exc,
                     )
-                    _sleep_openrouter_retry(attempt_index)
+                    _sleep_polza_retry(attempt_index)
                     continue
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach Polza.ai chat endpoint") from exc
 
             logger.info(
-                "OpenRouter text response received: model=%s provider=%s status=%s latency=%.3fs",
+                "Polza.ai text response received: model=%s provider=%s status=%s latency=%.3fs",
                 candidate_model,
                 provider_label,
                 response.status_code,
@@ -1040,36 +1040,36 @@ def _request_openrouter_story_text(
             )
 
             if response.status_code >= 400:
-                detail = _extract_openrouter_chat_error_detail(response)
+                detail = _extract_polza_chat_error_detail(response)
 
-                if _should_retry_openrouter_chat_request(
+                if _should_retry_polza_chat_request(
                     status_code=response.status_code,
                     detail=detail,
                     attempt_index=attempt_index,
                 ):
                     logger.warning(
-                        "OpenRouter text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
+                        "Polza.ai text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
                         candidate_model,
                         provider_label,
                         response.status_code,
                         detail or "n/a",
                         attempt_index + 2,
                     )
-                    _sleep_openrouter_retry(attempt_index)
+                    _sleep_polza_retry(attempt_index)
                     continue
 
-                error_text = f"OpenRouter chat error ({response.status_code})"
+                error_text = f"Polza.ai chat error ({response.status_code})"
                 if detail:
                     error_text = f"{error_text}: {detail}"
 
-                if _should_try_openrouter_fallback_model(
+                if _should_try_polza_fallback_model(
                     status_code=response.status_code,
                     detail=detail,
                     candidate_model=candidate_model,
                     candidate_models=candidate_models,
                 ):
                     logger.warning(
-                        "OpenRouter text failed for model=%s provider=%s; trying fallback model. status=%s detail=%s",
+                        "Polza.ai text failed for model=%s provider=%s; trying fallback model. status=%s detail=%s",
                         candidate_model,
                         provider_label,
                         response.status_code,
@@ -1082,7 +1082,7 @@ def _request_openrouter_story_text(
             try:
                 payload_value = response.json()
             except ValueError as exc:
-                raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+                raise RuntimeError("Polza.ai chat returned invalid payload") from exc
 
             if not isinstance(payload_value, dict):
                 return ""
@@ -1091,7 +1091,7 @@ def _request_openrouter_story_text(
                 return ""
             choice = choices[0] if isinstance(choices[0], dict) else {}
             finish_reason = choice.get("finish_reason") if isinstance(choice.get("finish_reason"), str) else None
-            _log_openrouter_completion_finish(
+            _log_polza_completion_finish(
                 mode="text",
                 model_name=candidate_model,
                 finish_reason=finish_reason,
@@ -1173,8 +1173,8 @@ def _iter_story_provider_stream_chunks(
             raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
-    if provider == "openrouter":
-        selected_model_name = (story_model_name or settings.openrouter_model).strip() or settings.openrouter_model
+    if provider == "polza":
+        selected_model_name = (story_model_name or settings.polza_model).strip() or settings.polza_model
         effective_response_max_tokens = _effective_story_response_max_tokens(
             story_response_max_tokens,
             model_name=selected_model_name,
@@ -1203,7 +1203,7 @@ def _iter_story_provider_stream_chunks(
         if _is_story_input_translation_enabled() and not input_translation_enabled:
             logger.info("Story input translation skipped for model=%s", selected_model_name)
         if output_translation_enabled:
-            raw_chunk_stream = _iter_openrouter_story_stream_chunks(
+            raw_chunk_stream = _iter_polza_story_stream_chunks(
                 context_messages,
                 instruction_cards,
                 plot_cards,
@@ -1238,7 +1238,7 @@ def _iter_story_provider_stream_chunks(
         # Important: do not force-translate each stream chunk for force models.
         # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
-        for chunk in _iter_openrouter_story_stream_chunks(
+        for chunk in _iter_polza_story_stream_chunks(
             context_messages,
             instruction_cards,
             plot_cards,
@@ -1268,4 +1268,4 @@ def _iter_story_provider_stream_chunks(
             raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
-    raise RuntimeError("Story provider is not configured: expected openrouter or gigachat")
+    raise RuntimeError("Story provider is not configured: expected polza or gigachat")

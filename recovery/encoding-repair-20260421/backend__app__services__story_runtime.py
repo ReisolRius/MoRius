@@ -145,7 +145,7 @@ def _public_story_error_detail(exc: Exception) -> str:
         return "Text generation failed"
     if is_database_busy_session_error(exc):
         return STORY_SQLITE_BUSY_DETAIL
-    if detail.casefold().startswith("openrouter chat error") and "{" in detail:
+    if detail.casefold().startswith("polza chat error") and "{" in detail:
         detail = detail.split("{", 1)[0].rstrip(" .:,")
     return detail[:500]
 

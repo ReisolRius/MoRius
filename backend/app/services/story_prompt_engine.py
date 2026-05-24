@@ -19,7 +19,7 @@ def _normalize_story_message_content(value: str | None) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
 
 
-def _translate_text_batch_with_openrouter(
+def _translate_text_batch_with_polza(
     texts: list[str],
     *,
     source_language: str,
@@ -30,7 +30,7 @@ def _translate_text_batch_with_openrouter(
         return []
     selected_translation_model = (translation_model_name or _story_output_translation_model_name()).strip()
     if not selected_translation_model:
-        raise RuntimeError("OpenRouter translation model is not configured")
+        raise RuntimeError("Polza.ai translation model is not configured")
 
     translation_messages = [
         {
@@ -62,10 +62,10 @@ def _translate_text_batch_with_openrouter(
     ]
     source_tokens_estimate = sum(max(_estimate_story_tokens(text_value), 1) for text_value in texts)
     translation_max_tokens = max(256, min(source_tokens_estimate * 2 + 256, 3_200))
-    raw_response = _request_openrouter_story_text(
+    raw_response = _request_polza_story_text(
         translation_messages,
         model_name=selected_translation_model,
-        allow_free_fallback=False,
+        allow_service_fallback=False,
         translate_input=False,
         temperature=0,
         max_tokens=translation_max_tokens,
@@ -76,7 +76,7 @@ def _translate_text_batch_with_openrouter(
     )
     parsed_payload = _extract_json_array_from_text(raw_response)
     if not isinstance(parsed_payload, list):
-        raise RuntimeError("OpenRouter translation returned malformed payload")
+        raise RuntimeError("Polza.ai translation returned malformed payload")
 
     translated_texts: list[str] = []
     for item in parsed_payload:
@@ -89,7 +89,7 @@ def _translate_text_batch_with_openrouter(
                 translated_texts.append(text_value)
 
     if len(translated_texts) != len(texts):
-        raise RuntimeError("OpenRouter translation returned incomplete translations")
+        raise RuntimeError("Polza.ai translation returned incomplete translations")
 
     for index, (source_text, translated_text) in enumerate(zip(texts, translated_texts)):
         if _is_story_markup_preserved(source_text, translated_text):
@@ -99,7 +99,7 @@ def _translate_text_batch_with_openrouter(
 
     return translated_texts
 
-def _translate_texts_with_openrouter(
+def _translate_texts_with_polza(
     texts: list[str],
     *,
     source_language: str,
@@ -125,7 +125,7 @@ def _translate_texts_with_openrouter(
         nonlocal batch_indices, batch_texts, batch_chars
         if not batch_texts:
             return
-        translated_batch = _translate_text_batch_with_openrouter(
+        translated_batch = _translate_text_batch_with_polza(
             batch_texts,
             source_language=source_language,
             target_language=target_language,
@@ -158,7 +158,7 @@ def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) 
     source_language = "auto"
     target_language = _story_model_language_code()
     raw_texts = [message.get("content", "") for message in messages_payload]
-    translated_texts = _translate_texts_with_openrouter(
+    translated_texts = _translate_texts_with_polza(
         raw_texts,
         source_language=source_language,
         target_language=target_language,
@@ -188,7 +188,7 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
         return text_value
     source_language = "auto"
     target_language = _story_user_language_code()
-    translated = _translate_texts_with_openrouter(
+    translated = _translate_texts_with_polza(
         [text_value],
         source_language=source_language,
         target_language=target_language,
@@ -205,7 +205,7 @@ def _force_translate_story_model_output_to_user(
     if not _can_force_story_output_translation(source_model_name):
         return text_value
     target_language = "ru" if _is_story_output_translation_model(source_model_name) else _story_user_language_code()
-    translated = _translate_text_batch_with_openrouter(
+    translated = _translate_text_batch_with_polza(
         [text_value],
         source_language="auto",
         target_language=target_language,
@@ -909,7 +909,7 @@ def _build_story_provider_messages(
     history = _trim_story_history_to_context_limit(history, history_budget_tokens)
 
     # Large system prompts (for example, with many cards + model-specific rules)
-    # can consume the whole budget. Keep at least one recent user turn so OpenRouter
+    # can consume the whole budget. Keep at least one recent user turn so Polza.ai
     # always receives actionable dialogue context.
     if not history and full_history:
         fallback_history_item: dict[str, str] | None = None

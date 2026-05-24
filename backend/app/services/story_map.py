@@ -16,7 +16,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, settings
 from app.models import StoryGame, StoryMapImage, StoryMemoryBlock, StoryMessage, User
 from app.schemas import (
     StoryMapImageGenerateOut,
@@ -60,7 +60,7 @@ STORY_MAP_MAX_LOCATIONS = 72
 STORY_MAP_MAX_LANDMARKS = 30
 STORY_MAP_MAX_TRAVEL_LOG = 32
 STORY_MAP_AI_REQUEST_MAX_TOKENS = 2_800
-STORY_MAP_AI_TEXT_MODEL = "x-ai/grok-4.1-fast"
+STORY_MAP_AI_TEXT_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
 
 STORY_MAP_IMAGE_SCOPE_WORLD = "world"
 STORY_MAP_IMAGE_SCOPE_EMPIRES = "empires"
@@ -1057,10 +1057,10 @@ def _apply_story_map_ai_overrides(
 
 
 def _maybe_enrich_story_map_payload_with_ai_details(payload: dict[str, Any]) -> dict[str, Any]:
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return payload
     try:
-        from app.services.story_generation_provider import _request_openrouter_story_text
+        from app.services.story_generation_provider import _request_polza_story_text
     except Exception:
         logger.exception("Story map AI enrichment provider import failed")
         return payload
@@ -1136,10 +1136,10 @@ def _maybe_enrich_story_map_payload_with_ai_details(payload: dict[str, Any]) -> 
         },
     ]
     try:
-        raw_response = _request_openrouter_story_text(
+        raw_response = _request_polza_story_text(
             messages_payload,
             model_name=STORY_MAP_AI_TEXT_MODEL,
-            allow_free_fallback=False,
+            allow_service_fallback=False,
             translate_input=False,
             temperature=0.95,
             max_tokens=STORY_MAP_AI_REQUEST_MAX_TOKENS,

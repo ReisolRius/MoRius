@@ -11,10 +11,6 @@ from app.models import StoryGame, StoryMessage
 from app.schemas import StoryGameOut, StoryGameSummaryOut, StoryInstructionCardOut, StoryMemoryBlockOut, StoryTurnImageOut
 from app.services.auth_identity import get_current_user
 from app.services.story_cards import story_plot_card_to_out
-from app.services.story_events import (
-    story_plot_card_change_event_to_out,
-    story_world_card_change_event_to_out,
-)
 from app.services.story_games import count_story_completed_turns, story_game_summary_to_compact_out, story_game_summary_to_out
 from app.services.story_memory import resolve_story_current_location_label, story_memory_block_to_out
 from app.services.story_messages import story_message_to_out
@@ -24,10 +20,8 @@ from app.services.story_queries import (
     list_story_instruction_cards,
     list_story_memory_blocks,
     list_story_messages,
-    list_story_plot_card_events,
     list_story_plot_cards,
     list_story_turn_images,
-    list_story_world_card_events,
     list_story_world_cards,
 )
 from app.services.story_world_cards import story_world_card_to_out
@@ -342,7 +336,6 @@ def get_story_game_fallback_router(
     turn_images = list_story_turn_images(db, game.id)
     instruction_cards = list_story_instruction_cards(db, game.id)
     plot_cards = list_story_plot_cards(db, game.id)
-    plot_card_events = list_story_plot_card_events(db, game.id)
     memory_blocks = list_story_memory_blocks(db, game.id)
     messages, memory_blocks = _self_heal_story_memory_and_environment_snapshot(
         db=db,
@@ -351,7 +344,6 @@ def get_story_game_fallback_router(
         memory_blocks=memory_blocks,
     )
     world_cards = list_story_world_cards(db, game.id)
-    world_card_events = list_story_world_card_events(db, game.id)
     can_redo_assistant_step = has_story_assistant_redo_step(db, game.id)
     game_summary = story_game_summary_to_out(game, turn_count=count_story_completed_turns(messages))
     resolved_current_location_label = resolve_story_current_location_label(
@@ -373,9 +365,9 @@ def get_story_game_fallback_router(
         turn_images=[StoryTurnImageOut.model_validate(item) for item in turn_images],
         instruction_cards=[StoryInstructionCardOut.model_validate(card) for card in instruction_cards],
         plot_cards=[story_plot_card_to_out(card) for card in plot_cards],
-        plot_card_events=[story_plot_card_change_event_to_out(event) for event in plot_card_events],
+        plot_card_events=[],
         memory_blocks=[StoryMemoryBlockOut.model_validate(story_memory_block_to_out(block)) for block in memory_blocks],
         world_cards=[story_world_card_to_out(card) for card in world_cards],
-        world_card_events=[story_world_card_change_event_to_out(event) for event in world_card_events],
+        world_card_events=[],
         can_redo_assistant_step=can_redo_assistant_step,
     )

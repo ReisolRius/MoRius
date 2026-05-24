@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ChangeEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import {
   Alert,
   Box,
@@ -23,6 +23,12 @@ import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
+import {
+  CommunityModerationCardFrame,
+  CommunityModerationMenu,
+  canModerateCommunityContent,
+  type CommunityModerationTarget,
+} from '../components/community/CommunityModerationActions'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
@@ -46,6 +52,9 @@ import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
+  returnCharacterToModerationAsAdmin,
+  returnInstructionTemplateToModerationAsAdmin,
+  returnWorldToModerationAsAdmin,
   syncCoinTopUpPayment,
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
@@ -485,6 +494,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [hasMoreCommunityInstructionTemplatesServer, setHasMoreCommunityInstructionTemplatesServer] = useState(false)
   const [communityWorldsError, setCommunityWorldsError] = useState('')
   const [actionError, setActionError] = useState('')
+  const [communityModerationAnchorEl, setCommunityModerationAnchorEl] = useState<HTMLElement | null>(null)
+  const [communityModerationTarget, setCommunityModerationTarget] = useState<CommunityModerationTarget | null>(null)
+  const [isCommunityModerationSaving, setIsCommunityModerationSaving] = useState(false)
   const [selectedCommunityWorld, setSelectedCommunityWorld] = useState<StoryCommunityWorldPayload | null>(null)
   const [isCommunityWorldDialogLoading, setIsCommunityWorldDialogLoading] = useState(false)
   const [communityRatingDraft, setCommunityRatingDraft] = useState(0)
@@ -692,6 +704,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   }, [worldGenreFilter])
 
   const normalizedSearchQuery = useMemo(() => normalizeSearchValue(deferredSearchQuery), [deferredSearchQuery])
+  const canModerateCommunityCards = canModerateCommunityContent(user.role)
 
   useEffect(() => {
     setHasPageScrollInteraction(false)
@@ -1193,6 +1206,64 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       // Optional data for dialog button state; ignore failures.
     }
   }, [authToken])
+
+  const handleOpenCommunityModerationMenu = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, target: CommunityModerationTarget) => {
+      if (!canModerateCommunityCards || isCommunityModerationSaving) {
+        return
+      }
+      event.preventDefault()
+      event.stopPropagation()
+      setActionError('')
+      setCommunityModerationAnchorEl(event.currentTarget)
+      setCommunityModerationTarget(target)
+    },
+    [canModerateCommunityCards, isCommunityModerationSaving],
+  )
+
+  const handleCloseCommunityModerationMenu = useCallback(() => {
+    if (isCommunityModerationSaving) {
+      return
+    }
+    setCommunityModerationAnchorEl(null)
+    setCommunityModerationTarget(null)
+  }, [isCommunityModerationSaving])
+
+  const handleReturnCommunityTargetToModeration = useCallback(
+    async (target: CommunityModerationTarget) => {
+      if (!canModerateCommunityCards || isCommunityModerationSaving) {
+        return
+      }
+      setActionError('')
+      setCommunityWorldsError('')
+      setIsCommunityModerationSaving(true)
+      try {
+        if (target.kind === 'world') {
+          await returnWorldToModerationAsAdmin({ token: authToken, world_id: target.id })
+          setCommunityWorlds((previous) => previous.filter((item) => item.id !== target.id))
+          setSelectedCommunityWorld((previous) =>
+            previous?.world.id === target.id ? null : previous,
+          )
+        } else if (target.kind === 'character') {
+          await returnCharacterToModerationAsAdmin({ token: authToken, character_id: target.id })
+          setCommunityCharacters((previous) => previous.filter((item) => item.id !== target.id))
+          setSelectedCommunityCharacter((previous) => (previous?.id === target.id ? null : previous))
+        } else {
+          await returnInstructionTemplateToModerationAsAdmin({ token: authToken, template_id: target.id })
+          setCommunityInstructionTemplates((previous) => previous.filter((item) => item.id !== target.id))
+          setSelectedCommunityInstructionTemplate((previous) => (previous?.id === target.id ? null : previous))
+        }
+        setCommunityModerationAnchorEl(null)
+        setCommunityModerationTarget(null)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось вернуть карточку на модерацию'
+        setActionError(detail)
+      } finally {
+        setIsCommunityModerationSaving(false)
+      }
+    },
+    [authToken, canModerateCommunityCards, isCommunityModerationSaving],
+  )
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -2521,16 +2592,25 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                   {/* Desktop: portrait cards */}
                   <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                     {visibleCommunityWorlds.map((world) => (
-                      <CommunityWorldCard
+                      <CommunityModerationCardFrame
                         key={world.id}
-                        world={world}
-                        onClick={() => void handleOpenCommunityWorld(world.id)}
-                        onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
-                        disabled={isCommunityWorldDialogLoading}
-                        showFavoriteButton
-                        isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
-                        onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
-                      />
+                        canModerate={canModerateCommunityCards}
+                        disabled={isCommunityModerationSaving}
+                        actionOffsetRight={50}
+                        onOpenMenu={(event) =>
+                          handleOpenCommunityModerationMenu(event, { kind: 'world', id: world.id, title: world.title })
+                        }
+                      >
+                        <CommunityWorldCard
+                          world={world}
+                          onClick={() => void handleOpenCommunityWorld(world.id)}
+                          onAuthorClick={(authorId) => onNavigate(`/profile/${authorId}`)}
+                          disabled={isCommunityWorldDialogLoading}
+                          showFavoriteButton
+                          isFavoriteSaving={Boolean(favoriteWorldActionById[world.id])}
+                          onToggleFavorite={(item) => void handleToggleFavoriteWorld(item)}
+                        />
+                      </CommunityModerationCardFrame>
                     ))}
                   </Box>
                   {/* Mobile: landscape card list */}
@@ -2546,6 +2626,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                         authorAvatarUrl={world.author_avatar_url}
                         stat1={`${world.community_launches} ▶`}
                         stat2={`${world.community_rating_avg.toFixed(1)} ★`}
+                        onMenuClick={
+                          canModerateCommunityCards
+                            ? (event) =>
+                                handleOpenCommunityModerationMenu(event, {
+                                  kind: 'world',
+                                  id: world.id,
+                                  title: world.title,
+                                })
+                            : undefined
+                        }
                         onClick={() => void handleOpenCommunityWorld(world.id)}
                       />
                     ))}
@@ -2601,13 +2691,21 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                 {/* Desktop: portrait cards */}
                 <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                   {visibleCommunityCharacters.map((item) => (
-                    <CommunityCharacterCard
+                    <CommunityModerationCardFrame
                       key={item.id}
-                      item={item}
-                      currentUserId={user.id}
-                      disabled={isCommunityCharacterLoading}
-                      onClick={() => void handleOpenCommunityCharacter(item.id)}
-                    />
+                      canModerate={canModerateCommunityCards}
+                      disabled={isCommunityModerationSaving}
+                      onOpenMenu={(event) =>
+                        handleOpenCommunityModerationMenu(event, { kind: 'character', id: item.id, title: item.name })
+                      }
+                    >
+                      <CommunityCharacterCard
+                        item={item}
+                        currentUserId={user.id}
+                        disabled={isCommunityCharacterLoading}
+                        onClick={() => void handleOpenCommunityCharacter(item.id)}
+                      />
+                    </CommunityModerationCardFrame>
                   ))}
                 </Box>
                 {/* Mobile: landscape card list — no play button for characters */}
@@ -2623,6 +2721,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                       showPlayButton={false}
+                      onMenuClick={
+                        canModerateCommunityCards
+                          ? (event) =>
+                              handleOpenCommunityModerationMenu(event, {
+                                kind: 'character',
+                                id: item.id,
+                                title: item.name,
+                              })
+                          : undefined
+                      }
                       onClick={() => void handleOpenCommunityCharacter(item.id)}
                     />
                   ))}
@@ -2680,13 +2788,25 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               {/* Desktop: portrait cards */}
               <Box sx={{ display: { xs: 'none', sm: 'grid' }, gap: 1.4, gridTemplateColumns: COMMUNITY_CARD_GRID_TEMPLATE_COLUMNS }}>
                 {visibleCommunityInstructionTemplates.map((item) => (
-                  <CommunityInstructionCard
+                  <CommunityModerationCardFrame
                     key={item.id}
-                    item={item}
-                    currentUserId={user.id}
-                    disabled={isCommunityInstructionTemplateLoading}
-                    onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
-                  />
+                    canModerate={canModerateCommunityCards}
+                    disabled={isCommunityModerationSaving}
+                    onOpenMenu={(event) =>
+                      handleOpenCommunityModerationMenu(event, {
+                        kind: 'instruction_template',
+                        id: item.id,
+                        title: item.title,
+                      })
+                    }
+                  >
+                    <CommunityInstructionCard
+                      item={item}
+                      currentUserId={user.id}
+                      disabled={isCommunityInstructionTemplateLoading}
+                      onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
+                    />
+                  </CommunityModerationCardFrame>
                 ))}
               </Box>
               {/* Mobile: landscape card list — no play button for rules */}
@@ -2702,6 +2822,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     stat1={`+${item.community_additions_count}`}
                     stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                     showPlayButton={false}
+                    onMenuClick={
+                      canModerateCommunityCards
+                        ? (event) =>
+                            handleOpenCommunityModerationMenu(event, {
+                              kind: 'instruction_template',
+                              id: item.id,
+                              title: item.title,
+                            })
+                        : undefined
+                    }
                     onClick={() => void handleOpenCommunityInstructionTemplate(item.id)}
                   />
                 ))}
@@ -2720,6 +2850,16 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           </Fade>
         </Box>
       </Box>
+
+      <CommunityModerationMenu
+        anchorEl={communityModerationAnchorEl}
+        target={communityModerationTarget}
+        isSaving={isCommunityModerationSaving}
+        onClose={handleCloseCommunityModerationMenu}
+        onReturnToModeration={(target) => {
+          void handleReturnCommunityTargetToModeration(target)
+        }}
+      />
 
       <CommunityWorldDialog
         open={Boolean(selectedCommunityWorld) || isCommunityWorldDialogLoading}

@@ -365,6 +365,48 @@ class StoryGame(Base):
         default="",
         server_default="",
     )
+    appearance_background_mode: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
+    appearance_gradient_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
+    appearance_gradient_from: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="#050506",
+        server_default="#050506",
+    )
+    appearance_gradient_to: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="#2A1408",
+        server_default="#2A1408",
+    )
+    appearance_solid_color: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="#050506",
+        server_default="#050506",
+    )
+    appearance_ui_style: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
+    appearance_text_style: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="default",
+        server_default="default",
+    )
     description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     opening_scene: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     visibility: Mapped[str] = mapped_column(String(16), nullable=False, default="private", server_default="private")

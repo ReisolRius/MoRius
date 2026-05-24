@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, settings
 from app.database import SessionLocal
 from app.models import (
     StoryGame,
@@ -138,10 +138,6 @@ from app.services.story_cards import (
     normalize_story_plot_card_title as _normalize_story_plot_card_title,
     serialize_story_plot_card_memory_turns as _serialize_story_plot_card_memory_turns,
     story_plot_card_to_out as _story_plot_card_to_out,
-)
-from app.services.story_events import (
-    story_plot_card_change_event_to_out as _story_plot_card_change_event_to_out,
-    story_world_card_change_event_to_out as _story_world_card_change_event_to_out,
 )
 from app.services.story_queries import (
     get_user_story_game_or_404 as _get_user_story_game_or_404,
@@ -277,6 +273,7 @@ STORY_USER_ROLE = "user"
 STORY_ASSISTANT_ROLE = "assistant"
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
+STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
 STORY_RESPONSE_MAX_TOKENS_MAX = 800
@@ -293,15 +290,16 @@ STORY_PLOT_MEMORY_RECENT_HISTORY_MAX_TOKENS = 600
 STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
-STORY_PLOT_CARD_MEMORY_MODEL = "x-ai/grok-4.1-fast"
-STORY_OUTPUT_TRANSLATION_MODEL = "meta-llama/llama-3.2-1b-instruct"
+STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
+STORY_PLOT_CARD_MEMORY_MODEL = STORY_SERVICE_TEXT_MODEL
+STORY_OUTPUT_TRANSLATION_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_LOCATION_TITLE = "Место"
 STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
 STORY_MEMORY_LOCATION_REQUEST_MAX_TOKENS = 240
 STORY_MEMORY_WEATHER_TITLE = "Погода и время"
 STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS = 1_200
 STORY_MEMORY_POSTPROCESS_REQUEST_MAX_TOKENS = 1_600
-STORY_ENVIRONMENT_ANALYSIS_MODEL = "x-ai/grok-4.1-fast"
+STORY_ENVIRONMENT_ANALYSIS_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_ENVIRONMENT_ANALYSIS_REQUEST_MAX_TOKENS = 520
 STORY_ENVIRONMENT_TIME_CARD_TITLE = "Время"
 STORY_ENVIRONMENT_WEEKDAY_SHORT_NAMES_RU = (
@@ -367,7 +365,7 @@ STORY_MEMORY_KEY_MIN_BUDGET_TOKENS = 500
 STORY_PLOT_CARD_CONTEXT_MAX_SHARE = 0.35
 STORY_MEMORY_COMPRESSION_REQUEST_MAX_TOKENS = 700
 STORY_MEMORY_KEY_EVENT_REQUEST_MAX_TOKENS = 500
-STORY_AMBIENT_PROFILE_MODEL = "x-ai/grok-4.1-fast"
+STORY_AMBIENT_PROFILE_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_AMBIENT_PROFILE_REQUEST_MAX_TOKENS = 220
 STORY_AMBIENT_HEX_COLOR_PATTERN = re.compile(r"^#?(?:[0-9a-f]{3}|[0-9a-f]{6})$", re.IGNORECASE)
 STORY_AMBIENT_DEFAULT_PROFILE: dict[str, Any] = {
@@ -480,18 +478,15 @@ STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
 STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
-STORY_TURN_IMAGE_MODEL_GROK = "grok-imagine-image"
-STORY_TURN_IMAGE_MODEL_GROK_LEGACY = "grok-imagine-image-pro"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX: 3,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 30,
-    STORY_TURN_IMAGE_MODEL_GROK: 30,
-    STORY_TURN_IMAGE_MODEL_GROK_LEGACY: 30,
 }
 STORY_CHARACTER_EMOTION_REFERENCE_MAX_CHARS = 1_600
 STORY_CHARACTER_EMOTION_EDIT_STYLE_MAX_CHARS = 320
@@ -507,7 +502,7 @@ STORY_CHARACTER_EMOTION_JOB_TERMINAL_STATUSES = {
     STORY_CHARACTER_EMOTION_JOB_STATUS_FAILED,
 }
 STORY_CHARACTER_EMOTION_JOB_ERROR_MAX_LENGTH = 1_000
-STORY_SCENE_EMOTION_ANALYSIS_MODEL = "x-ai/grok-4.1-fast"
+STORY_SCENE_EMOTION_ANALYSIS_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_SCENE_EMOTION_ANALYSIS_REQUEST_MAX_TOKENS = 180
 STORY_SCENE_EMOTION_MAIN_HERO_ALIASES = (
     "гг",
@@ -541,8 +536,6 @@ STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS = 8
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 600
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 600,
-    STORY_TURN_IMAGE_MODEL_GROK: 600,
-    STORY_TURN_IMAGE_MODEL_GROK_LEGACY: 600,
 }
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
@@ -1054,10 +1047,10 @@ STORY_PROVIDER_FAILURE_DETAIL_MARKERS = (
     "internal server error",
     "server_error",
     "upstream",
-    "openrouter chat error (500)",
-    "openrouter chat error (502)",
-    "openrouter chat error (503)",
-    "openrouter chat error (504)",
+    "polza chat error (500)",
+    "polza chat error (502)",
+    "polza chat error (503)",
+    "polza chat error (504)",
 )
 STORY_PRE_STREAM_CONFLICT_DETAIL = (
     "Story state could not be prepared before generation. Refresh the game and try again."
@@ -1078,50 +1071,52 @@ STORY_STREAM_COALESCED_CHUNK_DELAY_SECONDS = 0.012
 STORY_STREAM_TAIL_RECOVERY_MIN_CHARS = 260
 STORY_STREAM_TRANSLATION_MIN_CHARS = 24
 STORY_STREAM_TRANSLATION_MAX_CHARS = 180
-STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
+STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
     "z-ai/glm-4.7",
 }
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
-    "z-ai/glm-5": "z-ai/glm-5",
-    "z-ai/glm-5.1": "z-ai/glm-5.1",
-    "z-ai/glm-4.7": "z-ai/glm-4.7",
-    "deepseek/deepseek-chat-v3-0324": "z-ai/glm-5",
-    "deepseek/deepseek-v3.2": "z-ai/glm-5",
-    "x-ai/grok-4.1-fast": "z-ai/glm-5",
-    "mistralai/mistral-nemo": "z-ai/glm-5",
-    "xiaomi/mimo-v2-flash": "z-ai/glm-5",
-    "xiaomi/mimo-v2-pro": "z-ai/glm-5",
-    "aion-labs/aion-2.0": "z-ai/glm-5",
-    "arcee-ai/trinity-large-preview:free": "z-ai/glm-5",
+    "z-ai/glm-5": STORY_SERVICE_TEXT_MODEL,
+    "z-ai/glm-5.1": STORY_SERVICE_TEXT_MODEL,
+    "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
+    "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
+    "xiaomi/mimo-v2-flash": STORY_SERVICE_TEXT_MODEL,
+    "xiaomi/mimo-v2-pro": STORY_SERVICE_TEXT_MODEL,
+    "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
 }
-STORY_LEGACY_MODEL_ALIASES = {
-    "arcee-ai/trinity-large-preview:free": "xiaomi/mimo-v2-flash",
-}
+STORY_LEGACY_MODEL_ALIASES = {}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
 }
-STORY_NON_SAMPLING_MODEL_HINTS = {
-    "meta-llama/llama-3.3-70b-instruct:free",
-}
-STORY_OPENROUTER_PROVIDER_FRIENDLI = "friendli"
-STORY_OPENROUTER_PROVIDER_MISTRAL = "mistral"
-STORY_OPENROUTER_PROVIDER_ATLAS_CLOUD_FP8 = "atlas-cloud/fp8"
-STORY_OPENROUTER_PROVIDER_NOVITA_FP8 = "novita/fp8"
-STORY_OPENROUTER_PROVIDER_XIAOMI_FP8 = "xiaomi/fp8"
-STORY_OPENROUTER_PROVIDER_AION_LABS = "aion-labs"
-STORY_OPENROUTER_PROVIDER_XAI = "xai"
-STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL = {
-    "z-ai/glm-5": STORY_OPENROUTER_PROVIDER_FRIENDLI,
-    "z-ai/glm-5.1": STORY_OPENROUTER_PROVIDER_FRIENDLI,
-    "deepseek/deepseek-chat-v3-0324": STORY_OPENROUTER_PROVIDER_ATLAS_CLOUD_FP8,
-    "deepseek/deepseek-v3.2": STORY_OPENROUTER_PROVIDER_NOVITA_FP8,
-    "mistralai/mistral-nemo": STORY_OPENROUTER_PROVIDER_MISTRAL,
-    "xiaomi/mimo-v2-pro": STORY_OPENROUTER_PROVIDER_XIAOMI_FP8,
-    "aion-labs/aion-2.0": STORY_OPENROUTER_PROVIDER_AION_LABS,
-    "x-ai/grok-4.1-fast": STORY_OPENROUTER_PROVIDER_XAI,
+STORY_NON_SAMPLING_MODEL_HINTS: set[str] = set()
+STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
+STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
+STORY_POLZA_PROVIDER_DEKALLM = "DekaLLM"
+STORY_POLZA_PROVIDER_ATLAS_CLOUD = "AtlasCloud"
+STORY_POLZA_PROVIDER_AZURE = "Azure"
+STORY_POLZA_PROVIDER_XIAOMI = "Xiaomi"
+STORY_POLZA_PROVIDER_AION_LABS = "AionLabs"
+STORY_POLZA_PROVIDER_MIE = "mie"
+STORY_POLZA_PROVIDER_ALIBABA = "Alibaba"
+STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
+    "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
+    "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
+    "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
+    STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
+    "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
+    "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
+    "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
+    "xiaomi/mimo-v2-flash": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
+    "xiaomi/mimo-v2-pro": STORY_POLZA_PROVIDER_XIAOMI,
+    "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
+    STORY_TURN_IMAGE_MODEL_FLUX: STORY_POLZA_PROVIDER_MIE,
+    STORY_TURN_IMAGE_MODEL_SEEDREAM: STORY_POLZA_PROVIDER_MIE,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO: STORY_POLZA_PROVIDER_MIE,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: STORY_POLZA_PROVIDER_MIE,
 }
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
@@ -1129,12 +1124,10 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-4.7",
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
-    "x-ai/grok-4.1-fast",
     "mistralai/mistral-nemo",
     "xiaomi/mimo-v2-flash",
     "xiaomi/mimo-v2-pro",
     "aion-labs/aion-2.0",
-    "arcee-ai/trinity",
 }
 
 
@@ -1147,7 +1140,7 @@ def _is_story_provider_failure_detail(detail: str | None) -> bool:
 
 def _public_story_provider_failure_detail(detail: str | None) -> str:
     normalized_detail = re.sub(r"\s+", " ", str(detail or "").replace("\r\n", "\n").strip())
-    if normalized_detail.casefold().startswith("openrouter chat error") and "{" in normalized_detail:
+    if normalized_detail.casefold().startswith("polza chat error") and "{" in normalized_detail:
         normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")
     return normalized_detail[:500] or "Provider returned error"
 
@@ -1425,14 +1418,6 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "2) Одна яркая деталь окружения в каждом ответе.",
         "3) Естественные короткие диалоги.",
         "Русский язык: используй только простые, точно верные слова.",
-    ),
-    "x-ai/grok-4.1-fast": (
-        "",
-        "MODEL-SPECIFIC DIRECTIVES (Grok 4.1 Fast):",
-        "Пиши на русском языке уверенно и естественно.",
-        "Сосредоточься на чётких, конкретных действиях и реакциях.",
-        "NPC должны говорить живо и по делу.",
-        "Избегай длинных описательных пассажей — предпочитай действие.",
     ),
     "aion-labs/aion-2.0": (
         "",
@@ -1964,11 +1949,21 @@ def create_story_quick_start_game_fallback(
     finally:
         db.close()
 
-def _normalize_story_context_limit_chars(value: int | None) -> int:
+def _get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
+    normalized_model_name = STORY_LEGACY_MODEL_ALIASES.get(
+        str(model_name or "").strip(),
+        str(model_name or "").strip(),
+    )
+    if normalized_model_name == "z-ai/glm-5.1":
+        return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
+    return STORY_CONTEXT_LIMIT_MAX_TOKENS
+
+
+def _normalize_story_context_limit_chars(value: int | None, *, model_name: str | None = None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
     normalized = int(value)
-    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, _get_story_context_limit_max_tokens(model_name)))
 
 
 def _normalize_story_memory_optimization_mode(value: str | None) -> str:
@@ -2205,7 +2200,10 @@ def _fit_story_plot_cards_to_context_limit(
     if plot_budget_tokens <= 0:
         return []
 
-    total_context_limit_tokens = max(_normalize_story_context_limit_chars(context_limit_tokens), 1)
+    total_context_limit_tokens = max(
+        _normalize_story_context_limit_chars(context_limit_tokens, model_name=model_name),
+        1,
+    )
     context_cards: list[dict[str, str]] = []
     key_memory_cards: list[dict[str, str]] = []
     dev_memory_cards: list[dict[str, str]] = []
@@ -3334,7 +3332,7 @@ def _build_story_npc_fallback_profile_content(
     )
 
 
-def _generate_story_npc_profile_with_openrouter(
+def _generate_story_npc_profile_with_polza(
     *,
     name: str,
     prompt: str,
@@ -3343,10 +3341,10 @@ def _generate_story_npc_profile_with_openrouter(
     snippets: list[str],
     existing_cards: list[StoryWorldCard],
 ) -> tuple[str, list[str], str] | None:
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return None
 
-    model_name = str(settings.openrouter_world_card_model or settings.openrouter_model or OPENROUTER_GEMMA_FREE_MODEL).strip()
+    model_name = str(settings.polza_world_card_model or settings.polza_model or POLZA_GEMINI_25_FLASH_LITE_MODEL).strip()
     if not model_name:
         return None
 
@@ -3430,10 +3428,10 @@ def _generate_story_npc_profile_with_openrouter(
             {"role": "user", "content": user_content},
         ]
         try:
-            raw_response = _request_openrouter_story_text(
+            raw_response = _request_polza_story_text(
                 messages_payload,
                 model_name=model_name,
-                allow_free_fallback=False,
+                allow_service_fallback=False,
                 temperature=0.0,
                 request_timeout=(
                     12,
@@ -3471,7 +3469,7 @@ def _build_story_npc_card_payload(
     snippets: list[str],
     existing_cards: list[StoryWorldCard],
 ) -> tuple[str, list[str], str] | None:
-    generated_payload = _generate_story_npc_profile_with_openrouter(
+    generated_payload = _generate_story_npc_profile_with_polza(
         name=name,
         prompt=prompt,
         assistant_text=assistant_text,
@@ -5510,13 +5508,13 @@ def _build_story_markup_repair_messages(
     ]
 
 
-def _repair_story_markup_with_openrouter(
+def _repair_story_markup_with_polza(
     text_value: str,
     world_cards: list[dict[str, Any]],
     *,
     model_name: str | None = None,
 ) -> str:
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return ""
 
     source_model_name = _normalize_story_model_id(model_name)
@@ -5529,10 +5527,10 @@ def _repair_story_markup_with_openrouter(
 
     repair_messages = _build_story_markup_repair_messages(text_value, world_cards)
     estimated_response_tokens = max(min(_estimate_story_tokens(text_value) + 220, 1_400), 320)
-    repaired_text = _request_openrouter_story_text(
+    repaired_text = _request_polza_story_text(
         repair_messages,
         model_name=repair_model_name,
-        allow_free_fallback=False,
+        allow_service_fallback=False,
         translate_input=False,
         fallback_model_names=[],
         temperature=0.0,
@@ -5716,9 +5714,9 @@ def _normalize_generated_story_output(
         )
 
     repaired_text = ""
-    if settings.openrouter_api_key:
+    if settings.polza_api_key:
         try:
-            repaired_text = _repair_story_markup_with_openrouter(
+            repaired_text = _repair_story_markup_with_polza(
                 normalized_text,
                 world_cards,
                 model_name=model_name,
@@ -5770,11 +5768,13 @@ def _normalize_generated_story_output(
 
 def _effective_story_llm_provider() -> str:
     provider = settings.story_llm_provider.strip().lower()
+    if provider == "polza" or provider == "open" + "router":
+        return "polza"
     if provider != "mock":
         return provider
 
-    if settings.openrouter_api_key and settings.openrouter_chat_url:
-        return "openrouter"
+    if settings.polza_api_key and settings.polza_chat_url:
+        return "polza"
     if settings.gigachat_authorization_key:
         return "gigachat"
     return "mock"
@@ -5785,7 +5785,7 @@ def _validate_story_provider_config() -> None:
     if provider == "mock":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Story provider is not configured: set STORY_LLM_PROVIDER=openrouter and OPENROUTER_API_KEY",
+            detail="Story provider is not configured: set STORY_LLM_PROVIDER=polza and POLZA_API_KEY",
         )
 
     if provider == "gigachat":
@@ -5796,16 +5796,16 @@ def _validate_story_provider_config() -> None:
             detail="GigaChat provider is not configured: set GIGACHAT_AUTHORIZATION_KEY",
         )
 
-    if provider == "openrouter":
-        if not settings.openrouter_api_key:
+    if provider == "polza":
+        if not settings.polza_api_key:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenRouter provider is not configured: set OPENROUTER_API_KEY",
+                detail="Polza.ai provider is not configured: set POLZA_API_KEY",
             )
-        if not settings.openrouter_chat_url:
+        if not settings.polza_chat_url:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="OpenRouter provider is not configured: set OPENROUTER_CHAT_URL",
+                detail="Polza.ai provider is not configured: set POLZA_CHAT_URL",
             )
         return
 
@@ -5893,7 +5893,7 @@ def _is_story_input_translation_enabled() -> bool:
     model_language = _story_model_language_code()
     return (
         settings.story_translation_enabled
-        and bool(settings.openrouter_api_key)
+        and bool(settings.polza_api_key)
         and bool(_story_output_translation_model_name())
         and user_language != model_language
     )
@@ -5916,50 +5916,63 @@ def _story_output_translation_model_name(model_name: str | None = None) -> str:
     preferred_model = STORY_OUTPUT_TRANSLATION_MODEL.strip()
     if preferred_model:
         return preferred_model
-    return settings.openrouter_translation_model.strip()
+    return settings.polza_translation_model.strip()
 
 
 def _normalize_story_model_id(value: str | None) -> str:
     normalized = (value or "").strip().lower()
+    if normalized == STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY:
+        return STORY_TURN_IMAGE_MODEL_SEEDREAM
     return STORY_LEGACY_MODEL_ALIASES.get(normalized, normalized)
 
 
 def _is_story_output_translation_model(model_name: str | None) -> bool:
     normalized_model = _normalize_story_model_id(model_name)
-    return bool(normalized_model and normalized_model in STORY_OPENROUTER_TRANSLATION_FORCE_MODEL_IDS)
+    return bool(normalized_model and normalized_model in STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS)
 
 
 def _can_force_story_output_translation(model_name: str | None = None) -> bool:
     return (
-        bool(settings.openrouter_api_key)
+        bool(settings.polza_api_key)
         and bool(_story_output_translation_model_name(model_name))
         and bool(_story_user_language_code())
     )
 
 
-def _should_force_openrouter_story_output_translation(model_name: str | None) -> bool:
+def _should_force_polza_story_output_translation(model_name: str | None) -> bool:
     return _story_user_language_code() == "ru" and _can_force_story_output_translation(model_name)
 
 
-def _build_openrouter_provider_payload(model_name: str | None) -> dict[str, Any] | None:
+def _build_polza_provider_payload(model_name: str | None) -> dict[str, Any] | None:
     normalized_model = _normalize_story_model_id(model_name)
     if not normalized_model:
         return None
 
-    pinned_provider = STORY_OPENROUTER_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
+    pinned_provider = STORY_POLZA_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
     if not pinned_provider:
         return None
 
     return {
         "order": [pinned_provider],
-        "allow_fallbacks": False,
+        "allow_fallbacks": True,
     }
 
 
-def _build_openrouter_image_provider_payload(model_name: str | None) -> dict[str, Any]:
-    provider_payload = dict(_build_openrouter_provider_payload(model_name) or {})
-    provider_payload["require_parameters"] = True
-    return provider_payload
+def _build_polza_image_provider_payload(model_name: str | None) -> dict[str, Any]:
+    return dict(_build_polza_provider_payload(model_name) or {})
+
+
+def _apply_polza_story_reasoning_preferences(
+    payload: dict[str, Any],
+    *,
+    model_name: str | None,
+) -> None:
+    normalized_model = _normalize_story_model_id(model_name)
+    if normalized_model in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
+        payload["reasoning"] = {
+            "effort": "none",
+            "exclude": True,
+        }
 
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:
@@ -5998,7 +6011,7 @@ def _normalize_story_prompt_list(values: list[Any], *, max_items: int, max_chars
         return "нет"
     return ", ".join(normalized_values[:max_items])
 def _effective_story_context_limit_tokens(context_limit_tokens: int, *, model_name: str | None) -> int:
-    normalized_limit = _normalize_story_context_limit_chars(context_limit_tokens)
+    normalized_limit = _normalize_story_context_limit_chars(context_limit_tokens, model_name=model_name)
     return normalized_limit
 
 
@@ -6048,7 +6061,7 @@ def _is_story_markup_preserved(source_text: str, translated_text: str) -> bool:
     return source_tokens == translated_tokens
 
 
-def _translate_text_batch_with_openrouter(
+def _translate_text_batch_with_polza(
     texts: list[str],
     *,
     source_language: str,
@@ -6059,7 +6072,7 @@ def _translate_text_batch_with_openrouter(
         return []
     selected_translation_model = (translation_model_name or _story_output_translation_model_name()).strip()
     if not selected_translation_model:
-        raise RuntimeError("OpenRouter translation model is not configured")
+        raise RuntimeError("Polza.ai translation model is not configured")
 
     translation_messages = [
         {
@@ -6090,10 +6103,10 @@ def _translate_text_batch_with_openrouter(
     ]
     source_tokens_estimate = sum(max(_estimate_story_tokens(text_value), 1) for text_value in texts)
     translation_max_tokens = max(256, min(source_tokens_estimate * 2 + 256, 3_200))
-    raw_response = _request_openrouter_story_text(
+    raw_response = _request_polza_story_text(
         translation_messages,
         model_name=selected_translation_model,
-        allow_free_fallback=False,
+        allow_service_fallback=False,
         translate_input=False,
         temperature=0,
         max_tokens=translation_max_tokens,
@@ -6104,7 +6117,7 @@ def _translate_text_batch_with_openrouter(
     )
     parsed_payload = _extract_json_array_from_text(raw_response)
     if not isinstance(parsed_payload, list):
-        raise RuntimeError("OpenRouter translation returned malformed payload")
+        raise RuntimeError("Polza.ai translation returned malformed payload")
 
     translated_texts: list[str] = []
     for item in parsed_payload:
@@ -6117,7 +6130,7 @@ def _translate_text_batch_with_openrouter(
                 translated_texts.append(text_value)
 
     if len(translated_texts) != len(texts):
-        raise RuntimeError("OpenRouter translation returned incomplete translations")
+        raise RuntimeError("Polza.ai translation returned incomplete translations")
 
     for index, (source_text, translated_text) in enumerate(zip(texts, translated_texts)):
         if _is_story_markup_preserved(source_text, translated_text):
@@ -6128,7 +6141,7 @@ def _translate_text_batch_with_openrouter(
     return translated_texts
 
 
-def _translate_texts_with_openrouter(
+def _translate_texts_with_polza(
     texts: list[str],
     *,
     source_language: str,
@@ -6154,7 +6167,7 @@ def _translate_texts_with_openrouter(
         nonlocal batch_indices, batch_texts, batch_chars
         if not batch_texts:
             return
-        translated_batch = _translate_text_batch_with_openrouter(
+        translated_batch = _translate_text_batch_with_polza(
             batch_texts,
             source_language=source_language,
             target_language=target_language,
@@ -6188,7 +6201,7 @@ def _translate_story_messages_for_model(messages_payload: list[dict[str, str]]) 
     source_language = "auto"
     target_language = _story_model_language_code()
     raw_texts = [message.get("content", "") for message in messages_payload]
-    translated_texts = _translate_texts_with_openrouter(
+    translated_texts = _translate_texts_with_polza(
         raw_texts,
         source_language=source_language,
         target_language=target_language,
@@ -6220,7 +6233,7 @@ def _translate_story_model_output_to_user(text_value: str) -> str:
         return text_value
     source_language = "auto"
     target_language = _story_user_language_code()
-    translated = _translate_texts_with_openrouter(
+    translated = _translate_texts_with_polza(
         [text_value],
         source_language=source_language,
         target_language=target_language,
@@ -6238,7 +6251,7 @@ def _force_translate_story_model_output_to_user(
     if not _can_force_story_output_translation(source_model_name):
         return text_value
     target_language = "ru" if _is_story_output_translation_model(source_model_name) else _story_user_language_code()
-    translated = _translate_text_batch_with_openrouter(
+    translated = _translate_text_batch_with_polza(
         [text_value],
         source_language="auto",
         target_language=target_language,
@@ -6639,7 +6652,7 @@ def _build_story_provider_messages(
     history = _trim_story_history_to_context_limit(history, history_budget_tokens)
 
     # Large system prompts (for example, with many cards + model-specific rules)
-    # can consume the whole budget. Keep at least one recent user turn so OpenRouter
+    # can consume the whole budget. Keep at least one recent user turn so Polza.ai
     # always receives actionable dialogue context.
     if not history and full_history:
         fallback_history_item: dict[str, str] | None = None
@@ -6985,7 +6998,7 @@ def _resolve_story_ambient_profile(
         return fallback_profile
     if not allow_model_request:
         return fallback_profile
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         return fallback_profile
 
     assistant_preview = _normalize_story_prompt_text(latest_assistant_text, max_chars=2_200)
@@ -7020,10 +7033,10 @@ def _resolve_story_ambient_profile(
     ]
 
     try:
-        raw_response = _request_openrouter_story_text(
+        raw_response = _request_polza_story_text(
             messages_payload,
             model_name=STORY_AMBIENT_PROFILE_MODEL,
-            allow_free_fallback=False,
+            allow_service_fallback=False,
             fallback_model_names=[],
             temperature=0.0,
             max_tokens=STORY_AMBIENT_PROFILE_REQUEST_MAX_TOKENS,
@@ -7172,7 +7185,7 @@ def _build_story_world_card_extraction_messages(
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
-    model_name = (settings.openrouter_world_card_model or settings.openrouter_model).strip()
+    model_name = (settings.polza_world_card_model or settings.polza_model).strip()
     compact_mode = _is_story_paid_model(model_name)
     existing_titles = [card.title.strip() for card in existing_cards if card.title.strip()]
     existing_title_items = [
@@ -7274,7 +7287,7 @@ def _build_story_world_card_change_messages(
     assistant_text: str,
     existing_cards: list[StoryWorldCard],
 ) -> list[dict[str, str]]:
-    model_name = (settings.openrouter_world_card_model or settings.openrouter_model).strip()
+    model_name = (settings.polza_world_card_model or settings.polza_model).strip()
     compact_mode = _is_story_paid_model(model_name)
     prompt_preview = prompt.strip()
     assistant_preview = assistant_text.strip()
@@ -7635,18 +7648,18 @@ def _normalize_story_world_card_change_operations(
     return normalized_operations
 
 
-def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
+def _request_polza_world_card_candidates(messages_payload: list[dict[str, str]]) -> Any:
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    primary_model = settings.openrouter_world_card_model or settings.openrouter_model
+    primary_model = settings.polza_world_card_model or settings.polza_model
     candidate_models = [primary_model]
 
     last_error: RuntimeError | None = None
@@ -7661,13 +7674,13 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
         }
         try:
             response = HTTP_SESSION.post(
-                settings.openrouter_chat_url,
+                settings.polza_chat_url,
                 headers=headers,
                 json=payload,
                 timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
             )
         except requests.RequestException as exc:
-            raise RuntimeError("Failed to reach OpenRouter extraction endpoint") from exc
+            raise RuntimeError("Failed to reach Polza.ai extraction endpoint") from exc
 
         if response.status_code >= 400:
             detail = ""
@@ -7685,7 +7698,7 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
                 if not detail:
                     detail = str(error_payload.get("message") or error_payload.get("detail") or "").strip()
 
-            error_text = f"OpenRouter extraction error ({response.status_code})"
+            error_text = f"Polza.ai extraction error ({response.status_code})"
             if detail:
                 error_text = f"{error_text}: {detail}"
 
@@ -7697,7 +7710,7 @@ def _request_openrouter_world_card_candidates(messages_payload: list[dict[str, s
         try:
             payload_value = response.json()
         except ValueError as exc:
-            raise RuntimeError("OpenRouter extraction returned invalid payload") from exc
+            raise RuntimeError("Polza.ai extraction returned invalid payload") from exc
 
         if not isinstance(payload_value, dict):
             return []
@@ -7750,7 +7763,7 @@ def _request_story_scene_emotion_payload(
             }
         )
 
-    if not settings.openrouter_api_key or not settings.openrouter_chat_url:
+    if not settings.polza_api_key or not settings.polza_chat_url:
         if fallback_payload:
             return fallback_payload
         return _serialize_story_scene_emotion_payload(
@@ -7785,14 +7798,14 @@ def _request_story_scene_emotion_payload(
         active_cast_entries=active_cast_entries,
     )
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
     payload: dict[str, Any] = {
         "model": STORY_SCENE_EMOTION_ANALYSIS_MODEL,
@@ -7805,7 +7818,7 @@ def _request_story_scene_emotion_payload(
 
     try:
         response = HTTP_SESSION.post(
-            settings.openrouter_chat_url,
+            settings.polza_chat_url,
             headers=headers,
             json=payload,
             timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
@@ -8016,8 +8029,8 @@ def _generate_story_world_card_change_operations(
 
     provider = _effective_story_llm_provider()
     raw_operations: Any = []
-    if provider == "openrouter":
-        raw_operations = _request_openrouter_world_card_candidates(messages_payload)
+    if provider == "polza":
+        raw_operations = _request_polza_world_card_candidates(messages_payload)
     elif provider == "gigachat":
         raw_operations = _request_gigachat_world_card_candidates(messages_payload)
     else:
@@ -8293,19 +8306,25 @@ def _persist_generated_story_world_cards(
     assistant_text: str,
     *,
     memory_optimization_enabled: bool = True,
+    resolved_operations_override: Any = None,
 ) -> list[StoryWorldCardChangeEvent]:
     existing_cards = _list_story_world_cards(db, game.id)
     assistant_text_for_memory = _strip_story_markup_for_memory_text(assistant_text)
-    try:
-        operations = _generate_story_world_card_change_operations(
-            prompt=prompt,
-            assistant_text=assistant_text_for_memory,
-            existing_cards=existing_cards,
-            enable_secondary_npc_profile_generation=False,
-        )
-    except Exception as exc:
-        logger.warning("World card extraction failed: %s", exc)
+    if isinstance(resolved_operations_override, list):
+        operations = _normalize_story_world_card_change_operations(resolved_operations_override, existing_cards)
+    elif resolved_operations_override is not None:
         operations = []
+    else:
+        try:
+            operations = _generate_story_world_card_change_operations(
+                prompt=prompt,
+                assistant_text=assistant_text_for_memory,
+                existing_cards=existing_cards,
+                enable_secondary_npc_profile_generation=False,
+            )
+        except Exception as exc:
+            logger.warning("World card extraction failed: %s", exc)
+            operations = []
 
     persisted_events: list[StoryWorldCardChangeEvent] = []
     try:
@@ -8382,7 +8401,7 @@ def _build_story_plot_card_memory_messages(
 
 
 def _resolve_story_plot_memory_model_name() -> str:
-    # Memory extraction is pinned to Grok for stable quality.
+    # Memory extraction stays pinned to the service model for stable quality.
     return STORY_PLOT_CARD_MEMORY_MODEL
 
 
@@ -8756,7 +8775,7 @@ def _trim_story_plot_card_content_for_context(
     return _trim_story_text_tail_by_sentence_tokens(normalized, limit)
 
 
-def _generate_story_plot_card_title_with_openrouter(
+def _generate_story_plot_card_title_with_polza(
     *,
     model_name: str,
     latest_assistant_text: str,
@@ -8805,10 +8824,10 @@ def _generate_story_plot_card_title_with_openrouter(
             ),
         },
     ]
-    raw_response = _request_openrouter_story_text(
+    raw_response = _request_polza_story_text(
         messages_payload,
         model_name=model_name,
-        allow_free_fallback=False,
+        allow_service_fallback=False,
         temperature=0.0,
         request_timeout=(
             STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
@@ -8858,7 +8877,7 @@ def _resolve_story_plot_card_title(
         return normalized_suggested
 
     try:
-        generated_title = _generate_story_plot_card_title_with_openrouter(
+        generated_title = _generate_story_plot_card_title_with_polza(
             model_name=model_name,
             latest_assistant_text=latest_assistant_text,
             latest_user_prompt=latest_user_prompt,
@@ -8880,9 +8899,10 @@ def _resolve_story_plot_card_title(
 def _build_story_memory_layer_budgets(
     context_limit_tokens: int,
     *,
+    model_name: str | None = None,
     optimization_mode: str | None = None,
 ) -> dict[str, int]:
-    total_limit = max(_normalize_story_context_limit_chars(context_limit_tokens), 1)
+    total_limit = max(_normalize_story_context_limit_chars(context_limit_tokens, model_name=model_name), 1)
     key_budget = min(
         max(int(total_limit * STORY_MEMORY_KEY_BUDGET_SHARE), STORY_MEMORY_KEY_MIN_BUDGET_TOKENS),
         total_limit,
@@ -10079,15 +10099,7 @@ def _upsert_story_plot_memory_card(
             if should_restore_memory_optimization_enabled:
                 game.memory_optimization_enabled = original_memory_optimization_enabled
         if raw_block_created or raw_memory_resynced:
-            try:
-                _rebalance_story_memory_layers(db=db, game=game)
-            except Exception as exc:
-                logger.warning(
-                    "Raw story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
+            should_force_memory_rebalance = True
 
     should_extract_important_payload = True
 
@@ -10106,6 +10118,7 @@ def _upsert_story_plot_memory_card(
             if isinstance(resolved_postprocess_payload_override, dict)
             else None
         )
+        has_postprocess_payload_override = isinstance(resolved_postprocess_payload_override, dict)
 
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
@@ -10132,18 +10145,17 @@ def _upsert_story_plot_memory_card(
                     exc,
                 )
 
-        location_payload_for_sync = (
-            postprocess_payload.get("location")
-            if isinstance(postprocess_payload, dict)
-            and isinstance(postprocess_payload.get("location"), dict)
-            else None
-        )
-        environment_payload_for_sync = (
-            postprocess_payload.get("environment")
-            if isinstance(postprocess_payload, dict)
-            and isinstance(postprocess_payload.get("environment"), dict)
-            else None
-        )
+        location_payload_for_sync = None
+        if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("location"), dict):
+            location_payload_for_sync = postprocess_payload.get("location")
+        elif has_postprocess_payload_override or not allow_model_postprocess_request:
+            location_payload_for_sync = {"action": "keep"}
+
+        environment_payload_for_sync = None
+        if isinstance(postprocess_payload, dict) and isinstance(postprocess_payload.get("environment"), dict):
+            environment_payload_for_sync = postprocess_payload.get("environment")
+        elif has_postprocess_payload_override or not allow_model_postprocess_request:
+            environment_payload_for_sync = {"action": "keep"}
         character_state_payload_for_sync = (
             postprocess_payload.get("character_state")
             if isinstance(postprocess_payload, dict)
@@ -10259,19 +10271,11 @@ def _upsert_story_plot_memory_card(
             )
         if key_memory_created:
             key_memory_created_any = True
-            try:
-                _rebalance_story_memory_layers(db=db, game=game)
-            except Exception as exc:
-                logger.warning(
-                    "Key story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
-                    game.id,
-                    assistant_message.id,
-                    exc,
-                )
+            should_force_memory_rebalance = True
 
     if should_force_memory_rebalance:
         try:
-            _rebalance_story_memory_layers(db=db, game=game)
+            _rebalance_story_memory_layers(db=db, game=game, max_model_requests=1)
         except Exception as exc:
             logger.warning(
                 "Final story memory rebalance failed: game_id=%s assistant_message_id=%s error=%s",
@@ -10493,7 +10497,7 @@ def _iter_gigachat_story_stream_chunks(
         response.close()
 
 
-def _iter_openrouter_story_stream_chunks(
+def _iter_polza_story_stream_chunks(
     context_messages: list[StoryMessage],
     instruction_cards: list[dict[str, str]],
     plot_cards: list[dict[str, str]],
@@ -10542,29 +10546,29 @@ def _iter_openrouter_story_stream_chunks(
         show_npc_thoughts=show_npc_thoughts,
     )
     if len(messages_payload) <= 1:
-        raise RuntimeError("No messages to send to OpenRouter")
+        raise RuntimeError("No messages to send to Polza.ai")
 
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "text/event-stream",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    primary_model = (model_name or settings.openrouter_model).strip()
+    primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("Polza.ai chat model is not configured")
 
     candidate_models = [primary_model]
-    allow_free_model_fallback = (
-        primary_model != "openrouter/free"
+    allow_service_model_fallback = (
+        primary_model != STORY_SERVICE_TEXT_MODEL
         and not _is_story_paid_model(primary_model)
     )
-    if allow_free_model_fallback:
-        candidate_models.append("openrouter/free")
+    if allow_service_model_fallback:
+        candidate_models.append(STORY_SERVICE_TEXT_MODEL)
 
     last_error: RuntimeError | None = None
 
@@ -10574,7 +10578,7 @@ def _iter_openrouter_story_stream_chunks(
             "messages": messages_payload,
             "stream": True,
         }
-        provider_payload = _build_openrouter_provider_payload(model_name)
+        provider_payload = _build_polza_provider_payload(model_name)
         if provider_payload is not None:
             payload["provider"] = provider_payload
         if temperature is not None:
@@ -10585,18 +10589,19 @@ def _iter_openrouter_story_stream_chunks(
             payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = int(max_tokens)
+        _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
 
         for attempt_index in range(2):
             try:
                 response = HTTP_SESSION.post(
-                    settings.openrouter_chat_url,
+                    settings.polza_chat_url,
                     headers=headers,
                     json=payload,
                     timeout=(20, 120),
                     stream=True,
                 )
             except requests.RequestException as exc:
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach Polza.ai chat endpoint") from exc
 
             try:
                 if response.status_code >= 400:
@@ -10625,7 +10630,7 @@ def _iter_openrouter_story_stream_chunks(
                         time.sleep(1.1)
                         continue
 
-                    error_text = f"OpenRouter chat error ({response.status_code})"
+                    error_text = f"Polza.ai chat error ({response.status_code})"
                     if detail:
                         error_text = f"{error_text}: {detail}"
 
@@ -10666,7 +10671,7 @@ def _iter_openrouter_story_stream_chunks(
                     error_value = chunk_payload.get("error")
                     if isinstance(error_value, dict):
                         error_detail = str(error_value.get("message") or error_value.get("code") or "").strip()
-                        raise RuntimeError(error_detail or "OpenRouter stream returned an error")
+                        raise RuntimeError(error_detail or "Polza.ai stream returned an error")
                     if isinstance(error_value, str) and error_value.strip():
                         raise RuntimeError(error_value.strip())
 
@@ -10687,7 +10692,7 @@ def _iter_openrouter_story_stream_chunks(
                             if first_content_emitted_at is None:
                                 first_content_emitted_at = time.monotonic()
                                 logger.info(
-                                    "OpenRouter stream first token latency: %.3fs model=%s",
+                                    "Polza.ai stream first token latency: %.3fs model=%s",
                                     first_content_emitted_at - request_started_at,
                                     model_name,
                                 )
@@ -10711,7 +10716,7 @@ def _iter_openrouter_story_stream_chunks(
                             if first_content_emitted_at is None:
                                 first_content_emitted_at = time.monotonic()
                                 logger.info(
-                                    "OpenRouter stream first token latency (message payload): %.3fs model=%s",
+                                    "Polza.ai stream first token latency (message payload): %.3fs model=%s",
                                     first_content_emitted_at - request_started_at,
                                     model_name,
                                 )
@@ -10733,17 +10738,17 @@ def _iter_openrouter_story_stream_chunks(
                         if fallback_max_tokens is None and model_hit_length_limit:
                             fallback_max_tokens = max(STORY_DEFAULT_RESPONSE_MAX_TOKENS * 3, 1_200)
                         logger.warning(
-                            "OpenRouter stream may be incomplete; attempting tail recovery: model=%s finish_reason=%s done=%s fallback_max_tokens=%s",
+                            "Polza.ai stream may be incomplete; attempting tail recovery: model=%s finish_reason=%s done=%s fallback_max_tokens=%s",
                             model_name,
                             finish_reason or "",
                             saw_done_marker,
                             fallback_max_tokens,
                         )
                         try:
-                            fallback_text = _request_openrouter_story_text(
+                            fallback_text = _request_polza_story_text(
                                 messages_payload,
                                 model_name=model_name,
-                                allow_free_fallback=False,
+                                allow_service_fallback=False,
                                 temperature=temperature,
                                 top_k=top_k,
                                 top_p=top_p,
@@ -10751,7 +10756,7 @@ def _iter_openrouter_story_stream_chunks(
                             )
                         except Exception as recovery_exc:
                             logger.warning(
-                                "OpenRouter stream tail recovery failed: model=%s error=%s",
+                                "Polza.ai stream tail recovery failed: model=%s error=%s",
                                 model_name,
                                 recovery_exc,
                             )
@@ -10759,7 +10764,7 @@ def _iter_openrouter_story_stream_chunks(
                         suffix_text = _extract_story_novel_suffix(emitted_text, fallback_text)
                         if suffix_text:
                             logger.info(
-                                "OpenRouter stream recovery appended tail: model=%s chars=%s",
+                                "Polza.ai stream recovery appended tail: model=%s chars=%s",
                                 model_name,
                                 len(suffix_text),
                             )
@@ -10768,10 +10773,10 @@ def _iter_openrouter_story_stream_chunks(
                     return
 
                 # Fallback when stream completed without textual content chunks.
-                fallback_text = _request_openrouter_story_text(
+                fallback_text = _request_polza_story_text(
                     messages_payload,
                     model_name=model_name,
-                    allow_free_fallback=False,
+                    allow_service_fallback=False,
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
@@ -10790,7 +10795,7 @@ def _iter_openrouter_story_stream_chunks(
     if last_error is not None:
         raise last_error
 
-    raise RuntimeError("OpenRouter chat request failed")
+    raise RuntimeError("Polza.ai chat request failed")
 
 
 def _request_gigachat_story_text(
@@ -10856,11 +10861,11 @@ def _request_gigachat_story_text(
     return _extract_text_from_model_content(message_value.get("content"))
 
 
-def _request_openrouter_story_text(
+def _request_polza_story_text(
     messages_payload: list[dict[str, str]],
     *,
     model_name: str | None = None,
-    allow_free_fallback: bool = True,
+    allow_service_fallback: bool = True,
     translate_input: bool = True,
     fallback_model_names: list[str] | None = None,
     temperature: float | None = None,
@@ -10871,18 +10876,18 @@ def _request_openrouter_story_text(
     retry_on_rate_limit: bool = True,
 ) -> str:
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    primary_model = (model_name or settings.openrouter_model).strip()
+    primary_model = (model_name or settings.polza_model).strip()
     if not primary_model:
-        raise RuntimeError("OpenRouter chat model is not configured")
+        raise RuntimeError("Polza.ai chat model is not configured")
 
     candidate_models = [primary_model]
     if fallback_model_names:
@@ -10891,9 +10896,9 @@ def _request_openrouter_story_text(
             if not normalized_fallback_model or normalized_fallback_model in candidate_models:
                 continue
             candidate_models.append(normalized_fallback_model)
-    if allow_free_fallback and primary_model != "openrouter/free":
-        if "openrouter/free" not in candidate_models:
-            candidate_models.append("openrouter/free")
+    if allow_service_fallback and primary_model != STORY_SERVICE_TEXT_MODEL:
+        if STORY_SERVICE_TEXT_MODEL not in candidate_models:
+            candidate_models.append(STORY_SERVICE_TEXT_MODEL)
 
     last_error: RuntimeError | None = None
     timeout_value = request_timeout or (20, 120)
@@ -10907,7 +10912,7 @@ def _request_openrouter_story_text(
             "messages": prepared_messages_payload,
             "stream": False,
         }
-        provider_payload = _build_openrouter_provider_payload(candidate_model)
+        provider_payload = _build_polza_provider_payload(candidate_model)
         if provider_payload is not None:
             payload["provider"] = provider_payload
         if temperature is not None:
@@ -10918,17 +10923,18 @@ def _request_openrouter_story_text(
             payload["top_p"] = top_p
         if max_tokens is not None:
             payload["max_tokens"] = int(max_tokens)
+        _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
         attempts_per_model = 2 if retry_on_rate_limit else 1
         for attempt_index in range(attempts_per_model):
             try:
                 response = HTTP_SESSION.post(
-                    settings.openrouter_chat_url,
+                    settings.polza_chat_url,
                     headers=headers,
                     json=payload,
                     timeout=timeout_value,
                 )
             except requests.RequestException as exc:
-                raise RuntimeError("Failed to reach OpenRouter chat endpoint") from exc
+                raise RuntimeError("Failed to reach Polza.ai chat endpoint") from exc
 
             if response.status_code >= 400:
                 detail = ""
@@ -10953,20 +10959,20 @@ def _request_openrouter_story_text(
 
                 if retry_on_rate_limit and response.status_code == 429 and attempt_index == 0:
                     logger.warning(
-                        "OpenRouter chat rate-limited; retrying once: model=%s status=%s",
+                        "Polza.ai chat rate-limited; retrying once: model=%s status=%s",
                         candidate_model,
                         response.status_code,
                     )
                     time.sleep(1.1)
                     continue
 
-                error_text = f"OpenRouter chat error ({response.status_code})"
+                error_text = f"Polza.ai chat error ({response.status_code})"
                 if detail:
                     error_text = f"{error_text}: {detail}"
 
                 if response.status_code in {404, 429, 503} and candidate_model != candidate_models[-1]:
                     logger.warning(
-                        "OpenRouter chat failed for model=%s; trying fallback model. status=%s detail=%s",
+                        "Polza.ai chat failed for model=%s; trying fallback model. status=%s detail=%s",
                         candidate_model,
                         response.status_code,
                         detail or "n/a",
@@ -10978,7 +10984,7 @@ def _request_openrouter_story_text(
             try:
                 payload_value = response.json()
             except ValueError as exc:
-                raise RuntimeError("OpenRouter chat returned invalid payload") from exc
+                raise RuntimeError("Polza.ai chat returned invalid payload") from exc
 
             if not isinstance(payload_value, dict):
                 return ""
@@ -10996,34 +11002,16 @@ def _request_openrouter_story_text(
     return ""
 
 
-def _is_story_turn_image_xai_model(model_name: str | None) -> bool:
-    normalized_model = str(model_name or "").strip()
-    return normalized_model in {STORY_TURN_IMAGE_MODEL_GROK, STORY_TURN_IMAGE_MODEL_GROK_LEGACY}
-
-
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
-    if _is_story_turn_image_xai_model(model_name):
-        if not settings.xai_image_api_key:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="xAI image provider is not configured: set XAI_IMAGE_API_KEY",
-            )
-        if not settings.xai_image_url:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="xAI image endpoint is not configured: set XAI_IMAGE_URL",
-            )
-        return
-
-    if not settings.openrouter_api_key:
+    if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter provider is not configured: set OPENROUTER_API_KEY",
+            detail="Polza.ai provider is not configured: set POLZA_API_KEY",
         )
-    if not settings.openrouter_chat_url and not settings.openrouter_image_url:
+    if not settings.polza_chat_url and not settings.polza_image_url:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OpenRouter image endpoint is not configured: set OPENROUTER_CHAT_URL or OPENROUTER_IMAGE_URL",
+            detail="Polza.ai image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
         )
 
 
@@ -11826,7 +11814,7 @@ def _build_story_turn_image_prompt(
     return _join_story_turn_image_prompt_parts(prompt_parts)
 
 
-def _extract_openrouter_error_detail(response: requests.Response) -> str:
+def _extract_polza_error_detail(response: requests.Response) -> str:
     detail = ""
     error_payload: Any = None
     try:
@@ -11901,34 +11889,67 @@ def _resolve_story_turn_image_aspect_ratio(image_size: str) -> str | None:
     return closest_ratio
 
 
-def _resolve_story_turn_image_xai_aspect_ratio(image_size: str) -> str | None:
-    aspect_ratio = _resolve_story_turn_image_aspect_ratio(image_size)
-    if aspect_ratio in {"1:1", "4:3", "3:4", "16:9", "9:16"}:
-        return aspect_ratio
-    return None
+def _is_story_turn_image_chat_endpoint(endpoint_url: str) -> bool:
+    normalized_url = str(endpoint_url or "").strip().lower().rstrip("/")
+    return normalized_url.endswith("/chat/completions")
 
 
-def _resolve_story_turn_image_xai_resolution(image_size: str) -> str | None:
-    normalized_size = str(image_size or "").strip().lower()
-    if not normalized_size:
-        return None
-
-    size_match = re.match(r"^\s*(\d{2,5})\s*[x:]\s*(\d{2,5})\s*$", normalized_size)
-    if size_match is None:
-        return None
-
-    width = max(int(size_match.group(1)), 1)
-    height = max(int(size_match.group(2)), 1)
-    return "2k" if max(width, height) >= 1536 else "1k"
+def _is_story_turn_image_media_endpoint(endpoint_url: str) -> bool:
+    normalized_url = str(endpoint_url or "").strip().lower().rstrip("/")
+    return normalized_url.endswith("/media")
 
 
-def _build_story_turn_image_openrouter_payload(
+def _build_story_turn_image_media_references(reference_image_input: str | None) -> list[dict[str, str]]:
+    normalized_reference_image_input = str(reference_image_input or "").strip()
+    if not normalized_reference_image_input:
+        return []
+    if normalized_reference_image_input.startswith(("https://", "http://")):
+        return [{"type": "url", "data": normalized_reference_image_input}]
+    return [{"type": "base64", "data": normalized_reference_image_input}]
+
+
+def _build_story_turn_image_media_payload(
     *,
     prompt: str,
     selected_model: str,
+    reference_image_input: str | None = None,
+) -> dict[str, Any]:
+    input_payload: dict[str, Any] = {"prompt": prompt}
+    aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
+    if aspect_ratio:
+        input_payload["aspect_ratio"] = aspect_ratio
+    if selected_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
+        input_payload["quality"] = "basic"
+    reference_images = _build_story_turn_image_media_references(reference_image_input)
+    if reference_images:
+        input_payload["images"] = reference_images
+
+    payload: dict[str, Any] = {
+        "model": selected_model,
+        "input": input_payload,
+        "async": False,
+    }
+    provider_payload = _build_polza_image_provider_payload(selected_model)
+    if provider_payload:
+        payload["provider"] = provider_payload
+    return payload
+
+
+def _build_story_turn_image_polza_payload(
+    *,
+    prompt: str,
+    selected_model: str,
+    endpoint_kind: str,
     use_chat_completions: bool,
     reference_image_input: str | None = None,
 ) -> dict[str, Any]:
+    if endpoint_kind == "media":
+        return _build_story_turn_image_media_payload(
+            prompt=prompt,
+            selected_model=selected_model,
+            reference_image_input=reference_image_input,
+        )
+
     if use_chat_completions:
         normalized_reference_image_input = str(reference_image_input or "").strip()
         message_content: str | list[dict[str, Any]]
@@ -11945,9 +11966,11 @@ def _build_story_turn_image_openrouter_payload(
             "messages": [{"role": "user", "content": message_content}],
             "modalities": ["image"],
             "stream": False,
-            "provider": _build_openrouter_image_provider_payload(selected_model),
         }
-        aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.openrouter_image_size)
+        provider_payload = _build_polza_image_provider_payload(selected_model)
+        if provider_payload:
+            payload["provider"] = provider_payload
+        aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
         if aspect_ratio:
             payload["image_config"] = {"aspect_ratio": aspect_ratio}
         return payload
@@ -11957,19 +11980,95 @@ def _build_story_turn_image_openrouter_payload(
         "prompt": prompt,
         "n": 1,
     }
-    image_size = str(settings.openrouter_image_size or "").strip()
+    image_size = str(settings.polza_image_size or "").strip()
     if image_size:
         payload["size"] = image_size
+    provider_payload = _build_polza_image_provider_payload(selected_model)
+    if provider_payload:
+        payload["provider"] = provider_payload
     return payload
 
 
-def _parse_openrouter_story_turn_image_payload(
+def _parse_polza_story_turn_image_payload(
     payload_value: Any,
     *,
     selected_model: str,
 ) -> dict[str, str | None]:
     if not isinstance(payload_value, dict):
-        raise RuntimeError("OpenRouter image endpoint returned empty payload")
+        raise RuntimeError("Polza.ai image endpoint returned empty payload")
+
+    # Polza.ai Media API response: {"object":"media.generation","status":"completed","data":{"url":...}}
+    object_value = str(payload_value.get("object") or "").strip().lower()
+    status_value = str(payload_value.get("status") or "").strip().lower()
+    data_payload = payload_value.get("data")
+    if object_value == "media.generation" or status_value in {"pending", "processing", "completed", "failed", "cancelled"}:
+        if status_value in {"failed", "cancelled"}:
+            error_value = payload_value.get("error")
+            detail = ""
+            if isinstance(error_value, dict):
+                detail = str(error_value.get("message") or error_value.get("code") or "").strip()
+            elif isinstance(error_value, str):
+                detail = error_value.strip()
+            raise RuntimeError(detail or f"Polza.ai media generation {status_value}")
+        if status_value in {"pending", "processing"}:
+            raise RuntimeError("Polza.ai media generation did not complete")
+
+        image_candidates: list[str] = []
+
+        def _append_media_image_candidate(raw_value: Any) -> None:
+            if raw_value is None:
+                return
+            if isinstance(raw_value, list):
+                for item in raw_value:
+                    _append_media_image_candidate(item)
+                return
+            if isinstance(raw_value, dict):
+                raw_b64_payload = str(
+                    raw_value.get("b64_json")
+                    or raw_value.get("image_base64")
+                    or raw_value.get("base64")
+                    or ""
+                ).strip()
+                if raw_b64_payload:
+                    b64_payload = re.sub(r"\s+", "", raw_b64_payload)
+                    raw_mime_type = str(
+                        raw_value.get("mime_type")
+                        or raw_value.get("mimeType")
+                        or raw_value.get("format")
+                        or "image/png"
+                    ).strip().lower()
+                    mime_type = raw_mime_type if "/" in raw_mime_type else f"image/{raw_mime_type}"
+                    image_candidates.append(f"data:{mime_type};base64,{b64_payload}")
+                for nested_key in ("url", "image_url", "imageUrl", "data_url", "dataUrl", "src"):
+                    _append_media_image_candidate(raw_value.get(nested_key))
+                return
+            candidate = str(raw_value or "").strip()
+            if candidate:
+                image_candidates.append(candidate)
+
+        _append_media_image_candidate(data_payload)
+        _append_media_image_candidate(payload_value.get("image_url"))
+        _append_media_image_candidate(payload_value.get("imageUrl"))
+        _append_media_image_candidate(payload_value.get("url"))
+        _append_media_image_candidate(payload_value.get("data_url"))
+        _append_media_image_candidate(payload_value.get("dataUrl"))
+
+        image_data_url = next(
+            (value for value in image_candidates if value.lower().startswith("data:image/")),
+            None,
+        )
+        image_url = next(
+            (value for value in image_candidates if value and not value.lower().startswith("data:image/")),
+            None,
+        )
+        if image_url is None and image_data_url is None:
+            raise RuntimeError("Polza.ai media endpoint returned no usable image")
+        return {
+            "model": str(payload_value.get("model") or selected_model),
+            "image_url": image_url,
+            "image_data_url": image_data_url,
+            "revised_prompt": str(payload_value.get("content") or "").strip() or None,
+        }
 
     # Legacy OpenAI-style response: {"data":[{"url":...}]}
     data_items = payload_value.get("data")
@@ -11990,7 +12089,7 @@ def _parse_openrouter_story_turn_image_payload(
             mime_type = raw_mime_type if "/" in raw_mime_type else f"image/{raw_mime_type}"
             image_data_url = f"data:{mime_type};base64,{b64_payload}" if b64_payload else None
             if image_url is None and image_data_url is None:
-                raise RuntimeError("OpenRouter image endpoint returned no image URL")
+                raise RuntimeError("Polza.ai image endpoint returned no image URL")
             revised_prompt = (
                 str(image_item.get("revised_prompt") or payload_value.get("revised_prompt") or "").strip() or None
             )
@@ -12004,7 +12103,7 @@ def _parse_openrouter_story_turn_image_payload(
     # Chat-completions response with image modalities.
     choices = payload_value.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise RuntimeError("OpenRouter image endpoint returned no images")
+        raise RuntimeError("Polza.ai image endpoint returned no images")
 
     image_candidates: list[str] = []
     revised_prompt: str | None = None
@@ -12111,7 +12210,7 @@ def _parse_openrouter_story_turn_image_payload(
     )
 
     if image_url is None and image_data_url is None:
-        raise RuntimeError("OpenRouter image endpoint returned no usable image")
+        raise RuntimeError("Polza.ai image endpoint returned no usable image")
 
     return {
         "model": str(payload_value.get("model") or selected_model),
@@ -12121,7 +12220,64 @@ def _parse_openrouter_story_turn_image_payload(
     }
 
 
-def _request_openrouter_story_turn_image(
+def _poll_story_turn_image_media_generation(
+    *,
+    endpoint_url: str,
+    headers: dict[str, str],
+    initial_payload: Any,
+    selected_model: str,
+    read_timeout_seconds: int,
+) -> Any:
+    if not isinstance(initial_payload, dict):
+        return initial_payload
+
+    status_value = str(initial_payload.get("status") or "").strip().lower()
+    if status_value not in {"pending", "processing"}:
+        return initial_payload
+
+    generation_id = str(initial_payload.get("id") or "").strip()
+    if not generation_id:
+        return initial_payload
+
+    status_url = f"{str(endpoint_url or '').rstrip('/')}/{generation_id}"
+    deadline = time.monotonic() + max(int(read_timeout_seconds or 0), 30)
+    last_payload = initial_payload
+    while time.monotonic() < deadline:
+        time.sleep(min(2.0, max(deadline - time.monotonic(), 0.1)))
+        try:
+            response = HTTP_SESSION.get(
+                status_url,
+                headers=headers,
+                timeout=(
+                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    min(max(int(read_timeout_seconds or 0), 30), STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT),
+                ),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to poll Polza.ai media generation") from exc
+
+        if response.status_code >= 400:
+            detail = _extract_polza_error_detail(response)
+            error_text = f"Polza.ai media status error ({response.status_code})"
+            if detail:
+                error_text = f"{error_text}: {detail}"
+            raise RuntimeError(error_text)
+
+        try:
+            last_payload = response.json()
+        except ValueError as exc:
+            raise RuntimeError("Polza.ai media status returned invalid payload") from exc
+
+        if not isinstance(last_payload, dict):
+            return last_payload
+        status_value = str(last_payload.get("status") or "").strip().lower()
+        if status_value not in {"pending", "processing"}:
+            return last_payload
+
+    raise RuntimeError(f"Polza.ai media generation timed out for model {selected_model}")
+
+
+def _request_polza_story_turn_image(
     *,
     prompt: str,
     model_name: str | None = None,
@@ -12129,24 +12285,23 @@ def _request_openrouter_story_turn_image(
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
     headers = {
-        "Authorization": f"Bearer {settings.openrouter_api_key}",
+        "Authorization": f"Bearer {settings.polza_api_key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if settings.openrouter_site_url:
-        headers["HTTP-Referer"] = settings.openrouter_site_url
-    if settings.openrouter_app_name:
-        headers["X-Title"] = settings.openrouter_app_name
+    if settings.polza_site_url:
+        headers["HTTP-Referer"] = settings.polza_site_url
+    if settings.polza_app_name:
+        headers["X-Title"] = settings.polza_app_name
 
-    selected_model = (model_name or settings.openrouter_image_model or STORY_TURN_IMAGE_MODEL_FLUX).strip()
+    selected_model = (model_name or settings.polza_image_model or STORY_TURN_IMAGE_MODEL_FLUX).strip()
+    selected_model = _normalize_story_model_id(selected_model) or selected_model
     if not selected_model:
-        raise RuntimeError("OpenRouter image model is not configured")
+        raise RuntimeError("Polza.ai image model is not configured")
 
     endpoint_candidates: list[tuple[str, str, bool]] = []
-    chat_url = str(settings.openrouter_chat_url or "").strip()
-    if chat_url:
-        endpoint_candidates.append(("chat", chat_url, True))
-    image_url = str(settings.openrouter_image_url or "").strip()
+    chat_url = str(settings.polza_chat_url or "").strip()
+    image_url = str(settings.polza_image_url or "").strip()
     normalized_reference_image_url = str(reference_image_url or "").strip()
     normalized_reference_image_data_url = str(reference_image_data_url or "").strip()
     normalized_reference_image_input = (
@@ -12154,18 +12309,26 @@ def _request_openrouter_story_turn_image(
         if normalized_reference_image_url.startswith(("https://", "http://"))
         else normalized_reference_image_data_url
     )
-    if image_url and image_url not in {chat_url} and not normalized_reference_image_input:
-        endpoint_candidates.append(("images", image_url, False))
+    if image_url:
+        if _is_story_turn_image_chat_endpoint(image_url):
+            endpoint_candidates.append(("chat", image_url, True))
+        elif _is_story_turn_image_media_endpoint(image_url):
+            endpoint_candidates.append(("media", image_url, False))
+        elif not normalized_reference_image_input:
+            endpoint_candidates.append(("images", image_url, False))
+    if chat_url and chat_url not in {endpoint_url for _, endpoint_url, _ in endpoint_candidates}:
+        endpoint_candidates.append(("chat", chat_url, True))
 
     if not endpoint_candidates:
-        raise RuntimeError("OpenRouter image endpoint is not configured")
+        raise RuntimeError("Polza.ai image endpoint is not configured")
 
     last_error: RuntimeError | None = None
     for index, (endpoint_kind, endpoint_url, use_chat_completions) in enumerate(endpoint_candidates):
         read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
-        request_payload = _build_story_turn_image_openrouter_payload(
+        request_payload = _build_story_turn_image_polza_payload(
             prompt=prompt,
             selected_model=selected_model,
+            endpoint_kind=endpoint_kind,
             use_chat_completions=use_chat_completions,
             reference_image_input=normalized_reference_image_input,
         )
@@ -12180,10 +12343,10 @@ def _request_openrouter_story_turn_image(
                 ),
             )
         except requests.RequestException as exc:
-            last_error = RuntimeError("Failed to reach OpenRouter image endpoint")
+            last_error = RuntimeError("Failed to reach Polza.ai image endpoint")
             if index < len(endpoint_candidates) - 1:
                 logger.warning(
-                    "OpenRouter image request transport failed, trying fallback endpoint: model=%s endpoint=%s",
+                    "Polza.ai image request transport failed, trying fallback endpoint: model=%s endpoint=%s",
                     selected_model,
                     endpoint_kind,
                 )
@@ -12191,8 +12354,8 @@ def _request_openrouter_story_turn_image(
             raise last_error from exc
 
         if response.status_code >= 400:
-            detail = _extract_openrouter_error_detail(response)
-            error_text = f"OpenRouter image error ({response.status_code})"
+            detail = _extract_polza_error_detail(response)
+            error_text = f"Polza.ai image error ({response.status_code})"
             if detail:
                 error_text = f"{error_text}: {detail}"
             last_error = RuntimeError(error_text)
@@ -12200,7 +12363,7 @@ def _request_openrouter_story_turn_image(
             can_fallback = index < len(endpoint_candidates) - 1 and response.status_code in {404, 405, 415, 422}
             if can_fallback:
                 logger.warning(
-                    "OpenRouter image request returned %s via %s, trying fallback endpoint for model=%s",
+                    "Polza.ai image request returned %s via %s, trying fallback endpoint for model=%s",
                     response.status_code,
                     endpoint_kind,
                     selected_model,
@@ -12211,18 +12374,27 @@ def _request_openrouter_story_turn_image(
         try:
             payload_value = response.json()
         except ValueError as exc:
-            last_error = RuntimeError("OpenRouter image endpoint returned invalid payload")
+            last_error = RuntimeError("Polza.ai image endpoint returned invalid payload")
             if index < len(endpoint_candidates) - 1:
                 logger.warning(
-                    "OpenRouter image payload parsing failed via %s, trying fallback endpoint for model=%s",
+                    "Polza.ai image payload parsing failed via %s, trying fallback endpoint for model=%s",
                     endpoint_kind,
                     selected_model,
                 )
                 continue
             raise last_error from exc
 
+        if endpoint_kind == "media":
+            payload_value = _poll_story_turn_image_media_generation(
+                endpoint_url=endpoint_url,
+                headers=headers,
+                initial_payload=payload_value,
+                selected_model=selected_model,
+                read_timeout_seconds=read_timeout_seconds,
+            )
+
         try:
-            return _parse_openrouter_story_turn_image_payload(
+            return _parse_polza_story_turn_image_payload(
                 payload_value,
                 selected_model=selected_model,
             )
@@ -12230,7 +12402,7 @@ def _request_openrouter_story_turn_image(
             last_error = exc
             if index < len(endpoint_candidates) - 1:
                 logger.warning(
-                    "OpenRouter image payload shape mismatch via %s, trying fallback endpoint for model=%s: %s",
+                    "Polza.ai image payload shape mismatch via %s, trying fallback endpoint for model=%s: %s",
                     endpoint_kind,
                     selected_model,
                     exc,
@@ -12240,82 +12412,7 @@ def _request_openrouter_story_turn_image(
 
     if last_error is not None:
         raise last_error
-    raise RuntimeError("OpenRouter image endpoint is unavailable")
-
-
-def _request_xai_story_turn_image(
-    *,
-    prompt: str,
-    model_name: str | None = None,
-    reference_image_data_url: str | None = None,
-) -> dict[str, str | None]:
-    selected_model = (model_name or STORY_TURN_IMAGE_MODEL_GROK).strip()
-    if selected_model == STORY_TURN_IMAGE_MODEL_GROK_LEGACY:
-        selected_model = STORY_TURN_IMAGE_MODEL_GROK
-    if not selected_model:
-        raise RuntimeError("xAI image model is not configured")
-
-    endpoint_url = str(settings.xai_image_url or "").strip()
-    if not endpoint_url:
-        raise RuntimeError("xAI image endpoint is not configured")
-
-    headers = {
-        "Authorization": f"Bearer {settings.xai_image_api_key}",
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-    }
-    request_payload: dict[str, Any] = {
-        "model": selected_model,
-        "prompt": prompt,
-        "n": 1,
-    }
-    normalized_reference_image_data_url = str(reference_image_data_url or "").strip()
-    if normalized_reference_image_data_url:
-        request_payload["image_url"] = normalized_reference_image_data_url
-    image_size = str(settings.openrouter_image_size or "").strip()
-    aspect_ratio = _resolve_story_turn_image_xai_aspect_ratio(image_size)
-    if aspect_ratio:
-        request_payload["aspect_ratio"] = aspect_ratio
-    resolution = _resolve_story_turn_image_xai_resolution(image_size)
-    if resolution:
-        request_payload["resolution"] = resolution
-
-    read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
-    try:
-        response = HTTP_SESSION.post(
-            endpoint_url,
-            headers=headers,
-            json=request_payload,
-            timeout=(
-                STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
-                read_timeout_seconds,
-            ),
-        )
-    except requests.RequestException as exc:
-        raise RuntimeError("Failed to reach xAI image endpoint") from exc
-
-    if response.status_code >= 400:
-        detail = _extract_openrouter_error_detail(response)
-        detail_lower = detail.lower()
-        if response.status_code == status.HTTP_403_FORBIDDEN and "not available in your region" in detail_lower:
-            raise RuntimeError(
-                "Сервис генерации xAI недоступен в текущем регионе сервера. "
-                "Выберите другую модель изображения или разверните backend в регионе, поддерживаемом xAI."
-            )
-        error_text = f"xAI image error ({response.status_code})"
-        if detail:
-            error_text = f"{error_text}: {detail}"
-        raise RuntimeError(error_text)
-
-    try:
-        payload_value = response.json()
-    except ValueError as exc:
-        raise RuntimeError("xAI image endpoint returned invalid payload") from exc
-
-    return _parse_openrouter_story_turn_image_payload(
-        payload_value,
-        selected_model=selected_model,
-    )
+    raise RuntimeError("Polza.ai image endpoint is unavailable")
 
 
 def _request_story_turn_image(
@@ -12325,13 +12422,7 @@ def _request_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    if _is_story_turn_image_xai_model(model_name):
-        return _request_xai_story_turn_image(
-            prompt=prompt,
-            model_name=model_name,
-            reference_image_data_url=reference_image_data_url,
-        )
-    return _request_openrouter_story_turn_image(
+    return _request_polza_story_turn_image(
         prompt=prompt,
         model_name=model_name,
         reference_image_url=reference_image_url,
@@ -12965,10 +13056,11 @@ def _try_fetch_story_character_avatar_data_url(image_url: str | None) -> str | N
         "Accept": "image/*,*/*;q=0.8",
         "User-Agent": "MoRius/1.0",
     }
-    if "openrouter.ai" in normalized_url.lower() and settings.openrouter_api_key:
-        request_headers["Authorization"] = f"Bearer {settings.openrouter_api_key}"
-    if settings.openrouter_site_url:
-        request_headers["Referer"] = settings.openrouter_site_url
+    lowered_url = normalized_url.lower()
+    if ("polza.ai" in lowered_url or "polza.ai" in lowered_url) and settings.polza_api_key:
+        request_headers["Authorization"] = f"Bearer {settings.polza_api_key}"
+    if settings.polza_site_url:
+        request_headers["Referer"] = settings.polza_site_url
 
     try:
         response = HTTP_SESSION.get(
@@ -13244,8 +13336,8 @@ def _iter_story_provider_stream_chunks(
             raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
-    if provider == "openrouter":
-        selected_model_name = (story_model_name or settings.openrouter_model).strip() or settings.openrouter_model
+    if provider == "polza":
+        selected_model_name = (story_model_name or settings.polza_model).strip() or settings.polza_model
         logger.info(
             "Story stream provider dispatch: provider=%s model=%s use_plot_memory=%s",
             provider,
@@ -13268,7 +13360,7 @@ def _iter_story_provider_stream_chunks(
         input_translation_enabled = _is_story_input_translation_enabled()
         output_translation_enabled = _is_story_output_translation_enabled()
         if output_translation_enabled:
-            raw_chunk_stream = _iter_openrouter_story_stream_chunks(
+            raw_chunk_stream = _iter_polza_story_stream_chunks(
                 context_messages,
                 instruction_cards,
                 plot_cards,
@@ -13296,7 +13388,7 @@ def _iter_story_provider_stream_chunks(
         # Important: do not force-translate each stream chunk for force models.
         # We stream raw chunks and run one final language enforcement pass on the full text.
         raw_chunks: list[str] = []
-        for chunk in _iter_openrouter_story_stream_chunks(
+        for chunk in _iter_polza_story_stream_chunks(
             context_messages,
             instruction_cards,
             plot_cards,
@@ -13319,7 +13411,7 @@ def _iter_story_provider_stream_chunks(
             raw_output_collector["raw_output"] = "".join(raw_chunks)
         return
 
-    raise RuntimeError("Story provider is not configured: expected openrouter or gigachat")
+    raise RuntimeError("Story provider is not configured: expected polza or gigachat")
 
 
 def _build_story_runtime_deps() -> StoryRuntimeDeps:
@@ -13343,7 +13435,6 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         add_user_tokens=_add_user_tokens,
         stream_story_provider_chunks=_iter_story_provider_stream_chunks,
         normalize_generated_story_output=_normalize_generated_story_output,
-        persist_generated_world_cards=_persist_generated_story_world_cards,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
         list_story_memory_blocks=_list_story_memory_blocks,
@@ -13351,8 +13442,6 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         memory_block_to_out=_story_memory_block_to_out,
         plot_card_to_out=_story_plot_card_to_out,
         world_card_to_out=_story_world_card_to_out,
-        world_card_event_to_out=_story_world_card_change_event_to_out,
-        plot_card_event_to_out=_story_plot_card_change_event_to_out,
         resolve_story_ambient_profile=_resolve_story_ambient_profile,
         resolve_story_scene_emotion_payload=_request_story_scene_emotion_payload,
         resolve_story_turn_postprocess_payload=_resolve_story_turn_postprocess_payload,

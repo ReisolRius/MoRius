@@ -1170,7 +1170,7 @@ def detect_language_issues(raw_output: str) -> QualityReport:
 def _strip_allowed_latin_fragments(text: str) -> str:
     without_urls = re.sub(r"https?://\S+", " ", text)
     without_markers = re.sub(r"\[\[[^\]]+\]\]", " ", without_urls)
-    return re.sub(r"\b(?:NPC|GG|JSON|UI|API|OpenRouter|id|URL)\b", " ", without_markers, flags=re.IGNORECASE)
+    return re.sub(r"\b(?:NPC|GG|JSON|UI|API|Polza.ai|id|URL)\b", " ", without_markers, flags=re.IGNORECASE)
 
 
 def _has_visible_mojibake(text: str) -> bool:

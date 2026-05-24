@@ -27,10 +27,6 @@ from app.schemas import (
 from app.services.auth_identity import get_current_user
 from app.services.concurrency import increment_story_world_views
 from app.services.story_cards import story_plot_card_to_out
-from app.services.story_events import (
-    story_plot_card_change_event_to_out,
-    story_world_card_change_event_to_out,
-)
 from app.services.story_games import (
     count_story_completed_turns,
     ensure_story_game_public_card_snapshots,
@@ -55,9 +51,7 @@ from app.services.story_queries import (
     list_story_messages,
     list_story_messages_window,
     list_story_turn_images,
-    list_story_plot_card_events,
     list_story_plot_cards,
-    list_story_world_card_events,
     list_story_world_cards,
 )
 from app.services.story_world_comments import list_story_community_world_comments_out
@@ -271,11 +265,6 @@ def _build_story_game_out_resilient(
         game_id=resolved_game_id,
         loader=lambda: list_story_plot_cards(db, resolved_game_id),
     )
-    plot_card_events = _safe_story_read_query(
-        section_name="plot_card_events",
-        game_id=resolved_game_id,
-        loader=lambda: list_story_plot_card_events(db, resolved_game_id),
-    )
     memory_blocks = _safe_story_read_query(
         section_name="memory_blocks",
         game_id=resolved_game_id,
@@ -296,11 +285,6 @@ def _build_story_game_out_resilient(
         section_name="world_cards",
         game_id=resolved_game_id,
         loader=lambda: list_story_world_cards(db, resolved_game_id),
-    )
-    world_card_events = _safe_story_read_query(
-        section_name="world_card_events",
-        game_id=resolved_game_id,
-        loader=lambda: list_story_world_card_events(db, resolved_game_id),
     )
     try:
         can_redo_assistant_step = has_story_assistant_redo_step(db, resolved_game_id)
@@ -445,12 +429,7 @@ def _build_story_game_out_resilient(
             items=list(plot_cards),
             serializer=story_plot_card_to_out,
         ),
-        plot_card_events=_safe_story_read_map(
-            section_name="plot_card_events",
-            game_id=int(getattr(game, "id", 0) or 0),
-            items=list(plot_card_events),
-            serializer=story_plot_card_change_event_to_out,
-        ),
+        plot_card_events=[],
         memory_blocks=_safe_story_read_map(
             section_name="memory_blocks",
             game_id=int(getattr(game, "id", 0) or 0),
@@ -463,12 +442,7 @@ def _build_story_game_out_resilient(
             items=list(world_cards),
             serializer=story_world_card_to_out,
         ),
-        world_card_events=_safe_story_read_map(
-            section_name="world_card_events",
-            game_id=int(getattr(game, "id", 0) or 0),
-            items=list(world_card_events),
-            serializer=story_world_card_change_event_to_out,
-        ),
+        world_card_events=[],
         can_redo_assistant_step=can_redo_assistant_step,
     )
 
@@ -534,7 +508,10 @@ def get_story_community_world(
             is_reported_by_user=user_report is not None,
             is_favorited_by_user=user_favorite is not None,
         ),
-        context_limit_chars=normalize_story_context_limit_chars(getattr(world, "context_limit_chars", None)),
+        context_limit_chars=normalize_story_context_limit_chars(
+            getattr(world, "context_limit_chars", None),
+            model_name=getattr(world, "story_llm_model", None),
+        ),
         instruction_cards=instruction_cards,
         plot_cards=plot_cards,
         world_cards=world_cards,

@@ -90,6 +90,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
     (StoryGame.__tablename__, "show_npc_thoughts"): False,
     (StoryGame.__tablename__, "ambient_enabled"): False,
+    (StoryGame.__tablename__, "appearance_gradient_enabled"): False,
     (StoryGame.__tablename__, "emotion_visualization_enabled"): False,
     (StoryGame.__tablename__, "environment_time_enabled"): False,
     (StoryGame.__tablename__, "environment_weather_enabled"): False,
@@ -453,6 +454,41 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN ambient_profile TEXT NOT NULL DEFAULT ''"
+        )
+    if "appearance_background_mode" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_background_mode VARCHAR(32) NOT NULL DEFAULT 'default'"
+        )
+    if "appearance_gradient_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_gradient_enabled INTEGER NOT NULL DEFAULT 0"
+        )
+    if "appearance_gradient_from" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_gradient_from VARCHAR(16) NOT NULL DEFAULT '#050506'"
+        )
+    if "appearance_gradient_to" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#2A1408'"
+        )
+    if "appearance_solid_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_solid_color VARCHAR(16) NOT NULL DEFAULT '#050506'"
+        )
+    if "appearance_ui_style" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_ui_style VARCHAR(32) NOT NULL DEFAULT 'default'"
+        )
+    if "appearance_text_style" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN appearance_text_style VARCHAR(32) NOT NULL DEFAULT 'default'"
         )
     if "canonical_state_payload" not in existing_columns:
         alter_statements.append(

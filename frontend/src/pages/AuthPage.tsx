@@ -288,6 +288,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const [infoMessage, setInfoMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false)
+  const [isAuthHeroLoaded, setIsAuthHeroLoaded] = useState(false)
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0)
 
   const isLoginMode = mode === 'login'
@@ -594,24 +595,43 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           minWidth: 0,
           height: '100dvh',
           minHeight: '100dvh',
-          overflow: 'hidden',
+          boxSizing: 'border-box',
+          p: { md: 2 },
           backgroundColor: PAGE_BACKGROUND,
         }}
       >
         <Box
-          component="img"
-          src={authHero}
-          alt=""
           sx={{
-            position: 'absolute',
-            inset: 0,
+            position: 'relative',
             width: '100%',
             height: '100%',
-            display: 'block',
-            objectFit: 'cover',
-            objectPosition: 'left bottom',
+            overflow: 'hidden',
+            borderRadius: '18px',
+            backgroundColor: '#181b1f',
           }}
-        />
+        >
+          <Box
+            component="img"
+            src={authHero}
+            alt=""
+            loading="eager"
+            decoding="async"
+            onLoad={() => setIsAuthHeroLoaded(true)}
+            onError={() => setIsAuthHeroLoaded(true)}
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              display: 'block',
+              objectFit: 'cover',
+              objectPosition: 'left bottom',
+              opacity: isAuthHeroLoaded ? 1 : 0,
+              transform: isAuthHeroLoaded ? 'scale(1)' : 'scale(1.015)',
+              transition: 'opacity 720ms ease, transform 900ms ease',
+            }}
+          />
+        </Box>
       </Box>
       <Box
         sx={{

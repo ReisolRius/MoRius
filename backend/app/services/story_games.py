@@ -121,6 +121,7 @@ STORY_GAME_GENRE_VALUES = {
 }
 STORY_CONTEXT_LIMIT_MIN_TOKENS = 6_000
 STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
+STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_MEMORY_OPTIMIZATION_MODE_STANDARD = "standard"
 STORY_MEMORY_OPTIMIZATION_MODE_ENHANCED = "enhanced"
@@ -141,33 +142,29 @@ STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6_000
 STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
-STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4, 8)
-STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8, 16)
-STORY_TURN_COST_GLM51_TIERS = (3, 6, 12, 24)
-STORY_ENVIRONMENT_TIME_MODE_GROK = "grok"
+STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
+STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4, 6, 6)
+STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8, 16, 16)
+STORY_TURN_COST_GLM51_TIERS = (3, 6, 12, 18, 35)
+STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
 STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
-STORY_LLM_MODEL_GROK_41_FAST = "x-ai/grok-4.1-fast"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash"
 STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO = "xiaomi/mimo-v2-pro"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
-STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE = "arcee-ai/trinity-large-preview:free"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
-STORY_LLM_MODEL_LEGACY_ALIASES = {
-    STORY_LLM_MODEL_ARCEE_TRINITY_LARGE_PREVIEW_FREE: STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
-}
+STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {}
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_DEEPSEEK_V32,
-    STORY_LLM_MODEL_GROK_41_FAST,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
@@ -177,7 +174,6 @@ STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GLM47,
-    STORY_LLM_MODEL_GROK_41_FAST,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
 }
@@ -187,18 +183,19 @@ STORY_TURN_COST_PREMIUM_LLM_MODELS = {
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_IMAGE_MODEL_SEEDREAM = "bytedance-seed/seedream-4.5"
+STORY_IMAGE_MODEL_SEEDREAM = "bytedance/seedream-4.5"
+STORY_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
-STORY_IMAGE_MODEL_GROK = "grok-imagine-image"
-STORY_IMAGE_MODEL_GROK_LEGACY = "grok-imagine-image-pro"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
 STORY_SUPPORTED_IMAGE_MODELS = {
     STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
-    STORY_IMAGE_MODEL_GROK,
+}
+STORY_IMAGE_MODEL_LEGACY_ALIASES = {
+    STORY_IMAGE_MODEL_SEEDREAM_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
 }
 STORY_TOP_K_MIN = 0
 STORY_TOP_K_MAX = 200
@@ -237,6 +234,70 @@ STORY_WORLD_CARD_MEMORY_TURNS_DISABLED = 0
 STORY_WORLD_CARD_MEMORY_TURNS_ALWAYS = -1
 STORY_WORLD_CARD_SOURCE_USER = "user"
 STORY_WORLD_CARD_SOURCE_AI = "ai"
+STORY_APPEARANCE_BACKGROUND_MODE_DEFAULT = "default"
+STORY_APPEARANCE_BACKGROUND_MODE_CUSTOM = "custom"
+STORY_APPEARANCE_BACKGROUND_MODE_VALUES = {
+    STORY_APPEARANCE_BACKGROUND_MODE_DEFAULT,
+    STORY_APPEARANCE_BACKGROUND_MODE_CUSTOM,
+}
+STORY_APPEARANCE_UI_STYLE_DEFAULT = "default"
+STORY_APPEARANCE_UI_STYLE_CYBERPUNK = "cyberpunk"
+STORY_APPEARANCE_UI_STYLE_FANTASY = "fantasy"
+STORY_APPEARANCE_UI_STYLE_MODERN = "modern"
+STORY_APPEARANCE_UI_STYLE_VALUES = {
+    STORY_APPEARANCE_UI_STYLE_DEFAULT,
+    STORY_APPEARANCE_UI_STYLE_CYBERPUNK,
+    STORY_APPEARANCE_UI_STYLE_FANTASY,
+    STORY_APPEARANCE_UI_STYLE_MODERN,
+}
+STORY_APPEARANCE_TEXT_STYLE_DEFAULT = "default"
+STORY_APPEARANCE_TEXT_STYLE_SERIF = "serif"
+STORY_APPEARANCE_TEXT_STYLE_TERMINAL = "terminal"
+STORY_APPEARANCE_TEXT_STYLE_VALUES = {
+    STORY_APPEARANCE_TEXT_STYLE_DEFAULT,
+    STORY_APPEARANCE_TEXT_STYLE_SERIF,
+    STORY_APPEARANCE_TEXT_STYLE_TERMINAL,
+}
+STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = "#050506"
+STORY_APPEARANCE_DEFAULT_GRADIENT_TO = "#2A1408"
+STORY_APPEARANCE_DEFAULT_SOLID_COLOR = "#050506"
+
+
+def normalize_story_appearance_background_mode(value: str | None) -> str:
+    normalized = str(value or STORY_APPEARANCE_BACKGROUND_MODE_DEFAULT).strip().lower()
+    if normalized not in STORY_APPEARANCE_BACKGROUND_MODE_VALUES:
+        return STORY_APPEARANCE_BACKGROUND_MODE_DEFAULT
+    return normalized
+
+
+def normalize_story_appearance_gradient_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def normalize_story_appearance_color(value: str | None, *, default: str) -> str:
+    normalized = str(value or default).strip()
+    if len(normalized) != 7 or not normalized.startswith("#"):
+        return default
+    hex_digits = normalized[1:]
+    if any(character not in "0123456789abcdefABCDEF" for character in hex_digits):
+        return default
+    return f"#{hex_digits.upper()}"
+
+
+def normalize_story_appearance_ui_style(value: str | None) -> str:
+    normalized = str(value or STORY_APPEARANCE_UI_STYLE_DEFAULT).strip().lower()
+    if normalized not in STORY_APPEARANCE_UI_STYLE_VALUES:
+        return STORY_APPEARANCE_UI_STYLE_DEFAULT
+    return normalized
+
+
+def normalize_story_appearance_text_style(value: str | None) -> str:
+    normalized = str(value or STORY_APPEARANCE_TEXT_STYLE_DEFAULT).strip().lower()
+    if normalized not in STORY_APPEARANCE_TEXT_STYLE_VALUES:
+        return STORY_APPEARANCE_TEXT_STYLE_DEFAULT
+    return normalized
 
 
 def _story_publication_state_out(record: StoryGame) -> StoryPublicationStateOut:
@@ -379,11 +440,18 @@ def normalize_story_image_style_prompt(value: str | None) -> str:
     return normalized[:STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH].rstrip()
 
 
-def normalize_story_context_limit_chars(value: int | None) -> int:
+def get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
+    normalized_model_name = coerce_story_llm_model(model_name)
+    if normalized_model_name == STORY_LLM_MODEL_GLM51:
+        return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
+    return STORY_CONTEXT_LIMIT_MAX_TOKENS
+
+
+def normalize_story_context_limit_chars(value: int | None, *, model_name: str | None = None) -> int:
     if value is None:
         return STORY_DEFAULT_CONTEXT_LIMIT_TOKENS
     normalized = int(value)
-    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, STORY_CONTEXT_LIMIT_MAX_TOKENS))
+    return max(STORY_CONTEXT_LIMIT_MIN_TOKENS, min(normalized, get_story_context_limit_max_tokens(model_name)))
 
 
 def normalize_story_response_max_tokens(value: int | None) -> int:
@@ -401,7 +469,7 @@ def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
     return bool(value)
 
 
-def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int, int]:
+def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int, int, int]:
     normalized_model_name = coerce_story_llm_model(model_name)
     if normalized_model_name == STORY_LLM_MODEL_GLM51:
         return STORY_TURN_COST_GLM51_TIERS
@@ -414,14 +482,16 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
 
 def get_story_turn_cost_tokens(context_usage_tokens: int | None, model_name: str | None = None) -> int:
     normalized_usage = max(int(context_usage_tokens or 0), 0)
-    tier_1_cost, tier_2_cost, tier_3_cost, tier_4_cost = get_story_model_turn_cost_tiers(model_name)
+    tier_1_cost, tier_2_cost, tier_3_cost, tier_4_cost, tier_5_cost = get_story_model_turn_cost_tiers(model_name)
     if normalized_usage <= STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX:
         return tier_1_cost
     if normalized_usage <= STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX:
         return tier_2_cost
     if normalized_usage <= STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX:
         return tier_3_cost
-    return tier_4_cost
+    if normalized_usage <= STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX:
+        return tier_4_cost
+    return tier_5_cost
 
 
 def coerce_story_llm_model(value: str | None) -> str:
@@ -442,7 +512,7 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, "
                 "deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v3.2, "
-                "x-ai/grok-4.1-fast, mistralai/mistral-nemo, "
+                "mistralai/mistral-nemo, "
                 "xiaomi/mimo-v2-flash, xiaomi/mimo-v2-pro, aion-labs/aion-2.0"
             ),
         )
@@ -451,8 +521,7 @@ def normalize_story_llm_model(value: str | None) -> str:
 
 def coerce_story_image_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
-    if normalized == STORY_IMAGE_MODEL_GROK_LEGACY:
-        normalized = STORY_IMAGE_MODEL_GROK
+    normalized = STORY_IMAGE_MODEL_LEGACY_ALIASES.get(normalized, normalized)
     if normalized in STORY_SUPPORTED_IMAGE_MODELS:
         return normalized
     return STORY_DEFAULT_IMAGE_MODEL
@@ -460,15 +529,14 @@ def coerce_story_image_model(value: str | None) -> str:
 
 def normalize_story_image_model(value: str | None) -> str:
     normalized = (value or STORY_DEFAULT_IMAGE_MODEL).strip()
-    if normalized == STORY_IMAGE_MODEL_GROK_LEGACY:
-        normalized = STORY_IMAGE_MODEL_GROK
+    normalized = STORY_IMAGE_MODEL_LEGACY_ALIASES.get(normalized, normalized)
     if normalized not in STORY_SUPPORTED_IMAGE_MODELS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
-                "Use one of: black-forest-labs/flux.2-pro, bytedance-seed/seedream-4.5, "
-                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview, grok-imagine-image"
+                "Use one of: black-forest-labs/flux.2-pro, bytedance/seedream-4.5, "
+                "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
             ),
         )
     return normalized
@@ -591,7 +659,7 @@ def normalize_story_environment_weather_enabled(
 
 def coerce_story_environment_time_mode(value: str | None) -> str:
     _ = value
-    return STORY_ENVIRONMENT_TIME_MODE_GROK
+    return STORY_ENVIRONMENT_TIME_MODE_SERVICE
 
 
 def normalize_story_environment_turn_step_minutes(value: int | None) -> int:
@@ -1017,7 +1085,10 @@ def story_game_summary_to_out(
         community_launches=max(int(game.community_launches or 0), 0),
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
-        context_limit_chars=normalize_story_context_limit_chars(getattr(game, "context_limit_chars", None)),
+        context_limit_chars=normalize_story_context_limit_chars(
+            getattr(game, "context_limit_chars", None),
+            model_name=normalized_story_model,
+        ),
         response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
@@ -1047,6 +1118,26 @@ def story_game_summary_to_out(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
+        appearance_background_mode=normalize_story_appearance_background_mode(
+            getattr(game, "appearance_background_mode", None)
+        ),
+        appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
+            getattr(game, "appearance_gradient_enabled", None)
+        ),
+        appearance_gradient_from=normalize_story_appearance_color(
+            getattr(game, "appearance_gradient_from", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        ),
+        appearance_gradient_to=normalize_story_appearance_color(
+            getattr(game, "appearance_gradient_to", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        ),
+        appearance_solid_color=normalize_story_appearance_color(
+            getattr(game, "appearance_solid_color", None),
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        ),
+        appearance_ui_style=normalize_story_appearance_ui_style(getattr(game, "appearance_ui_style", None)),
+        appearance_text_style=normalize_story_appearance_text_style(getattr(game, "appearance_text_style", None)),
         canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
             getattr(game, "canonical_state_pipeline_enabled", None)
         ),
@@ -1135,7 +1226,10 @@ def story_game_summary_to_compact_out(
         community_launches=max(int(game.community_launches or 0), 0),
         community_rating_avg=story_game_rating_average(game),
         community_rating_count=max(int(game.community_rating_count or 0), 0),
-        context_limit_chars=normalize_story_context_limit_chars(getattr(game, "context_limit_chars", None)),
+        context_limit_chars=normalize_story_context_limit_chars(
+            getattr(game, "context_limit_chars", None),
+            model_name=normalized_story_model,
+        ),
         response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
@@ -1165,6 +1259,26 @@ def story_game_summary_to_compact_out(
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
         ),
+        appearance_background_mode=normalize_story_appearance_background_mode(
+            getattr(game, "appearance_background_mode", None)
+        ),
+        appearance_gradient_enabled=normalize_story_appearance_gradient_enabled(
+            getattr(game, "appearance_gradient_enabled", None)
+        ),
+        appearance_gradient_from=normalize_story_appearance_color(
+            getattr(game, "appearance_gradient_from", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
+        ),
+        appearance_gradient_to=normalize_story_appearance_color(
+            getattr(game, "appearance_gradient_to", None),
+            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
+        ),
+        appearance_solid_color=normalize_story_appearance_color(
+            getattr(game, "appearance_solid_color", None),
+            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
+        ),
+        appearance_ui_style=normalize_story_appearance_ui_style(getattr(game, "appearance_ui_style", None)),
+        appearance_text_style=normalize_story_appearance_text_style(getattr(game, "appearance_text_style", None)),
         canonical_state_pipeline_enabled=normalize_story_canonical_state_pipeline_enabled(
             getattr(game, "canonical_state_pipeline_enabled", None)
         ),

@@ -23,10 +23,10 @@ STORY_PROVIDER_FAILURE_DETAIL_MARKERS = (
     "internal server error",
     "server_error",
     "upstream",
-    "openrouter chat error (500)",
-    "openrouter chat error (502)",
-    "openrouter chat error (503)",
-    "openrouter chat error (504)",
+    "polza chat error (500)",
+    "polza chat error (502)",
+    "polza chat error (503)",
+    "polza chat error (504)",
 )
 
 STORY_PRE_STREAM_CONFLICT_DETAIL = (
@@ -44,7 +44,7 @@ def _is_story_provider_failure_detail(detail: str | None) -> bool:
 def _public_story_provider_failure_detail(detail: str | None) -> str:
     normalized_detail = str(detail or "").replace("\r\n", "\n").strip()
     normalized_detail = " ".join(normalized_detail.split())
-    if normalized_detail.casefold().startswith("openrouter chat error") and "{" in normalized_detail:
+    if normalized_detail.casefold().startswith("polza chat error") and "{" in normalized_detail:
         normalized_detail = normalized_detail.split("{", 1)[0].rstrip(" .:,")
     return normalized_detail[:500] or "Provider returned error"
 

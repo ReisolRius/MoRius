@@ -90,10 +90,9 @@ const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance-seed/seedream-4.5'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance/seedream-4.5'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_GROK_ID: StoryImageModelId = 'grok-imagine-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
   id: StoryImageModelId
   title: string
@@ -122,12 +121,6 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
     description: 'Maximum detail and depth rendering.',
-    cost: 30,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_GROK_ID,
-    title: 'Grok (VPN!)',
-    description: 'Максимальная глубина и качество рендера.',
     cost: 30,
   },
 ]
