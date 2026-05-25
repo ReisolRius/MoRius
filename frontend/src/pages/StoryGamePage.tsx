@@ -397,10 +397,10 @@ const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance/seedream-4.5
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const STORY_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_ID
-const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'default'
-const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = false
+const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'custom'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = true
 const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#050506'
-const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#2A1408'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#110803'
 const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#050506'
 const STORY_APPEARANCE_DEFAULT_UI_STYLE: StoryAppearanceUiStyle = 'default'
 const STORY_APPEARANCE_DEFAULT_TEXT_STYLE: StoryAppearanceTextStyle = 'default'
@@ -411,6 +411,7 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
   description: string
   accent: string
   previewBackground: string
+  previewSwatches: string[]
 }> = [
   {
     id: 'default',
@@ -418,6 +419,7 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
     description: 'Наш привычный MoRius',
     accent: 'var(--morius-accent)',
     previewBackground: 'linear-gradient(135deg, #181c23 0%, #0b0d12 100%)',
+    previewSwatches: ['#0A0F2C', '#2E50C8', '#60A5FA'],
   },
   {
     id: 'cyberpunk',
@@ -425,6 +427,7 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
     description: 'Неон, стекло, резкие контуры',
     accent: '#00E5FF',
     previewBackground: 'linear-gradient(135deg, #041a24 0%, #130629 100%)',
+    previewSwatches: ['#05000D', '#D80A78', '#19DED3'],
   },
   {
     id: 'fantasy',
@@ -432,6 +435,7 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
     description: 'Теплый металл и темная магия',
     accent: '#F4B968',
     previewBackground: 'linear-gradient(135deg, #21150b 0%, #10161d 100%)',
+    previewSwatches: ['#2F170A', '#9B2456', '#E5AA14'],
   },
   {
     id: 'modern',
@@ -439,6 +443,7 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
     description: 'Чистые панели и мягкий контраст',
     accent: '#7DD3FC',
     previewBackground: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)',
+    previewSwatches: ['#101128', '#5A5CFF', '#D8D8F0'],
   },
 ]
 const STORY_APPEARANCE_TEXT_STYLE_OPTIONS: Array<{
@@ -14121,6 +14126,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           collapsed: 'Развернуть правую панель',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
+        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenBugReportDialog={handleOpenBugReportDialog}
         rightActionsWidth={360}
@@ -16901,10 +16907,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       </Button>
                       <Collapse in={isAppearanceSettingsExpanded} timeout={200} unmountOnExit>
                         <Box sx={{ pb: 0.95, pt: 0.08 }}>
-                          <Stack spacing={1.05}>
+                          <Stack spacing={1.15}>
                             <Box>
-                              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ mb: 0.65 }}>
-                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800 }}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ mb: 0.62 }}>
+                                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase' }}>
                                   Фон
                                 </Typography>
                                 <Button
@@ -16918,19 +16924,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   }}
                                   disabled={isSavingStorySettings || isGenerating}
                                   sx={{
-                                    minHeight: 28,
-                                    px: 0.9,
-                                    borderRadius: '999px',
+                                    minHeight: 24,
+                                    px: 0.2,
+                                    borderRadius: 0,
                                     textTransform: 'none',
-                                    color: 'var(--morius-text-secondary)',
-                                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                    color: 'var(--morius-accent)',
+                                    border: 'none',
                                     backgroundColor: 'transparent',
-                                    fontSize: '0.72rem',
+                                    fontSize: '0.68rem',
                                     fontWeight: 800,
                                     '&:hover': {
                                       color: 'var(--morius-title-text)',
-                                      borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))',
-                                      backgroundColor: 'color-mix(in srgb, var(--morius-accent) 8%, transparent)',
+                                      backgroundColor: 'transparent',
                                     },
                                   }}
                                 >
@@ -16939,122 +16944,131 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               </Stack>
                               <Box
                                 sx={{
-                                  p: 0.75,
-                                  borderRadius: '14px',
-                                  border: appearanceGradientEnabled
-                                    ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))'
-                                    : 'var(--morius-border-width) solid var(--morius-card-border)',
-                                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
-                                  boxShadow: appearanceGradientEnabled
-                                    ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 14%, transparent) inset'
-                                    : 'none',
+                                  height: 52,
+                                  borderRadius: '10px',
+                                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 80%, transparent)',
+                                  background: appearanceGradientEnabled
+                                    ? `linear-gradient(135deg, ${appearanceGradientFrom}, ${appearanceGradientTo})`
+                                    : 'linear-gradient(135deg, var(--morius-card-bg), var(--morius-elevated-bg))',
+                                  boxShadow: 'inset 0 0 26px rgba(255, 255, 255, 0.05)',
                                 }}
-                              >
-                                <Box
-                                  sx={{
-                                    height: 58,
-                                    borderRadius: '11px',
-                                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
-                                    background: appearanceGradientEnabled
-                                      ? `linear-gradient(135deg, ${appearanceGradientFrom}, ${appearanceGradientTo})`
-                                      : 'linear-gradient(135deg, var(--morius-card-bg), var(--morius-elevated-bg))',
-                                    boxShadow: appearanceGradientEnabled
-                                      ? 'inset 0 0 26px color-mix(in srgb, #fff 8%, transparent)'
-                                      : 'none',
-                                  }}
-                                />
-                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8} sx={{ mt: 0.72 }}>
-                                  <Stack spacing={0.12}>
-                                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.86rem', fontWeight: 850 }}>
-                                      Градиент
-                                    </Typography>
-                                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', lineHeight: 1.16 }}>
-                                      {appearanceGradientEnabled ? 'Цветной фон истории' : 'Фон темы без градиента'}
-                                    </Typography>
-                                  </Stack>
-                                  <Switch
-                                    checked={appearanceGradientEnabled}
-                                    onChange={() => {
-                                      const nextGradientEnabled = !appearanceGradientEnabled
-                                      void persistStoryAppearanceSettings({
-                                        appearanceGradientEnabled: nextGradientEnabled,
-                                        appearanceBackgroundMode: nextGradientEnabled ? 'custom' : 'default',
-                                      })
-                                    }}
-                                    disabled={isSavingStorySettings || isGenerating}
-                                    sx={{
-                                      '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-accent)' },
-                                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                        backgroundColor: switchCheckedTrackColor,
-                                        opacity: 1,
-                                      },
-                                      '& .MuiSwitch-track': {
-                                        backgroundColor: switchTrackColor,
-                                        opacity: 1,
-                                      },
-                                    }}
-                                  />
-                                </Stack>
-                                {appearanceGradientEnabled ? (
-                                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.65, mt: 0.72 }}>
-                                    {([
-                                      ['Начало', appearanceGradientFrom, 'appearanceGradientFrom'] as const,
-                                      ['Конец', appearanceGradientTo, 'appearanceGradientTo'] as const,
-                                    ]).map(([label, value, fieldName]) => (
-                                      <Stack key={fieldName} spacing={0.35}>
-                                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 700 }}>
-                                          {label}
-                                        </Typography>
-                                        <Box
-                                          component="input"
-                                          type="color"
-                                          value={value}
-                                          onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                                            const nextColor = normalizeStoryAppearanceColor(event.target.value, value)
-                                            if (fieldName === 'appearanceGradientFrom') {
-                                              setAppearanceGradientFrom(nextColor)
-                                            } else {
-                                              setAppearanceGradientTo(nextColor)
-                                            }
-                                          }}
-                                          onBlur={() => {
-                                            if (fieldName === 'appearanceGradientFrom') {
-                                              void persistStoryAppearanceSettings({
-                                                appearanceBackgroundMode: 'custom',
-                                                appearanceGradientEnabled: true,
-                                                appearanceGradientFrom,
-                                              })
-                                            } else {
-                                              void persistStoryAppearanceSettings({
-                                                appearanceBackgroundMode: 'custom',
-                                                appearanceGradientEnabled: true,
-                                                appearanceGradientTo,
-                                              })
-                                            }
-                                          }}
-                                          disabled={isSavingStorySettings || isGenerating}
-                                          sx={{
-                                            width: '100%',
-                                            height: 34,
-                                            p: 0.25,
-                                            borderRadius: '10px',
-                                            border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                            backgroundColor: 'var(--morius-card-bg)',
-                                            cursor: 'pointer',
-                                          }}
-                                        />
-                                      </Stack>
-                                    ))}
-                                  </Box>
-                                ) : null}
-                              </Box>
+                              />
                             </Box>
 
-                            <Box sx={{ pt: 0.85, borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800, mb: 0.65 }}>
+                            <Box
+                              sx={{
+                                p: 0.82,
+                                borderRadius: '12px',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #08090d 18%)',
+                              }}
+                            >
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                                <Stack spacing={0.12}>
+                                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 900 }}>
+                                    Градиент
+                                  </Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', lineHeight: 1.18 }}>
+                                    Цветной фон истории
+                                  </Typography>
+                                </Stack>
+                                <Switch
+                                  checked={appearanceGradientEnabled}
+                                  onChange={() => {
+                                    const nextGradientEnabled = !appearanceGradientEnabled
+                                    void persistStoryAppearanceSettings({
+                                      appearanceGradientEnabled: nextGradientEnabled,
+                                      appearanceBackgroundMode: nextGradientEnabled ? 'custom' : 'default',
+                                    })
+                                  }}
+                                  disabled={isSavingStorySettings || isGenerating}
+                                  sx={{
+                                    mr: -0.7,
+                                    '& .MuiSwitch-switchBase.Mui-checked': { color: 'var(--morius-title-text)' },
+                                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                      backgroundColor: switchCheckedTrackColor,
+                                      opacity: 1,
+                                    },
+                                    '& .MuiSwitch-track': {
+                                      backgroundColor: switchTrackColor,
+                                      opacity: 1,
+                                    },
+                                  }}
+                                />
+                              </Stack>
+                            </Box>
+
+                            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.72 }}>
+                              {([
+                                ['Начало', appearanceGradientFrom, 'appearanceGradientFrom'] as const,
+                                ['Конец', appearanceGradientTo, 'appearanceGradientTo'] as const,
+                              ]).map(([label, value, fieldName]) => (
+                                <Stack key={fieldName} spacing={0.4} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.66rem', fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase' }}>
+                                    {label}
+                                  </Typography>
+                                  <Box
+                                    component="label"
+                                    sx={{
+                                      position: 'relative',
+                                      minHeight: 38,
+                                      borderRadius: '10px',
+                                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                      backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, #050506 14%)',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 0.62,
+                                      px: 0.82,
+                                      overflow: 'hidden',
+                                      cursor: isSavingStorySettings || isGenerating ? 'default' : 'pointer',
+                                    }}
+                                  >
+                                    <Box sx={{ width: 19, height: 19, borderRadius: '6px', backgroundColor: value, border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)', flexShrink: 0 }} />
+                                    <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.74rem', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                                      {value.toUpperCase()}
+                                    </Typography>
+                                    <Box
+                                      component="input"
+                                      type="color"
+                                      value={value}
+                                      onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                                        const nextColor = normalizeStoryAppearanceColor(event.target.value, value)
+                                        if (fieldName === 'appearanceGradientFrom') {
+                                          setAppearanceGradientFrom(nextColor)
+                                          void persistStoryAppearanceSettings({
+                                            appearanceBackgroundMode: 'custom',
+                                            appearanceGradientEnabled: true,
+                                            appearanceGradientFrom: nextColor,
+                                          })
+                                        } else {
+                                          setAppearanceGradientTo(nextColor)
+                                          void persistStoryAppearanceSettings({
+                                            appearanceBackgroundMode: 'custom',
+                                            appearanceGradientEnabled: true,
+                                            appearanceGradientTo: nextColor,
+                                          })
+                                        }
+                                      }}
+                                      disabled={isSavingStorySettings || isGenerating}
+                                      sx={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        opacity: 0,
+                                        cursor: 'inherit',
+                                      }}
+                                    />
+                                  </Box>
+                                </Stack>
+                              ))}
+                            </Box>
+
+                            <Box sx={{ pt: 0.45 }}>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', mb: 0.72 }}>
                                 Стили
                               </Typography>
-                              <Stack spacing={0.65}>
+                              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.72 }}>
                                 {STORY_APPEARANCE_UI_STYLE_OPTIONS.map((option) => {
                                   const isSelected = appearanceUiStyle === option.id
                                   return (
@@ -17065,85 +17079,102 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       }}
                                       disabled={isSavingStorySettings || isGenerating}
                                       sx={{
-                                        minHeight: 70,
-                                        borderRadius: '14px',
-                                        p: 0.7,
+                                        minHeight: 104,
+                                        borderRadius: '12px',
+                                        p: 0,
+                                        overflow: 'hidden',
+                                        alignItems: 'stretch',
                                         justifyContent: 'flex-start',
                                         textTransform: 'none',
                                         border: isSelected
                                           ? `var(--morius-border-width) solid ${option.accent}`
                                           : 'var(--morius-border-width) solid var(--morius-card-border)',
                                         backgroundColor: isSelected
-                                          ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
+                                          ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-elevated-bg))'
                                           : 'var(--morius-elevated-bg)',
                                         color: 'var(--morius-title-text)',
+                                        boxShadow: isSelected ? `0 0 0 1px color-mix(in srgb, ${option.accent} 22%, transparent) inset` : 'none',
                                         '&:hover': {
-                                          backgroundColor: 'color-mix(in srgb, var(--morius-accent) 8%, var(--morius-elevated-bg))',
+                                          backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 74%, var(--morius-elevated-bg))',
                                           borderColor: option.accent,
                                         },
                                       }}
                                     >
-                                      <Stack direction="row" alignItems="center" spacing={0.75} sx={{ width: '100%', minWidth: 0 }}>
-                                        <Box
-                                          sx={{
-                                            width: 18,
-                                            height: 18,
-                                            borderRadius: '50%',
-                                            border: `var(--morius-border-width) solid ${isSelected ? option.accent : 'var(--morius-card-border)'}`,
-                                            backgroundColor: isSelected ? option.accent : 'transparent',
-                                            flexShrink: 0,
-                                          }}
-                                        />
-                                        <Stack spacing={0.18} sx={{ flex: 1, minWidth: 0 }}>
-                                          <Typography sx={{ fontSize: '0.84rem', fontWeight: 850, lineHeight: 1.12, textAlign: 'left' }}>
-                                            {option.label}
-                                          </Typography>
-                                          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.7rem', lineHeight: 1.15, textAlign: 'left' }}>
+                                      <Stack sx={{ width: '100%', minWidth: 0, height: '100%' }}>
+                                        <Box sx={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', height: 38, width: '100%' }}>
+                                          {option.previewSwatches.map((swatch, swatchIndex) => (
+                                            <Box key={`${option.id}-${swatchIndex}`} sx={{ backgroundColor: swatch }} />
+                                          ))}
+                                          {isSelected ? (
+                                            <Box
+                                              sx={{
+                                                position: 'absolute',
+                                                top: 7,
+                                                right: 7,
+                                                width: 20,
+                                                height: 20,
+                                                borderRadius: '50%',
+                                                backgroundColor: 'var(--morius-accent)',
+                                                color: 'var(--morius-title-text)',
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                fontSize: '0.82rem',
+                                                fontWeight: 900,
+                                              }}
+                                            >
+                                              ✓
+                                            </Box>
+                                          ) : null}
+                                        </Box>
+                                        <Box sx={{ px: 0.82, py: 0.72, minWidth: 0 }}>
+                                          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+                                            <Typography
+                                              sx={{
+                                                flex: 1,
+                                                minWidth: 0,
+                                                fontSize: '0.78rem',
+                                                fontWeight: 900,
+                                                lineHeight: 1.12,
+                                                textAlign: 'left',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                              }}
+                                            >
+                                              {option.label}
+                                            </Typography>
+                                            <Typography sx={{ color: option.accent, fontSize: '0.84rem', fontWeight: 900, fontFamily: '"Nunito Sans", system-ui, sans-serif', lineHeight: 1 }}>
+                                              Aa
+                                            </Typography>
+                                          </Stack>
+                                          <Typography
+                                            sx={{
+                                              color: 'var(--morius-text-secondary)',
+                                              fontSize: '0.66rem',
+                                              lineHeight: 1.12,
+                                              textAlign: 'left',
+                                              mt: 0.22,
+                                              display: '-webkit-box',
+                                              WebkitLineClamp: 2,
+                                              WebkitBoxOrient: 'vertical',
+                                              overflow: 'hidden',
+                                            }}
+                                          >
                                             {option.description}
                                           </Typography>
-                                        </Stack>
-                                        <Box
-                                          sx={{
-                                            width: 104,
-                                            height: 44,
-                                            borderRadius: '10px',
-                                            border: `var(--morius-border-width) solid ${option.accent}`,
-                                            background: option.previewBackground,
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                            color: option.accent,
-                                            fontSize: '1.05rem',
-                                            fontWeight: 900,
-                                            fontFamily: '"Nunito Sans", system-ui, sans-serif',
-                                            boxShadow: `inset 0 0 18px color-mix(in srgb, ${option.accent} 18%, transparent)`,
-                                            flexShrink: 0,
-                                          }}
-                                        >
-                                          Aa
                                         </Box>
                                       </Stack>
                                     </Button>
                                   )
                                 })}
-                              </Stack>
+                              </Box>
                             </Box>
 
-                            <Box sx={{ pt: 0.85, borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
-                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 800, mb: 0.65 }}>
+                            <Box sx={{ pt: 0.35 }}>
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, letterSpacing: 0, textTransform: 'uppercase', mb: 0.72 }}>
                                 Стиль текста
                               </Typography>
-                              <Box
-                                sx={{
-                                  display: 'grid',
-                                  gridTemplateColumns: 'repeat(3, 1fr)',
-                                  gap: 0.45,
-                                  p: 0.45,
-                                  borderRadius: '14px',
-                                  backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 72%, #000 28%)',
-                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                                }}
-                              >
+                              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.62 }}>
                                 {STORY_APPEARANCE_TEXT_STYLE_OPTIONS.map((option) => {
                                   const isSelected = appearanceTextStyle === option.id
                                   return (
@@ -17154,27 +17185,50 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                       }}
                                       disabled={isSavingStorySettings || isGenerating}
                                       sx={{
-                                        minHeight: 44,
-                                        borderRadius: '11px',
-                                        px: 0.4,
+                                        minHeight: 70,
+                                        borderRadius: '12px',
+                                        px: 0.45,
+                                        py: 0.5,
+                                        flexDirection: 'column',
                                         textTransform: 'none',
                                         color: isSelected ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-                                        backgroundColor: isSelected ? 'var(--morius-button-active)' : 'transparent',
-                                        border: 'none',
+                                        backgroundColor: isSelected ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))' : 'var(--morius-elevated-bg)',
+                                        border: isSelected
+                                          ? 'var(--morius-border-width) solid var(--morius-accent)'
+                                          : 'var(--morius-border-width) solid var(--morius-card-border)',
                                         fontFamily: option.cssFontFamily,
-                                        fontWeight: 850,
-                                        fontSize: '0.8rem',
                                         '&:hover': {
-                                          backgroundColor: isSelected
-                                            ? 'var(--morius-button-active)'
-                                            : 'color-mix(in srgb, var(--morius-button-hover) 72%, transparent)',
+                                          backgroundColor: 'color-mix(in srgb, var(--morius-button-hover) 74%, var(--morius-elevated-bg))',
+                                          borderColor: isSelected ? 'var(--morius-accent)' : 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
                                         },
                                       }}
                                     >
-                                      {option.label}
+                                      <Typography sx={{ fontFamily: 'inherit', fontSize: '1.36rem', fontWeight: 900, lineHeight: 1 }}>
+                                        Ag
+                                      </Typography>
+                                      <Typography sx={{ mt: 0.42, fontFamily: 'inherit', fontSize: '0.62rem', fontWeight: 850, lineHeight: 1.1 }}>
+                                        {option.label}
+                                      </Typography>
                                     </Button>
                                   )
                                 })}
+                              </Box>
+                              <Box
+                                sx={{
+                                  mt: 0.72,
+                                  minHeight: 58,
+                                  borderRadius: '12px',
+                                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                  backgroundColor: 'var(--morius-elevated-bg)',
+                                  px: 0.95,
+                                  py: 0.85,
+                                  color: 'var(--morius-text-primary)',
+                                  fontFamily: STORY_APPEARANCE_TEXT_STYLE_OPTIONS.find((option) => option.id === appearanceTextStyle)?.cssFontFamily,
+                                  fontSize: '0.78rem',
+                                  lineHeight: 1.45,
+                                }}
+                              >
+                                Лес шептал древние тайны в тишине ночи...
                               </Box>
                             </Box>
 

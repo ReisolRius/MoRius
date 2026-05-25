@@ -84,12 +84,12 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
 
     def test_appearance_normalizers_fall_back_to_defaults(self) -> None:
         self.assertEqual(normalize_story_appearance_background_mode("custom"), "custom")
-        self.assertEqual(normalize_story_appearance_background_mode("unknown"), "default")
+        self.assertEqual(normalize_story_appearance_background_mode("unknown"), "custom")
         self.assertEqual(normalize_story_appearance_ui_style("fantasy"), "fantasy")
         self.assertEqual(normalize_story_appearance_ui_style("unknown"), "default")
         self.assertEqual(normalize_story_appearance_text_style("terminal"), "terminal")
         self.assertEqual(normalize_story_appearance_text_style("unknown"), "default")
-        self.assertFalse(normalize_story_appearance_gradient_enabled(None))
+        self.assertTrue(normalize_story_appearance_gradient_enabled(None))
         self.assertEqual(normalize_story_appearance_color("#00eaff", default="#050506"), "#00EAFF")
         self.assertEqual(normalize_story_appearance_color("not-a-color", default="#050506"), "#050506")
 

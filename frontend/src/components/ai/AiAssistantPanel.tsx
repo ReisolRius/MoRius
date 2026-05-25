@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Box,
   Button,
@@ -46,6 +46,7 @@ type LocalMessage = {
   pending?: boolean
   assistantMessageId?: number | null
   usage?: AiAssistantUsage | null
+  isIntro?: boolean
 }
 
 type SpeechRecognitionResultLike = {
@@ -78,9 +79,121 @@ const micIconMarkup = `<svg viewBox="0 0 24 24" fill="none"><path d="M12 14.5a3.
 const stopIconMarkup = `<svg viewBox="0 0 24 24" fill="none"><path d="M8 8h8v8H8V8Z" fill="currentColor"/></svg>`
 const likeIconMarkup = `<svg viewBox="0 0 24 24" fill="none"><path d="M7 10.5v9H4.5a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1H7Zm2 8.5v-8.3l3.8-6.1a1.6 1.6 0 0 1 2.95 1.1l-.45 3.1h3.1a2.1 2.1 0 0 1 2.02 2.66l-1.62 5.8A2.4 2.4 0 0 1 16.5 19H9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`
 const dislikeIconMarkup = `<svg viewBox="0 0 24 24" fill="none"><path d="M17 13.5v-9h2.5a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H17ZM15 5v8.3l-3.8 6.1a1.6 1.6 0 0 1-2.95-1.1l.45-3.1H5.6a2.1 2.1 0 0 1-2.02-2.66l1.62-5.8A2.4 2.4 0 0 1 7.5 5H15Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`
+const AI_ASSISTANT_HISTORY_LIMIT = 10
+const AI_ASSISTANT_STORAGE_PREFIX = 'morius:ai-assistant:chat'
+const AI_ASSISTANT_INTRO_MESSAGE =
+  'Привет! Я помогу собрать мир, создать или поправить карточки, настроить правила и быстро объяснить, где что находится в MORIUS.'
 
 function createLocalId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function createIntroMessage(): LocalMessage {
+  return {
+    id: 'assistant-intro',
+    role: 'assistant',
+    content: AI_ASSISTANT_INTRO_MESSAGE,
+    isIntro: true,
+  }
+}
+
+function buildStorageKey(userId: number | string | undefined) {
+  return `${AI_ASSISTANT_STORAGE_PREFIX}:${String(userId || 'anonymous')}`
+}
+
+function normalizeStoredMessage(value: unknown): LocalMessage | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const rawMessage = value as Partial<LocalMessage>
+  const role = rawMessage.role === 'user' || rawMessage.role === 'assistant' ? rawMessage.role : null
+  const content = typeof rawMessage.content === 'string' ? rawMessage.content : ''
+  if (!role || !content.trim()) {
+    return null
+  }
+  return {
+    id: typeof rawMessage.id === 'string' && rawMessage.id ? rawMessage.id : createLocalId(),
+    role,
+    content,
+    assistantMessageId: typeof rawMessage.assistantMessageId === 'number' ? rawMessage.assistantMessageId : null,
+    usage: rawMessage.usage ?? null,
+  }
+}
+
+function loadStoredChatState(storageKey: string): { messages: LocalMessage[]; conversationId: string | null } {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || '{}') as {
+      messages?: unknown[]
+      conversationId?: unknown
+    }
+    const restoredMessages = Array.isArray(parsed.messages)
+      ? parsed.messages.map(normalizeStoredMessage).filter((message): message is LocalMessage => Boolean(message))
+      : []
+    return {
+      messages: restoredMessages.slice(-AI_ASSISTANT_HISTORY_LIMIT),
+      conversationId: typeof parsed.conversationId === 'string' && parsed.conversationId ? parsed.conversationId : null,
+    }
+  } catch {
+    return { messages: [], conversationId: null }
+  }
+}
+
+function renderInlineMarkdown(text: string): ReactNode[] {
+  const nodes: ReactNode[] = []
+  const pattern = /(\*\*[^*\n]+?\*\*|`[^`\n]+?`)/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null = pattern.exec(text)
+  while (match) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index))
+    }
+    const token = match[0]
+    if (token.startsWith('**') && token.endsWith('**')) {
+      nodes.push(
+        <Box key={`bold-${match.index}`} component="strong" sx={{ fontWeight: 900, color: 'inherit' }}>
+          {token.slice(2, -2)}
+        </Box>,
+      )
+    } else {
+      nodes.push(
+        <Box
+          key={`code-${match.index}`}
+          component="code"
+          sx={{
+            px: 0.35,
+            py: 0.08,
+            borderRadius: '5px',
+            backgroundColor: 'rgba(255,255,255,0.08)',
+            color: 'var(--morius-title-text)',
+            fontFamily: '"Cascadia Mono", Consolas, monospace',
+            fontSize: '0.88em',
+          }}
+        >
+          {token.slice(1, -1)}
+        </Box>,
+      )
+    }
+    lastIndex = match.index + token.length
+    match = pattern.exec(text)
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex))
+  }
+  return nodes
+}
+
+function FormattedAssistantText({ content }: { content: string }) {
+  const lines = content.replace(/\r\n/g, '\n').split('\n')
+  return (
+    <Typography component="div" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '0.94rem', lineHeight: 1.55 }}>
+      {lines.map((line, index) => (
+        <Box component="span" key={`${index}-${line}`}>
+          {renderInlineMarkdown(line)}
+          {index < lines.length - 1 ? <br /> : null}
+        </Box>
+      ))}
+    </Typography>
+  )
 }
 
 function resolvePageContext(path: string): AiAssistantPageContext {
@@ -104,6 +217,7 @@ function resolveQuickChips(path: string): string[] {
   if (/^\/home\/\d+$/.test(path)) {
     return [
       'Добавь персонажа',
+      'Отредактируй карточку',
       'Создай правило против шаблонности',
       'Проверь карточки мира',
       'Сделай NPC',
@@ -163,7 +277,7 @@ function AiAssistantMessageList({
             <ThemedSvgIcon markup={aiIconMarkup} size={28} />
           </Box>
           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>
-            Я помогу создать мир, добавить персонажей, настроить правила или объяснить сайт.
+            {AI_ASSISTANT_INTRO_MESSAGE}
           </Typography>
         </Stack>
       </Box>
@@ -188,12 +302,12 @@ function AiAssistantMessageList({
                 borderRadius: isUser ? '18px 18px 6px 18px' : '18px 18px 18px 6px',
                 border: 'var(--morius-border-width) solid var(--morius-card-border)',
                 backgroundColor: isUser
-                  ? 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg))'
-                  : 'color-mix(in srgb, var(--morius-elevated-bg) 78%, rgba(5, 9, 13, 0.86) 22%)',
+                  ? 'color-mix(in srgb, var(--morius-accent) 17%, #0b1017 83%)'
+                  : 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #05070b 38%)',
                 px: 1.25,
                 py: 1,
                 color: 'var(--morius-text-primary)',
-                boxShadow: '0 14px 30px rgba(0, 0, 0, 0.18)',
+                boxShadow: '0 14px 34px rgba(0, 0, 0, 0.32)',
               }}
             >
               {message.pending ? (
@@ -202,9 +316,7 @@ function AiAssistantMessageList({
                   <Typography sx={{ fontSize: '0.9rem', color: 'var(--morius-text-secondary)' }}>Думаю...</Typography>
                 </Stack>
               ) : (
-                <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: '0.94rem', lineHeight: 1.55 }}>
-                  {message.content}
-                </Typography>
+                <FormattedAssistantText content={message.content} />
               )}
               {!isUser && !message.pending && conversationId ? (
                 <Stack direction="row" spacing={0.4} justifyContent="flex-end" sx={{ mt: 0.75 }}>
@@ -293,13 +405,14 @@ function AiVoiceInputButton({
           aria-label={listening ? 'Остановить голосовой ввод' : 'Начать голосовой ввод'}
           onClick={toggleListening}
           sx={{
-            width: 42,
-            height: 42,
+            width: 50,
+            height: 50,
             borderRadius: '14px',
+            border: 'none',
             color: listening ? 'var(--morius-title-text)' : 'var(--morius-text-secondary)',
-            backgroundColor: listening ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' : 'var(--morius-card-bg)',
+            backgroundColor: listening ? 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' : 'var(--morius-elevated-bg)',
             '&:hover': {
-              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, var(--morius-card-bg))',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-elevated-bg))',
             },
           }}
         >
@@ -361,7 +474,7 @@ function AiAssistantInput({
           <Typography sx={{ fontSize: '0.84rem', fontWeight: 800 }}>Слушаю...</Typography>
         </Stack>
       ) : null}
-      <Stack direction="row" spacing={0.75} alignItems="flex-end">
+      <Stack direction="row" spacing={0.75} alignItems="center">
         <AiVoiceInputButton
           disabled={pending || disabled}
           listening={listening}
@@ -381,9 +494,10 @@ function AiAssistantInput({
           sx={{
             '& .MuiOutlinedInput-root': {
               borderRadius: '16px',
-              backgroundColor: 'var(--morius-card-bg)',
+              minHeight: 50,
+              backgroundColor: 'var(--morius-elevated-bg)',
               color: 'var(--morius-title-text)',
-              alignItems: 'flex-end',
+              alignItems: 'center',
             },
             '& .MuiOutlinedInput-notchedOutline': {
               borderColor: 'var(--morius-card-border)',
@@ -401,9 +515,10 @@ function AiAssistantInput({
             onClick={pending ? onStop : onSubmit}
             disabled={!pending && (disabled || !value.trim())}
             sx={{
-              width: 42,
-              height: 42,
+              width: 50,
+              height: 50,
               borderRadius: '14px',
+              border: 'none',
               color: 'var(--morius-title-text)',
               backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))',
               '&:hover': {
@@ -411,7 +526,7 @@ function AiAssistantInput({
               },
               '&.Mui-disabled': {
                 color: 'var(--morius-text-secondary)',
-                backgroundColor: 'var(--morius-card-bg)',
+                backgroundColor: 'var(--morius-elevated-bg)',
               },
             }}
           >
@@ -562,10 +677,12 @@ function AiAssistantJobToast({
 }
 
 function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: AiAssistantPanelProps) {
+  const assistantStorageKey = useMemo(() => buildStorageKey(user.id), [user.id])
+  const initialChatState = useMemo(() => loadStoredChatState(assistantStorageKey), [assistantStorageKey])
   const [open, setOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
-  const [messages, setMessages] = useState<LocalMessage[]>([])
-  const [conversationId, setConversationId] = useState<string | null>(null)
+  const [messages, setMessages] = useState<LocalMessage[]>(() => initialChatState.messages.length > 0 ? initialChatState.messages : [createIntroMessage()])
+  const [conversationId, setConversationId] = useState<string | null>(() => initialChatState.conversationId)
   const [pending, setPending] = useState(false)
   const [listening, setListening] = useState(false)
   const [steps, setSteps] = useState<Array<Record<string, unknown>>>([])
@@ -576,6 +693,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
   const [settingsError, setSettingsError] = useState('')
   const [settingsLoading, setSettingsLoading] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const messageScrollRef = useRef<HTMLDivElement | null>(null)
   const isMobile = useMediaQuery('(max-width:899.95px)')
   const isAdministrator = String(user.role || '').trim().toLowerCase() === 'administrator'
   const quickChips = useMemo(() => resolveQuickChips(path), [path])
@@ -603,10 +721,44 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
   const assistantReady = Boolean(assistantSettings?.enabled && assistantSettings.configured && assistantSettings.visible && !settingsError)
 
   useEffect(() => {
+    const restored = loadStoredChatState(assistantStorageKey)
+    setMessages(restored.messages.length > 0 ? restored.messages : [createIntroMessage()])
+    setConversationId(restored.conversationId)
+  }, [assistantStorageKey])
+
+  useEffect(() => {
+    const persistedMessages = messages.filter((message) => !message.pending && !message.isIntro).slice(-AI_ASSISTANT_HISTORY_LIMIT)
+    try {
+      window.localStorage.setItem(
+        assistantStorageKey,
+        JSON.stringify({
+          conversationId,
+          messages: persistedMessages,
+        }),
+      )
+    } catch {
+      // Chat history is a convenience; ignore storage failures.
+    }
+  }, [assistantStorageKey, conversationId, messages])
+
+  useEffect(() => {
     const handleOpen = () => setOpen(true)
     window.addEventListener(AI_ASSISTANT_OPEN_EVENT, handleOpen)
     return () => window.removeEventListener(AI_ASSISTANT_OPEN_EVENT, handleOpen)
   }, [])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      const element = messageScrollRef.current
+      if (element) {
+        element.scrollTop = element.scrollHeight
+      }
+    })
+    return () => window.cancelAnimationFrame(frameId)
+  }, [availabilityMessage, messages, open, pending])
 
   useEffect(() => {
     if (!open || !authToken) {
@@ -763,7 +915,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
             borderTopRightRadius: isMobile ? '22px' : 0,
             borderLeft: isMobile ? 'none' : 'var(--morius-border-width) solid var(--morius-card-border)',
             borderTop: isMobile ? 'var(--morius-border-width) solid var(--morius-card-border)' : 'none',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 74%, rgba(2, 5, 8, 0.94) 26%)',
+            backgroundColor: '#07090e',
             color: 'var(--morius-text-primary)',
             backdropFilter: 'blur(18px)',
             overflow: 'hidden',
@@ -786,6 +938,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
               px: 1.35,
               py: 1.15,
               borderBottom: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 38%, #34383e 62%)',
             }}
           >
             <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
@@ -820,7 +973,13 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                     disabled={!conversationId || pending}
                     aria-label="Откатить последнюю операцию помощника"
                     onClick={() => void handleUndo()}
-                    sx={{ color: 'var(--morius-text-secondary)' }}
+                    sx={{
+                      color: '#10151d',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
+                      '&.Mui-disabled': { color: 'color-mix(in srgb, var(--morius-text-secondary) 52%, transparent)' },
+                    }}
                   >
                     <ThemedSvgIcon markup={undoIconMarkup} size={20} />
                   </IconButton>
@@ -830,14 +989,30 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                 type="button"
                 aria-label="Закрыть AI-помощника"
                 onClick={() => setOpen(false)}
-                sx={{ color: 'var(--morius-text-secondary)' }}
+                sx={{
+                  color: '#10151d',
+                  backgroundColor: 'transparent',
+                  border: 'none',
+                  '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
+                }}
               >
                 <ThemedSvgIcon markup={closeIconMarkup} size={20} />
               </IconButton>
             </Stack>
           </Stack>
 
-          <Box className="morius-scrollbar" sx={{ minHeight: 0, overflowY: 'auto', px: 1.25, py: 1.2 }}>
+          <Box
+            ref={messageScrollRef}
+            className="morius-scrollbar"
+            sx={{
+              minHeight: 0,
+              overflowY: 'auto',
+              px: 1.25,
+              py: 1.2,
+              backgroundColor: '#05070b',
+              backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.025), transparent 120px)',
+            }}
+          >
             {availabilityMessage ? (
               <Box
                 sx={{
@@ -864,7 +1039,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
               pt: 1,
               pb: 'calc(12px + env(safe-area-inset-bottom))',
               borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, rgba(3, 7, 10, 0.88) 18%)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 52%, #05070b 48%)',
             }}
           >
             {error ? (

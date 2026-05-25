@@ -873,6 +873,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
           collapsed: 'Показать кнопки шапки',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
+        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
         hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
         centerSlot={

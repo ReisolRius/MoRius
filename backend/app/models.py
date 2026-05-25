@@ -369,14 +369,14 @@ class StoryGame(Base):
     appearance_background_mode: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="default",
-        server_default="default",
+        default="custom",
+        server_default="custom",
     )
     appearance_gradient_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=False,
-        server_default="0",
+        default=True,
+        server_default="1",
     )
     appearance_gradient_from: Mapped[str] = mapped_column(
         String(16),
@@ -387,8 +387,8 @@ class StoryGame(Base):
     appearance_gradient_to: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
-        default="#2A1408",
-        server_default="#2A1408",
+        default="#110803",
+        server_default="#110803",
     )
     appearance_solid_color: Mapped[str] = mapped_column(
         String(16),

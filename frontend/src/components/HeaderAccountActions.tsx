@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { getCurrentUserNotificationUnreadCount } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
 import { NOTIFICATIONS_CHANGED_EVENT, type NotificationsChangedDetail } from '../utils/notifications'
-import AiAssistantButton from './ai/AiAssistantButton'
 import DailyRewardsButton from './DailyRewardsButton'
 import UserAvatar from './profile/UserAvatar'
 
@@ -93,7 +92,6 @@ function HeaderAccountActions({
 
   return (
     <Stack direction="row" spacing={2.35} alignItems="center">
-      <AiAssistantButton user={user} authToken={authToken} size={avatarSize} />
       {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={avatarSize} /> : null}
       {shouldHideAvatar ? null : (
         <Box

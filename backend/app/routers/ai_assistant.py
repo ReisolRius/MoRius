@@ -39,10 +39,15 @@ from app.services.story_cards import (
     STORY_PLOT_CARD_SOURCE_AI,
     STORY_TEMPLATE_VISIBILITY_PRIVATE,
     STORY_TEMPLATE_VISIBILITY_PUBLIC,
+    coerce_story_plot_card_enabled,
+    deserialize_story_plot_card_triggers,
     normalize_story_instruction_content,
     normalize_story_instruction_title,
     normalize_story_plot_card_content,
+    normalize_story_plot_card_memory_turns_for_storage,
     normalize_story_plot_card_title,
+    normalize_story_plot_card_triggers,
+    serialize_story_plot_card_triggers,
 )
 from app.services.story_characters import (
     STORY_CHARACTER_SOURCE_AI,
@@ -75,9 +80,11 @@ from app.services.story_world_cards import (
     deserialize_story_world_card_triggers,
     normalize_story_npc_profile_content,
     normalize_story_world_card_content,
+    normalize_story_world_card_kind,
     normalize_story_world_card_memory_turns_for_storage,
     normalize_story_world_card_title,
     normalize_story_world_card_triggers,
+    normalize_story_world_detail_type,
     serialize_story_world_card_triggers,
 )
 from app.services.story_world_card_templates import build_story_world_card_template, upsert_story_world_detail_type
@@ -581,6 +588,40 @@ def _entity_ref(entity_type: str, entity_id: int, title: str, url: str | None = 
     }
 
 
+def _arg_present(args: dict[str, Any], *keys: str) -> bool:
+    return any(key in args and args.get(key) is not None for key in keys)
+
+
+def _arg_value(args: dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in args and args.get(key) is not None:
+            return args.get(key)
+    return default
+
+
+def _coerce_bool(value: Any, *, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on", "вкл", "да"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", "выкл", "нет"}:
+            return False
+    return fallback
+
+
+def _normalize_world_card_kind_arg(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"main_character", "main_hero", "hero", "gg", "гг", "главный_герой"}:
+        return STORY_WORLD_CARD_KIND_MAIN_HERO
+    if normalized in {"npc", "нпс", "персонаж"}:
+        return STORY_WORLD_CARD_KIND_NPC
+    return normalize_story_world_card_kind(normalized)
+
+
 def _story_game_url(game_id: int) -> str:
     return f"/home/{int(game_id)}"
 
@@ -720,6 +761,174 @@ def _search_templates(db: Session, *, user: User, kind: str, query: str, limit: 
                 str(template.title or ""),
                 str(template.content or ""),
                 "own",
+            )
+
+    candidates.sort(key=lambda item: (int(item["score"]), int(item["numericId"])), reverse=True)
+    return candidates[:normalized_limit]
+
+
+def _normalize_existing_entity_type(value: Any) -> str:
+    normalized = str(value or "any").strip().lower().replace("-", "_")
+    aliases = {
+        "rule": "instruction_card",
+        "rules": "instruction_card",
+        "instruction": "instruction_card",
+        "instructions": "instruction_card",
+        "world": "world_card",
+        "card": "world_card",
+        "character": "profile_character",
+        "profile_instruction": "instruction_template",
+        "template_instruction": "instruction_template",
+        "profile_world_card": "world_card_template",
+        "template_world_card": "world_card_template",
+        "plot": "plot_card",
+        "story": "plot_card",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _search_existing_cards(
+    db: Session,
+    *,
+    user: User,
+    page_context: dict[str, Any],
+    entity_type: str,
+    query: str,
+    limit: int,
+    world_id: Any = None,
+) -> list[dict[str, Any]]:
+    normalized_type = _normalize_existing_entity_type(entity_type)
+    normalized_query = _compact_text(query, max_length=240)
+    normalized_limit = max(1, min(int(limit or 6), 20))
+    normalized_world_id = _normalize_world_id(world_id or page_context.get("worldId"))
+    candidates: list[dict[str, Any]] = []
+
+    def add_candidate(item_type: str, item_id: int, title: str, description: str, url: str, source: str) -> None:
+        score = _score_candidate(normalized_query, title, description)
+        if normalized_query and score <= 0:
+            return
+        candidates.append(
+            {
+                "id": f"{item_type}:{int(item_id)}",
+                "numericId": int(item_id),
+                "type": item_type,
+                "title": title,
+                "description": _compact_text(description, max_length=320),
+                "url": url,
+                "source": source,
+                "score": score,
+            }
+        )
+
+    world: StoryGame | None = None
+    if normalized_world_id is not None:
+        world = db.scalar(
+            select(StoryGame).where(
+                StoryGame.id == normalized_world_id,
+                StoryGame.user_id == int(user.id),
+            )
+        )
+
+    if world is not None and normalized_type in {"any", "world_card"}:
+        rows = db.scalars(
+            select(StoryWorldCard)
+            .where(StoryWorldCard.game_id == int(world.id))
+            .order_by(StoryWorldCard.updated_at.desc(), StoryWorldCard.id.desc())
+            .limit(120)
+        ).all()
+        for card in rows:
+            add_candidate(
+                "world_card",
+                int(card.id),
+                str(card.title or ""),
+                str(card.content or ""),
+                f"{_story_game_url(int(world.id))}?card={int(card.id)}",
+                "current_world",
+            )
+
+    if world is not None and normalized_type in {"any", "instruction_card"}:
+        rows = db.scalars(
+            select(StoryInstructionCard)
+            .where(StoryInstructionCard.game_id == int(world.id))
+            .order_by(StoryInstructionCard.updated_at.desc(), StoryInstructionCard.id.desc())
+            .limit(120)
+        ).all()
+        for card in rows:
+            add_candidate(
+                "instruction_card",
+                int(card.id),
+                str(card.title or ""),
+                str(card.content or ""),
+                f"{_story_game_url(int(world.id))}?instruction={int(card.id)}",
+                "current_world",
+            )
+
+    if world is not None and normalized_type in {"any", "plot_card"}:
+        rows = db.scalars(
+            select(StoryPlotCard)
+            .where(StoryPlotCard.game_id == int(world.id))
+            .order_by(StoryPlotCard.updated_at.desc(), StoryPlotCard.id.desc())
+            .limit(120)
+        ).all()
+        for card in rows:
+            add_candidate(
+                "plot_card",
+                int(card.id),
+                str(card.title or ""),
+                str(card.content or ""),
+                f"{_story_game_url(int(world.id))}?plot={int(card.id)}",
+                "current_world",
+            )
+
+    if normalized_type in {"any", "profile_character"}:
+        rows = db.scalars(
+            select(StoryCharacter)
+            .where(StoryCharacter.user_id == int(user.id))
+            .order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
+            .limit(120)
+        ).all()
+        for character in rows:
+            add_candidate(
+                "profile_character",
+                int(character.id),
+                str(character.name or ""),
+                str(character.description or ""),
+                "/profile?tab=characters",
+                "profile",
+            )
+
+    if normalized_type in {"any", "instruction_template"}:
+        rows = db.scalars(
+            select(StoryInstructionTemplate)
+            .where(StoryInstructionTemplate.user_id == int(user.id))
+            .order_by(StoryInstructionTemplate.updated_at.desc(), StoryInstructionTemplate.id.desc())
+            .limit(120)
+        ).all()
+        for template in rows:
+            add_candidate(
+                "instruction_template",
+                int(template.id),
+                str(template.title or ""),
+                str(template.content or ""),
+                "/profile?tab=instructions",
+                "profile",
+            )
+
+    if normalized_type in {"any", "world_card_template"}:
+        rows = db.scalars(
+            select(StoryWorldCardTemplate)
+            .where(StoryWorldCardTemplate.user_id == int(user.id))
+            .order_by(StoryWorldCardTemplate.updated_at.desc(), StoryWorldCardTemplate.id.desc())
+            .limit(120)
+        ).all()
+        for template in rows:
+            add_candidate(
+                "world_card_template",
+                int(template.id),
+                str(template.title or ""),
+                str(template.content or ""),
+                "/profile?tab=world_cards",
+                "profile",
             )
 
     candidates.sort(key=lambda item: (int(item["score"]), int(item["numericId"])), reverse=True)
@@ -1026,6 +1235,331 @@ def _create_profile_world_card_template(
     return template, ref
 
 
+def _snapshot_existing_entity(entity_type: str, entity: Any) -> dict[str, Any]:
+    if entity_type == "world_card":
+        return {
+            "title": entity.title,
+            "content": entity.content,
+            "race": entity.race,
+            "clothing": entity.clothing,
+            "inventory": entity.inventory,
+            "health_status": entity.health_status,
+            "triggers": entity.triggers,
+            "kind": entity.kind,
+            "detail_type": entity.detail_type,
+            "memory_turns": entity.memory_turns,
+            "ai_edit_enabled": bool(entity.ai_edit_enabled),
+            "is_locked": bool(entity.is_locked),
+        }
+    if entity_type == "instruction_card":
+        return {"title": entity.title, "content": entity.content, "is_active": bool(entity.is_active)}
+    if entity_type == "plot_card":
+        return {
+            "title": entity.title,
+            "content": entity.content,
+            "triggers": entity.triggers,
+            "memory_turns": entity.memory_turns,
+            "ai_edit_enabled": bool(entity.ai_edit_enabled),
+            "is_enabled": bool(entity.is_enabled),
+        }
+    if entity_type == "profile_character":
+        return {
+            "name": entity.name,
+            "description": entity.description,
+            "race": entity.race,
+            "clothing": entity.clothing,
+            "inventory": entity.inventory,
+            "health_status": entity.health_status,
+            "note": entity.note,
+            "triggers": entity.triggers,
+        }
+    if entity_type == "instruction_template":
+        return {"title": entity.title, "content": entity.content}
+    if entity_type == "world_card_template":
+        return {
+            "title": entity.title,
+            "content": entity.content,
+            "triggers": entity.triggers,
+            "kind": entity.kind,
+            "detail_type": entity.detail_type,
+            "memory_turns": entity.memory_turns,
+        }
+    return {}
+
+
+def _load_existing_entity_for_update(
+    db: Session,
+    *,
+    user: User,
+    entity_type: str,
+    entity_id: int,
+    world_id: Any = None,
+    page_context: dict[str, Any] | None = None,
+) -> Any:
+    normalized_type = _normalize_existing_entity_type(entity_type)
+    page_context = page_context or {}
+    if normalized_type in {"world_card", "instruction_card", "plot_card"}:
+        normalized_world_id = _normalize_world_id(world_id or page_context.get("worldId"))
+        if normalized_world_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="worldId is required for world cards")
+        world = _get_world_for_admin(db, user=user, world_id=normalized_world_id)
+        model_by_type: dict[str, Any] = {
+            "world_card": StoryWorldCard,
+            "instruction_card": StoryInstructionCard,
+            "plot_card": StoryPlotCard,
+        }
+        model = model_by_type[normalized_type]
+        entity = db.scalar(select(model).where(model.id == int(entity_id), model.game_id == int(world.id)))
+        if entity is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Card not found in current world")
+        return entity
+
+    model_by_type = {
+        "profile_character": StoryCharacter,
+        "instruction_template": StoryInstructionTemplate,
+        "world_card_template": StoryWorldCardTemplate,
+    }
+    model = model_by_type.get(normalized_type)
+    if model is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported entityType")
+    entity = db.scalar(select(model).where(model.id == int(entity_id), model.user_id == int(user.id)))
+    if entity is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Profile entity not found")
+    return entity
+
+
+def _entity_ref_for_existing(entity_type: str, entity: Any) -> dict[str, Any]:
+    if entity_type == "world_card":
+        return _entity_ref("world_card", int(entity.id), entity.title, f"{_story_game_url(int(entity.game_id))}?card={int(entity.id)}")
+    if entity_type == "instruction_card":
+        return _entity_ref("instruction_card", int(entity.id), entity.title, f"{_story_game_url(int(entity.game_id))}?instruction={int(entity.id)}")
+    if entity_type == "plot_card":
+        return _entity_ref("plot_card", int(entity.id), entity.title, f"{_story_game_url(int(entity.game_id))}?plot={int(entity.id)}")
+    if entity_type == "profile_character":
+        return _entity_ref("profile_character", int(entity.id), entity.name, "/profile?tab=characters")
+    if entity_type == "instruction_template":
+        return _entity_ref("instruction_template", int(entity.id), entity.title, "/profile?tab=instructions")
+    if entity_type == "world_card_template":
+        return _entity_ref("world_card_template", int(entity.id), entity.title, "/profile?tab=world_cards")
+    return _entity_ref(entity_type, int(entity.id), getattr(entity, "title", "") or getattr(entity, "name", ""))
+
+
+def _resolve_update_target(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> tuple[str, int]:
+    entity_type = _normalize_existing_entity_type(_arg_value(args, "entityType", "type", default=""))
+    entity_id = _normalize_int(_arg_value(args, "entityId", "id", default=None))
+    if entity_id is not None and entity_type not in {"", "any"}:
+        return entity_type, entity_id
+
+    query = _compact_text(_arg_value(args, "query", "title", "name", default=""), max_length=240)
+    if not query:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="entityId or query is required")
+    matches = _search_existing_cards(
+        db,
+        user=user,
+        page_context=page_context,
+        entity_type=entity_type or "any",
+        query=query,
+        limit=3,
+        world_id=args.get("worldId"),
+    )
+    if len(matches) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Found no unique card. Use search_existing_cards and pass entityType/entityId.",
+        )
+    return str(matches[0]["type"]), int(matches[0]["numericId"])
+
+
+def _update_existing_entity_from_args(
+    entity_type: str,
+    entity: Any,
+    args: dict[str, Any],
+    *,
+    db: Session,
+    user: User,
+) -> bool:
+    changed = False
+
+    def assign(name: str, value: Any) -> None:
+        nonlocal changed
+        if getattr(entity, name) != value:
+            setattr(entity, name, value)
+            changed = True
+
+    if entity_type == "world_card":
+        if _arg_present(args, "title", "name"):
+            next_title = normalize_story_world_card_title(str(_arg_value(args, "title", "name")))
+            if normalize_story_world_card_kind(entity.kind) != STORY_WORLD_CARD_KIND_MAIN_HERO:
+                next_triggers = normalize_story_world_card_triggers(
+                    deserialize_story_world_card_triggers(entity.triggers),
+                    fallback_title=next_title,
+                )
+                assign("triggers", serialize_story_world_card_triggers(next_triggers))
+            assign("title", next_title)
+        if _arg_present(args, "content", "description"):
+            assign("content", normalize_story_world_card_content(str(_arg_value(args, "content", "description"))))
+        if _arg_present(args, "race"):
+            assign("race", normalize_story_character_race(str(args.get("race") or "")))
+        if _arg_present(args, "clothing"):
+            assign("clothing", normalize_story_character_clothing(str(args.get("clothing") or "")))
+        if _arg_present(args, "inventory"):
+            assign("inventory", normalize_story_character_inventory(str(args.get("inventory") or "")))
+        if _arg_present(args, "healthStatus", "health_status"):
+            assign("health_status", normalize_story_character_health_status(str(_arg_value(args, "healthStatus", "health_status") or "")))
+        if _arg_present(args, "triggers"):
+            assign(
+                "triggers",
+                serialize_story_world_card_triggers(
+                    normalize_story_world_card_triggers(_coerce_string_list(args.get("triggers")), fallback_title=str(entity.title or "")),
+                ),
+            )
+        if _arg_present(args, "kind"):
+            next_kind = _normalize_world_card_kind_arg(args.get("kind"))
+            if next_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and normalize_story_world_card_kind(entity.kind) != STORY_WORLD_CARD_KIND_MAIN_HERO:
+                existing_main_hero = db.scalar(
+                    select(StoryWorldCard).where(
+                        StoryWorldCard.game_id == int(entity.game_id),
+                        StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+                        StoryWorldCard.id != int(entity.id),
+                    )
+                )
+                if existing_main_hero is not None:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Main hero already exists")
+            assign("kind", next_kind)
+            assign(
+                "memory_turns",
+                normalize_story_world_card_memory_turns_for_storage(entity.memory_turns, kind=next_kind, explicit=False, current_value=entity.memory_turns),
+            )
+        if _arg_present(args, "detailType", "detail_type"):
+            assign("detail_type", normalize_story_world_detail_type(str(_arg_value(args, "detailType", "detail_type") or "")))
+        if _arg_present(args, "memoryTurns", "memory_turns"):
+            assign(
+                "memory_turns",
+                normalize_story_world_card_memory_turns_for_storage(
+                    _arg_value(args, "memoryTurns", "memory_turns"),
+                    kind=str(entity.kind or STORY_WORLD_CARD_KIND_WORLD),
+                    explicit=True,
+                    current_value=entity.memory_turns,
+                ),
+            )
+        if _arg_present(args, "aiEditEnabled", "ai_edit_enabled"):
+            assign("ai_edit_enabled", _coerce_bool(_arg_value(args, "aiEditEnabled", "ai_edit_enabled"), fallback=bool(entity.ai_edit_enabled)))
+        if changed:
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is not None:
+                touch_story_game(world)
+        return changed
+
+    if entity_type == "instruction_card":
+        if _arg_present(args, "title", "name"):
+            assign("title", normalize_story_instruction_title(str(_arg_value(args, "title", "name"))))
+        if _arg_present(args, "content", "description"):
+            assign("content", normalize_story_instruction_content(str(_arg_value(args, "content", "description"))))
+        if _arg_present(args, "isActive", "is_active"):
+            assign("is_active", _coerce_bool(_arg_value(args, "isActive", "is_active"), fallback=bool(entity.is_active)))
+        if changed:
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is not None:
+                touch_story_game(world)
+        return changed
+
+    if entity_type == "plot_card":
+        if _arg_present(args, "title", "name"):
+            assign("title", normalize_story_plot_card_title(str(_arg_value(args, "title", "name"))))
+        if _arg_present(args, "content", "description"):
+            assign("content", normalize_story_plot_card_content(str(_arg_value(args, "content", "description"))))
+        if _arg_present(args, "triggers"):
+            triggers = normalize_story_plot_card_triggers(_coerce_string_list(args.get("triggers")), fallback_title=str(entity.title or ""))
+            assign("triggers", serialize_story_plot_card_triggers(triggers))
+            assign("is_enabled", coerce_story_plot_card_enabled(entity.is_enabled, triggers=triggers))
+        if _arg_present(args, "memoryTurns", "memory_turns"):
+            assign(
+                "memory_turns",
+                normalize_story_plot_card_memory_turns_for_storage(
+                    _arg_value(args, "memoryTurns", "memory_turns"),
+                    explicit=True,
+                    current_value=entity.memory_turns,
+                ),
+            )
+        if _arg_present(args, "aiEditEnabled", "ai_edit_enabled"):
+            assign("ai_edit_enabled", _coerce_bool(_arg_value(args, "aiEditEnabled", "ai_edit_enabled"), fallback=bool(entity.ai_edit_enabled)))
+        if _arg_present(args, "isEnabled", "is_enabled"):
+            triggers = normalize_story_plot_card_triggers(deserialize_story_plot_card_triggers(entity.triggers), fallback_title=str(entity.title or ""))
+            assign("is_enabled", coerce_story_plot_card_enabled(_arg_value(args, "isEnabled", "is_enabled"), triggers=triggers))
+        if changed:
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is not None:
+                touch_story_game(world)
+        return changed
+
+    if entity_type == "profile_character":
+        if _arg_present(args, "name", "title"):
+            assign("name", normalize_story_character_name(str(_arg_value(args, "name", "title"))))
+        if _arg_present(args, "description", "content"):
+            assign("description", normalize_story_character_description(str(_arg_value(args, "description", "content"))))
+        if _arg_present(args, "race"):
+            next_race = normalize_story_character_race(str(args.get("race") or ""))
+            assign("race", next_race)
+            upsert_story_character_race(db, user_id=int(user.id), name=next_race)
+        if _arg_present(args, "clothing"):
+            assign("clothing", normalize_story_character_clothing(str(args.get("clothing") or "")))
+        if _arg_present(args, "inventory"):
+            assign("inventory", normalize_story_character_inventory(str(args.get("inventory") or "")))
+        if _arg_present(args, "healthStatus", "health_status"):
+            assign("health_status", normalize_story_character_health_status(str(_arg_value(args, "healthStatus", "health_status") or "")))
+        if _arg_present(args, "note"):
+            assign("note", normalize_story_character_note(str(args.get("note") or "")))
+        if _arg_present(args, "triggers"):
+            assign(
+                "triggers",
+                serialize_triggers(normalize_story_character_triggers(_coerce_string_list(args.get("triggers")), fallback_name=str(entity.name or ""))),
+            )
+        return changed
+
+    if entity_type == "instruction_template":
+        if _arg_present(args, "title", "name"):
+            assign("title", normalize_story_instruction_title(str(_arg_value(args, "title", "name"))))
+        if _arg_present(args, "content", "description"):
+            assign("content", normalize_story_instruction_content(str(_arg_value(args, "content", "description"))))
+        return changed
+
+    if entity_type == "world_card_template":
+        if _arg_present(args, "title", "name"):
+            assign("title", normalize_story_world_card_title(str(_arg_value(args, "title", "name"))))
+        if _arg_present(args, "content", "description"):
+            assign("content", normalize_story_world_card_content(str(_arg_value(args, "content", "description"))))
+        if _arg_present(args, "triggers"):
+            assign(
+                "triggers",
+                serialize_story_world_card_triggers(
+                    normalize_story_world_card_triggers(_coerce_string_list(args.get("triggers")), fallback_title=str(entity.title or "")),
+                ),
+            )
+        if _arg_present(args, "kind"):
+            next_kind = _normalize_world_card_kind_arg(args.get("kind") or STORY_WORLD_CARD_KIND_WORLD_PROFILE)
+            if next_kind not in {STORY_WORLD_CARD_KIND_WORLD_PROFILE, STORY_WORLD_CARD_KIND_WORLD}:
+                next_kind = STORY_WORLD_CARD_KIND_WORLD_PROFILE
+            assign("kind", next_kind)
+        if _arg_present(args, "detailType", "detail_type"):
+            next_detail_type = normalize_story_world_detail_type(str(_arg_value(args, "detailType", "detail_type") or ""))
+            assign("detail_type", next_detail_type)
+            if normalize_story_world_card_kind(entity.kind) == STORY_WORLD_CARD_KIND_WORLD and next_detail_type:
+                upsert_story_world_detail_type(db, user_id=int(user.id), name=next_detail_type)
+        if _arg_present(args, "memoryTurns", "memory_turns"):
+            assign(
+                "memory_turns",
+                normalize_story_world_card_memory_turns_for_storage(
+                    _arg_value(args, "memoryTurns", "memory_turns"),
+                    kind=str(entity.kind or STORY_WORLD_CARD_KIND_WORLD_PROFILE),
+                    explicit=True,
+                    current_value=entity.memory_turns,
+                ),
+            )
+        return changed
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported entityType")
+
+
 ANTI_TEMPLATE_RULE_TEXT = """Инструкция для модели:
 1. Не начинай ответы одинаковыми фразами и не повторяй один и тот же ритм сцены.
 2. Каждый ответ должен опираться на конкретное действие игрока, текущие обстоятельства и эмоциональный тон сцены.
@@ -1153,6 +1687,39 @@ def _tool_search_templates(args: dict[str, Any], *, db: Session, user: User, pag
         limit=int(args.get("limit") or 5),
     )
     return {"ok": True, "results": results}
+
+
+def _tool_search_existing_cards(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
+    results = _search_existing_cards(
+        db,
+        user=user,
+        page_context=page_context,
+        entity_type=str(_arg_value(args, "entityType", "type", default="any")),
+        query=str(args.get("query") or ""),
+        limit=int(args.get("limit") or 8),
+        world_id=args.get("worldId"),
+    )
+    return {"ok": True, "results": results}
+
+
+def _tool_update_existing_card(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
+    entity_type, entity_id = _resolve_update_target(args, db=db, user=user, page_context=page_context)
+    entity = _load_existing_entity_for_update(
+        db,
+        user=user,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        world_id=args.get("worldId"),
+        page_context=page_context,
+    )
+    previous = _snapshot_existing_entity(entity_type, entity)
+    changed = _update_existing_entity_from_args(entity_type, entity, args, db=db, user=user)
+    if not changed:
+        return {"ok": False, "error": "No editable fields were provided or values are unchanged"}
+    db.flush()
+    ref = _entity_ref_for_existing(entity_type, entity)
+    ref["previous"] = previous
+    return {"ok": True, "updatedEntityRefs": [ref], "redirectUrl": ref.get("url")}
 
 
 def _tool_create_world(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
@@ -1470,6 +2037,8 @@ def _tool_inspect_world_consistency(args: dict[str, Any], *, db: Session, user: 
 TOOL_HANDLERS = {
     "get_current_context": _tool_get_current_context,
     "search_templates": _tool_search_templates,
+    "search_existing_cards": _tool_search_existing_cards,
+    "update_existing_card": _tool_update_existing_card,
     "create_world": _tool_create_world,
     "add_character_from_template_to_world": _tool_add_character_from_template,
     "create_character_in_world": _tool_create_character_in_world,
@@ -1487,6 +2056,8 @@ TOOL_HANDLERS = {
 TOOL_STEP_LABELS = {
     "get_current_context": "Смотрю текущий контекст страницы",
     "search_templates": "Ищу подходящие шаблоны",
+    "search_existing_cards": "Ищу существующие карточки",
+    "update_existing_card": "Редактирую существующую карточку",
     "create_world": "Создаю приватный мир",
     "add_character_from_template_to_world": "Добавляю персонажа из профиля в мир",
     "create_character_in_world": "Создаю персонажа в текущем мире",
@@ -1531,6 +2102,83 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "limit": {"type": "integer", "minimum": 1, "maximum": 12},
                 },
                 "required": ["type", "query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_existing_cards",
+            "description": (
+                "Искать уже существующие карточки текущего мира и профильные сущности пользователя, чтобы затем отредактировать их. "
+                "Используй перед update_existing_card, если пользователь назвал карточку словами, а не точным id."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "worldId": {"type": "string"},
+                    "entityType": {
+                        "type": "string",
+                        "enum": [
+                            "any",
+                            "world_card",
+                            "instruction_card",
+                            "plot_card",
+                            "profile_character",
+                            "instruction_template",
+                            "world_card_template",
+                        ],
+                    },
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": ["entityType", "query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_existing_card",
+            "description": (
+                "Редактировать существующую карточку или профильный шаблон пользователя. "
+                "Не создаёт новую сущность; для поиска по названию сначала используй search_existing_cards."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "worldId": {"type": "string"},
+                    "entityType": {
+                        "type": "string",
+                        "enum": [
+                            "world_card",
+                            "instruction_card",
+                            "plot_card",
+                            "profile_character",
+                            "instruction_template",
+                            "world_card_template",
+                        ],
+                    },
+                    "entityId": {"type": "integer"},
+                    "query": {"type": "string"},
+                    "title": {"type": "string"},
+                    "name": {"type": "string"},
+                    "content": {"type": "string"},
+                    "description": {"type": "string"},
+                    "race": {"type": "string"},
+                    "clothing": {"type": "string"},
+                    "inventory": {"type": "string"},
+                    "healthStatus": {"type": "string"},
+                    "note": {"type": "string"},
+                    "triggers": {"type": "array", "items": {"type": "string"}},
+                    "kind": {"type": "string"},
+                    "detailType": {"type": "string"},
+                    "memoryTurns": {"type": "integer"},
+                    "isActive": {"type": "boolean"},
+                    "isEnabled": {"type": "boolean"},
+                    "aiEditEnabled": {"type": "boolean"},
+                },
+                "required": ["entityType"],
             },
         },
     },
@@ -2198,6 +2846,90 @@ def _delete_created_entity(db: Session, ref: dict[str, Any]) -> bool:
     return True
 
 
+def _restore_updated_entity(db: Session, *, user: User, ref: dict[str, Any]) -> bool:
+    entity_type = _normalize_existing_entity_type(ref.get("type"))
+    entity_id = _normalize_int(ref.get("id"))
+    previous = ref.get("previous")
+    if entity_id is None or not isinstance(previous, dict):
+        return False
+
+    try:
+        if entity_type == "world_card":
+            entity = db.scalar(select(StoryWorldCard).where(StoryWorldCard.id == entity_id))
+            if entity is None:
+                return False
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is None:
+                return False
+            for field in ("title", "content", "race", "clothing", "inventory", "health_status", "triggers", "kind", "detail_type", "memory_turns", "ai_edit_enabled", "is_locked"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            touch_story_game(world)
+            return True
+        if entity_type == "instruction_card":
+            entity = db.scalar(select(StoryInstructionCard).where(StoryInstructionCard.id == entity_id))
+            if entity is None:
+                return False
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is None:
+                return False
+            for field in ("title", "content", "is_active"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            touch_story_game(world)
+            return True
+        if entity_type == "plot_card":
+            entity = db.scalar(select(StoryPlotCard).where(StoryPlotCard.id == entity_id))
+            if entity is None:
+                return False
+            world = db.scalar(select(StoryGame).where(StoryGame.id == int(entity.game_id), StoryGame.user_id == int(user.id)))
+            if world is None:
+                return False
+            for field in ("title", "content", "triggers", "memory_turns", "ai_edit_enabled", "is_enabled"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            touch_story_game(world)
+            return True
+        if entity_type == "profile_character":
+            entity = db.scalar(select(StoryCharacter).where(StoryCharacter.id == entity_id, StoryCharacter.user_id == int(user.id)))
+            if entity is None:
+                return False
+            for field in ("name", "description", "race", "clothing", "inventory", "health_status", "note", "triggers"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            return True
+        if entity_type == "instruction_template":
+            entity = db.scalar(
+                select(StoryInstructionTemplate).where(
+                    StoryInstructionTemplate.id == entity_id,
+                    StoryInstructionTemplate.user_id == int(user.id),
+                )
+            )
+            if entity is None:
+                return False
+            for field in ("title", "content"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            return True
+        if entity_type == "world_card_template":
+            entity = db.scalar(
+                select(StoryWorldCardTemplate).where(
+                    StoryWorldCardTemplate.id == entity_id,
+                    StoryWorldCardTemplate.user_id == int(user.id),
+                )
+            )
+            if entity is None:
+                return False
+            for field in ("title", "content", "triggers", "kind", "detail_type", "memory_turns"):
+                if field in previous:
+                    setattr(entity, field, previous[field])
+            return True
+    except Exception:
+        logger.exception("AI assistant failed to restore updated entity: type=%s id=%s", entity_type, entity_id)
+        return False
+    return False
+
+
 @router.post("/api/admin/ai-assistant/undo", response_model=AiAssistantUndoResponse)
 def undo_ai_assistant_batch(
     payload: AiAssistantUndoRequest,
@@ -2217,12 +2949,22 @@ def undo_ai_assistant_batch(
     if batch is None:
         return AiAssistantUndoResponse(ok=False, message="Нет операции помощника, которую можно откатить.")
     created_refs = _json_load(batch.created_entity_refs, [])
-    if not isinstance(created_refs, list) or not created_refs:
-        return AiAssistantUndoResponse(ok=False, batchId=batch.id, message="В этой операции нет созданных сущностей для отката.")
+    updated_refs = _json_load(batch.updated_entity_refs, [])
+    if not isinstance(created_refs, list):
+        created_refs = []
+    if not isinstance(updated_refs, list):
+        updated_refs = []
+    if not created_refs and not updated_refs:
+        return AiAssistantUndoResponse(ok=False, batchId=batch.id, message="В этой операции нет сущностей для отката.")
     reverted: list[dict[str, Any]] = []
     for ref in reversed([item for item in created_refs if isinstance(item, dict)]):
         if _delete_created_entity(db, ref):
             reverted.append(ref)
+    for ref in reversed([item for item in updated_refs if isinstance(item, dict)]):
+        if _restore_updated_entity(db, user=user, ref=ref):
+            reverted.append(ref)
+    if not reverted:
+        return AiAssistantUndoResponse(ok=False, batchId=batch.id, message="Не удалось откатить сущности этой операции.")
     batch.status = "reverted"
     batch.updated_at = _utcnow()
     db.commit()
@@ -2230,5 +2972,5 @@ def undo_ai_assistant_batch(
         ok=True,
         batchId=batch.id,
         revertedEntities=reverted,
-        message="Откат выполнен для созданных помощником сущностей.",
+        message="Откат выполнен для сущностей, изменённых помощником.",
     )

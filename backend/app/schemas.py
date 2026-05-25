@@ -1320,10 +1320,10 @@ class StoryGameSummaryOut(BaseModel):
     show_npc_thoughts: bool
     ambient_enabled: bool
     character_state_enabled: bool = False
-    appearance_background_mode: str = "default"
-    appearance_gradient_enabled: bool = False
+    appearance_background_mode: str = "custom"
+    appearance_gradient_enabled: bool = True
     appearance_gradient_from: str = "#050506"
-    appearance_gradient_to: str = "#2A1408"
+    appearance_gradient_to: str = "#110803"
     appearance_solid_color: str = "#050506"
     appearance_ui_style: str = "default"
     appearance_text_style: str = "default"

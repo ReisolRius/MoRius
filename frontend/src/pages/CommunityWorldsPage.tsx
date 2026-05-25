@@ -2098,6 +2098,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           collapsed: 'Показать кнопки шапки',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
+        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
         centerSlot={

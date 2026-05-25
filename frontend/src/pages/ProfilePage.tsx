@@ -2923,6 +2923,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           collapsed: 'Показать кнопки шапки',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
+        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
         rightActions={<Box sx={{ display: { xs: 'none', md: 'block' } }}><HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} /></Box>}

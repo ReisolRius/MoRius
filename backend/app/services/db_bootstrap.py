@@ -95,7 +95,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
     (StoryGame.__tablename__, "show_npc_thoughts"): False,
     (StoryGame.__tablename__, "ambient_enabled"): False,
-    (StoryGame.__tablename__, "appearance_gradient_enabled"): False,
+    (StoryGame.__tablename__, "appearance_gradient_enabled"): True,
     (StoryGame.__tablename__, "emotion_visualization_enabled"): False,
     (StoryGame.__tablename__, "environment_time_enabled"): False,
     (StoryGame.__tablename__, "environment_weather_enabled"): False,
@@ -465,12 +465,12 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "appearance_background_mode" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_background_mode VARCHAR(32) NOT NULL DEFAULT 'default'"
+            "ADD COLUMN appearance_background_mode VARCHAR(32) NOT NULL DEFAULT 'custom'"
         )
     if "appearance_gradient_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_gradient_enabled INTEGER NOT NULL DEFAULT 0"
+            "ADD COLUMN appearance_gradient_enabled INTEGER NOT NULL DEFAULT 1"
         )
     if "appearance_gradient_from" not in existing_columns:
         alter_statements.append(
@@ -480,7 +480,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "appearance_gradient_to" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#2A1408'"
+            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#110803'"
         )
     if "appearance_solid_color" not in existing_columns:
         alter_statements.append(

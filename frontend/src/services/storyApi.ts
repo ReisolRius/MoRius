@@ -436,7 +436,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
     appearance_gradient_enabled: Boolean(game.appearance_gradient_enabled),
     appearance_gradient_from: normalizeStoryAppearanceColor(game.appearance_gradient_from, '#050506'),
-    appearance_gradient_to: normalizeStoryAppearanceColor(game.appearance_gradient_to, '#2A1408'),
+    appearance_gradient_to: normalizeStoryAppearanceColor(game.appearance_gradient_to, '#110803'),
     appearance_solid_color: normalizeStoryAppearanceColor(game.appearance_solid_color, '#050506'),
     appearance_ui_style: normalizeStoryAppearanceUiStyle(game.appearance_ui_style),
     appearance_text_style: normalizeStoryAppearanceTextStyle(game.appearance_text_style),

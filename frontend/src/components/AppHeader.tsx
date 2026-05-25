@@ -20,6 +20,7 @@ import {
   type Theme,
 } from '@mui/material'
 import { brandLogo, icons } from '../assets'
+import aiIconMarkup from '../assets/icons/ai.svg?raw'
 import homeIconMarkup from '../assets/icons/home.svg?raw'
 import menuIconMarkup from '../assets/icons/menu.svg?raw'
 import mobileCloseIconMarkup from '../assets/icons/mobile-close.svg?raw'
@@ -32,6 +33,7 @@ import sidebarPublicIconMarkup from '../assets/icons/custom/public.svg?raw'
 import sidebarSettingsIconMarkup from '../assets/icons/custom/settings.svg?raw'
 import sidebarShopIconMarkup from '../assets/icons/custom/shop.svg?raw'
 import BaseDialog from './dialogs/BaseDialog'
+import { AI_ASSISTANT_OPEN_EVENT } from './ai/aiAssistantEvents'
 import useMobileDialogSheet from './dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from './icons/ThemedSvgIcon'
 import ProgressiveImage from './media/ProgressiveImage'
@@ -79,6 +81,8 @@ type AppHeaderProps = {
   onOpenTopUpDialog?: () => void
   onOpenBugReportDialog?: () => void
   onOpenSettingsDialog?: () => void
+  showAiAssistantAction?: boolean
+  onOpenAiAssistant?: () => void
   onGoHome?: () => void
   mobileVariant?: 'bottom-nav' | 'story'
   centerSlot?: ReactNode
@@ -229,6 +233,8 @@ function AppHeader({
   onOpenTopUpDialog,
   onOpenBugReportDialog,
   onOpenSettingsDialog,
+  showAiAssistantAction = false,
+  onOpenAiAssistant,
   onGoHome,
   mobileVariant = 'bottom-nav',
   centerSlot,
@@ -290,6 +296,14 @@ function AppHeader({
     onOpenBugReportDialog()
   }
 
+  const handleOpenAiAssistant = () => {
+    if (onOpenAiAssistant) {
+      onOpenAiAssistant()
+      return
+    }
+    window.dispatchEvent(new CustomEvent(AI_ASSISTANT_OPEN_EVENT))
+  }
+
   const primaryMenuIcons = [SidebarHomeIcon, SidebarCommunityIcon, SidebarLibraryIcon, SidebarPublicationsIcon]
   const primaryMenuIconByKey: Record<string, SidebarIconComponent> = {
     dashboard: SidebarHomeIcon,
@@ -348,6 +362,9 @@ function AppHeader({
     if (itemKey === 'theme-settings') {
       return 'Настройки'
     }
+    if (itemKey === 'ai-assistant') {
+      return 'AI-помощник'
+    }
     if (itemKey === 'support') {
       return 'Поддержка'
     }
@@ -374,6 +391,9 @@ function AppHeader({
   const getSafeUtilityItemLabel = (itemKey: string, fallbackLabel: string) => {
     if (itemKey === 'theme-settings') {
       return '\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'
+    }
+    if (itemKey === 'ai-assistant') {
+      return 'AI-\u043f\u043e\u043c\u043e\u0449\u043d\u0438\u043a'
     }
     if (itemKey === 'support') {
       return '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430'
@@ -404,6 +424,16 @@ function AppHeader({
             label: 'Настройки',
             onClick: onOpenSettingsDialog,
             icon: <SidebarGlyphIcon markup={sidebarSettingsIconMarkup} />,
+          },
+        ]
+      : []),
+    ...(showAiAssistantAction
+      ? [
+          {
+            key: 'ai-assistant',
+            label: 'AI-помощник',
+            onClick: handleOpenAiAssistant,
+            icon: <SidebarGlyphIcon markup={aiIconMarkup} />,
           },
         ]
       : []),
@@ -495,17 +525,17 @@ function AppHeader({
   const isMoreButtonActive =
     isMobileMoreSheetOpen || mobileMoreMenuItems.some((item) => item.isActive) || (!mobileHomeItem && !mobileLibraryItem && !mobileCommunityItem)
   const shouldShowCompactSidebarOverlay = isCompactSidebar && isPageMenuOpen && !isMobileBottomNav && !isMobileStory
-  const dashboardMenuItem = resolvedMenuItems.find((item) => item.key === 'dashboard') ?? null
-  const canLogoNavigateHome = Boolean(onGoHome || dashboardMenuItem)
+  const dashboardMenuItemOnClick = resolvedMenuItems.find((item) => item.key === 'dashboard')?.onClick
+  const canLogoNavigateHome = Boolean(onGoHome || dashboardMenuItemOnClick)
 
-  const handleBrandLogoClick = useCallback(() => {
+  const handleBrandLogoClick = () => {
     closeMobileSheets()
     if (onGoHome) {
       onGoHome()
       return
     }
-    dashboardMenuItem?.onClick()
-  }, [closeMobileSheets, dashboardMenuItem, onGoHome])
+    dashboardMenuItemOnClick?.()
+  }
 
   const renderBrandLogo = () => {
     const logoImage = (
@@ -582,8 +612,11 @@ function AppHeader({
     if (isPhoneLayout) {
       return
     }
-    setIsMobileActionSheetOpen(false)
-    setIsMobileMoreSheetOpen(false)
+    const timeoutId = window.setTimeout(() => {
+      setIsMobileActionSheetOpen(false)
+      setIsMobileMoreSheetOpen(false)
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [isPhoneLayout])
 
   return (
@@ -1457,7 +1490,7 @@ function AppHeader({
                 sx={{
                   width: '100%',
                   px: 0,
-                  maxHeight: showUtilityItems ? 240 : 0,
+                  maxHeight: showUtilityItems ? 320 : 0,
                   opacity: showUtilityItems ? 1 : 0,
                   overflow: 'hidden',
                   pointerEvents: showUtilityItems ? 'auto' : 'none',
