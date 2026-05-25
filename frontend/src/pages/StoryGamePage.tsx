@@ -366,7 +366,13 @@ const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
 const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number, number, number] = [1, 2, 4, 6, 6]
 const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 16]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 30]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 6, 12, 18, 35]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [5, 10, 18, 30, 30]
+const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
+  'z-ai/glm-5.1',
+  'aion-labs/aion-2.0',
+])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-chat-v3-0324',
   'deepseek/deepseek-v3.2',
@@ -376,8 +382,9 @@ const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
 ])
 const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5',
-  'aion-labs/aion-2.0',
   'xiaomi/mimo-v2-pro',
+  'google/gemini-2.5-pro',
+  'qwen/qwen3.5-122b-a10b',
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
@@ -400,7 +407,7 @@ const STORY_DEFAULT_IMAGE_MODEL_ID: StoryImageModelId = STORY_IMAGE_MODEL_FLUX_I
 const STORY_APPEARANCE_DEFAULT_BACKGROUND_MODE: StoryAppearanceBackgroundMode = 'custom'
 const STORY_APPEARANCE_DEFAULT_GRADIENT_ENABLED = true
 const STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = '#050506'
-const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#110803'
+const STORY_APPEARANCE_DEFAULT_GRADIENT_TO = '#120803'
 const STORY_APPEARANCE_DEFAULT_SOLID_COLOR = '#050506'
 const STORY_APPEARANCE_DEFAULT_UI_STYLE: StoryAppearanceUiStyle = 'default'
 const STORY_APPEARANCE_DEFAULT_TEXT_STYLE: StoryAppearanceTextStyle = 'default'
@@ -648,6 +655,24 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
+  'anthropic/claude-sonnet-4.6': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
+  'google/gemini-2.5-pro': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
+  'qwen/qwen3.5-122b-a10b': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
 }
 
 const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
@@ -768,6 +793,45 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Глубина', value: 4 },
     ],
   },
+  {
+    id: 'google/gemini-2.5-pro',
+    title: 'Gemini 2.5 Pro',
+    description:
+      'Сильная модель для больших контекстов, аккуратной причинности и сцен, где нужно удерживать много правил и деталей.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Gemini 2.5 Pro',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
+    id: 'qwen/qwen3.5-122b-a10b',
+    title: 'Qwen 3.5 122B',
+    description:
+      'Мощный рассказчик с хорошей логикой и гибкой сценой. Подходит для сложных миров, где важны правила, связи и последствия.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'Qwen 3.5 122B',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 4 },
+      { label: 'Глубина', value: 4 },
+    ],
+  },
+  {
+    id: 'anthropic/claude-sonnet-4.6',
+    title: 'Claude Sonnet 4.6',
+    description:
+      'Дорогой премиальный рассказчик для самых требовательных сцен: сильная драматургия, тонкие мотивы персонажей и плотная связность.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'Claude Sonnet 4.6',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
 ].filter(
   (option): option is StoryNarratorModelOption =>
     option.id !== 'z-ai/glm-4.7' && option.id !== 'mistralai/mistral-nemo',
@@ -805,11 +869,11 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3.2 быстрее и агрессивнее двигает сюжет, GLM 5.0 стабильнее держит инструкции и язык, а MiMo V2 Flash легче и быстрее для простых сцен.',
+    'Выберите модель рассказчика. DeepSeek V3.2 быстрее двигает сюжет, GLM 5.0 стабильнее держит инструкции, а Gemini, Qwen, AionLabs и Claude лучше раскрываются в сложных сценах.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
-    'Ограничение памяти истории для ИИ. GLM 5.1 может держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
+    'Ограничение памяти истории для ИИ. GLM 5.1 и AionLabs могут держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
   responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах. ИИ получает инструкцию завершать мысль внутри выбранного бюджета, а не писать до обрыва.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
@@ -3031,7 +3095,9 @@ function getStoryMemoryLayerLabel(
 }
 
 function getStoryContextLimitMax(modelId: StoryNarratorModelId | string | null | undefined): number {
-  return modelId === 'z-ai/glm-5.1' ? STORY_CONTEXT_LIMIT_GLM51_MAX : STORY_CONTEXT_LIMIT_STANDARD_MAX
+  return STORY_EXTENDED_CONTEXT_NARRATOR_MODELS.has(modelId as StoryNarratorModelId)
+    ? STORY_CONTEXT_LIMIT_GLM51_MAX
+    : STORY_CONTEXT_LIMIT_STANDARD_MAX
 }
 
 function clampStoryContextLimit(value: number, modelId?: StoryNarratorModelId | string | null): number {
@@ -3124,6 +3190,12 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'z-ai/glm-5.1') {
     return STORY_TURN_COST_GLM51_TIERS
   }
+  if (modelId === 'aion-labs/aion-2.0') {
+    return STORY_TURN_COST_AION_TIERS
+  }
+  if (modelId === 'anthropic/claude-sonnet-4.6') {
+    return STORY_TURN_COST_CLAUDE_SONNET_TIERS
+  }
   if (STORY_TURN_COST_PREMIUM_NARRATOR_MODELS.has(modelId)) {
     return STORY_TURN_COST_PREMIUM_TIERS
   }
@@ -3143,11 +3215,18 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 4 сола',
     '32001–64000 — 6 солов',
     '',
-    'GLM 5.0, Aion Labs, Xiaomi MiMo V2 Pro:',
+    'GLM 5.0, Xiaomi MiMo V2 Pro, Gemini 2.5 Pro, Qwen 3.5 122B:',
     'до 6000 — 2 сола',
     '6001–16000 — 4 сола',
     '16001–32000 — 8 солов',
     '32001–64000 — 16 солов',
+    '',
+    'AionLabs:',
+    'до 6000 — 2 сола',
+    '6001–16000 — 4 сола',
+    '16001–32000 — 8 солов',
+    '32001–64000 — 16 солов',
+    '64001–128000 — 30 солов',
     '',
     'GLM 5.1:',
     'до 6000 — 3 сола',
@@ -3155,6 +3234,13 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 12 солов',
     '32001–64000 — 18 солов',
     '64001–128000 — 35 солов',
+    '',
+    'Claude Sonnet 4.6:',
+    'до 6000 — 5 солов',
+    '6001–16000 — 10 солов',
+    '16001–32000 — 18 солов',
+    '32001–64000 — 30 солов',
+    '',
     'Эмбиент подсветка: +1 сол за ход',
     'Визуализация эмоций: +1 сол за ход',
   ].join('\n')
@@ -5502,7 +5588,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const isAdministrator = user.role === 'administrator'
-  const canEditStoryAppearance = isAdministrator || user.role === 'moderator'
+  const canEditStoryAppearance = Boolean(user)
   const canViewDevMemoryTab = isAdministrator
   const isRightPanelSecondTabVisible =
     rightPanelMode === 'world' || (rightPanelMode === 'memory' && canViewDevMemoryTab)
@@ -14126,7 +14212,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           collapsed: 'Развернуть правую панель',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
-        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
+        showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenBugReportDialog={handleOpenBugReportDialog}
         rightActionsWidth={360}
@@ -15649,7 +15735,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             Выбор рассказчика
                           </Typography>
                           <SettingsInfoTooltipIcon
-                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, Xiaomi Mimo Pro и AionLabs.`}
+                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, Xiaomi Mimo Pro, AionLabs, Gemini 2.5 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
                           />
                         </Stack>
                         <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>

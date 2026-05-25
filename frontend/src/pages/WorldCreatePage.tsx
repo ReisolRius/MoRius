@@ -2248,7 +2248,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
         isRightPanelOpen={isHeaderActionsOpen}
         onToggleRightPanel={() => setIsHeaderActionsOpen((p) => !p)}
         rightToggleLabels={{ expanded: 'Скрыть действия', collapsed: 'Показать действия' }}
-        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
+        showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         rightActions={
           <HeaderAccountActions

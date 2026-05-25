@@ -387,8 +387,8 @@ class StoryGame(Base):
     appearance_gradient_to: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
-        default="#110803",
-        server_default="#110803",
+        default="#120803",
+        server_default="#120803",
     )
     appearance_solid_color: Mapped[str] = mapped_column(
         String(16),

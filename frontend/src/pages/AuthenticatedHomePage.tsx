@@ -1863,7 +1863,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
           collapsed: 'Показать кнопки шапки',
         }}
         onOpenSettingsDialog={() => setProfileDialogOpen(true)}
-        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
+        showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
         rightActions={<HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} />}

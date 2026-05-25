@@ -145,7 +145,9 @@ STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
 STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4, 6, 6)
 STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8, 16, 16)
+STORY_TURN_COST_AION_TIERS = (2, 4, 8, 16, 30)
 STORY_TURN_COST_GLM51_TIERS = (3, 6, 12, 18, 35)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (5, 10, 18, 30, 30)
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
@@ -157,6 +159,9 @@ STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH = "xiaomi/mimo-v2-flash"
 STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO = "xiaomi/mimo-v2-pro"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
+STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
+STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
+STORY_LLM_MODEL_QWEN35_122B_A10B = "qwen/qwen3.5-122b-a10b"
 STORY_DEFAULT_LLM_MODEL = STORY_LLM_MODEL_DEEPSEEK_V3
 STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {}
 STORY_SUPPORTED_LLM_MODELS = {
@@ -169,6 +174,13 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_FLASH,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
     STORY_LLM_MODEL_AION_2,
+    STORY_LLM_MODEL_CLAUDE_SONNET_46,
+    STORY_LLM_MODEL_GEMINI_25_PRO,
+    STORY_LLM_MODEL_QWEN35_122B_A10B,
+}
+STORY_EXTENDED_CONTEXT_LLM_MODELS = {
+    STORY_LLM_MODEL_GLM51,
+    STORY_LLM_MODEL_AION_2,
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V3,
@@ -179,8 +191,9 @@ STORY_TURN_COST_STANDARD_LLM_MODELS = {
 }
 STORY_TURN_COST_PREMIUM_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
-    STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
+    STORY_LLM_MODEL_GEMINI_25_PRO,
+    STORY_LLM_MODEL_QWEN35_122B_A10B,
 }
 STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
 STORY_IMAGE_MODEL_SEEDREAM = "bytedance/seedream-4.5"
@@ -259,7 +272,7 @@ STORY_APPEARANCE_TEXT_STYLE_VALUES = {
     STORY_APPEARANCE_TEXT_STYLE_TERMINAL,
 }
 STORY_APPEARANCE_DEFAULT_GRADIENT_FROM = "#050506"
-STORY_APPEARANCE_DEFAULT_GRADIENT_TO = "#110803"
+STORY_APPEARANCE_DEFAULT_GRADIENT_TO = "#120803"
 STORY_APPEARANCE_DEFAULT_SOLID_COLOR = "#050506"
 
 
@@ -442,7 +455,7 @@ def normalize_story_image_style_prompt(value: str | None) -> str:
 
 def get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
     normalized_model_name = coerce_story_llm_model(model_name)
-    if normalized_model_name == STORY_LLM_MODEL_GLM51:
+    if normalized_model_name in STORY_EXTENDED_CONTEXT_LLM_MODELS:
         return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
     return STORY_CONTEXT_LIMIT_MAX_TOKENS
 
@@ -473,6 +486,10 @@ def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, i
     normalized_model_name = coerce_story_llm_model(model_name)
     if normalized_model_name == STORY_LLM_MODEL_GLM51:
         return STORY_TURN_COST_GLM51_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_AION_2:
+        return STORY_TURN_COST_AION_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_CLAUDE_SONNET_46:
+        return STORY_TURN_COST_CLAUDE_SONNET_TIERS
     if normalized_model_name in STORY_TURN_COST_PREMIUM_LLM_MODELS:
         return STORY_TURN_COST_PREMIUM_TIERS
     if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
@@ -513,7 +530,9 @@ def normalize_story_llm_model(value: str | None) -> str:
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, "
                 "deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v3.2, "
                 "mistralai/mistral-nemo, "
-                "xiaomi/mimo-v2-flash, xiaomi/mimo-v2-pro, aion-labs/aion-2.0"
+                "xiaomi/mimo-v2-flash, xiaomi/mimo-v2-pro, aion-labs/aion-2.0, "
+                "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, "
+                "qwen/qwen3.5-122b-a10b"
             ),
         )
     return normalized

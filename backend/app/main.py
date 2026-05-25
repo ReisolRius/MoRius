@@ -1091,13 +1091,15 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "xiaomi/mimo-v2-flash": STORY_SERVICE_TEXT_MODEL,
     "xiaomi/mimo-v2-pro": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
+    "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
+    "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
+    "qwen/qwen3.5-122b-a10b": STORY_SERVICE_TEXT_MODEL,
 }
 STORY_LEGACY_MODEL_ALIASES = {}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
 }
-STORY_NON_SAMPLING_MODEL_HINTS: set[str] = set()
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
 STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
 STORY_POLZA_PROVIDER_DEKALLM = "DekaLLM"
@@ -1107,6 +1109,7 @@ STORY_POLZA_PROVIDER_XIAOMI = "Xiaomi"
 STORY_POLZA_PROVIDER_AION_LABS = "AionLabs"
 STORY_POLZA_PROVIDER_MIE = "mie"
 STORY_POLZA_PROVIDER_ALIBABA = "Alibaba"
+STORY_POLZA_PROVIDER_VENICE = "Venice"
 STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
     "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
@@ -1118,6 +1121,9 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "xiaomi/mimo-v2-flash": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "xiaomi/mimo-v2-pro": STORY_POLZA_PROVIDER_XIAOMI,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
+    "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
+    "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
+    "qwen/qwen3.5-122b-a10b": STORY_POLZA_PROVIDER_VENICE,
     STORY_TURN_IMAGE_MODEL_FLUX: STORY_POLZA_PROVIDER_MIE,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: STORY_POLZA_PROVIDER_MIE,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: STORY_POLZA_PROVIDER_MIE,
@@ -1133,6 +1139,16 @@ STORY_PAID_MODEL_HINTS = {
     "xiaomi/mimo-v2-flash",
     "xiaomi/mimo-v2-pro",
     "aion-labs/aion-2.0",
+    "anthropic/claude-sonnet-4.6",
+    "google/gemini-2.5-pro",
+    "qwen/qwen3.5-122b-a10b",
+}
+STORY_NON_SAMPLING_MODEL_HINTS: set[str] = {
+    "anthropic/claude-sonnet-4.6",
+    "google/gemini-2.5-pro",
+}
+STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
+    "qwen/qwen3.5-122b-a10b",
 }
 
 
@@ -1432,6 +1448,24 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "Диалоги должны раскрывать характер, а не просто передавать информацию.",
         "Пиши на чистом литературном русском.",
         "Двигай сюжет вперед, не застревай в описаниях.",
+    ),
+    "anthropic/claude-sonnet-4.6": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Claude Sonnet 4.6):",
+        "Use strong scene planning, coherent character motives, and restrained but vivid prose.",
+        "Keep plot causality clear. Do not over-explain world cards; let them guide actions naturally.",
+    ),
+    "google/gemini-2.5-pro": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Gemini 2.5 Pro):",
+        "Use the long context carefully: resolve contradictions, keep continuity, and avoid generic summaries.",
+        "Prefer concise sensory detail and concrete character choices over broad exposition.",
+    ),
+    "qwen/qwen3.5-122b-a10b": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Qwen3.5 122B):",
+        "Do not expose chain-of-thought. Write only the final in-world narration, dialogue, and allowed markers.",
+        "Keep Russian output clean and literary when the story language is Russian.",
     ),
 }
 STORY_STRICT_ENGLISH_OUTPUT_RULES = (
@@ -1962,7 +1996,7 @@ def _get_story_context_limit_max_tokens(model_name: str | None = None) -> int:
         str(model_name or "").strip(),
         str(model_name or "").strip(),
     )
-    if normalized_model_name == "z-ai/glm-5.1":
+    if normalized_model_name in {"z-ai/glm-5.1", "aion-labs/aion-2.0"}:
         return STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS
     return STORY_CONTEXT_LIMIT_MAX_TOKENS
 
@@ -5981,6 +6015,9 @@ def _apply_polza_story_reasoning_preferences(
             "effort": "none",
             "exclude": True,
         }
+        return
+    if normalized_model in STORY_DISABLE_THINKING_MODEL_IDS:
+        payload["reasoning"] = {"exclude": True}
 
 
 def _can_apply_story_sampling_to_model(model_name: str | None) -> bool:

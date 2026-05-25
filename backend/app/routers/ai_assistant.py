@@ -244,11 +244,8 @@ def _coerce_string_list(value: Any) -> list[str]:
     return [_compact_text(item, max_length=80) for item in parts if _compact_text(item, max_length=80)]
 
 
-def _admin_only_user(db: Session, authorization: str | None) -> User:
-    user = get_current_user(db, authorization)
-    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    return user
+def _assistant_access_user(db: Session, authorization: str | None) -> User:
+    return get_current_user(db, authorization)
 
 
 def _assistant_enabled_or_404() -> None:
@@ -268,7 +265,7 @@ def _assistant_settings_out(user: User) -> AiAssistantSettingsOut:
 
 def _require_assistant_user(db: Session, authorization: str | None) -> User:
     _assistant_enabled_or_404()
-    return _admin_only_user(db, authorization)
+    return _assistant_access_user(db, authorization)
 
 
 def _check_rate_limit(user_id: int) -> None:
@@ -1616,7 +1613,7 @@ def _tool_get_current_context(args: dict[str, Any], *, db: Session, user: User, 
             "id": int(user.id),
             "role": str(user.role or ""),
             "coins": int(user.coins or 0),
-            "permissions": ["admin_ai_assistant"],
+            "permissions": ["ai_assistant"],
         },
         "page": page_context,
     }
@@ -2604,7 +2601,7 @@ def get_ai_assistant_settings(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AiAssistantSettingsOut:
-    user = _admin_only_user(db, authorization)
+    user = _assistant_access_user(db, authorization)
     return _assistant_settings_out(user)
 
 
@@ -2614,7 +2611,7 @@ def update_ai_assistant_settings(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> AiAssistantSettingsOut:
-    user = _admin_only_user(db, authorization)
+    user = _assistant_access_user(db, authorization)
     user.ai_assistant_visible = bool(payload.visible)
     db.commit()
     db.refresh(user)

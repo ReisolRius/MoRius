@@ -1323,7 +1323,7 @@ class StoryGameSummaryOut(BaseModel):
     appearance_background_mode: str = "custom"
     appearance_gradient_enabled: bool = True
     appearance_gradient_from: str = "#050506"
-    appearance_gradient_to: str = "#110803"
+    appearance_gradient_to: str = "#120803"
     appearance_solid_color: str = "#050506"
     appearance_ui_style: str = "default"
     appearance_text_style: str = "default"

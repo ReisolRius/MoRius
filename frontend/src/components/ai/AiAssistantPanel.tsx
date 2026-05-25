@@ -695,8 +695,8 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
   const abortControllerRef = useRef<AbortController | null>(null)
   const messageScrollRef = useRef<HTMLDivElement | null>(null)
   const isMobile = useMediaQuery('(max-width:899.95px)')
-  const isAdministrator = String(user.role || '').trim().toLowerCase() === 'administrator'
   const quickChips = useMemo(() => resolveQuickChips(path), [path])
+  const topActionIconColor = 'color-mix(in srgb, var(--morius-text-secondary) 68%, transparent)'
   const availabilityMessage = useMemo(() => {
     if (settingsLoading) {
       return 'Проверяю доступность AI-помощника...'
@@ -896,10 +896,6 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
     onNavigate(url)
   }
 
-  if (!isAdministrator) {
-    return null
-  }
-
   return (
     <>
       <Drawer
@@ -961,7 +957,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                   AI-помощник
                 </Typography>
                 <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem' }}>
-                  Админ-инструменты MORIUS
+                  Инструменты MORIUS
                 </Typography>
               </Box>
             </Stack>
@@ -974,11 +970,11 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                     aria-label="Откатить последнюю операцию помощника"
                     onClick={() => void handleUndo()}
                     sx={{
-                      color: '#10151d',
+                      color: topActionIconColor,
                       backgroundColor: 'transparent',
                       border: 'none',
                       '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },
-                      '&.Mui-disabled': { color: 'color-mix(in srgb, var(--morius-text-secondary) 52%, transparent)' },
+                      '&.Mui-disabled': { color: topActionIconColor },
                     }}
                   >
                     <ThemedSvgIcon markup={undoIconMarkup} size={20} />
@@ -990,7 +986,7 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
                 aria-label="Закрыть AI-помощника"
                 onClick={() => setOpen(false)}
                 sx={{
-                  color: '#10151d',
+                  color: topActionIconColor,
                   backgroundColor: 'transparent',
                   border: 'none',
                   '&:hover': { color: 'var(--morius-title-text)', backgroundColor: 'transparent' },

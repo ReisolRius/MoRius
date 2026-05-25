@@ -366,7 +366,6 @@ STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8_000
 STORY_GAME_TITLE_MAX_LENGTH = 160
 STORY_CLONE_TITLE_SUFFIX = " (копия)"
 PRIVILEGED_WORLD_COMMENT_ROLES = {"administrator", "moderator"}
-PRIVILEGED_STORY_APPEARANCE_ROLES = {"administrator", "moderator"}
 STORY_LIST_PREVIEW_MAX_CHARS = 145
 STORY_LIST_PREVIEW_MAX_CHARS_WITH_ELLIPSIS = 142
 STORY_QUICK_START_ALLOWED_START_MODES = {"calm", "action"}
@@ -2554,51 +2553,22 @@ def create_story_game(
     show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
     ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
-    can_update_appearance = str(getattr(user, "role", "") or "").strip().lower() in PRIVILEGED_STORY_APPEARANCE_ROLES
-    appearance_background_mode = (
-        normalize_story_appearance_background_mode(payload.appearance_background_mode)
-        if can_update_appearance
-        else normalize_story_appearance_background_mode(None)
+    appearance_background_mode = normalize_story_appearance_background_mode(payload.appearance_background_mode)
+    appearance_gradient_enabled = normalize_story_appearance_gradient_enabled(payload.appearance_gradient_enabled)
+    appearance_gradient_from = normalize_story_appearance_color(
+        payload.appearance_gradient_from,
+        default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
     )
-    appearance_gradient_enabled = (
-        normalize_story_appearance_gradient_enabled(payload.appearance_gradient_enabled)
-        if can_update_appearance
-        else normalize_story_appearance_gradient_enabled(None)
+    appearance_gradient_to = normalize_story_appearance_color(
+        payload.appearance_gradient_to,
+        default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
     )
-    appearance_gradient_from = (
-        normalize_story_appearance_color(
-            payload.appearance_gradient_from,
-            default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM,
-        )
-        if can_update_appearance
-        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_GRADIENT_FROM)
+    appearance_solid_color = normalize_story_appearance_color(
+        payload.appearance_solid_color,
+        default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
     )
-    appearance_gradient_to = (
-        normalize_story_appearance_color(
-            payload.appearance_gradient_to,
-            default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO,
-        )
-        if can_update_appearance
-        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_GRADIENT_TO)
-    )
-    appearance_solid_color = (
-        normalize_story_appearance_color(
-            payload.appearance_solid_color,
-            default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
-        )
-        if can_update_appearance
-        else normalize_story_appearance_color(None, default=STORY_APPEARANCE_DEFAULT_SOLID_COLOR)
-    )
-    appearance_ui_style = (
-        normalize_story_appearance_ui_style(payload.appearance_ui_style)
-        if can_update_appearance
-        else normalize_story_appearance_ui_style(None)
-    )
-    appearance_text_style = (
-        normalize_story_appearance_text_style(payload.appearance_text_style)
-        if can_update_appearance
-        else normalize_story_appearance_text_style(None)
-    )
+    appearance_ui_style = normalize_story_appearance_ui_style(payload.appearance_ui_style)
+    appearance_text_style = normalize_story_appearance_text_style(payload.appearance_text_style)
     environment_time_enabled = normalize_story_environment_time_enabled(
         payload.environment_time_enabled,
         legacy_environment_enabled=payload.environment_enabled,
@@ -3051,24 +3021,6 @@ def update_story_game_settings(
 ) -> StoryGameSummaryOut:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    appearance_setting_fields = {
-        "appearance_background_mode",
-        "appearance_gradient_enabled",
-        "appearance_gradient_from",
-        "appearance_gradient_to",
-        "appearance_solid_color",
-        "appearance_ui_style",
-        "appearance_text_style",
-    }
-    has_appearance_setting_update = any(field_name in payload.model_fields_set for field_name in appearance_setting_fields)
-    if (
-        has_appearance_setting_update
-        and str(getattr(user, "role", "") or "").strip().lower() not in PRIVILEGED_STORY_APPEARANCE_ROLES
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Story appearance settings are available to moderators and administrators",
-        )
     current_environment_enabled = normalize_story_environment_enabled(getattr(game, "environment_enabled", None))
     next_environment_time_enabled = normalize_story_environment_time_enabled(
         getattr(game, "environment_time_enabled", None),

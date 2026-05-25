@@ -1064,7 +1064,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
         hideRightToggle
         onOpenTopUpDialog={handleOpenTopUpDialog}
         onOpenSettingsDialog={() => setSettingsDialogOpen(true)}
-        showAiAssistantAction={String(user.role || '').trim().toLowerCase() === 'administrator' && (user.ai_assistant_visible ?? true)}
+        showAiAssistantAction={user.ai_assistant_visible ?? true}
         rightActions={
           <HeaderAccountActions
             user={user}

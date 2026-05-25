@@ -38,20 +38,36 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertIn("canonical_state_pipeline_enabled", payload.model_fields_set)
         self.assertIn("canonical_state_safe_fallback_enabled", payload.model_fields_set)
 
-    def test_glm51_allows_128k_context_and_other_models_cap_at_64k(self) -> None:
+    def test_extended_context_models_allow_128k_and_other_models_cap_at_64k(self) -> None:
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.1"),
+            128_000,
+        )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="aion-labs/aion-2.0"),
             128_000,
         )
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5"),
             64_000,
         )
+        self.assertEqual(
+            normalize_story_context_limit_chars(128_000, model_name="google/gemini-2.5-pro"),
+            64_000,
+        )
 
-    def test_glm51_has_128k_cost_tier(self) -> None:
+    def test_extended_context_models_have_128k_cost_tier(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 18)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 35)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 30)
         self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 16)
+
+    def test_new_polza_models_have_planned_turn_costs(self) -> None:
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-2.5-pro"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "qwen/qwen3.5-122b-a10b"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 30)
 
     def test_standard_models_have_six_sol_64k_tier(self) -> None:
         self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-chat-v3-0324"), 6)

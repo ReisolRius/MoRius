@@ -480,7 +480,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "appearance_gradient_to" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#110803'"
+            "ADD COLUMN appearance_gradient_to VARCHAR(16) NOT NULL DEFAULT '#120803'"
         )
     if "appearance_solid_color" not in existing_columns:
         alter_statements.append(

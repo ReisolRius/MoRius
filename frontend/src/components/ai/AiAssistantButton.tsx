@@ -16,9 +16,8 @@ type AvailabilityState = 'checking' | 'ready' | 'disabled' | 'unconfigured' | 'o
 
 function AiAssistantButton({ user, authToken, size }: AiAssistantButtonProps) {
   const [availability, setAvailability] = useState<AvailabilityState>('checking')
-  const isAdministrator = String(user.role || '').trim().toLowerCase() === 'administrator'
   const isUserVisible = user.ai_assistant_visible ?? true
-  const shouldCheckAvailability = isAdministrator && isUserVisible && Boolean(authToken)
+  const shouldCheckAvailability = isUserVisible && Boolean(authToken)
 
   useEffect(() => {
     if (!shouldCheckAvailability) {
@@ -48,7 +47,7 @@ function AiAssistantButton({ user, authToken, size }: AiAssistantButtonProps) {
     }
   }, [authToken, shouldCheckAvailability])
 
-  if (!isAdministrator || !isUserVisible) {
+  if (!isUserVisible) {
     return null
   }
 
