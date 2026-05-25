@@ -63,6 +63,7 @@ import clockMemoryIcon from '../assets/icons/custom/clock.svg'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../components/ai/aiAssistantEvents'
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
@@ -146,6 +147,7 @@ import {
   setStoryTitle,
   type StoryTitleMap,
 } from '../services/storyTitleStore'
+import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type { AuthUser } from '../types/auth'
 import type {
   StoryAmbientProfile,
@@ -8324,6 +8326,36 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken],
   )
+
+  useEffect(() => {
+    const handleAiAssistantEntitiesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
+      const currentGameId = activeGameIdRef.current
+      if (!detail || !currentGameId) {
+        return
+      }
+      const refs = [
+        ...(detail.createdEntities ?? []),
+        ...(detail.updatedEntities ?? []),
+      ]
+      if (detail.redirectUrl) {
+        refs.push({ type: 'world', id: currentGameId, title: '', url: detail.redirectUrl })
+      }
+      const affectsCurrentGame = refs.some((ref) => {
+        const url = typeof ref.url === 'string' ? ref.url : ''
+        const match = /^\/home\/(\d+)/.exec(url)
+        return match ? Number.parseInt(match[1], 10) === currentGameId : false
+      })
+      if (affectsCurrentGame) {
+        void loadGameById(currentGameId, { silent: true, suppressErrors: true })
+      }
+    }
+
+    window.addEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    return () => {
+      window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    }
+  }, [loadGameById])
 
   const optimizeStoryMemorySnapshot = useCallback(
     async (gameId: number, messageId?: number | null) => {

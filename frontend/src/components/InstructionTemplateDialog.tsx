@@ -14,6 +14,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from './ai/aiAssistantEvents'
 import BaseDialog from './dialogs/BaseDialog'
 import {
   addCommunityInstructionTemplate,
@@ -24,6 +25,7 @@ import {
   listStoryInstructionTemplates,
   updateStoryInstructionTemplate,
 } from '../services/storyApi'
+import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type { StoryCommunityInstructionTemplateSummary, StoryInstructionTemplate } from '../types/story'
 import { normalizeStoryPublicationStatus, resolvePublicationDraftVisibility } from '../utils/publication'
 import TextLimitIndicator from './TextLimitIndicator'
@@ -183,6 +185,23 @@ function InstructionTemplateDialog({
     setHasAppliedInitialAction(false)
     setHasLoadedTemplates(false)
     void loadTemplates()
+  }, [loadTemplates, open])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const handleAiAssistantEntitiesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      if (refs.some((ref) => ref.type === 'instruction_template')) {
+        void loadTemplates()
+      }
+    }
+    window.addEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    return () => {
+      window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    }
   }, [loadTemplates, open])
 
   const managedTemplates = useMemo(

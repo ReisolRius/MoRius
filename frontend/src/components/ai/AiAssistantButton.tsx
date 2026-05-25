@@ -4,8 +4,7 @@ import aiIconMarkup from '../../assets/icons/ai.svg?raw'
 import { getAiAssistantSettings } from '../../services/aiAssistantApi'
 import type { AuthUser } from '../../types/auth'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
-
-export const AI_ASSISTANT_OPEN_EVENT = 'morius-ai-assistant-open'
+import { AI_ASSISTANT_OPEN_EVENT } from './aiAssistantEvents'
 
 type AiAssistantButtonProps = {
   user: AuthUser

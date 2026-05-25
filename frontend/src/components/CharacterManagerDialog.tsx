@@ -28,6 +28,7 @@ import {
   Typography,
 } from '@mui/material'
 import AvatarCropDialog from './AvatarCropDialog'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from './ai/aiAssistantEvents'
 import CharacterShowcaseCard from './characters/CharacterShowcaseCard'
 import BaseDialog from './dialogs/BaseDialog'
 import ProgressiveImage from './media/ProgressiveImage'
@@ -41,6 +42,7 @@ import {
   listStoryCharacters,
   updateStoryCharacter,
 } from '../services/storyApi'
+import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type {
   StoryCharacter,
   StoryCharacterEmotionAssets,
@@ -773,6 +775,23 @@ function CharacterManagerDialog({
     void loadCharacters()
     void loadCharacterRaces()
   }, [loadCharacterRaces, loadCharacters, open, resetDraft])
+
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    const handleAiAssistantEntitiesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      if (refs.some((ref) => ref.type === 'profile_character')) {
+        void loadCharacters()
+      }
+    }
+    window.addEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    return () => {
+      window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    }
+  }, [loadCharacters, open])
 
   const handleCloseDialog = () => {
     if (isCharacterDialogBusy) {

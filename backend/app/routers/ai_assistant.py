@@ -37,6 +37,7 @@ from app.services.auth_identity import get_current_user
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
 from app.services.story_cards import (
     STORY_PLOT_CARD_SOURCE_AI,
+    STORY_TEMPLATE_VISIBILITY_PRIVATE,
     STORY_TEMPLATE_VISIBILITY_PUBLIC,
     normalize_story_instruction_content,
     normalize_story_instruction_title,
@@ -44,6 +45,8 @@ from app.services.story_cards import (
     normalize_story_plot_card_title,
 )
 from app.services.story_characters import (
+    STORY_CHARACTER_SOURCE_AI,
+    STORY_CHARACTER_VISIBILITY_PRIVATE,
     STORY_CHARACTER_VISIBILITY_PUBLIC,
     deserialize_triggers,
     normalize_story_character_clothing,
@@ -51,7 +54,11 @@ from app.services.story_characters import (
     normalize_story_character_health_status,
     normalize_story_character_inventory,
     normalize_story_character_name,
+    normalize_story_character_note,
     normalize_story_character_race,
+    normalize_story_character_triggers,
+    serialize_triggers,
+    upsert_story_character_race,
 )
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PRIVATE,
@@ -73,6 +80,7 @@ from app.services.story_world_cards import (
     normalize_story_world_card_triggers,
     serialize_story_world_card_triggers,
 )
+from app.services.story_world_card_templates import build_story_world_card_template, upsert_story_world_detail_type
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -217,6 +225,16 @@ def _normalize_world_id(value: Any) -> int | None:
     if parsed is not None and parsed > 0:
         return parsed
     return None
+
+
+def _coerce_string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        parts = re.split(r"[,;\n]+", value)
+    elif isinstance(value, list):
+        parts = value
+    else:
+        parts = []
+    return [_compact_text(item, max_length=80) for item in parts if _compact_text(item, max_length=80)]
 
 
 def _admin_only_user(db: Session, authorization: str | None) -> User:
@@ -908,6 +926,106 @@ def _create_plot_card(
     return card, ref
 
 
+def _create_profile_character(
+    db: Session,
+    *,
+    user: User,
+    name: str,
+    description: str,
+    race: str = "",
+    clothing: str = "",
+    inventory: str = "",
+    health_status: str = "",
+    note: str = "",
+    triggers: list[str] | None = None,
+) -> tuple[StoryCharacter, dict[str, Any]]:
+    normalized_name = normalize_story_character_name(name)
+    normalized_race = normalize_story_character_race(race)
+    normalized_triggers = normalize_story_character_triggers(triggers or [], fallback_name=normalized_name)
+    character = StoryCharacter(
+        user_id=int(user.id),
+        name=normalized_name,
+        description=normalize_story_character_description(description),
+        race=normalized_race,
+        clothing=normalize_story_character_clothing(clothing),
+        inventory=normalize_story_character_inventory(inventory),
+        health_status=normalize_story_character_health_status(health_status),
+        note=normalize_story_character_note(note),
+        triggers=serialize_triggers(normalized_triggers),
+        avatar_url=None,
+        avatar_original_url=None,
+        avatar_scale=1.0,
+        emotion_assets="",
+        emotion_model="",
+        emotion_prompt_lock="",
+        source=STORY_CHARACTER_SOURCE_AI,
+        visibility=STORY_TEMPLATE_VISIBILITY_PRIVATE,
+        source_character_id=None,
+        community_rating_sum=0,
+        community_rating_count=0,
+        community_additions_count=0,
+    )
+    db.add(character)
+    upsert_story_character_race(db, user_id=int(user.id), name=normalized_race)
+    db.flush()
+    ref = _entity_ref("profile_character", int(character.id), character.name, "/profile?tab=characters")
+    return character, ref
+
+
+def _create_profile_instruction_template(
+    db: Session,
+    *,
+    user: User,
+    title: str,
+    content: str,
+) -> tuple[StoryInstructionTemplate, dict[str, Any]]:
+    template = StoryInstructionTemplate(
+        user_id=int(user.id),
+        title=normalize_story_instruction_title(title),
+        content=normalize_story_instruction_content(content),
+        visibility=STORY_CHARACTER_VISIBILITY_PRIVATE,
+        source_template_id=None,
+        community_rating_sum=0,
+        community_rating_count=0,
+        community_additions_count=0,
+    )
+    db.add(template)
+    db.flush()
+    ref = _entity_ref("instruction_template", int(template.id), template.title, "/profile?tab=instructions")
+    return template, ref
+
+
+def _create_profile_world_card_template(
+    db: Session,
+    *,
+    user: User,
+    title: str,
+    content: str,
+    triggers: list[str] | None = None,
+    kind: str | None = None,
+    detail_type: str | None = None,
+) -> tuple[StoryWorldCardTemplate, dict[str, Any]]:
+    template = build_story_world_card_template(
+        user_id=int(user.id),
+        title=title,
+        content=content,
+        triggers=triggers or [],
+        kind=kind or STORY_WORLD_CARD_KIND_WORLD_PROFILE,
+        detail_type=detail_type or "",
+        avatar_url=None,
+        avatar_original_url=None,
+        avatar_scale=None,
+        memory_turns=None,
+        memory_turns_explicit=False,
+    )
+    if template.kind == STORY_WORLD_CARD_KIND_WORLD and template.detail_type:
+        upsert_story_world_detail_type(db, user_id=int(user.id), name=template.detail_type)
+    db.add(template)
+    db.flush()
+    ref = _entity_ref("world_card_template", int(template.id), template.title, "/profile?tab=world_cards")
+    return template, ref
+
+
 ANTI_TEMPLATE_RULE_TEXT = """Инструкция для модели:
 1. Не начинай ответы одинаковыми фразами и не повторяй один и тот же ритм сцены.
 2. Каждый ответ должен опираться на конкретное действие игрока, текущие обстоятельства и эмоциональный тон сцены.
@@ -922,11 +1040,38 @@ ANTI_TEMPLATE_RULE_TEXT = """Инструкция для модели:
 
 
 HELP_SNIPPETS = {
-    "private_world": "Приватный мир создаётся через кнопку нового мира или помощника. По умолчанию новые миры приватные: их видит только владелец, пока он сам не отправит мир на публикацию.",
-    "worlds": "Мир хранит описание, стартовую сцену, правила, сюжетные карточки, карточки мира и персонажей. Карточки помогают модели помнить важные детали.",
-    "cards": "Карточки мира описывают персонажей, места и факты. Правила/инструкции задают стиль и ограничения ответа модели.",
-    "sols": "Солы — внутренняя валюта MORIUS. Они списываются за AI-действия, генерацию текста и изображения по правилам сайта.",
-    "templates": "Шаблоны персонажей и инструкций можно переиспользовать: помощник сначала ищет шаблон, а затем клонирует его в выбранный мир.",
+    "private_world": (
+        "Приватный мир создаётся через кнопку нового мира или через AI-помощника. "
+        "По умолчанию помощник создаёт приватные миры: их видит только владелец, пока мир не отправлен на публикацию вручную."
+    ),
+    "worlds": (
+        "Мир хранит описание, стартовую сцену, правила, сюжетные карточки, карточки мира и персонажей. "
+        "На странице игры карточки открываются через панели карточек: персонажи/мир, правила и сюжет. "
+        "Если помощник добавляет карточку в текущий мир, интерфейс должен обновиться сам."
+    ),
+    "cards": (
+        "В MORIUS есть разные сущности. Карточки мира в конкретном мире описывают персонажей, места и факты. "
+        "Правила/инструкции в конкретном мире задают стиль и ограничения ответов модели. "
+        "Сюжетные карточки включаются по триггерам и подмешивают события/факты в контекст. "
+        "Профильные карточки и шаблоны живут в профиле и нужны для переиспользования в разных мирах."
+    ),
+    "sols": (
+        "Солы — внутренняя валюта MORIUS. Они списываются за AI-действия, генерацию текста и изображения. "
+        "AI-помощник перед действием проверяет минимальный баланс, а итоговое списание считает после ответа провайдера."
+    ),
+    "templates": (
+        "Переиспользуемые персонажи находятся в профиле: откройте профиль, вкладку «Персонажи», нажмите карточку с плюсом "
+        "и заполните имя, описание, расу, одежду, инвентарь, состояние, триггеры, видимость и аватар при необходимости. "
+        "Затем такого персонажа можно добавлять в разные миры как главного героя или NPC. "
+        "Переиспользуемые инструкции находятся в профиле на вкладке «Инструкции», а шаблоны карточек мира — во вкладке «Карточки мира»."
+    ),
+    "profile_characters": (
+        "Чтобы создать переиспользуемого персонажа вручную: 1) откройте профиль через аватар в шапке или /profile; "
+        "2) перейдите в раздел «Контент» → «Персонажи»; 3) нажмите карточку с плюсом; "
+        "4) заполните имя и описание, при желании расу, одежду, инвентарь, состояние, короткую заметку, триггеры и аватар; "
+        "5) оставьте приватным для личного использования или отправьте на публикацию, если нужен публичный шаблон. "
+        "AI-помощник также может создать такого персонажа напрямую инструментом create_profile_character."
+    ),
 }
 
 
@@ -940,6 +1085,24 @@ def _tool_get_current_context(args: dict[str, Any], *, db: Session, user: User, 
             "permissions": ["admin_ai_assistant"],
         },
         "page": page_context,
+    }
+    profile_character_count = db.scalar(
+        select(func.count()).select_from(StoryCharacter).where(StoryCharacter.user_id == int(user.id))
+    )
+    profile_instruction_count = db.scalar(
+        select(func.count()).select_from(StoryInstructionTemplate).where(StoryInstructionTemplate.user_id == int(user.id))
+    )
+    profile_world_card_template_count = db.scalar(
+        select(func.count()).select_from(StoryWorldCardTemplate).where(StoryWorldCardTemplate.user_id == int(user.id))
+    )
+    payload["profile"] = {
+        "url": "/profile",
+        "reusableCharactersCount": int(profile_character_count or 0),
+        "reusableInstructionTemplatesCount": int(profile_instruction_count or 0),
+        "reusableWorldCardTemplatesCount": int(profile_world_card_template_count or 0),
+        "manualCharacterFlow": "Профиль -> Контент -> Персонажи -> карточка с плюсом.",
+        "manualInstructionFlow": "Профиль -> Контент -> Инструкции -> создать инструкцию.",
+        "manualWorldCardTemplateFlow": "Профиль -> Контент -> Карточки мира -> создать карточку.",
     }
     normalized_world_id = _normalize_world_id(world_id)
     if normalized_world_id is not None:
@@ -960,6 +1123,11 @@ def _tool_get_current_context(args: dict[str, Any], *, db: Session, user: User, 
                 .select_from(StoryWorldCard)
                 .where(StoryWorldCard.game_id == world.id)
             )
+            plot_card_count = db.scalar(
+                select(func.count())
+                .select_from(StoryPlotCard)
+                .where(StoryPlotCard.game_id == world.id)
+            )
             payload["world"] = {
                 "id": int(world.id),
                 "title": world.title,
@@ -969,6 +1137,7 @@ def _tool_get_current_context(args: dict[str, Any], *, db: Session, user: User, 
                 "counts": {
                     "instructions": int(instruction_count or 0),
                     "worldCards": int(world_card_count or 0),
+                    "plotCards": int(plot_card_count or 0),
                 },
             }
     return {"ok": True, "context": payload}
@@ -1039,6 +1208,66 @@ def _tool_create_character_in_world(
         description=description,
     )
     return {"ok": True, "worldId": int(world.id), "createdEntityRefs": [ref]}
+
+
+def _tool_create_profile_character(
+    args: dict[str, Any],
+    *,
+    db: Session,
+    user: User,
+    page_context: dict[str, Any],
+) -> dict[str, Any]:
+    _ = page_context
+    character, ref = _create_profile_character(
+        db,
+        user=user,
+        name=str(args.get("name") or ""),
+        description=str(args.get("description") or ""),
+        race=str(args.get("race") or ""),
+        clothing=str(args.get("clothing") or ""),
+        inventory=str(args.get("inventory") or ""),
+        health_status=str(args.get("healthStatus") or args.get("health_status") or ""),
+        note=str(args.get("note") or ""),
+        triggers=_coerce_string_list(args.get("triggers")),
+    )
+    return {"ok": True, "characterId": int(character.id), "title": character.name, "createdEntityRefs": [ref], "redirectUrl": ref["url"]}
+
+
+def _tool_create_profile_instruction_template(
+    args: dict[str, Any],
+    *,
+    db: Session,
+    user: User,
+    page_context: dict[str, Any],
+) -> dict[str, Any]:
+    _ = page_context
+    template, ref = _create_profile_instruction_template(
+        db,
+        user=user,
+        title=str(args.get("title") or ""),
+        content=str(args.get("content") or ""),
+    )
+    return {"ok": True, "templateId": int(template.id), "title": template.title, "createdEntityRefs": [ref], "redirectUrl": ref["url"]}
+
+
+def _tool_create_profile_world_card_template(
+    args: dict[str, Any],
+    *,
+    db: Session,
+    user: User,
+    page_context: dict[str, Any],
+) -> dict[str, Any]:
+    _ = page_context
+    template, ref = _create_profile_world_card_template(
+        db,
+        user=user,
+        title=str(args.get("title") or ""),
+        content=str(args.get("content") or ""),
+        triggers=_coerce_string_list(args.get("triggers")),
+        kind=str(args.get("kind") or STORY_WORLD_CARD_KIND_WORLD_PROFILE),
+        detail_type=str(args.get("detailType") or args.get("detail_type") or ""),
+    )
+    return {"ok": True, "templateId": int(template.id), "title": template.title, "createdEntityRefs": [ref], "redirectUrl": ref["url"]}
 
 
 def _tool_add_rule_card_from_template(
@@ -1180,7 +1409,16 @@ def _tool_create_world_setup_batch(
 def _tool_get_site_help(args: dict[str, Any], *, db: Session, user: User, page_context: dict[str, Any]) -> dict[str, Any]:
     _ = (db, user, page_context)
     topic = str(args.get("topic") or "").casefold()
-    if "приват" in topic or "private" in topic:
+    if (
+        "профил" in topic
+        or "profile" in topic
+        or (
+            ("персонаж" in topic or "character" in topic)
+            and any(marker in topic for marker in ("переисп", "шаблон", "мои", "мой "))
+        )
+    ):
+        key = "profile_characters"
+    elif "приват" in topic or "private" in topic:
         key = "private_world"
     elif "сол" in topic or "sol" in topic or "coin" in topic:
         key = "sols"
@@ -1235,6 +1473,9 @@ TOOL_HANDLERS = {
     "create_world": _tool_create_world,
     "add_character_from_template_to_world": _tool_add_character_from_template,
     "create_character_in_world": _tool_create_character_in_world,
+    "create_profile_character": _tool_create_profile_character,
+    "create_profile_instruction_template": _tool_create_profile_instruction_template,
+    "create_profile_world_card_template": _tool_create_profile_world_card_template,
     "add_rule_card_from_template_to_world": _tool_add_rule_card_from_template,
     "create_rule_card_in_world": _tool_create_rule_card_in_world,
     "create_world_setup_batch": _tool_create_world_setup_batch,
@@ -1242,6 +1483,27 @@ TOOL_HANDLERS = {
     "open_url": _tool_open_url,
     "inspect_world_consistency": _tool_inspect_world_consistency,
 }
+
+TOOL_STEP_LABELS = {
+    "get_current_context": "Смотрю текущий контекст страницы",
+    "search_templates": "Ищу подходящие шаблоны",
+    "create_world": "Создаю приватный мир",
+    "add_character_from_template_to_world": "Добавляю персонажа из профиля в мир",
+    "create_character_in_world": "Создаю персонажа в текущем мире",
+    "create_profile_character": "Создаю переиспользуемого персонажа в профиле",
+    "create_profile_instruction_template": "Создаю переиспользуемую инструкцию в профиле",
+    "create_profile_world_card_template": "Создаю переиспользуемую карточку мира в профиле",
+    "add_rule_card_from_template_to_world": "Добавляю правило из шаблона в мир",
+    "create_rule_card_in_world": "Создаю правило в текущем мире",
+    "create_world_setup_batch": "Собираю стартовый набор мира",
+    "get_site_help": "Смотрю справку по MORIUS",
+    "open_url": "Готовлю переход",
+    "inspect_world_consistency": "Проверяю наполнение мира",
+}
+
+
+def _tool_step_label(tool_name: str) -> str:
+    return TOOL_STEP_LABELS.get(tool_name, "Выполняю действие")
 
 
 TOOL_DEFINITIONS: list[dict[str, Any]] = [
@@ -1322,6 +1584,69 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "visibility": {"type": "string", "enum": ["private", "world"]},
                 },
                 "required": ["worldId", "name", "role", "description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_profile_character",
+            "description": (
+                "Создать переиспользуемого персонажа в профиле пользователя, в разделе «Персонажи». "
+                "Используй это, когда просят создать персонажа в профиль, в мои персонажи, как шаблон или для переиспользования."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "race": {"type": "string"},
+                    "clothing": {"type": "string"},
+                    "inventory": {"type": "string"},
+                    "healthStatus": {"type": "string"},
+                    "note": {"type": "string"},
+                    "triggers": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["name", "description"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_profile_instruction_template",
+            "description": (
+                "Создать переиспользуемую инструкцию/правило в профиле пользователя, в разделе «Инструкции». "
+                "Используй это для правил, которые должны быть доступны в разных мирах."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["title", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_profile_world_card_template",
+            "description": (
+                "Создать переиспользуемую карточку мира в профиле пользователя, в разделе «Карточки мира». "
+                "Используй это для мест, предметов, организаций, фактов или профилей мира, которые нужны как шаблон."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "content": {"type": "string"},
+                    "triggers": {"type": "array", "items": {"type": "string"}},
+                    "kind": {"type": "string", "enum": ["world_profile", "world"]},
+                    "detailType": {"type": "string"},
+                },
+                "required": ["title", "content"],
             },
         },
     },
@@ -1579,7 +1904,7 @@ def _run_ai_assistant(
         messages.append(assistant_message)
 
         for call in tool_calls:
-            step = {"label": f"Выполняю: {call['name']}", "status": "running", "tool": call["name"]}
+            step = {"label": _tool_step_label(call["name"]), "status": "running", "tool": call["name"]}
             steps.append(step)
             result = _execute_tool(
                 db=db,
@@ -1856,8 +2181,11 @@ def _delete_created_entity(db: Session, ref: dict[str, Any]) -> bool:
         return False
     model_by_type: dict[str, Any] = {
         "instruction_card": StoryInstructionCard,
+        "instruction_template": StoryInstructionTemplate,
         "plot_card": StoryPlotCard,
+        "profile_character": StoryCharacter,
         "world_card": StoryWorldCard,
+        "world_card_template": StoryWorldCardTemplate,
         "world": StoryGame,
     }
     model = model_by_type.get(entity_type)

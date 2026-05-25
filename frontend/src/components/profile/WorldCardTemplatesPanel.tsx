@@ -15,6 +15,7 @@ import {
   Typography,
 } from '@mui/material'
 import BaseDialog from '../dialogs/BaseDialog'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../ai/aiAssistantEvents'
 import ImageCropper from '../ImageCropper'
 import CharacterShowcaseCard from '../characters/CharacterShowcaseCard'
 import TextLimitIndicator from '../TextLimitIndicator'
@@ -27,6 +28,7 @@ import {
   listStoryWorldDetailTypes,
   updateStoryWorldCardTemplate,
 } from '../../services/storyApi'
+import type { AiAssistantChatResponse } from '../../services/aiAssistantApi'
 import type { StoryWorldCardTemplate, StoryWorldCardTemplateKind, StoryWorldDetailType } from '../../types/story'
 import {
   buildStoryWorldDetailTypeSuggestions,
@@ -111,6 +113,20 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
 
   useEffect(() => {
     void refreshData()
+  }, [refreshData])
+
+  useEffect(() => {
+    const handleAiAssistantEntitiesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
+      const refs = [...(detail?.createdEntities ?? []), ...(detail?.updatedEntities ?? [])]
+      if (refs.some((ref) => ref.type === 'world_card_template')) {
+        void refreshData()
+      }
+    }
+    window.addEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    return () => {
+      window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    }
   }, [refreshData])
 
   useEffect(() => {

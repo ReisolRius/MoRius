@@ -29,7 +29,7 @@ import {
   type AiAssistantUsage,
 } from '../../services/aiAssistantApi'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
-import { AI_ASSISTANT_OPEN_EVENT } from './AiAssistantButton'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT, AI_ASSISTANT_OPEN_EVENT } from './aiAssistantEvents'
 
 type AiAssistantPanelProps = {
   user: AuthUser
@@ -111,6 +111,9 @@ function resolveQuickChips(path: string): string[] {
   }
   if (path === '/worlds/new' || /^\/worlds\/\d+\/edit$/.test(path)) {
     return ['Заполни описание', 'Подбери правила', 'Создай стартовый набор карточек']
+  }
+  if (path === '/profile') {
+    return ['Создай переиспользуемого персонажа', 'Объясни, как создать персонажа в профиль', 'Создай шаблон правила']
   }
   return ['Создай мир из шаблонов', 'Помоги найти персонажа', 'Объясни, как начать игру']
 }
@@ -431,17 +434,70 @@ function AiAssistantJobToast({
   redirectUrl?: string | null
   onOpenUrl: (url: string) => void
 }) {
+  const [dismissedSignature, setDismissedSignature] = useState('')
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
+  const [isDragging, setIsDragging] = useState(false)
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null)
+  const hasRunningStep = steps.some((step) => step.status === 'running')
+  const hasToastContent = steps.length > 0 || createdEntities.length > 0
+  const toastSignature = useMemo(
+    () => JSON.stringify({
+      steps: steps.map((step) => [step.label, step.status]),
+      entities: createdEntities.map((entity) => [entity.type, entity.id]),
+      redirectUrl: redirectUrl || '',
+    }),
+    [createdEntities, redirectUrl, steps],
+  )
+  const visible = hasToastContent && dismissedSignature !== toastSignature
+
+  useEffect(() => {
+    if (!hasToastContent || hasRunningStep) {
+      return
+    }
+    const timeoutId = window.setTimeout(() => setDismissedSignature(toastSignature), 10_000)
+    return () => window.clearTimeout(timeoutId)
+  }, [hasRunningStep, hasToastContent, toastSignature])
+
   if (steps.length === 0 && createdEntities.length === 0) {
+    return null
+  }
+  if (!visible) {
     return null
   }
   const visibleSteps = steps.slice(-5)
   return (
     <Box
       aria-live="polite"
+      onPointerDown={(event) => {
+        pointerStartRef.current = { x: event.clientX, y: event.clientY }
+        setIsDragging(true)
+      }}
+      onPointerMove={(event) => {
+        if (!pointerStartRef.current) {
+          return
+        }
+        setDragOffset({
+          x: event.clientX - pointerStartRef.current.x,
+          y: event.clientY - pointerStartRef.current.y,
+        })
+      }}
+      onPointerUp={() => {
+        if (Math.abs(dragOffset.x) > 80 || Math.abs(dragOffset.y) > 70) {
+          setDismissedSignature(toastSignature)
+        }
+        pointerStartRef.current = null
+        setIsDragging(false)
+        setDragOffset({ x: 0, y: 0 })
+      }}
+      onPointerCancel={() => {
+        pointerStartRef.current = null
+        setIsDragging(false)
+        setDragOffset({ x: 0, y: 0 })
+      }}
       sx={{
         position: 'fixed',
         right: { xs: 12, md: 28 },
-        bottom: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 24 },
+        bottom: { xs: 'calc(148px + env(safe-area-inset-bottom))', md: 104 },
         zIndex: 1301,
         width: { xs: 'calc(100vw - 24px)', sm: 360 },
         borderRadius: '18px',
@@ -450,12 +506,26 @@ function AiAssistantJobToast({
         backdropFilter: 'blur(18px)',
         boxShadow: '0 24px 60px rgba(0, 0, 0, 0.38)',
         p: 1.1,
+        transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`,
+        opacity: Math.max(0.45, 1 - (Math.abs(dragOffset.x) + Math.abs(dragOffset.y)) / 260),
+        transition: isDragging ? 'none' : 'opacity 180ms ease, transform 180ms ease',
+        touchAction: 'none',
       }}
     >
       <Stack spacing={0.75}>
-        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 900 }}>
-          AI-помощник
-        </Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.94rem', fontWeight: 900 }}>
+            AI-помощник
+          </Typography>
+          <IconButton
+            type="button"
+            aria-label="Скрыть статус AI-помощника"
+            onClick={() => setDismissedSignature(toastSignature)}
+            sx={{ width: 28, height: 28, color: 'var(--morius-text-secondary)' }}
+          >
+            <ThemedSvgIcon markup={closeIconMarkup} size={16} />
+          </IconButton>
+        </Stack>
         {visibleSteps.map((step, index) => (
           <Stack key={`${String(step.label)}-${index}`} direction="row" spacing={0.75} alignItems="center">
             <Box
@@ -468,7 +538,7 @@ function AiAssistantJobToast({
               }}
             />
             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', overflowWrap: 'anywhere' }}>
-              {String(step.label || 'Шаг')}
+              {String(step.label || 'Выполняю шаг')}
             </Typography>
           </Stack>
         ))}
@@ -483,7 +553,7 @@ function AiAssistantJobToast({
               backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-card-bg))',
             }}
           >
-            Открыть мир
+            {redirectUrl.startsWith('/profile') ? 'Открыть профиль' : 'Открыть мир'}
           </Button>
         ) : null}
       </Stack>
@@ -593,6 +663,9 @@ function AiAssistantPanel({ user, authToken, path, onNavigate, onUserUpdate }: A
     ])
     if (response.user && typeof response.user.coins === 'number') {
       onUserUpdate({ ...user, coins: response.user.coins })
+    }
+    if ((response.createdEntities?.length ?? 0) > 0 || (response.updatedEntities?.length ?? 0) > 0 || response.redirectUrl) {
+      window.dispatchEvent(new CustomEvent(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, { detail: response }))
     }
   }
 

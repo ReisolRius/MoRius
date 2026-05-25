@@ -26,6 +26,7 @@ import AppHeader from '../components/AppHeader'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../components/ai/aiAssistantEvents'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
 import ProgressiveImage from '../components/media/ProgressiveImage'
@@ -79,6 +80,7 @@ import {
   unfavoriteCommunityWorld,
 } from '../services/storyApi'
 import type { AuthUser } from '../types/auth'
+import type { AiAssistantChatResponse } from '../services/aiAssistantApi'
 import type {
   StoryCharacter,
   StoryCommunityCharacterSummary,
@@ -1895,6 +1897,35 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       window.removeEventListener(ONBOARDING_GUIDE_COMMAND_EVENT, handleOnboardingCommand as EventListener)
     }
   }, [closeCharacterDialog, isOwnProfile, openCharacterCreate, setTab])
+
+  useEffect(() => {
+    if (!isOwnProfile) {
+      return
+    }
+    const handleAiAssistantEntitiesChanged = (event: Event) => {
+      const detail = (event as CustomEvent<AiAssistantChatResponse>).detail
+      if (!detail) {
+        return
+      }
+      const refs = [...(detail.createdEntities ?? []), ...(detail.updatedEntities ?? [])]
+      if (refs.some((ref) => ref.type === 'profile_character')) {
+        setTab('characters')
+        void loadCharactersOnly()
+      }
+      if (refs.some((ref) => ref.type === 'instruction_template')) {
+        setTab('instructions')
+        void loadTemplatesOnly()
+      }
+      if (refs.some((ref) => ref.type === 'world_card_template')) {
+        setTab('world_cards')
+      }
+    }
+
+    window.addEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    return () => {
+      window.removeEventListener(AI_ASSISTANT_ENTITIES_CHANGED_EVENT, handleAiAssistantEntitiesChanged as EventListener)
+    }
+  }, [isOwnProfile, loadCharactersOnly, loadTemplatesOnly])
 
   const handleCloseCharacterAvatarPreview = useCallback(() => {
     setCharacterAvatarPreview(null)
