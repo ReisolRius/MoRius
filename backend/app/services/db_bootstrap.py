@@ -378,7 +378,7 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
     if "image_model" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
-            "ADD COLUMN image_model VARCHAR(120) NOT NULL DEFAULT 'black-forest-labs/flux.2-pro'"
+            "ADD COLUMN image_model VARCHAR(120) NOT NULL DEFAULT 'flux.2-pro'"
         )
     if "image_style_prompt" not in existing_columns:
         alter_statements.append(

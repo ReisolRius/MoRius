@@ -431,7 +431,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
     image_model:
       typeof game.image_model === 'string'
         ? (game.image_model as StoryGameSummary['image_model'])
-        : 'black-forest-labs/flux.2-pro',
+        : 'flux.2-pro',
     image_style_prompt: typeof game.image_style_prompt === 'string' ? game.image_style_prompt : '',
     memory_optimization_enabled: Boolean(game.memory_optimization_enabled),
     memory_optimization_mode:

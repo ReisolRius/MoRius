@@ -363,16 +363,7 @@ def _request_story_scene_emotion_payload(
         }
     )
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
-    if not settings.polza_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Polza.ai provider is not configured: set POLZA_API_KEY",
-        )
-    if not settings.polza_chat_url and not settings.polza_image_url:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Polza.ai image endpoint is not configured: set POLZA_IMAGE_URL or POLZA_CHAT_URL",
-        )
+    return monolith_main._validate_story_turn_image_provider_config(model_name)
 
 
 def _normalize_story_turn_image_style_prompt(value: str | None) -> str:
@@ -383,32 +374,15 @@ def _normalize_story_turn_image_style_prompt(value: str | None) -> str:
 
 
 def _get_story_turn_image_cost_tokens(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
-    if not normalized_model:
-        normalized_model = STORY_TURN_IMAGE_MODEL_FLUX
-    return max(int(STORY_TURN_IMAGE_COST_BY_MODEL.get(normalized_model, STORY_TURN_IMAGE_COST_BY_MODEL[STORY_TURN_IMAGE_MODEL_FLUX])), 0)
+    return monolith_main._get_story_turn_image_cost_tokens(model_name)
 
 
 def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
-    if not normalized_model:
-        return STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT
-    return max(
-        int(
-            STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL.get(
-                normalized_model,
-                STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT,
-            )
-        ),
-        STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT,
-    )
+    return monolith_main._get_story_turn_image_read_timeout_seconds(model_name)
 
 
 def _get_story_turn_image_request_prompt_max_chars(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
-    if normalized_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
-        return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM
-    return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT
+    return monolith_main._get_story_turn_image_request_prompt_max_chars(model_name)
 
 
 def _limit_story_turn_image_request_prompt(prompt: str, *, model_name: str | None) -> str:
@@ -1502,7 +1476,7 @@ def _request_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
-    return _request_polza_story_turn_image(
+    return monolith_main._request_story_turn_image(
         prompt=prompt,
         model_name=model_name,
         reference_image_url=reference_image_url,

@@ -91,8 +91,9 @@ const DEFAULT_CHARACTER_RACE_VALUES = [
 const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'black-forest-labs/flux.2-pro'
-const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'bytedance/seedream-4.5'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'flux.2-pro'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'seedream-4.5'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID: StoryImageModelId = 'qwen-image-edit'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID: StoryImageModelId = 'google/gemini-3.1-flash-image-preview'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
@@ -112,6 +113,12 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     title: 'Seedream',
     description: 'Более художественная и мягкая подача.',
     cost: 5,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
+    title: 'Qwen Image Edit',
+    description: 'AITunnel-редактор для аккуратных правок и стилизации персонажа.',
+    cost: 8,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,

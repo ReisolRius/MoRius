@@ -483,17 +483,32 @@ STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS = 3_000
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
-STORY_TURN_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_TURN_IMAGE_MODEL_SEEDREAM = "bytedance/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_FLUX = "flux.2-pro"
+STORY_TURN_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
+STORY_TURN_IMAGE_MODEL_SEEDREAM = "seedream-4.5"
+STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
 STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
+STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX: 3,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 5,
+    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT: 8,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO: 15,
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 30,
 }
+STORY_AITUNNEL_IMAGE_MODELS = {
+    STORY_TURN_IMAGE_MODEL_FLUX,
+    STORY_TURN_IMAGE_MODEL_SEEDREAM,
+    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
+}
+STORY_AITUNNEL_IMAGE_EDIT_MODELS = {
+    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT,
+}
+STORY_AITUNNEL_BLANK_EDIT_CANVAS_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+)
 STORY_CHARACTER_EMOTION_REFERENCE_MAX_CHARS = 1_600
 STORY_CHARACTER_EMOTION_EDIT_STYLE_MAX_CHARS = 320
 STORY_CHARACTER_EMOTION_GENERATED_VARIANTS = tuple(
@@ -5962,7 +5977,9 @@ def _story_output_translation_model_name(model_name: str | None = None) -> str:
 
 def _normalize_story_model_id(value: str | None) -> str:
     normalized = (value or "").strip().lower()
-    if normalized == STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY:
+    if normalized == STORY_TURN_IMAGE_MODEL_FLUX_LEGACY:
+        return STORY_TURN_IMAGE_MODEL_FLUX
+    if normalized in {STORY_TURN_IMAGE_MODEL_SEEDREAM_LEGACY, STORY_TURN_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY}:
         return STORY_TURN_IMAGE_MODEL_SEEDREAM
     return STORY_LEGACY_MODEL_ALIASES.get(normalized, normalized)
 
@@ -11058,6 +11075,20 @@ def _request_polza_story_text(
 
 
 def _validate_story_turn_image_provider_config(model_name: str | None = None) -> None:
+    normalized_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    if normalized_model in STORY_AITUNNEL_IMAGE_MODELS:
+        if not settings.aitunnel_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AITunnel image provider is not configured: set AITUNNEL_API_KEY",
+            )
+        if not settings.aitunnel_image_generation_url and not settings.aitunnel_base_url:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="AITunnel image endpoint is not configured: set AITUNNEL_BASE_URL",
+            )
+        return
+
     if not settings.polza_api_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -11078,14 +11109,14 @@ def _normalize_story_turn_image_style_prompt(value: str | None) -> str:
 
 
 def _get_story_turn_image_cost_tokens(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
+    normalized_model = _normalize_story_model_id(str(model_name or "").strip())
     if not normalized_model:
         normalized_model = STORY_TURN_IMAGE_MODEL_FLUX
     return max(int(STORY_TURN_IMAGE_COST_BY_MODEL.get(normalized_model, STORY_TURN_IMAGE_COST_BY_MODEL[STORY_TURN_IMAGE_MODEL_FLUX])), 0)
 
 
 def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
+    normalized_model = _normalize_story_model_id(str(model_name or "").strip())
     if not normalized_model:
         return STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT
     return max(
@@ -11100,7 +11131,7 @@ def _get_story_turn_image_read_timeout_seconds(model_name: str | None) -> int:
 
 
 def _get_story_turn_image_request_prompt_max_chars(model_name: str | None) -> int:
-    normalized_model = str(model_name or "").strip()
+    normalized_model = _normalize_story_model_id(str(model_name or "").strip())
     if normalized_model == STORY_TURN_IMAGE_MODEL_SEEDREAM:
         return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM
     return STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT
@@ -12334,6 +12365,152 @@ def _poll_story_turn_image_media_generation(
     raise RuntimeError(f"Polza.ai media generation timed out for model {selected_model}")
 
 
+def _resolve_aitunnel_image_endpoint(configured_url: str | None, fallback_path: str) -> str:
+    normalized_url = str(configured_url or "").strip()
+    if normalized_url:
+        return normalized_url
+    base_url = str(settings.aitunnel_base_url or "").strip().rstrip("/")
+    if not base_url:
+        base_url = "https://api.aitunnel.ru/v1"
+    return f"{base_url}/{fallback_path.lstrip('/')}"
+
+
+def _load_aitunnel_reference_image_file(
+    *,
+    reference_image_url: str | None,
+    reference_image_data_url: str | None,
+) -> tuple[str, bytes, str]:
+    normalized_data_url = str(reference_image_data_url or "").strip()
+    decoded_data_url = _decode_story_image_data_url_payload(normalized_data_url)
+    if decoded_data_url is not None:
+        payload, mime_type = decoded_data_url
+        return "reference.png", payload, mime_type
+
+    normalized_url = str(reference_image_url or "").strip()
+    if normalized_url.startswith(("https://", "http://")):
+        try:
+            response = HTTP_SESSION.get(
+                normalized_url,
+                timeout=(
+                    STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                    min(STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT, 60),
+                ),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to fetch reference image for AITunnel image edit") from exc
+        if response.status_code >= 400:
+            raise RuntimeError(f"Failed to fetch reference image for AITunnel image edit ({response.status_code})")
+        content_type = str(response.headers.get("Content-Type") or "").split(";", maxsplit=1)[0].strip().lower()
+        if not content_type.startswith("image/"):
+            content_type = "image/png"
+        if not response.content:
+            raise RuntimeError("Reference image for AITunnel image edit is empty")
+        return "reference.png", response.content, content_type
+
+    return "blank.png", STORY_AITUNNEL_BLANK_EDIT_CANVAS_PNG, "image/png"
+
+
+def _request_aitunnel_story_turn_image(
+    *,
+    prompt: str,
+    model_name: str | None = None,
+    reference_image_url: str | None = None,
+    reference_image_data_url: str | None = None,
+) -> dict[str, str | None]:
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    if selected_model not in STORY_AITUNNEL_IMAGE_MODELS:
+        raise RuntimeError(f"AITunnel image model is not supported: {selected_model}")
+    if not settings.aitunnel_api_key:
+        raise RuntimeError("AITunnel API key is not configured")
+
+    headers = {
+        "Authorization": f"Bearer {settings.aitunnel_api_key}",
+        "Accept": "application/json",
+    }
+    image_size = str(settings.polza_image_size or "").strip()
+    normalized_reference_image_url = str(reference_image_url or "").strip()
+    normalized_reference_image_data_url = str(reference_image_data_url or "").strip()
+    use_image_edit = (
+        selected_model in STORY_AITUNNEL_IMAGE_EDIT_MODELS
+        or bool(normalized_reference_image_url)
+        or bool(normalized_reference_image_data_url)
+    )
+    read_timeout_seconds = _get_story_turn_image_read_timeout_seconds(selected_model)
+
+    if use_image_edit:
+        endpoint_url = _resolve_aitunnel_image_endpoint(
+            settings.aitunnel_image_edit_url,
+            "/images/edits",
+        )
+        filename, image_payload, mime_type = _load_aitunnel_reference_image_file(
+            reference_image_url=normalized_reference_image_url,
+            reference_image_data_url=normalized_reference_image_data_url,
+        )
+        request_data: dict[str, Any] = {
+            "model": selected_model,
+            "prompt": prompt,
+            "n": "1",
+        }
+        if image_size:
+            request_data["size"] = image_size
+        files = {
+            "image": (filename, image_payload, mime_type),
+        }
+        try:
+            response = HTTP_SESSION.post(
+                endpoint_url,
+                headers=headers,
+                data=request_data,
+                files=files,
+                timeout=(STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS, read_timeout_seconds),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to reach AITunnel image edit endpoint") from exc
+    else:
+        endpoint_url = _resolve_aitunnel_image_endpoint(
+            settings.aitunnel_image_generation_url,
+            "/images/generations",
+        )
+        request_payload: dict[str, Any] = {
+            "model": selected_model,
+            "prompt": prompt,
+            "n": 1,
+        }
+        if image_size:
+            request_payload["size"] = image_size
+        try:
+            response = HTTP_SESSION.post(
+                endpoint_url,
+                headers={**headers, "Content-Type": "application/json"},
+                json=request_payload,
+                timeout=(STORY_TURN_IMAGE_REQUEST_CONNECT_TIMEOUT_SECONDS, read_timeout_seconds),
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError("Failed to reach AITunnel image generation endpoint") from exc
+
+    if response.status_code >= 400:
+        detail = _extract_polza_error_detail(response)
+        error_text = f"AITunnel image error ({response.status_code})"
+        if detail:
+            error_text = f"{error_text}: {detail}"
+        raise RuntimeError(error_text)
+
+    try:
+        payload_value = response.json()
+    except ValueError as exc:
+        raise RuntimeError("AITunnel image endpoint returned invalid payload") from exc
+
+    try:
+        parsed_payload = _parse_polza_story_turn_image_payload(
+            payload_value,
+            selected_model=selected_model,
+        )
+    except RuntimeError as exc:
+        raise RuntimeError(str(exc).replace("Polza.ai", "AITunnel")) from exc
+    parsed_payload["model"] = selected_model
+    return parsed_payload
+
+
 def _request_polza_story_turn_image(
     *,
     prompt: str,
@@ -12479,9 +12656,17 @@ def _request_story_turn_image(
     reference_image_url: str | None = None,
     reference_image_data_url: str | None = None,
 ) -> dict[str, str | None]:
+    selected_model = _normalize_story_model_id(model_name) or STORY_TURN_IMAGE_MODEL_FLUX
+    if selected_model in STORY_AITUNNEL_IMAGE_MODELS:
+        return _request_aitunnel_story_turn_image(
+            prompt=prompt,
+            model_name=selected_model,
+            reference_image_url=reference_image_url,
+            reference_image_data_url=reference_image_data_url,
+        )
     return _request_polza_story_turn_image(
         prompt=prompt,
-        model_name=model_name,
+        model_name=selected_model,
         reference_image_url=reference_image_url,
         reference_image_data_url=reference_image_data_url,
     )

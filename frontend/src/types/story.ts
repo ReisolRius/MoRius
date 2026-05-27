@@ -40,8 +40,9 @@ export type StoryAppearanceBackgroundMode = 'default' | 'custom'
 export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'
 export type StoryAppearanceTextStyle = 'default' | 'serif' | 'terminal'
 export type StoryImageModelId =
-  | 'black-forest-labs/flux.2-pro'
-  | 'bytedance/seedream-4.5'
+  | 'flux.2-pro'
+  | 'seedream-4.5'
+  | 'qwen-image-edit'
   | 'google/gemini-2.5-flash-image'
   | 'google/gemini-3.1-flash-image-preview'
 export type StoryCharacterEmotionId =

@@ -195,19 +195,25 @@ STORY_TURN_COST_PREMIUM_LLM_MODELS = {
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_QWEN35_122B_A10B,
 }
-STORY_IMAGE_MODEL_FLUX = "black-forest-labs/flux.2-pro"
-STORY_IMAGE_MODEL_SEEDREAM = "bytedance/seedream-4.5"
+STORY_IMAGE_MODEL_FLUX = "flux.2-pro"
+STORY_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
+STORY_IMAGE_MODEL_SEEDREAM = "seedream-4.5"
+STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
 STORY_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
+STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
 STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
 STORY_SUPPORTED_IMAGE_MODELS = {
     STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
+    STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT,
     STORY_IMAGE_MODEL_NANO_BANANO,
     STORY_IMAGE_MODEL_NANO_BANANO_2,
 }
 STORY_IMAGE_MODEL_LEGACY_ALIASES = {
+    STORY_IMAGE_MODEL_FLUX_LEGACY: STORY_IMAGE_MODEL_FLUX,
+    STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_SEEDREAM_LEGACY: STORY_IMAGE_MODEL_SEEDREAM,
 }
 STORY_TOP_K_MIN = 0
@@ -554,7 +560,7 @@ def normalize_story_image_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
-                "Use one of: black-forest-labs/flux.2-pro, bytedance/seedream-4.5, "
+                "Use one of: flux.2-pro, seedream-4.5, qwen-image-edit, "
                 "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
             ),
         )

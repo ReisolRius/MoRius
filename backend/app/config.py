@@ -10,9 +10,10 @@ VALID_APP_MODES = {"monolith", "gateway", "auth", "story", "payments"}
 POLZA_CHAT_COMPLETIONS_URL = "https://polza.ai/api/v1/chat/completions"
 POLZA_MEDIA_URL = "https://polza.ai/api/v1/media"
 POLZA_API_BASE_URL = "https://polza.ai/api/v1"
+AITUNNEL_API_BASE_URL = "https://api.aitunnel.ru/v1"
 POLZA_GEMINI_25_FLASH_LITE_MODEL = "google/gemini-2.5-flash-lite"
 POLZA_DEFAULT_STORY_MODEL = "z-ai/glm-5"
-POLZA_DEFAULT_IMAGE_MODEL = "black-forest-labs/flux.2-pro"
+POLZA_DEFAULT_IMAGE_MODEL = "flux.2-pro"
 DEFAULT_CORS_ORIGINS = [
     "http://localhost:5173",
     "https://mo-rius.vercel.app",
@@ -254,6 +255,10 @@ class Settings:
     polza_image_size: str
     polza_site_url: str
     polza_app_name: str
+    aitunnel_api_key: str
+    aitunnel_base_url: str
+    aitunnel_image_generation_url: str
+    aitunnel_image_edit_url: str
     story_translation_enabled: bool
     story_user_language: str
     story_model_language: str
@@ -365,6 +370,16 @@ settings = Settings(
     polza_image_size=_env("POLZA_IMAGE_SIZE", "1024x1024").strip(),
     polza_site_url=_env("POLZA_SITE_URL", "").strip(),
     polza_app_name=_env("POLZA_APP_NAME", "MoRius").strip(),
+    aitunnel_api_key=_env("AITUNNEL_API_KEY", "").strip(),
+    aitunnel_base_url=_env("AITUNNEL_BASE_URL", AITUNNEL_API_BASE_URL).strip().rstrip("/"),
+    aitunnel_image_generation_url=_env(
+        "AITUNNEL_IMAGE_GENERATION_URL",
+        f"{AITUNNEL_API_BASE_URL}/images/generations",
+    ).strip(),
+    aitunnel_image_edit_url=_env(
+        "AITUNNEL_IMAGE_EDIT_URL",
+        f"{AITUNNEL_API_BASE_URL}/images/edits",
+    ).strip(),
     story_translation_enabled=_to_bool(os.getenv("STORY_TRANSLATION_ENABLED"), default=False),
     story_user_language=os.getenv("STORY_USER_LANGUAGE", "ru").strip().lower() or "ru",
     story_model_language=os.getenv("STORY_MODEL_LANGUAGE", "en").strip().lower() or "en",

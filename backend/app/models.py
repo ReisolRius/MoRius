@@ -207,8 +207,8 @@ class StoryGame(Base):
     image_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
-        default="black-forest-labs/flux.2-pro",
-        server_default="black-forest-labs/flux.2-pro",
+        default="flux.2-pro",
+        server_default="flux.2-pro",
     )
     image_style_prompt: Mapped[str] = mapped_column(
         Text,
