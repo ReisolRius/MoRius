@@ -11800,6 +11800,35 @@ def _select_story_turn_image_participant_world_cards(
         ),
         None,
     )
+    if main_hero_card is None:
+        source_main_hero_card = next(
+            (
+                card
+                for card in all_world_cards
+                if _normalize_story_world_card_kind(str(getattr(card, "kind", ""))) == STORY_WORLD_CARD_KIND_MAIN_HERO
+            ),
+            None,
+        )
+        if source_main_hero_card is not None:
+            title = " ".join(str(getattr(source_main_hero_card, "title", "") or "").split()).strip()
+            content = _normalize_story_message_content(getattr(source_main_hero_card, "content", None))
+            if title and content:
+                main_hero_card = {
+                    "id": getattr(source_main_hero_card, "id", None),
+                    "title": title,
+                    "content": content,
+                    "triggers": _deserialize_story_world_card_triggers(getattr(source_main_hero_card, "triggers", "")),
+                    "kind": STORY_WORLD_CARD_KIND_MAIN_HERO,
+                    "avatar_url": _normalize_avatar_value(getattr(source_main_hero_card, "avatar_url", None)),
+                    "avatar_scale": _normalize_story_avatar_scale(getattr(source_main_hero_card, "avatar_scale", None)),
+                    "character_id": None,
+                    "memory_turns": _serialize_story_world_card_memory_turns(
+                        getattr(source_main_hero_card, "memory_turns", None),
+                        kind=STORY_WORLD_CARD_KIND_MAIN_HERO,
+                    ),
+                    "is_locked": bool(getattr(source_main_hero_card, "is_locked", False)),
+                    "source": _normalize_story_world_card_source(getattr(source_main_hero_card, "source", "")),
+                }
     if main_hero_card is not None:
         participant_cards.append(main_hero_card)
 
@@ -12128,6 +12157,8 @@ def _build_story_turn_image_prompt_composer_messages(
         "If the STYLE DIRECTIVE requests realism, photorealism, ultra-realism, live action, or similar, the final prompt must forbid anime, manga, visual-novel, cel-shading, lineart, stylized game art, and 2D illustration. "
         "If the STYLE DIRECTIVE requests anime or manga, the final prompt must make anime/manga mandatory. "
         "Use the latest player turn and latest narrator response as the scene source. "
+        "The main_hero card, if present, is mandatory visible cast: include the player character in-frame even when the scene is written in first person. "
+        "Never omit the main_hero, never turn the shot into first-person POV, and never replace main_hero with an NPC. "
         "Include only characters who participate in or are clearly visible in this latest scene; do not add active characters who are not present. "
         "Keep the exact scene moment, location, participants, actions, mood, and important props. "
         "Return only the final prompt text, no markdown, no JSON, no explanations."
@@ -12155,8 +12186,10 @@ def _build_story_turn_image_prompt_composer_messages(
         "- Write in English for best image model adherence.\n"
         "- Start with the required style and medium.\n"
         "- Describe the exact visible scene, participants, action, composition, camera, lighting, atmosphere, props, location details, and character appearances.\n"
+        "- Always include the main_hero/player character visibly in the frame when a main_hero card is listed.\n"
+        "- Avoid first-person POV; use third-person cinematic framing where the main_hero can be seen.\n"
         "- Preserve character identity and location details from cards when they are relevant to the latest scene.\n"
-        "- Do not include characters who are not in the latest player turn or narrator response.\n"
+        "- Do not include NPC characters who are not in the latest player turn or narrator response.\n"
         "- Do not mention that these instructions exist.\n"
     )
     composer_input = _normalize_story_prompt_text(
@@ -12173,17 +12206,38 @@ def _prefix_story_turn_image_prompt_with_style_lock(
     *,
     composed_prompt: str,
     image_style_prompt: str | None,
+    user_prompt: str,
+    assistant_text: str,
+    character_world_cards: list[dict[str, Any]],
 ) -> str:
     normalized_prompt = _cleanup_story_turn_image_composed_prompt(composed_prompt)
     if not normalized_prompt:
         return ""
     style_instructions = _build_story_turn_image_style_instructions(image_style_prompt or "")
+    character_lines = _build_story_turn_image_character_lines(
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        world_cards=character_world_cards,
+        max_cards=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS,
+    )
     prompt_parts: list[str] = []
     if style_instructions:
         prompt_parts.append(style_instructions)
     prompt_parts.append(
         "STYLE DIRECTIVE ABOVE OVERRIDES ANY CONFLICTING STYLE WORDS FROM STORY, LORE, CHARACTER CARDS, OR REFERENCES."
     )
+    if character_lines:
+        prompt_parts.append(
+            "MANDATORY VISIBLE CAST: "
+            + " ".join(f"{index + 1}) {line}." for index, line in enumerate(character_lines))
+        )
+        if any(line.startswith("main_hero:") for line in character_lines):
+            prompt_parts.append(
+                "MAIN HERO LOCK: the main_hero is the player character and must be visible in-frame; do not switch to first-person POV, do not omit the main_hero, and do not replace the main_hero with an NPC."
+            )
+        prompt_parts.append(
+            f"Exactly {len(character_lines)} listed character(s) should be visible unless the scene explicitly shows a crowd; do not add unrelated active characters."
+        )
     prompt_parts.append(
         "GLOBAL TEXT BAN (STRICT): zero visible text, UI, watermark, logo, captions, subtitles, speech bubbles, signs, labels, letters, words, handwriting, signatures, or numbers."
     )
@@ -12213,6 +12267,11 @@ def _compose_story_turn_image_prompt_with_model(
         model_name=model_name,
     )
     try:
+        logger.info(
+            "Story turn image prompt composer started: composer_model=%s target_image_model=%s",
+            STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
+            _normalize_story_model_id(str(model_name or "")) or STORY_TURN_IMAGE_MODEL_FLUX,
+        )
         composed_prompt = _request_polza_story_text(
             messages_payload,
             model_name=STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
@@ -12233,9 +12292,17 @@ def _compose_story_turn_image_prompt_with_model(
     final_prompt = _prefix_story_turn_image_prompt_with_style_lock(
         composed_prompt=composed_prompt,
         image_style_prompt=image_style_prompt,
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        character_world_cards=character_world_cards,
     )
     if not final_prompt:
         return fallback_prompt
+    logger.info(
+        "Story turn image prompt composer finished: composer_model=%s prompt_chars=%s",
+        STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
+        len(final_prompt),
+    )
     return final_prompt
 
 
