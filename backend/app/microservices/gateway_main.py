@@ -9,6 +9,7 @@ app = create_service_app(
         "/api/auth",
         "/api/admin",
         "/api/referrals",
+        "/api/downloads",
         "/api/story",
         "/api/payments",
         "/api/media",

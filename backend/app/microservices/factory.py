@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 _PREFIX_TO_ROUTER_MODULES: dict[str, tuple[str, ...]] = {
     "/api/health": ("app.routers.health",),
+    "/api/downloads": ("app.routers.downloads",),
     "/api/auth": (
         "app.routers.auth",
         "app.routers.profiles",

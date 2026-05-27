@@ -33,6 +33,7 @@ import sidebarPublicIconMarkup from '../assets/icons/custom/public.svg?raw'
 import sidebarSettingsIconMarkup from '../assets/icons/custom/settings.svg?raw'
 import sidebarShopIconMarkup from '../assets/icons/custom/shop.svg?raw'
 import BaseDialog from './dialogs/BaseDialog'
+import AppDownloadDialog from './AppDownloadDialog'
 import { AI_ASSISTANT_OPEN_EVENT } from './ai/aiAssistantEvents'
 import useMobileDialogSheet from './dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from './icons/ThemedSvgIcon'
@@ -217,6 +218,17 @@ function SidebarGuideIcon() {
   return <SidebarGlyphIcon markup={sidebarHelpIconMarkup} />
 }
 
+function SidebarDownloadIcon() {
+  return (
+    <SvgIcon viewBox="0 0 24 24" sx={{ width: 20, height: 20 }}>
+      <path
+        d="M12 3.25c.55 0 1 .45 1 1v8.02l2.18-2.18a1 1 0 1 1 1.41 1.41l-3.88 3.88a1 1 0 0 1-1.42 0L7.41 11.5a1 1 0 1 1 1.41-1.41L11 12.27V4.25c0-.55.45-1 1-1Zm-6.25 12.5c.55 0 1 .45 1 1v1.5h10.5v-1.5a1 1 0 1 1 2 0v2.5c0 .55-.45 1-1 1H5.75c-.55 0-1-.45-1-1v-2.5c0-.55.45-1 1-1Z"
+        fill="currentColor"
+      />
+    </SvgIcon>
+  )
+}
+
 function AppHeader({
   isPageMenuOpen,
   onTogglePageMenu,
@@ -241,6 +253,7 @@ function AppHeader({
 }: AppHeaderProps) {
   const [isThemeDialogOpen, setIsThemeDialogOpen] = useState(false)
   const [isSupportDialogOpen, setIsSupportDialogOpen] = useState(false)
+  const [isAppDownloadDialogOpen, setIsAppDownloadDialogOpen] = useState(false)
   const [isMobileActionSheetOpen, setIsMobileActionSheetOpen] = useState(false)
   const [isMobileMoreSheetOpen, setIsMobileMoreSheetOpen] = useState(false)
   const menuTriggerRef = useRef<HTMLDivElement | null>(null)
@@ -281,6 +294,8 @@ function AppHeader({
   const handleCloseThemeDialog = () => setIsThemeDialogOpen(false)
   const handleOpenSupportDialog = () => setIsSupportDialogOpen(true)
   const handleCloseSupportDialog = () => setIsSupportDialogOpen(false)
+  const handleOpenAppDownloadDialog = () => setIsAppDownloadDialogOpen(true)
+  const handleCloseAppDownloadDialog = () => setIsAppDownloadDialogOpen(false)
 
   const handleOpenTopUpDialog = () => {
     if (!onOpenTopUpDialog) {
@@ -365,6 +380,9 @@ function AppHeader({
     if (itemKey === 'ai-assistant') {
       return 'AI-помощник'
     }
+    if (itemKey === 'app-download') {
+      return 'Скачать приложение'
+    }
     if (itemKey === 'support') {
       return 'Поддержка'
     }
@@ -437,6 +455,12 @@ function AppHeader({
           },
         ]
       : []),
+    {
+      key: 'app-download',
+      label: 'Скачать приложение',
+      onClick: handleOpenAppDownloadDialog,
+      icon: <SidebarDownloadIcon />,
+    },
     {
       key: 'support',
       label: 'Поддержка',
@@ -1986,6 +2010,11 @@ function AppHeader({
           </Box>
         </Stack>
       </BaseDialog>
+
+      <AppDownloadDialog
+        open={isAppDownloadDialogOpen}
+        onClose={handleCloseAppDownloadDialog}
+      />
 
       <BaseDialog
         open={isSupportDialogOpen}

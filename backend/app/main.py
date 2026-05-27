@@ -53,6 +53,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
     StoryCommunityWorldReport = None
     STORY_COMMUNITY_OPTIONAL_MODELS_AVAILABLE = False
 from app.routers.auth import router as auth_router
+from app.routers.downloads import router as downloads_router
 from app.routers.health import router as health_router
 from app.routers.payments import router as payments_router
 from app.routers.referrals import router as referrals_router
@@ -1527,6 +1528,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(auth_router)
+app.include_router(downloads_router)
 app.include_router(health_router)
 app.include_router(payments_router)
 app.include_router(referrals_router)
