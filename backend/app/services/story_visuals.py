@@ -701,28 +701,130 @@ def _extract_story_turn_image_appearance_hint_from_card(card: dict[str, Any]) ->
     )
 
 
+def _story_turn_image_style_prompt_forbids_text(style_prompt: str) -> bool:
+    normalized_style = re.sub(r"\s+", " ", str(style_prompt or "").casefold()).strip()
+    if not normalized_style:
+        return False
+
+    text_ban_tokens = (
+        "no text",
+        "without text",
+        "no readable text",
+        "no typography",
+        "without typography",
+        "no words",
+        "without words",
+        "no letters",
+        "without letters",
+        "no captions",
+        "no subtitles",
+        "no speech bubbles",
+        "no logos",
+        "no logo",
+        "no watermark",
+        "no signage",
+        "no signs",
+        "no numbers",
+        "no ui",
+        "\u0431\u0435\u0437 \u0442\u0435\u043a\u0441\u0442",
+        "\u0431\u0435\u0437 \u043d\u0430\u0434\u043f\u0438\u0441",
+        "\u0431\u0435\u0437 \u0431\u0443\u043a\u0432",
+        "\u0431\u0435\u0437 \u0441\u043b\u043e\u0432",
+        "\u0431\u0435\u0437 \u0446\u0438\u0444\u0440",
+        "\u0431\u0435\u0437 \u043b\u043e\u0433\u043e",
+        "\u0431\u0435\u0437 \u0432\u043e\u0434\u044f\u043d",
+        "\u043d\u0438\u043a\u0430\u043a\u043e\u0433\u043e \u0442\u0435\u043a\u0441",
+        "\u043d\u0435 \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0439 \u0442\u0435\u043a\u0441",
+        "\u043d\u0435 \u043f\u0438\u0448\u0438 \u0442\u0435\u043a\u0441",
+        "\u0442\u0435\u043a\u0441\u0442\u0430 \u043d\u0435 \u0434\u043e\u043b\u0436\u043d\u043e",
+        "\u043d\u0435 \u0434\u043e\u043b\u0436\u043d\u043e \u0431\u044b\u0442\u044c \u0442\u0435\u043a\u0441",
+    )
+    return any(token in normalized_style for token in text_ban_tokens)
+
+
+def _story_turn_image_style_prompt_requests_anime(style_prompt: str) -> bool:
+    normalized_style = re.sub(r"\s+", " ", str(style_prompt or "").casefold()).strip()
+    if not normalized_style:
+        return False
+    anime_negation_tokens = (
+        "no anime",
+        "not anime",
+        "without anime",
+        "no manga",
+        "not manga",
+        "without manga",
+        "\u0431\u0435\u0437 \u0430\u043d\u0438\u043c",
+        "\u043d\u0435 \u0430\u043d\u0438\u043c",
+        "\u0431\u0435\u0437 \u043c\u0430\u043d\u0433",
+        "\u043d\u0435 \u043c\u0430\u043d\u0433",
+    )
+    if any(token in normalized_style for token in anime_negation_tokens):
+        return False
+    return any(
+        token in normalized_style
+        for token in ("\u0430\u043d\u0438\u043c\u0435", "anime", "\u043c\u0430\u043d\u0433\u0430", "manga")
+    )
+
+
+def _story_turn_image_style_prompt_requests_realism(style_prompt: str) -> bool:
+    normalized_style = re.sub(r"\s+", " ", str(style_prompt or "").casefold()).strip()
+    if not normalized_style:
+        return False
+    return any(
+        token in normalized_style
+        for token in (
+            "\u0440\u0435\u0430\u043b",
+            "\u0444\u043e\u0442\u043e\u0440\u0435\u0430\u043b",
+            "\u0443\u043b\u044c\u0442\u0440\u0430\u0440\u0435\u0430\u043b",
+            "photoreal",
+            "photo-real",
+            "realistic",
+            "realism",
+            "ultrareal",
+            "hyperreal",
+            "live action",
+            "live-action",
+        )
+    )
+
+
 def _build_story_turn_image_style_instructions(style_prompt: str) -> str:
     normalized_style = _normalize_story_turn_image_style_prompt(style_prompt)
     if not normalized_style:
         return ""
 
-    normalized_casefold = normalized_style.casefold()
+    requests_realism = _story_turn_image_style_prompt_requests_realism(normalized_style)
+    requests_anime = _story_turn_image_style_prompt_requests_anime(normalized_style)
     style_parts = [
-        f"STYLE LOCK (ABSOLUTE PRIORITY): {normalized_style}.",
-        "This style instruction overrides any default renderer bias or fallback aesthetic.",
-        "Treat the style as mandatory for linework, rendering language, proportions, and overall visual identity.",
-        "Do not weaken, reinterpret, or partially apply the requested style.",
+        f"USER STYLE DIRECTIVE (HIGHEST PRIORITY, MUST FOLLOW EXACTLY): {normalized_style}.",
+        "This directive is mandatory, not a suggestion; apply every requested style, constraint, and prohibition to the entire final image.",
+        "If any model default, scene wording, or provider bias conflicts with this directive, the directive wins for visual style and prohibited elements.",
+        "Do not weaken, reinterpret, ignore, or partially apply the directive.",
+        "Character cards, world cards, and reference images define identity and scene facts only; do not inherit their art style unless the user directive asks for it.",
     ]
-    if any(token in normalized_casefold for token in ("Р°РЅРёРјРµ", "anime", "РјР°РЅРіР°", "manga")):
+    if _story_turn_image_style_prompt_forbids_text(normalized_style):
+        style_parts.append(
+            "USER TEXT BAN (ABSOLUTE): zero visible text of any kind; no letters, words, captions, subtitles, speech bubbles, signs, labels, logos, watermarks, UI, numbers, handwriting, signatures, or readable symbols."
+        )
+        style_parts.append(
+            "Do not place text-like marks in the background, on clothing, on objects, or as decorative typography."
+        )
+    if requests_realism:
+        style_parts.append(
+            "REALISM LOCK (ABSOLUTE): render as a photorealistic live-action image with real camera optics, natural lighting, real skin texture, realistic anatomy, realistic fabric, realistic materials, and believable depth of field."
+        )
+        style_parts.append(
+            "FORBIDDEN UNDER REALISM LOCK: anime, manga, visual-novel, cel-shading, lineart, drawn outlines, painterly illustration, stylized game art, doll-like faces, oversized anime eyes, simplified noses or mouths, toon shading, and 2D character art."
+        )
+        style_parts.append(
+            "If characters were originally described or referenced in anime or stylized form, reinterpret only their identity, outfit, pose, and scene role as realistic humans."
+        )
+    elif requests_anime:
         style_parts.append(
             "Strict anime look: 2D illustration, clean lineart, cel-shading, stylized facial features."
         )
         style_parts.append(
             "Avoid photorealism, avoid semi-realistic rendering."
-        )
-    if any(token in normalized_casefold for token in ("СЂРµР°Р»", "photoreal", "realistic")):
-        style_parts.append(
-            "Keep realistic human proportions, lighting, and materials."
         )
 
     return " ".join(style_parts)
@@ -1035,12 +1137,16 @@ def _build_story_turn_image_prompt(
     if not assistant_context_text and scene_focus_text:
         assistant_context_text = scene_focus_text
 
-    prompt_parts = [
-        "Single cinematic frame from one interactive RPG scene.",
-        "Keep one coherent location and one coherent moment.",
-    ]
+    prompt_parts: list[str] = []
     if style_instructions:
         prompt_parts.append(style_instructions)
+    prompt_parts.extend(
+        [
+            "GLOBAL TEXT BAN (STRICT): zero visible text, UI, watermark, logo, captions, subtitles, speech bubbles, signs, labels, letters, words, handwriting, signatures, or numbers.",
+            "Single cinematic frame from one interactive RPG scene.",
+            "Keep one coherent location and one coherent moment.",
+        ]
+    )
 
     def _append_part_if_fit(value: str) -> bool:
         normalized_value = str(value or "").strip()
@@ -1064,8 +1170,13 @@ def _build_story_turn_image_prompt(
 
     effective_full_character_card_locks = _append_full_character_locks()
     if repaired_full_character_card_locks and not effective_full_character_card_locks:
-        # Keep active character locks above all other context if the prompt budget is too tight.
+        # Keep active style and character locks above all other context if the prompt budget is too tight.
         prompt_parts = []
+        if style_instructions:
+            prompt_parts.append(style_instructions)
+        prompt_parts.append(
+            "GLOBAL TEXT BAN (STRICT): zero visible text, UI, watermark, logo, captions, subtitles, speech bubbles, signs, labels, letters, words, handwriting, signatures, or numbers."
+        )
         effective_full_character_card_locks = _append_full_character_locks()
 
     has_full_character_card_lock = bool(effective_full_character_card_locks)
@@ -1102,9 +1213,6 @@ def _build_story_turn_image_prompt(
         part_suffix=".",
         prompt_max_chars=prompt_max_chars,
         prefer_fresh_tail=True,
-    )
-    _try_append_optional_line(
-        "No text, UI, watermark, logo, captions, speech bubbles, signs, letters, words, or numbers."
     )
     _try_append_optional_line(
         "Do not invent unrelated people, symbols, dream imagery, flashbacks, parallel scenes, or extra locations."
@@ -1530,12 +1638,16 @@ def _build_story_character_avatar_prompt(
         "Full-body framing: show the character from head to toe in a standing pose.",
         "Keep the character centered with clean margins around the silhouette.",
         "No extra people, no text, no logos, no watermark, no frame.",
-        "Use high-detail stylized game art lighting and readable facial features.",
         "Use only the player's character appearance description below as the source of visual details.",
-        f"Character appearance description: {normalized_description}.",
     ]
     if normalized_style_prompt:
-        prompt_lines.append(f"Preferred visual style: {normalized_style_prompt}.")
+        prompt_lines.append(
+            f"MANDATORY USER STYLE DIRECTIVE (HIGHEST PRIORITY): {normalized_style_prompt}. "
+            "Follow it exactly for style, medium, rendering, and prohibitions."
+        )
+    else:
+        prompt_lines.append("Use high-detail stylized game art lighting and readable facial features.")
+    prompt_lines.append(f"Character appearance description: {normalized_description}.")
 
     return "\n".join(prompt_lines).strip()
 
@@ -1557,7 +1669,7 @@ def _build_story_character_emotion_reference_prompt(
         return ""
 
     prompt_lines = [
-        "Create a visual novel character reference sprite.",
+        "Create a character reference sprite for an RPG dialogue overlay.",
         "Single character only.",
         "Full-body sprite framing: show the entire character from head to feet.",
         "Do not crop at the waist, hips, knees, or shins. Boots, shoes, and the full silhouette must be visible.",
@@ -1568,7 +1680,10 @@ def _build_story_character_emotion_reference_prompt(
         f"Character appearance description: {normalized_description}.",
     ]
     if normalized_style_prompt:
-        prompt_lines.append(f"Preferred visual style: {normalized_style_prompt}.")
+        prompt_lines.append(
+            f"MANDATORY USER STYLE DIRECTIVE (HIGHEST PRIORITY): {normalized_style_prompt}. "
+            "Follow it exactly for style, medium, rendering, and prohibitions."
+        )
     return "\n".join(prompt_lines).strip()
 
 
@@ -1589,7 +1704,7 @@ def _build_story_character_emotion_prompt_lock(
         "Keep the exact same character identity as in the reference image.",
         "Preserve face shape, eye shape, hair color, hairstyle, skin tone, body proportions, clothing, accessories, and art style.",
         "Do not change the outfit, age, body type, gender presentation, or core silhouette.",
-        "Keep the camera framing in full-body visual-novel sprite range: head to feet, with the whole silhouette visible inside frame.",
+        "Keep the camera framing in full-body dialogue sprite range: head to feet, with the whole silhouette visible inside frame.",
         "Do not zoom into a portrait crop. The sprite must include legs and feet, not stop at the waist or knees.",
         "Emotion variants may change arm pose, hand placement, shoulder angle, torso angle, and body language when needed.",
         "Do not freeze every emotion into the same pose template.",
@@ -1597,7 +1712,10 @@ def _build_story_character_emotion_prompt_lock(
     if normalized_description:
         prompt_lines.append(f"Identity brief: {normalized_description}.")
     if normalized_style_prompt:
-        prompt_lines.append(f"Style lock: {normalized_style_prompt}.")
+        prompt_lines.append(
+            f"MANDATORY USER STYLE LOCK: {normalized_style_prompt}. "
+            "Preserve and obey this style exactly in every emotion variant."
+        )
     return "\n".join(prompt_lines).strip()
 
 
@@ -1627,7 +1745,7 @@ def _build_story_character_emotion_edit_prompt(
 ) -> str:
     descriptor = _resolve_story_character_emotion_descriptor(emotion_id)
     prompt_lines = [
-        "Edit the provided character reference image into a visual novel sprite.",
+        "Edit the provided character reference image into a character expression sprite.",
         "Single character only.",
         emotion_prompt_lock,
         f"Change the facial expression, hands, shoulders, torso angle, and pose so the character clearly reads as {descriptor}.",
@@ -3544,6 +3662,13 @@ def generate_story_turn_image_impl(
     )
     _validate_story_turn_image_character_card_lock_budget(full_character_card_locks)
 
+    request_image_style_prompt = getattr(payload, "image_style_prompt", None)
+    if request_image_style_prompt is not None:
+        effective_image_style_prompt = _normalize_story_turn_image_style_prompt(request_image_style_prompt)
+        game.image_style_prompt = effective_image_style_prompt
+    else:
+        effective_image_style_prompt = getattr(game, "image_style_prompt", "")
+
     selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
     _validate_story_turn_image_provider_config(selected_image_model)
     visual_prompt = _build_story_turn_image_prompt(
@@ -3551,7 +3676,7 @@ def generate_story_turn_image_impl(
         assistant_text=assistant_message.content,
         world_cards=prompt_world_cards,
         character_world_cards=character_world_cards,
-        image_style_prompt=getattr(game, "image_style_prompt", ""),
+        image_style_prompt=effective_image_style_prompt,
         full_character_card_locks=full_character_card_locks,
         model_name=selected_image_model,
     )

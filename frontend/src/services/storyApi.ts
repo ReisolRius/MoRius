@@ -2305,17 +2305,23 @@ export async function generateStoryTurnImage(payload: {
   token: string
   gameId: number
   assistantMessageId: number
+  imageStylePrompt?: string
   signal?: AbortSignal
 }): Promise<StoryTurnImageGenerationPayload> {
+  const requestPayload: Record<string, unknown> = {
+    assistant_message_id: payload.assistantMessageId,
+  }
+  if (typeof payload.imageStylePrompt === 'string') {
+    requestPayload.image_style_prompt = payload.imageStylePrompt
+  }
+
   return request<StoryTurnImageGenerationPayload>(`/api/story/games/${payload.gameId}/turn-image`, {
     method: 'POST',
     signal: payload.signal,
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
-    body: JSON.stringify({
-      assistant_message_id: payload.assistantMessageId,
-    }),
+    body: JSON.stringify(requestPayload),
   })
 }
 

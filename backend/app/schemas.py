@@ -597,6 +597,7 @@ class StoryGenerateRequest(BaseModel):
 
 class StoryTurnImageGenerateRequest(BaseModel):
     assistant_message_id: int = Field(ge=1)
+    image_style_prompt: str | None = Field(default=None, max_length=320)
 
 
 class StoryTurnImageGenerateOut(BaseModel):

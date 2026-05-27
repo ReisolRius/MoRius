@@ -12732,6 +12732,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           token: authToken,
           gameId: options.gameId,
           assistantMessageId: options.assistantMessageId,
+          imageStylePrompt: normalizeStoryImageStylePrompt(imageStylePromptDraft),
           signal: requestController.signal,
         })
         const resolvedImageUrl = (imagePayload.image_data_url ?? imagePayload.image_url ?? '').trim()
@@ -12853,7 +12854,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
       }
     },
-    [authToken, onUserUpdate, storyImageModel],
+    [authToken, imageStylePromptDraft, onUserUpdate, storyImageModel],
   )
 
   const handleGenerateLatestTurnImage = useCallback(() => {
@@ -16141,7 +16142,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <Box
                           component="input"
                           value={imageStylePromptDraft}
-                          placeholder="Аниме стиль..."
+                          placeholder="Стиль и запреты..."
                           maxLength={STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH}
                           onChange={(event: ChangeEvent<HTMLInputElement>) => handleImageStylePromptDraftChange(event.target.value)}
                           onBlur={() => {
