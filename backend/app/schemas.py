@@ -237,6 +237,7 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+    is_new_user: bool = False
 
 
 class MessageResponse(BaseModel):

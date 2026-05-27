@@ -607,7 +607,8 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             height: '100%',
             overflow: 'hidden',
             borderRadius: '18px',
-            backgroundColor: '#181b1f',
+            background:
+              'radial-gradient(ellipse at 35% 18%, rgba(239,108,0,0.18) 0%, transparent 42%), linear-gradient(180deg, #1c1713 0%, #121212 100%)',
           }}
         >
           <Box
@@ -620,14 +621,15 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             onError={() => setIsAuthHeroLoaded(true)}
             sx={{
               position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
+              left: '50%',
+              top: '50%',
+              width: 'min(100%, 920px)',
+              height: 'min(100%, 1024px)',
               display: 'block',
-              objectFit: 'cover',
-              objectPosition: 'left bottom',
+              objectFit: 'contain',
+              objectPosition: 'center center',
               opacity: isAuthHeroLoaded ? 1 : 0,
-              transform: isAuthHeroLoaded ? 'scale(1)' : 'scale(1.015)',
+              transform: isAuthHeroLoaded ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.992)',
               transition: 'opacity 720ms ease, transform 900ms ease',
             }}
           />

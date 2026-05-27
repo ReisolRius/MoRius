@@ -134,6 +134,8 @@ def _select_story_presence_penalty_value(
 POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4)
 POLZA_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
 POLZA_FALLBACK_STATUS_CODES = {404, 429, *POLZA_TRANSIENT_STATUS_CODES}
+POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
+POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 45
 POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
@@ -642,7 +644,10 @@ def _iter_polza_story_stream_chunks(
                     settings.polza_chat_url,
                     headers=headers,
                     json=payload,
-                    timeout=(20, 120),
+                    timeout=(
+                        POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS,
+                        POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS,
+                    ),
                     stream=True,
                 )
                 register_story_generation_response(
@@ -838,15 +843,23 @@ def _iter_polza_story_stream_chunks(
                             saw_done_marker,
                             fallback_max_tokens,
                         )
-                        fallback_text = _request_polza_story_text(
-                            messages_payload,
-                            model_name=model_name,
-                            allow_service_fallback=False,
-                            temperature=temperature,
-                            top_k=top_k,
-                            top_p=top_p,
-                            max_tokens=fallback_max_tokens,
-                        )
+                        try:
+                            fallback_text = _request_polza_story_text(
+                                messages_payload,
+                                model_name=model_name,
+                                allow_service_fallback=False,
+                                temperature=temperature,
+                                top_k=top_k,
+                                top_p=top_p,
+                                max_tokens=fallback_max_tokens,
+                            )
+                        except Exception as recovery_exc:
+                            logger.warning(
+                                "Polza.ai stream tail recovery failed: model=%s error=%s",
+                                model_name,
+                                recovery_exc,
+                            )
+                            fallback_text = ""
                         suffix_text = _extract_story_novel_suffix(emitted_text, fallback_text)
                         if suffix_text:
                             logger.info(
@@ -858,7 +871,59 @@ def _iter_polza_story_stream_chunks(
                                 yield chunk
                     return
 
-                raise RuntimeError("Polza.ai stream completed without textual content")
+                logger.warning(
+                    "Polza.ai stream completed without textual content; attempting non-stream fallback: model=%s provider=%s finish_reason=%s done=%s",
+                    model_name,
+                    provider_label,
+                    finish_reason or "",
+                    saw_done_marker,
+                )
+                try:
+                    fallback_text = _request_polza_story_text(
+                        messages_payload,
+                        model_name=model_name,
+                        allow_service_fallback=False,
+                        temperature=temperature,
+                        top_k=top_k,
+                        top_p=top_p,
+                        max_tokens=max_tokens,
+                    )
+                except Exception as fallback_exc:
+                    logger.warning(
+                        "Polza.ai non-stream fallback after empty stream failed: model=%s provider=%s error=%s",
+                        model_name,
+                        provider_label,
+                        fallback_exc,
+                    )
+                    fallback_text = ""
+
+                if fallback_text:
+                    logger.info(
+                        "Polza.ai non-stream fallback after empty stream produced text: model=%s chars=%s",
+                        model_name,
+                        len(fallback_text),
+                    )
+                    for chunk in _yield_story_stream_chunks_with_pacing(fallback_text):
+                        yield chunk
+                    return
+
+                last_error = RuntimeError("Polza.ai stream completed without textual content")
+                if attempt_index < len(POLZA_RETRY_DELAYS_SECONDS):
+                    logger.warning(
+                        "Polza.ai empty stream/text response; retrying same model: model=%s provider=%s next_attempt=%s",
+                        model_name,
+                        provider_label,
+                        attempt_index + 2,
+                    )
+                    _sleep_polza_retry(attempt_index)
+                    continue
+                if model_name != candidate_models[-1]:
+                    logger.warning(
+                        "Polza.ai empty stream/text response for model=%s; trying fallback model.",
+                        model_name,
+                    )
+                    break
+                raise last_error
             finally:
                 unregister_story_generation_response(
                     story_generation_game_id,

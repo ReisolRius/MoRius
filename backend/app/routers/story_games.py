@@ -1857,7 +1857,7 @@ def list_story_community_worlds(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryCommunityWorldSummaryOut]:
-    user = get_current_user(db, authorization)
+    user = get_current_user(db, authorization) if authorization else None
     normalized_sort = _normalize_story_community_world_sort(sort)
     normalized_query = _normalize_story_community_world_search_query(query)
     normalized_age_rating = _normalize_story_community_world_age_filter(age_rating)
@@ -1961,27 +1961,32 @@ def list_story_community_worlds(
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
 
-    user_rating_rows = db.scalars(
-        select(StoryCommunityWorldRating).where(
-            StoryCommunityWorldRating.user_id == user.id,
-            StoryCommunityWorldRating.world_id.in_(world_ids),
-        )
-    ).all()
-    user_rating_by_world_id = {row.world_id: int(row.rating) for row in user_rating_rows}
-    user_report_rows = db.scalars(
-        select(StoryCommunityWorldReport).where(
-            StoryCommunityWorldReport.reporter_user_id == user.id,
-            StoryCommunityWorldReport.world_id.in_(world_ids),
-        )
-    ).all()
-    reported_world_ids = {row.world_id for row in user_report_rows}
-    user_favorite_rows = db.scalars(
-        select(StoryCommunityWorldFavorite).where(
-            StoryCommunityWorldFavorite.user_id == user.id,
-            StoryCommunityWorldFavorite.world_id.in_(world_ids),
-        )
-    ).all()
-    favorited_world_ids = {row.world_id for row in user_favorite_rows}
+    if user is not None:
+        user_rating_rows = db.scalars(
+            select(StoryCommunityWorldRating).where(
+                StoryCommunityWorldRating.user_id == user.id,
+                StoryCommunityWorldRating.world_id.in_(world_ids),
+            )
+        ).all()
+        user_rating_by_world_id = {row.world_id: int(row.rating) for row in user_rating_rows}
+        user_report_rows = db.scalars(
+            select(StoryCommunityWorldReport).where(
+                StoryCommunityWorldReport.reporter_user_id == user.id,
+                StoryCommunityWorldReport.world_id.in_(world_ids),
+            )
+        ).all()
+        reported_world_ids = {row.world_id for row in user_report_rows}
+        user_favorite_rows = db.scalars(
+            select(StoryCommunityWorldFavorite).where(
+                StoryCommunityWorldFavorite.user_id == user.id,
+                StoryCommunityWorldFavorite.world_id.in_(world_ids),
+            )
+        ).all()
+        favorited_world_ids = {row.world_id for row in user_favorite_rows}
+    else:
+        user_rating_by_world_id = {}
+        reported_world_ids = set()
+        favorited_world_ids = set()
 
     return [
         story_community_world_summary_to_out(

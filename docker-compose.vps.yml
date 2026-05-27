@@ -1,4 +1,5 @@
 x-backend-polza-env: &backend_polza_env
+  GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
   STORY_LLM_PROVIDER: "${STORY_LLM_PROVIDER:-polza}"
   POLZA_API_KEY: "${POLZA_API_KEY:-}"
   POLZA_CHAT_URL: "${POLZA_CHAT_URL:-https://polza.ai/api/v1/chat/completions}"

@@ -543,7 +543,7 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 600,
 }
 STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 8_000
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 3_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
     (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
     (r"\bgender\s*[:=-]?\s*female\b", 10),
@@ -1124,11 +1124,8 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
     "qwen/qwen3.5-122b-a10b": STORY_POLZA_PROVIDER_VENICE,
-    STORY_TURN_IMAGE_MODEL_FLUX: STORY_POLZA_PROVIDER_MIE,
-    STORY_TURN_IMAGE_MODEL_SEEDREAM: STORY_POLZA_PROVIDER_MIE,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO: STORY_POLZA_PROVIDER_MIE,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: STORY_POLZA_PROVIDER_MIE,
 }
+STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL: dict[str, str] = {}
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
@@ -6001,7 +5998,18 @@ def _build_polza_provider_payload(model_name: str | None) -> dict[str, Any] | No
 
 
 def _build_polza_image_provider_payload(model_name: str | None) -> dict[str, Any]:
-    return dict(_build_polza_provider_payload(model_name) or {})
+    normalized_model = _normalize_story_model_id(model_name)
+    if not normalized_model:
+        return {}
+
+    pinned_provider = STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL.get(normalized_model)
+    if not pinned_provider:
+        return {}
+
+    return {
+        "order": [pinned_provider],
+        "allow_fallbacks": True,
+    }
 
 
 def _apply_polza_story_reasoning_preferences(
@@ -12092,6 +12100,8 @@ def _parse_polza_story_turn_image_payload(
                 image_candidates.append(candidate)
 
         _append_media_image_candidate(data_payload)
+        _append_media_image_candidate(payload_value.get("output"))
+        _append_media_image_candidate(payload_value.get("result"))
         _append_media_image_candidate(payload_value.get("image_url"))
         _append_media_image_candidate(payload_value.get("imageUrl"))
         _append_media_image_candidate(payload_value.get("url"))

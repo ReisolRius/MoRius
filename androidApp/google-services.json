@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "990879053044",
+    "project_id": "morius-193ad",
+    "storage_bucket": "morius-193ad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:990879053044:android:4ce1c506ee854691f4daa1",
+        "android_client_info": {
+          "package_name": "ru.morius.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "990879053044-4u4litr626f2i1s1h19089tovflrovf6.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "ru.morius.app",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "990879053044-vubp6ad3prcllj34ou11rto4vmin6l5k.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDsmag6bP6rmCJnt7-ACqoqn8SiuDs9B1c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "990879053044-vubp6ad3prcllj34ou11rto4vmin6l5k.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

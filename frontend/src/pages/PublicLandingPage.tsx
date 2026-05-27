@@ -9,7 +9,7 @@ import {
   type SxProps,
   type Theme,
 } from '@mui/material'
-import { brandLogo, heroClouds } from '../assets'
+import { brandLogo } from '../assets'
 import heroNewBg from '../assets/images/hero-new-bg.png'
 import characterAboutImg from '../assets/images/character-about.png'
 import slideTemplatesPreview from '../assets/images/advantages/slide-templates.png'
@@ -31,6 +31,10 @@ import landingControlsIcon from '../assets/icons/landing-controls.svg'
 import landingSendIcon from '../assets/icons/landing-send.svg'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import Footer from '../components/Footer'
+import { listPublicCommunityWorlds } from '../services/storyApi'
+import { resolveApiResourceUrl } from '../services/httpClient'
+import type { StoryCommunityWorldSummary } from '../types/story'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 
 /* --- Constants ----------------------------------------------------------- */
 
@@ -146,31 +150,44 @@ const tariffPlans: TariffPlan[] = [
   {
     id: 'pathfinder',
     title: 'Путник',
-    price: '390 ₽',
-    coins: 'Солы: 400',
-    details: ['До 15к контекста (~70к символов)', '~ 100 генерируемых картинок', '~ 250 ходов'],
+    price: '490 ₽',
+    coins: '350 солов',
+    details: [
+      'Для старта, тестовых миров и коротких кампаний.',
+      'Работает с новым лимитом контекста до 64k.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
     image: pkgPutnikImg,
   },
   {
     id: 'seeker',
     title: 'Искатель',
-    price: '1090 ₽',
-    coins: 'Солы: 1300',
-    details: ['До 15к контекста (~70к символов)', '~ 350 генерируемых картинок', '~ 750 ходов'],
+    price: '1190 ₽',
+    coins: '1000 солов',
+    details: [
+      'Оптимален для регулярной игры и длинных сцен.',
+      'Лучший баланс между ценой и запасом солов.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
     image: pkgIskateltImg,
   },
   {
     id: 'chronicler',
-    title: 'Хронист',
-    price: '2990 ₽',
-    coins: 'Солы: 3500',
-    details: ['До 15к контекста (~70к символов)', '~ 900 генерируемых картинок', '~ 2700 ходов'],
+    title: 'Архонт',
+    price: '3990 ₽',
+    coins: '3400 солов',
+    details: [
+      'Для больших кампаний и тяжёлых сцен с запасом.',
+      'Удобен, если часто используете дорогие модели.',
+      'Один баланс на текст, изображения и эффекты.',
+    ],
     image: pkgKhronistImg,
   },
 ]
 
 const footerSocialLinks: Array<{ label: string; href: string; external?: boolean }> = [
   { label: 'Вконтакте', href: 'https://vk.com/moriusai', external: true },
+  { label: 'Telegram', href: 'https://t.me/+t2ueY4x_KvE4ZWEy', external: true },
 ]
 
 const footerInfoLinks: Array<{ label: string; path: string }> = [
@@ -255,6 +272,165 @@ function RevealOnView({ children, delay = 0, y = 24, threshold = 0.18, sx }: Rev
   )
 }
 
+function shuffleLandingWorlds(worlds: StoryCommunityWorldSummary[]): StoryCommunityWorldSummary[] {
+  const nextWorlds = [...worlds]
+  for (let i = nextWorlds.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const item = nextWorlds[i]
+    nextWorlds[i] = nextWorlds[j]
+    nextWorlds[j] = item
+  }
+  return nextWorlds
+}
+
+function LandingPublicWorldCard({
+  world,
+  onClick,
+  decorative = false,
+}: {
+  world: StoryCommunityWorldSummary
+  onClick: () => void
+  decorative?: boolean
+}) {
+  const coverImageUrl = resolveApiResourceUrl(world.cover_image_url)
+
+  return (
+    <Box
+      component="button"
+      type="button"
+      disabled={decorative}
+      tabIndex={decorative ? -1 : undefined}
+      onClick={decorative ? undefined : onClick}
+      sx={{
+        p: 0,
+        border: `0.5px solid ${CARD_BORDER}`,
+        borderRadius: '8px',
+        overflow: 'hidden',
+        backgroundColor: CARD_BG,
+        color: TEXT_HEADING,
+        width: { xs: 270, sm: 292, md: 324 },
+        height: { xs: 380, md: 420 },
+        flex: '0 0 auto',
+        textAlign: 'left',
+        cursor: decorative ? 'default' : 'pointer',
+        boxShadow: '0 20px 48px rgba(0,0,0,0.34)',
+        transition: 'transform 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
+        '&:hover': decorative
+          ? undefined
+          : {
+              transform: 'translateY(-6px)',
+              borderColor: 'rgba(239,108,0,0.45)',
+              boxShadow: '0 26px 64px rgba(0,0,0,0.48), 0 0 28px rgba(239,108,0,0.16)',
+            },
+        '&:focus-visible': {
+          outline: '2px solid rgba(239,108,0,0.72)',
+          outlineOffset: '3px',
+        },
+        '&:disabled': {
+          color: TEXT_HEADING,
+        },
+      }}
+    >
+      <Box
+        sx={{
+          position: 'relative',
+          height: { xs: 188, md: 210 },
+          overflow: 'hidden',
+          ...(!coverImageUrl ? buildWorldFallbackArtwork(world.id) : {}),
+        }}
+      >
+        {coverImageUrl ? (
+          <Box
+            component="img"
+            src={coverImageUrl}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              objectPosition: `${world.cover_position_x ?? 50}% ${world.cover_position_y ?? 50}%`,
+            }}
+          />
+        ) : null}
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            background:
+              'linear-gradient(180deg, rgba(4,4,4,0.08) 0%, rgba(9,7,5,0.2) 46%, rgba(17,17,17,0.94) 100%)',
+          }}
+        />
+        <Typography
+          sx={{
+            position: 'absolute',
+            left: 18,
+            right: 18,
+            bottom: 16,
+            color: '#ffffff',
+            fontFamily: '"Nunito Sans", sans-serif',
+            fontWeight: 900,
+            fontSize: { xs: '1.42rem', md: '1.58rem' },
+            lineHeight: 1.05,
+            display: '-webkit-box',
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            textShadow: '0 3px 14px rgba(0,0,0,0.72)',
+          }}
+        >
+          {world.title}
+        </Typography>
+      </Box>
+
+      <Stack sx={{ p: { xs: 2, md: 2.25 }, gap: 1.35, height: { xs: 192, md: 210 } }}>
+        <Typography
+          sx={{
+            color: TEXT_BODY,
+            fontFamily: '"Nunito Sans", sans-serif',
+            fontSize: { xs: '0.9rem', md: '0.95rem' },
+            lineHeight: 1.5,
+            minHeight: '4.5em',
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {world.description || 'Готовый публичный мир от игроков MoRius.'}
+        </Typography>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mt: 'auto', minWidth: 0 }}>
+          <Typography
+            sx={{
+              color: TEXT_SUBTITLE,
+              fontFamily: '"Nunito Sans", sans-serif',
+              fontSize: '0.82rem',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              pr: 1,
+            }}
+          >
+            {world.author_name}
+          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1.4} sx={{ color: '#ffffff', flexShrink: 0 }}>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Nunito Sans", sans-serif' }}>
+              ▶ {world.community_launches}
+            </Typography>
+            <Typography sx={{ fontSize: '0.84rem', fontWeight: 800, fontFamily: '"Nunito Sans", sans-serif' }}>
+              ★ {world.community_rating_avg.toFixed(1)}
+            </Typography>
+          </Stack>
+        </Stack>
+      </Stack>
+    </Box>
+  )
+}
+
 /* --- Component props ------------------------------------------------------ */
 
 type PublicLandingPageProps = {
@@ -281,6 +457,7 @@ export default function PublicLandingPage({
   const [currentFeatureSlide, setCurrentFeatureSlide] = useState(0)
   const [currentPlanSlide, setCurrentPlanSlide] = useState(1)
   const [isHeroBackgroundLoaded, setIsHeroBackgroundLoaded] = useState(false)
+  const [publicWorlds, setPublicWorlds] = useState<StoryCommunityWorldSummary[]>([])
 
   /* Story typewriter */
   useEffect(() => {
@@ -330,6 +507,25 @@ export default function PublicLandingPage({
       if (frameId) {
         window.cancelAnimationFrame(frameId)
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    void listPublicCommunityWorlds({ limit: 24, sort: 'updated_desc' })
+      .then((worlds) => {
+        if (!active) {
+          return
+        }
+        setPublicWorlds(shuffleLandingWorlds(worlds).slice(0, 12))
+      })
+      .catch(() => {
+        if (active) {
+          setPublicWorlds([])
+        }
+      })
+    return () => {
+      active = false
     }
   }, [])
 
@@ -407,46 +603,41 @@ export default function PublicLandingPage({
             zIndex: 1,
           }}
         />
-        {/* Smoke overlay at the bottom */}
-        <Box
-          aria-hidden
-          sx={{
-            position: 'absolute',
-            bottom: { xs: -150, md: -190 },
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: { xs: '260%', md: '175%' },
-            height: { xs: 440, md: 560 },
-            pointerEvents: 'none',
-            zIndex: 2,
-            filter: 'blur(1.5px)',
-            opacity: 0.86,
-            WebkitMaskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.16) 18%, rgba(0,0,0,0.9) 43%, rgba(0,0,0,0.72) 64%, transparent 100%)',
-            maskImage:
-              'linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.16) 18%, rgba(0,0,0,0.9) 43%, rgba(0,0,0,0.72) 64%, transparent 100%)',
-          }}
-        >
-          <Box
-            component="img"
-            src={heroClouds}
-            alt=""
-            sx={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: '50% 60%', opacity: 0.9 }}
-          />
-        </Box>
-
         {/* Content */}
         <Stack spacing={2.5} alignItems="center" sx={{ position: 'relative', zIndex: 3, maxWidth: 860 }}>
-          <Box
-            component="img"
-            src={brandLogo}
-            alt="Morius"
-            sx={{
-              width: { xs: 200, sm: 280, md: 340 },
-              maxWidth: '85%',
-              animation: 'morius-fade-up 620ms cubic-bezier(0.22,1,0.36,1) both',
-            }}
-          />
+          <Box sx={{ position: 'relative', display: 'inline-flex', animation: 'morius-fade-up 620ms cubic-bezier(0.22,1,0.36,1) both' }}>
+            <Box
+              component="img"
+              src={brandLogo}
+              alt="Morius"
+              sx={{
+                width: { xs: 200, sm: 280, md: 340 },
+                maxWidth: '85vw',
+                display: 'block',
+              }}
+            />
+            <Box
+              sx={{
+                position: 'absolute',
+                right: { xs: -18, sm: -28, md: -34 },
+                top: { xs: 8, sm: 12, md: 14 },
+                px: { xs: 1, md: 1.25 },
+                py: 0.42,
+                borderRadius: '999px',
+                border: '1px solid rgba(239,108,0,0.62)',
+                background: 'linear-gradient(180deg, rgba(239,108,0,0.92), rgba(160,65,0,0.92))',
+                boxShadow: '0 10px 26px rgba(239,108,0,0.34)',
+                color: '#ffffff',
+                fontFamily: '"Nunito Sans", sans-serif',
+                fontSize: { xs: '0.72rem', md: '0.82rem' },
+                fontWeight: 900,
+                lineHeight: 1,
+                letterSpacing: 0,
+              }}
+            >
+              2.0
+            </Box>
+          </Box>
           <Typography
             component="h1"
             sx={{
@@ -492,7 +683,7 @@ export default function PublicLandingPage({
         component="section"
         sx={{
           position: 'relative',
-          background: 'linear-gradient(180deg, #1a1309 0%, #1a1309 68%, #111111 100%)',
+          background: 'linear-gradient(180deg, #111111 0%, #1a1309 18%, #1a1309 68%, #111111 100%)',
           py: { xs: 0, md: 0 },
           overflow: 'hidden',
           /* warm radial glow on the left */
@@ -740,6 +931,112 @@ export default function PublicLandingPage({
           </RevealOnView>
         </Container>
       </Box>
+
+      {publicWorlds.length > 0 ? (
+        <Box
+          component="section"
+          sx={{
+            position: 'relative',
+            backgroundColor: '#111111',
+            py: { xs: 9, md: 13 },
+            overflow: 'hidden',
+            '@keyframes morius-public-worlds-scroll': {
+              '0%': { transform: 'translateX(0)' },
+              '100%': { transform: 'translateX(-50%)' },
+            },
+          }}
+        >
+          <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 2, textAlign: 'center', mb: { xs: 4.5, md: 6 } }}>
+            <RevealOnView>
+              <Typography
+                component="h2"
+                sx={{
+                  ...sectionHeadingSx,
+                  fontSize: { xs: '1.8rem', sm: '2.2rem', md: '2.8rem' },
+                  lineHeight: 1.14,
+                }}
+              >
+                Публичные готовые миры
+              </Typography>
+              <Typography
+                sx={{
+                  mt: 1.5,
+                  color: TEXT_BODY,
+                  fontFamily: '"Nunito Sans", sans-serif',
+                  fontSize: { xs: '0.95rem', md: '1.08rem' },
+                  lineHeight: 1.55,
+                }}
+              >
+                Создавай миры и делись ими, или играй в готовые созданные другими игроками!
+              </Typography>
+            </RevealOnView>
+          </Container>
+
+          <RevealOnView delay={80} threshold={0.08}>
+            <Box
+              sx={{
+                position: 'relative',
+                width: '100%',
+                overflow: 'hidden',
+                px: { xs: 0, md: 0 },
+                WebkitMaskImage: {
+                  xs: 'linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%)',
+                  md: 'linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)',
+                },
+                maskImage: {
+                  xs: 'linear-gradient(90deg, transparent 0%, #000 8%, #000 92%, transparent 100%)',
+                  md: 'linear-gradient(90deg, transparent 0%, #000 12%, #000 88%, transparent 100%)',
+                },
+              }}
+            >
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  inset: { xs: '24px 0 12px', md: '32px 0 16px' },
+                  display: 'flex',
+                  gap: { xs: 2, md: 2.5 },
+                  width: 'max-content',
+                  animation: 'morius-public-worlds-scroll 44s linear infinite',
+                  filter: 'blur(16px)',
+                  opacity: 0.28,
+                  transform: 'scale(0.96)',
+                  transformOrigin: 'center',
+                  pointerEvents: 'none',
+                }}
+              >
+                {[...publicWorlds, ...publicWorlds].map((world, index) => (
+                  <LandingPublicWorldCard
+                    key={`public-world-blur-${world.id}-${index}`}
+                    world={world}
+                    onClick={() => undefined}
+                    decorative
+                  />
+                ))}
+              </Box>
+              <Box
+                sx={{
+                  position: 'relative',
+                  zIndex: 1,
+                  display: 'flex',
+                  gap: { xs: 2, md: 2.5 },
+                  width: 'max-content',
+                  animation: 'morius-public-worlds-scroll 44s linear infinite',
+                  '&:hover': { animationPlayState: 'paused' },
+                }}
+              >
+                {[...publicWorlds, ...publicWorlds].map((world, index) => (
+                  <LandingPublicWorldCard
+                    key={`public-world-${world.id}-${index}`}
+                    world={world}
+                    onClick={() => openAuthPage('register')}
+                  />
+                ))}
+              </Box>
+            </Box>
+          </RevealOnView>
+        </Box>
+      ) : null}
 
       {/* ==================================================================
           4. ПРЕИМУЩЕСТВА И ОСОБЕННОСТИ

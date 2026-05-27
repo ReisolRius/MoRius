@@ -38,7 +38,11 @@ function VkIcon() {
 }
 
 export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }: FooterProps) {
-  const telegramLink = socialLinks.find((l) => l.href?.includes('t.me'))
+  const telegramLink = socialLinks.find((l) => l.href?.includes('t.me')) ?? {
+    label: 'Telegram',
+    href: 'https://t.me/+t2ueY4x_KvE4ZWEy',
+    external: true,
+  }
   const vkLink = socialLinks.find((l) => l.href?.includes('vk.com'))
 
   return (
@@ -120,25 +124,6 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
 
         {/* Social icon buttons from Figma */}
         <Stack direction="row" spacing="16px" alignItems="center" sx={{ flexShrink: 0, order: { xs: 1, md: 0 }, ml: { xs: 'auto', md: 0 } }}>
-          {telegramLink?.href && (
-            <Box
-              component="a"
-              href={telegramLink.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={telegramLink.label}
-              title={telegramLink.label}
-              sx={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                textDecoration: 'none', borderRadius: '50%',
-                transition: 'opacity 180ms ease, transform 180ms ease',
-                '&:hover': { opacity: 0.8, transform: 'translateY(-1px)' },
-                '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.56)', outlineOffset: '3px', borderRadius: '50%' },
-              }}
-            >
-              <TelegramIcon />
-            </Box>
-          )}
           {vkLink?.href && (
             <Box
               component="a"
@@ -156,6 +141,25 @@ export default function Footer({ socialLinks = [], infoLinks = [], onNavigate }:
               }}
             >
               <VkIcon />
+            </Box>
+          )}
+          {telegramLink?.href && (
+            <Box
+              component="a"
+              href={telegramLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={telegramLink.label}
+              title={telegramLink.label}
+              sx={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                textDecoration: 'none', borderRadius: '50%',
+                transition: 'opacity 180ms ease, transform 180ms ease',
+                '&:hover': { opacity: 0.8, transform: 'translateY(-1px)' },
+                '&:focus-visible': { outline: '2px solid rgba(205,223,246,0.56)', outlineOffset: '3px', borderRadius: '50%' },
+              }}
+            >
+              <TelegramIcon />
             </Box>
           )}
         </Stack>

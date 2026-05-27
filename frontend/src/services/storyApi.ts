@@ -53,6 +53,19 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504])
 const REQUEST_RETRY_DELAYS_MS = [250, 700] as const
 const STORY_CHARACTER_EMOTION_GENERATION_TIMEOUT_MS = 600_000
 const STORY_CHARACTER_EMOTION_GENERATION_POLL_INTERVAL_MS = 1_500
+const STORY_GENERATION_INTERRUPTED_MESSAGE =
+  'Генерация прервалась. Зависший запрос остановлен, можно повторить ход или продолжить сцену.'
+const STORY_GENERATION_TRANSPORT_ERROR_MARKERS = [
+  'network error',
+  'failed to fetch',
+  'failed to connect to api',
+  'generation stream connection was interrupted',
+  'generation stream ended unexpectedly before terminal event',
+  'failed while reading polza.ai chat stream',
+  'игровая сессия сейчас занята',
+  'load failed',
+  'terminated',
+] as const
 const STORY_DEFAULT_REPETITION_PENALTY = 1.05
 const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
   status: 'none',
@@ -110,6 +123,10 @@ function normalizeStoryProviderErrorMessage(detail: string): string {
   const normalizedDetail = detail.replace(/\s+/g, ' ').trim()
   if (!normalizedDetail) {
     return 'Story generation failed'
+  }
+  const loweredTransportDetail = normalizedDetail.toLocaleLowerCase()
+  if (STORY_GENERATION_TRANSPORT_ERROR_MARKERS.some((marker) => loweredTransportDetail.includes(marker))) {
+    return STORY_GENERATION_INTERRUPTED_MESSAGE
   }
 
   let cleanedDetail = normalizedDetail
@@ -812,17 +829,16 @@ export async function listStoryGames(
   })
 }
 
-export async function listCommunityWorlds(
-  token: string,
-  options: {
-    limit?: number
-    offset?: number
-    sort?: 'updated_desc' | 'rating_desc' | 'launches_desc' | 'views_desc'
-    query?: string
-    ageRating?: '6+' | '16+' | '18+' | null
-    genre?: string | null
-  } = {},
-): Promise<StoryCommunityWorldSummary[]> {
+type CommunityWorldListOptions = {
+  limit?: number
+  offset?: number
+  sort?: 'updated_desc' | 'rating_desc' | 'launches_desc' | 'views_desc'
+  query?: string
+  ageRating?: '6+' | '16+' | '18+' | null
+  genre?: string | null
+}
+
+function buildCommunityWorldsPath(options: CommunityWorldListOptions = {}): string {
   const params = new URLSearchParams()
   if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
     params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
@@ -843,8 +859,23 @@ export async function listCommunityWorlds(
     params.set('genre', options.genre.trim())
   }
   const query = params.toString()
-  const path = query ? `/api/story/community/worlds?${query}` : '/api/story/community/worlds'
-  return request<StoryCommunityWorldSummary[]>(path, {
+  return query ? `/api/story/community/worlds?${query}` : '/api/story/community/worlds'
+}
+
+export async function listPublicCommunityWorlds(
+  options: CommunityWorldListOptions = {},
+): Promise<StoryCommunityWorldSummary[]> {
+  return request<StoryCommunityWorldSummary[]>(buildCommunityWorldsPath(options), {
+    method: 'GET',
+    cache: 'no-store',
+  })
+}
+
+export async function listCommunityWorlds(
+  token: string,
+  options: CommunityWorldListOptions = {},
+): Promise<StoryCommunityWorldSummary[]> {
+  return request<StoryCommunityWorldSummary[]>(buildCommunityWorldsPath(options), {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -2044,9 +2075,11 @@ export async function refreshStoryMessageSceneEmotionCue(payload: {
 export async function cancelStoryGeneration(payload: {
   token: string
   gameId: number
+  signal?: AbortSignal
 }): Promise<void> {
   await request<{ message: string }>(`/api/story/games/${payload.gameId}/generation/cancel`, {
     method: 'POST',
+    signal: payload.signal,
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
@@ -2117,8 +2150,11 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
       body: JSON.stringify(requestPayload),
       signal: options.signal,
     })
-  } catch {
-    throw new Error(`Failed to connect to API (${targetUrl}).`)
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw error
+    }
+    throw new Error(normalizeStoryProviderErrorMessage(`Failed to connect to API (${targetUrl}).`))
   }
 
   if (!response.ok) {
@@ -2136,8 +2172,10 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   let streamError: Error | null = null
   let streamTerminalEventReceived = false
 
-  const toStreamError = (error: unknown, fallbackMessage: string): Error =>
-    error instanceof Error ? error : new Error(fallbackMessage)
+  const toStreamError = (error: unknown, fallbackMessage: string): Error => {
+    const detail = error instanceof Error && error.message.trim() ? error.message : fallbackMessage
+    return new Error(normalizeStoryProviderErrorMessage(detail))
+  }
 
   const processBufferedBlocks = (allowTrailingBlock: boolean) => {
     buffer = buffer.replace(/\r\n/g, '\n')
@@ -2255,7 +2293,7 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   }
 
   if (!streamTerminalEventReceived && !streamError) {
-    throw new Error('Generation stream ended unexpectedly before terminal event')
+    throw new Error(normalizeStoryProviderErrorMessage('Generation stream ended unexpectedly before terminal event'))
   }
 
   if (streamError) {

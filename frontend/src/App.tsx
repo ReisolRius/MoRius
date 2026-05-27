@@ -10,6 +10,7 @@ import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
 import AiAssistantPanel from './components/ai/AiAssistantPanel'
+import { AI_ASSISTANT_OPEN_EVENT } from './components/ai/aiAssistantEvents'
 import { getMoriusThemeById, useMoriusThemeController } from './theme'
 import { buildPresetFromCustomTheme } from './theme/customTheme'
 import {
@@ -248,7 +249,6 @@ const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
 const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
 const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
 const loadProfilePage = () => import('./pages/ProfilePage')
-const loadOnboardingTour = () => import('./components/onboarding/OnboardingTour')
 
 const PublicLandingPage = lazy(loadPublicLandingPage)
 const AuthPage = lazy(loadAuthPage)
@@ -261,7 +261,6 @@ const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
 const WorldCreatePage = lazy(loadWorldCreatePage)
 const LegalDocumentPage = lazy(loadLegalDocumentPage)
 const ProfilePage = lazy(loadProfilePage)
-const OnboardingTour = lazy(loadOnboardingTour)
 
 function warmPageLoaders(loaders: PageLoader[]): () => void {
   if (typeof window === 'undefined' || loaders.length === 0) {
@@ -302,6 +301,7 @@ function App() {
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
   const [pendingReferralCode, setPendingReferralCode] = useState(() => readPendingReferralCode())
   const [isRouteTransitionVisible, setIsRouteTransitionVisible] = useState(false)
+  const [shouldOpenAiAssistantAfterAuth, setShouldOpenAiAssistantAfterAuth] = useState(false)
   const hasTrackedInitialRouteRef = useRef(false)
   const routeTransitionTimerRef = useRef<number | null>(null)
   const isAuthenticated = Boolean(authToken && authUser)
@@ -584,12 +584,31 @@ function App() {
     }
   }, [authToken, authUser, isHydratingSession, navigate, path])
 
+  useEffect(() => {
+    if (
+      !shouldOpenAiAssistantAfterAuth ||
+      !authToken ||
+      !authUser ||
+      isLegalPath(path)
+    ) {
+      return
+    }
+
+    const timerId = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent(AI_ASSISTANT_OPEN_EVENT))
+      setShouldOpenAiAssistantAfterAuth(false)
+    }, 320)
+
+    return () => window.clearTimeout(timerId)
+  }, [authToken, authUser, path, shouldOpenAiAssistantAfterAuth])
+
   const handleAuthSuccess = useCallback(
     (payload: AuthResponse) => {
       persistAuthSession(payload)
       setAuthToken(payload.access_token)
       setAuthUser(payload.user)
       setIsHydratingSession(false)
+      setShouldOpenAiAssistantAfterAuth(Boolean(payload.is_new_user))
       navigate('/dashboard')
     },
     [navigate],
@@ -769,11 +788,6 @@ function App() {
     <>
       <FantasyRouteTransition active={shouldShowRouteTransition} />
       {pageContent}
-      {isAuthenticated && authUser && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
-        <Suspense fallback={null}>
-          <OnboardingTour userId={authUser.id} authToken={authToken!} path={path} onNavigate={navigate} />
-        </Suspense>
-      ) : null}
       {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
         <AiAssistantPanel
           user={authUser}

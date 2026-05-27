@@ -648,6 +648,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
         db.commit()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User with this email already exists")
 
+    is_new_user = False
     if existing_user and not existing_user.password_hash:
         existing_user.password_hash = verification.password_hash
         existing_user.auth_provider = provider_union(existing_user.auth_provider, "email")
@@ -655,6 +656,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
             existing_user.display_name = verification.display_name
         user = existing_user
     else:
+        is_new_user = True
         user = User(
             email=normalized_email,
             password_hash=verification.password_hash,
@@ -671,7 +673,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(normalized_email)
-    return issue_auth_response(user)
+    return issue_auth_response(user, is_new_user=is_new_user)
 
 
 @router.post("/api/auth/password-reset", response_model=MessageResponse)
@@ -925,6 +927,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
         )
 
     user = user_by_google_sub or user_by_email
+    is_new_user = user is None
     if user is None:
         user = User(
             email=email,
@@ -978,7 +981,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail = f"{detail}: {exc}"
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
 
-    return issue_auth_response(user)
+    return issue_auth_response(user, is_new_user=is_new_user)
 
 
 @router.post("/api/auth/logout", response_model=MessageResponse)

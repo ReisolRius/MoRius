@@ -53,6 +53,7 @@ from app.services.story_smart_regeneration import (
 from app.services.sqlite_write_guard import commit_with_retry, is_database_busy_session_error
 from app.services.story_generation_cancel import (
     StoryGenerationCancelled,
+    cancel_story_generation,
     mark_story_generation_finished,
     mark_story_generation_started,
 )
@@ -60,6 +61,8 @@ from app.services.story_generation_cancel import (
 logger = logging.getLogger(__name__)
 STORY_MEMORY_SOURCE_EN_MODEL_IDS: set[str] = set()
 STORY_SQLITE_BUSY_DETAIL = "Игровая сессия сейчас занята другой операцией. Попробуйте ещё раз через пару секунд."
+STORY_GENERATE_LOCK_WAIT_SECONDS = 2.0
+STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS = 8.0
 
 
 def _is_sqlite_database_url(database_url: str | None) -> bool:
@@ -1805,14 +1808,28 @@ def generate_story_response(
         operation_lease = acquire_story_game_operation_lock(
             game.id,
             operation="story_generate",
-            wait_timeout_seconds=2.0,
+            wait_timeout_seconds=STORY_GENERATE_LOCK_WAIT_SECONDS,
         )
-    except StoryGameOperationBusyError as exc:
-        logger.warning("Story generate lock timed out: game_id=%s error=%s", game.id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=STORY_SQLITE_BUSY_DETAIL,
-        ) from exc
+    except StoryGameOperationBusyError as initial_exc:
+        cancelled_previous_generation = cancel_story_generation(game.id)
+        logger.warning(
+            "Story generate lock timed out; requested active generation cancellation: game_id=%s cancelled=%s error=%s",
+            game.id,
+            cancelled_previous_generation,
+            initial_exc,
+        )
+        try:
+            operation_lease = acquire_story_game_operation_lock(
+                game.id,
+                operation="story_generate",
+                wait_timeout_seconds=STORY_GENERATE_LOCK_CANCEL_WAIT_SECONDS,
+            )
+        except StoryGameOperationBusyError as exc:
+            logger.warning("Story generate lock timed out after cancellation wait: game_id=%s error=%s", game.id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=STORY_SQLITE_BUSY_DETAIL,
+            ) from exc
 
     def _release_operation_lease() -> None:
         try:

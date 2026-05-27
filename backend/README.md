@@ -31,4 +31,4 @@
 - `JWT_SECRET_KEY`
 - `ACCESS_TOKEN_TTL_MINUTES`
 - `CORS_ORIGINS` (например `http://localhost:5173`)
-- `GOOGLE_CLIENT_ID` (обязателен для Google login)
+- `GOOGLE_CLIENT_ID` (обязателен для Google login; можно указать несколько client id через запятую)

@@ -1300,8 +1300,10 @@ def _build_story_turn_image_polza_payload(
             "messages": [{"role": "user", "content": message_content}],
             "modalities": ["image"],
             "stream": False,
-            "provider": _build_polza_image_provider_payload(selected_model),
         }
+        provider_payload = _build_polza_image_provider_payload(selected_model)
+        if provider_payload:
+            payload["provider"] = provider_payload
         aspect_ratio = _resolve_story_turn_image_aspect_ratio(settings.polza_image_size)
         if aspect_ratio:
             payload["image_config"] = {"aspect_ratio": aspect_ratio}

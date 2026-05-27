@@ -37,4 +37,5 @@ export type AuthResponse = {
   access_token: string
   token_type: 'bearer'
   user: AuthUser
+  is_new_user?: boolean
 }

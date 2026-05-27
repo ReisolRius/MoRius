@@ -123,9 +123,9 @@ def is_allowed_google_audience(claim_aud: Any, claim_azp: Any, allowed_client_id
     return False
 
 
-def issue_auth_response(user: User) -> AuthResponse:
+def issue_auth_response(user: User, *, is_new_user: bool = False) -> AuthResponse:
     token = create_access_token(subject=str(user.id), claims={"email": user.email})
-    return AuthResponse(access_token=token, user=UserOut.model_validate(user))
+    return AuthResponse(access_token=token, user=UserOut.model_validate(user), is_new_user=is_new_user)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:

@@ -314,6 +314,17 @@ const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STREAMING_CARET_CLASS_NAME = 'morius-streaming-caret'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 120_000
+const STORY_GENERATION_CANCEL_TIMEOUT_MS = 4_000
+const STORY_GENERATION_INTERRUPTION_MARKERS = [
+  'генерация прервалась',
+  'network error',
+  'failed to fetch',
+  'failed to connect to api',
+  'generation stream connection was interrupted',
+  'generation stream ended unexpectedly before terminal event',
+  'failed while reading polza.ai chat stream',
+  'игровая сессия сейчас занята',
+] as const
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
@@ -905,6 +916,30 @@ const NARRATOR_STAT_MOJIBAKE_MARKER_REGEX = /[\u0420\u040E\u0402]/u
 
 function formatStoryImageModelLabel(option: { title: string; priceLabel: string }): string {
   return `${option.title} (${option.priceLabel})`
+}
+
+function isStoryGenerationInterruptionDetail(value: string): boolean {
+  const normalizedValue = value.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+  return Boolean(
+    normalizedValue &&
+      STORY_GENERATION_INTERRUPTION_MARKERS.some((marker) => normalizedValue.includes(marker)),
+  )
+}
+
+async function requestStoryGenerationCancelWithTimeout(token: string, gameId: number): Promise<void> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => {
+    controller.abort()
+  }, STORY_GENERATION_CANCEL_TIMEOUT_MS)
+  try {
+    await cancelStoryGeneration({
+      token,
+      gameId,
+      signal: controller.signal,
+    })
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
 }
 
 function resolveNarratorStatLabel(label: string, index: number): string {
@@ -13119,6 +13154,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         } else {
           generationFailed = true
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
+          const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
+          if (streamStarted || startedAssistantMessageId !== null || generationInterrupted) {
+            try {
+              await requestStoryGenerationCancelWithTimeout(authToken, options.gameId)
+            } catch (cancelError) {
+              console.error('Story generation cancellation after stream failure failed', cancelError)
+            }
+          }
           if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
             setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
           }
@@ -13127,6 +13170,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             setTopUpDialogOpen(true)
             setProfileDialogOpen(false)
             setConfirmLogoutOpen(false)
+          } else if (generationInterrupted) {
+            setErrorMessage('')
           } else {
             setErrorMessage(detail)
           }
