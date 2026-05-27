@@ -411,6 +411,7 @@ const STORY_TEMPERATURE_MAX = 2
 const STORY_DEFAULT_TEMPERATURE = 0.75
 const STORY_DEFAULT_NARRATOR_MODEL_ID: StoryNarratorModelId = 'deepseek/deepseek-chat-v3-0324'
 const STORY_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'flux.2-pro'
+const STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'flux.2-klein-4b'
 const STORY_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'seedream-4.5'
 const STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID: StoryImageModelId = 'qwen-image-edit'
 const STORY_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
@@ -855,34 +856,40 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   priceLabel: string
 }> = [
   {
-    id: STORY_IMAGE_MODEL_FLUX_ID,
-    title: 'Flux',
+    id: STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
+    title: 'Flux.2 Klein 4B',
     description: 'AITunnel. 3 сола за генерацию кадра.',
     priceLabel: '3 \u0441\u043e\u043b\u0430',
   },
   {
-    id: STORY_IMAGE_MODEL_SEEDREAM_ID,
-    title: 'Seedream',
-    description: 'AITunnel. 5 солов за генерацию кадра.',
+    id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
+    title: 'Nano Banano 7',
+    description: '5 солов за генерацию кадра.',
     priceLabel: '5 \u0441\u043e\u043b\u043e\u0432',
+  },
+  {
+    id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
+    title: 'Nano Banano',
+    description: '6 солов за генерацию кадра.',
+    priceLabel: '6 \u0441\u043e\u043b\u043e\u0432',
+  },
+  {
+    id: STORY_IMAGE_MODEL_FLUX_ID,
+    title: 'Flux 2 Pro',
+    description: 'AITunnel. 9 солов за генерацию кадра.',
+    priceLabel: '9 \u0441\u043e\u043b\u043e\u0432',
+  },
+  {
+    id: STORY_IMAGE_MODEL_SEEDREAM_ID,
+    title: 'Seedream 4.5',
+    description: 'AITunnel. 10 солов за генерацию кадра.',
+    priceLabel: '10 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
     title: 'Qwen Image Edit',
     description: 'AITunnel. Художник-редактор для аккуратной стилизации и правки кадра.',
-    priceLabel: '8 \u0441\u043e\u043b\u043e\u0432',
-  },
-  {
-    id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
-    title: 'Nano Banano',
-    description: '15 солов за генерацию кадра.',
-    priceLabel: '15 \u0441\u043e\u043b\u043e\u0432',
-  },
-  {
-    id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
-    title: 'Nano Banano 2',
-    description: '30 sols per scene generation.',
-    priceLabel: '30 \u0441\u043e\u043b\u043e\u0432',
+    priceLabel: '12 \u0441\u043e\u043b\u043e\u0432',
   },
 ]
 const STORY_SETTINGS_INFO_TEXT = {

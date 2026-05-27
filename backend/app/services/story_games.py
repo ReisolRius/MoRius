@@ -197,6 +197,7 @@ STORY_TURN_COST_PREMIUM_LLM_MODELS = {
 }
 STORY_IMAGE_MODEL_FLUX = "flux.2-pro"
 STORY_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
+STORY_IMAGE_MODEL_FLUX_KLEIN_4B = "flux.2-klein-4b"
 STORY_IMAGE_MODEL_SEEDREAM = "seedream-4.5"
 STORY_IMAGE_MODEL_SEEDREAM_PROVIDER_LEGACY = "bytedance/seedream-4.5"
 STORY_IMAGE_MODEL_SEEDREAM_LEGACY = "bytedance-seed/seedream-4.5"
@@ -205,6 +206,7 @@ STORY_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_DEFAULT_IMAGE_MODEL = STORY_IMAGE_MODEL_FLUX
 STORY_SUPPORTED_IMAGE_MODELS = {
+    STORY_IMAGE_MODEL_FLUX_KLEIN_4B,
     STORY_IMAGE_MODEL_FLUX,
     STORY_IMAGE_MODEL_SEEDREAM,
     STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT,
@@ -560,7 +562,7 @@ def normalize_story_image_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported image model. "
-                "Use one of: flux.2-pro, seedream-4.5, qwen-image-edit, "
+                "Use one of: flux.2-klein-4b, flux.2-pro, seedream-4.5, qwen-image-edit, "
                 "google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview"
             ),
         )

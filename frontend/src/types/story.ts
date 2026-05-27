@@ -40,6 +40,7 @@ export type StoryAppearanceBackgroundMode = 'default' | 'custom'
 export type StoryAppearanceUiStyle = 'default' | 'cyberpunk' | 'fantasy' | 'modern'
 export type StoryAppearanceTextStyle = 'default' | 'serif' | 'terminal'
 export type StoryImageModelId =
+  | 'flux.2-klein-4b'
   | 'flux.2-pro'
   | 'seedream-4.5'
   | 'qwen-image-edit'

@@ -92,6 +92,7 @@ const CHARACTER_EDITOR_AVATAR_SIZE = 248
 const CHARACTER_AI_AVATAR_OUTPUT_SIZE = 640
 const CHARACTER_AI_AVATAR_STYLE_PROMPT_MAX_LENGTH = 320
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID: StoryImageModelId = 'flux.2-pro'
+const CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID: StoryImageModelId = 'flux.2-klein-4b'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID: StoryImageModelId = 'seedream-4.5'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID: StoryImageModelId = 'qwen-image-edit'
 const CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID: StoryImageModelId = 'google/gemini-2.5-flash-image'
@@ -103,34 +104,40 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
   cost: number
 }> = [
   {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,
-    title: 'Flux',
-    description: 'Быстрая и сбалансированная генерация.',
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
+    title: 'Flux.2 Klein 4B',
+    description: 'AITunnel. Fast economical image generation.',
     cost: 3,
   },
   {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
-    title: 'Seedream',
-    description: 'Более художественная и мягкая подача.',
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
+    title: 'Nano Banano 7',
+    description: 'Maximum detail and depth rendering.',
     cost: 5,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
+    title: 'Nano Banano',
+    description: 'High-detail character rendering.',
+    cost: 6,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,
+    title: 'Flux 2 Pro',
+    description: 'Быстрая и сбалансированная генерация.',
+    cost: 9,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
+    title: 'Seedream 4.5',
+    description: 'Более художественная и мягкая подача.',
+    cost: 10,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
     title: 'Qwen Image Edit',
     description: 'AITunnel-редактор для аккуратных правок и стилизации персонажа.',
-    cost: 8,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
-    title: 'Nano Banano',
-    description: 'Высокая детализация персонажа.',
-    cost: 15,
-  },
-  {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
-    title: 'Nano Banano 2',
-    description: 'Maximum detail and depth rendering.',
-    cost: 30,
+    cost: 12,
   },
 ]
 const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [
