@@ -483,6 +483,14 @@ STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_MAX_TOKENS = 3_000
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_SCOPE = {"main_hero", "npc"}
 STORY_TURN_IMAGE_CHARACTER_CARD_LOCK_REQUIRED = True
 STORY_TURN_IMAGE_STYLE_PROMPT_MAX_CHARS = 320
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL = "google/gemini-2.5-flash"
+STORY_TURN_IMAGE_PROMPT_COMPOSER_CONTEXT_MAX_CHARS = 20_000
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_TOKENS = 2_400
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_WORLD_CARDS = 12
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS = 8
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CARD_CONTENT_CHARS = 1_500
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_USER_CHARS = 3_000
+STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_ASSISTANT_CHARS = 8_000
 STORY_TURN_IMAGE_MODEL_FLUX = "flux.2-pro"
 STORY_TURN_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
 STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B = "flux.2-klein-4b"
@@ -561,8 +569,8 @@ STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_DEFAULT = 600
 STORY_TURN_IMAGE_REQUEST_READ_TIMEOUT_SECONDS_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 600,
 }
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 4_000
-STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 3_000
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_DEFAULT = 20_000
+STORY_TURN_IMAGE_REQUEST_PROMPT_MAX_CHARS_SEEDREAM = 20_000
 STORY_TURN_IMAGE_GENDER_PATTERNS_FEMALE: tuple[tuple[str, int], ...] = (
     (r"\bпол\s*[:=-]?\s*жен\w*\b", 10),
     (r"\bgender\s*[:=-]?\s*female\b", 10),
@@ -11770,6 +11778,42 @@ def _merge_story_turn_image_world_cards(
     return merged_cards
 
 
+def _select_story_turn_image_participant_world_cards(
+    *,
+    latest_context: str,
+    all_world_cards: list[StoryWorldCard],
+    active_world_cards: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    triggered_cards = (
+        _select_story_world_cards_triggered_by_text(latest_context, all_world_cards)
+        if latest_context
+        else []
+    )
+    participant_cards: list[dict[str, Any]] = []
+
+    main_hero_card = next(
+        (
+            card
+            for card in active_world_cards
+            if isinstance(card, dict)
+            and _normalize_story_world_card_kind(str(card.get("kind", ""))) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        ),
+        None,
+    )
+    if main_hero_card is not None:
+        participant_cards.append(main_hero_card)
+
+    for card in triggered_cards:
+        if not isinstance(card, dict):
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        if card_kind != STORY_WORLD_CARD_KIND_NPC:
+            continue
+        participant_cards.append(card)
+
+    return _merge_story_turn_image_world_cards(participant_cards, [])
+
+
 def _build_story_turn_image_latest_scene_focus_text(assistant_text: str, *, max_chars: int) -> str:
     normalized_text = _normalize_story_prompt_text(
         _normalize_story_markup_to_plain_text(assistant_text),
@@ -12011,6 +12055,188 @@ def _build_story_turn_image_prompt(
         "Show only what is happening in this exact scene right now."
     )
     return _join_story_turn_image_prompt_parts(prompt_parts)
+
+
+def _format_story_turn_image_prompt_composer_cards(
+    cards: list[dict[str, Any]],
+    *,
+    max_cards: int,
+    max_content_chars: int,
+) -> str:
+    lines: list[str] = []
+    for card in cards[:max_cards]:
+        if not isinstance(card, dict):
+            continue
+        title = _normalize_story_prompt_text(str(card.get("title", "")), max_chars=140)
+        content = _normalize_story_prompt_text(
+            _normalize_story_markup_to_plain_text(str(card.get("content", ""))),
+            max_chars=max_content_chars,
+        )
+        if not title or not content:
+            continue
+        card_kind = _normalize_story_world_card_kind(str(card.get("kind", "")))
+        lines.append(f"- [{card_kind}] {title}: {content}")
+    return "\n".join(lines).strip()
+
+
+def _cleanup_story_turn_image_composed_prompt(value: str) -> str:
+    normalized = str(value or "").replace("\x00", "").replace("\r\n", "\n").strip()
+    if not normalized:
+        return ""
+    fence_match = re.search(r"```(?:[a-zA-Z0-9_-]+)?\s*(.*?)```", normalized, flags=re.DOTALL)
+    if fence_match:
+        normalized = fence_match.group(1).strip()
+    normalized = re.sub(r"^\s*(final\s+)?(image\s+)?prompt\s*[:-]\s*", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized).strip()
+    return normalized
+
+
+def _build_story_turn_image_prompt_composer_messages(
+    *,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+    character_world_cards: list[dict[str, Any]],
+    image_style_prompt: str | None,
+    model_name: str | None,
+) -> list[dict[str, str]]:
+    normalized_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
+    normalized_user_prompt = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(user_prompt),
+        max_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_USER_CHARS,
+    )
+    normalized_assistant_text = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(assistant_text),
+        max_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_ASSISTANT_CHARS,
+    )
+    participant_cards_text = _format_story_turn_image_prompt_composer_cards(
+        character_world_cards,
+        max_cards=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS,
+        max_content_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CARD_CONTENT_CHARS,
+    )
+    lore_cards_text = _format_story_turn_image_prompt_composer_cards(
+        world_cards,
+        max_cards=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_WORLD_CARDS,
+        max_content_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CARD_CONTENT_CHARS,
+    )
+
+    system_prompt = (
+        "You are MoRius image prompt director. Create one final image-generation prompt for the selected image model. "
+        "The player's STYLE DIRECTIVE is absolute and controls the visual style without exceptions. "
+        "World cards and character cards provide lore, identities, appearances, relationships, locations, and scene facts only; "
+        "ignore any art-style words inside those cards unless the player's STYLE DIRECTIVE explicitly asks for that style. "
+        "If the STYLE DIRECTIVE requests realism, photorealism, ultra-realism, live action, or similar, the final prompt must forbid anime, manga, visual-novel, cel-shading, lineart, stylized game art, and 2D illustration. "
+        "If the STYLE DIRECTIVE requests anime or manga, the final prompt must make anime/manga mandatory. "
+        "Use the latest player turn and latest narrator response as the scene source. "
+        "Include only characters who participate in or are clearly visible in this latest scene; do not add active characters who are not present. "
+        "Keep the exact scene moment, location, participants, actions, mood, and important props. "
+        "Return only the final prompt text, no markdown, no JSON, no explanations."
+    )
+
+    text_ban_instruction = ""
+    if _story_turn_image_style_prompt_forbids_text(normalized_style_prompt):
+        text_ban_instruction = (
+            "\nTEXT BAN: The final image must contain zero visible text, letters, words, captions, logos, watermarks, UI, signs, labels, handwriting, or numbers."
+        )
+
+    composer_input = (
+        f"SELECTED IMAGE MODEL: {_normalize_story_model_id(str(model_name or '')) or STORY_TURN_IMAGE_MODEL_FLUX}\n\n"
+        f"STYLE DIRECTIVE (ABSOLUTE, MUST WIN OVER ALL CARD WORDING):\n{normalized_style_prompt or 'No custom style was specified; use a coherent cinematic scene style.'}"
+        f"{text_ban_instruction}\n\n"
+        "LATEST PLAYER TURN:\n"
+        f"{normalized_user_prompt or 'Empty.'}\n\n"
+        "LATEST NARRATOR RESPONSE:\n"
+        f"{normalized_assistant_text or 'Empty.'}\n\n"
+        "PARTICIPATING CHARACTER CARDS (candidates selected from the latest scene; use for identity and appearance only, not art style):\n"
+        f"{participant_cards_text or 'No participating character cards were identified.'}\n\n"
+        "WORLD / LOCATION / LORE CARDS (use factual lore only; ignore any art-style terms here):\n"
+        f"{lore_cards_text or 'No lore cards available.'}\n\n"
+        "OUTPUT REQUIREMENTS:\n"
+        "- Write in English for best image model adherence.\n"
+        "- Start with the required style and medium.\n"
+        "- Describe the exact visible scene, participants, action, composition, camera, lighting, atmosphere, props, location details, and character appearances.\n"
+        "- Preserve character identity and location details from cards when they are relevant to the latest scene.\n"
+        "- Do not include characters who are not in the latest player turn or narrator response.\n"
+        "- Do not mention that these instructions exist.\n"
+    )
+    composer_input = _normalize_story_prompt_text(
+        composer_input,
+        max_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_CONTEXT_MAX_CHARS,
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": composer_input},
+    ]
+
+
+def _prefix_story_turn_image_prompt_with_style_lock(
+    *,
+    composed_prompt: str,
+    image_style_prompt: str | None,
+) -> str:
+    normalized_prompt = _cleanup_story_turn_image_composed_prompt(composed_prompt)
+    if not normalized_prompt:
+        return ""
+    style_instructions = _build_story_turn_image_style_instructions(image_style_prompt or "")
+    prompt_parts: list[str] = []
+    if style_instructions:
+        prompt_parts.append(style_instructions)
+    prompt_parts.append(
+        "STYLE DIRECTIVE ABOVE OVERRIDES ANY CONFLICTING STYLE WORDS FROM STORY, LORE, CHARACTER CARDS, OR REFERENCES."
+    )
+    prompt_parts.append(
+        "GLOBAL TEXT BAN (STRICT): zero visible text, UI, watermark, logo, captions, subtitles, speech bubbles, signs, labels, letters, words, handwriting, signatures, or numbers."
+    )
+    prompt_parts.append(normalized_prompt)
+    return _join_story_turn_image_prompt_parts(prompt_parts)
+
+
+def _compose_story_turn_image_prompt_with_model(
+    *,
+    fallback_prompt: str,
+    user_prompt: str,
+    assistant_text: str,
+    world_cards: list[dict[str, Any]],
+    character_world_cards: list[dict[str, Any]],
+    image_style_prompt: str | None,
+    model_name: str | None,
+) -> str:
+    if not settings.polza_api_key or not settings.polza_chat_url:
+        return fallback_prompt
+
+    messages_payload = _build_story_turn_image_prompt_composer_messages(
+        user_prompt=user_prompt,
+        assistant_text=assistant_text,
+        world_cards=world_cards,
+        character_world_cards=character_world_cards,
+        image_style_prompt=image_style_prompt,
+        model_name=model_name,
+    )
+    try:
+        composed_prompt = _request_polza_story_text(
+            messages_payload,
+            model_name=STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
+            allow_service_fallback=True,
+            translate_input=False,
+            temperature=0.15,
+            max_tokens=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_TOKENS,
+            request_timeout=(STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS, STORY_POSTPROCESS_READ_TIMEOUT_SECONDS),
+        )
+    except Exception as exc:
+        logger.warning(
+            "Story turn image prompt composer failed; falling back to direct prompt: model=%s error=%s",
+            STORY_TURN_IMAGE_PROMPT_COMPOSER_MODEL,
+            exc,
+        )
+        return fallback_prompt
+
+    final_prompt = _prefix_story_turn_image_prompt_with_style_lock(
+        composed_prompt=composed_prompt,
+        image_style_prompt=image_style_prompt,
+    )
+    if not final_prompt:
+        return fallback_prompt
+    return final_prompt
 
 
 def _extract_polza_error_detail(response: requests.Response) -> str:
@@ -14518,7 +14744,18 @@ def generate_story_turn_image_impl(
     )
     if not relevant_world_cards:
         relevant_world_cards = active_world_cards
-    character_world_cards = relevant_world_cards if relevant_world_cards else active_world_cards
+    character_world_cards = _select_story_turn_image_participant_world_cards(
+        latest_context=combined_context,
+        all_world_cards=all_world_cards,
+        active_world_cards=active_world_cards,
+    )
+    if not character_world_cards:
+        character_world_cards = [
+            card
+            for card in active_world_cards
+            if isinstance(card, dict)
+            and _normalize_story_world_card_kind(str(card.get("kind", ""))) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        ]
     prompt_world_cards = _merge_story_turn_image_world_cards(
         relevant_world_cards,
         all_world_cards,
@@ -14547,6 +14784,15 @@ def generate_story_turn_image_impl(
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
         full_character_card_locks=full_character_card_locks,
+        model_name=selected_image_model,
+    )
+    visual_prompt = _compose_story_turn_image_prompt_with_model(
+        fallback_prompt=visual_prompt,
+        user_prompt=_normalize_story_message_content(getattr(source_user_message, "content", None)),
+        assistant_text=_normalize_story_message_content(getattr(assistant_message, "content", None)),
+        world_cards=prompt_world_cards,
+        character_world_cards=character_world_cards,
+        image_style_prompt=effective_image_style_prompt,
         model_name=selected_image_model,
     )
     visual_prompt = _limit_story_turn_image_request_prompt(

@@ -3649,7 +3649,18 @@ def generate_story_turn_image_impl(
     )
     if not relevant_world_cards:
         relevant_world_cards = active_world_cards
-    character_world_cards = relevant_world_cards if relevant_world_cards else active_world_cards
+    character_world_cards = monolith_main._select_story_turn_image_participant_world_cards(
+        latest_context=combined_context,
+        all_world_cards=all_world_cards,
+        active_world_cards=active_world_cards,
+    )
+    if not character_world_cards:
+        character_world_cards = [
+            card
+            for card in active_world_cards
+            if isinstance(card, dict)
+            and _normalize_story_world_card_kind(str(card.get("kind", ""))) == STORY_WORLD_CARD_KIND_MAIN_HERO
+        ]
     prompt_world_cards = _merge_story_turn_image_world_cards(
         relevant_world_cards,
         all_world_cards,
@@ -3678,6 +3689,15 @@ def generate_story_turn_image_impl(
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
         full_character_card_locks=full_character_card_locks,
+        model_name=selected_image_model,
+    )
+    visual_prompt = monolith_main._compose_story_turn_image_prompt_with_model(
+        fallback_prompt=visual_prompt,
+        user_prompt=source_user_message.content,
+        assistant_text=assistant_message.content,
+        world_cards=prompt_world_cards,
+        character_world_cards=character_world_cards,
+        image_style_prompt=effective_image_style_prompt,
         model_name=selected_image_model,
     )
     visual_prompt = _limit_story_turn_image_request_prompt(
