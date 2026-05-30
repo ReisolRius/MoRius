@@ -21,7 +21,6 @@ import {
   SvgIcon,
   TextField,
   Typography,
-  useMediaQuery,
   type GrowProps,
 } from '@mui/material'
 import dashboardContinueIconMarkup from '../assets/icons/dashboard-continue.svg?raw'
@@ -50,7 +49,6 @@ import {
   type CommunityModerationTarget,
 } from '../components/community/CommunityModerationActions'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
-import DeferredImage from '../components/media/DeferredImage'
 import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import QuickStartWizardDialog from '../components/home/QuickStartWizardDialog'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
@@ -132,7 +130,6 @@ type DashboardQuickAction = {
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
-const DASHBOARD_BACKGROUND_FADE_MS = 900
 
 /**
  * Crossfade layer for the news hero image.
@@ -187,125 +184,55 @@ function NewsXfLayer({ src, onReady }: { src: string; onReady: (src: string) => 
   )
 }
 
-type DashboardNewsBackgroundLayer = {
-  id: number
-  src: string
-  visible: boolean
-}
+function NewsBlurBackgroundXfLayer({ src, onReady }: { src: string; onReady: (src: string) => void }) {
+  const [loaded, setLoaded] = useState(false)
+  const calledRef = useRef(false)
 
-function DashboardNewsBackgroundImage({ src }: { src: string }) {
-  const normalizedInitialSrc = src.trim()
-  const [layers, setLayers] = useState<DashboardNewsBackgroundLayer[]>(
-    normalizedInitialSrc ? [{ id: 0, src: normalizedInitialSrc, visible: true }] : [],
-  )
-  const latestSrcRef = useRef(normalizedInitialSrc)
-  const latestLayerIdRef = useRef(0)
-  const nextLayerIdRef = useRef(0)
-  const cleanupTimerRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    const nextSrc = src.trim()
-    if (nextSrc === latestSrcRef.current) {
-      return
-    }
-
-    latestSrcRef.current = nextSrc
-
-    if (!nextSrc) {
-      latestLayerIdRef.current = -1
-      setLayers([])
-      return
-    }
-
-    const nextLayerId = nextLayerIdRef.current + 1
-    nextLayerIdRef.current = nextLayerId
-    latestLayerIdRef.current = nextLayerId
-    setLayers((previousLayers) => [
-      ...previousLayers.filter((layer) => layer.src !== nextSrc),
-      { id: nextLayerId, src: nextSrc, visible: false },
-    ])
-  }, [src])
-
-  useEffect(() => {
-    return () => {
-      if (cleanupTimerRef.current !== null) {
-        window.clearTimeout(cleanupTimerRef.current)
+  const handleLoad = () => {
+    setLoaded(true)
+    window.setTimeout(() => {
+      if (!calledRef.current) {
+        calledRef.current = true
+        onReady(src)
       }
+    }, 720)
+  }
+
+  const handleError = () => {
+    if (!calledRef.current) {
+      calledRef.current = true
+      onReady(src)
     }
-  }, [])
-
-  const handleLayerReady = useCallback((layerId: number) => {
-    if (layerId !== latestLayerIdRef.current) {
-      setLayers((previousLayers) => previousLayers.filter((layer) => layer.id !== layerId))
-      return
-    }
-
-    setLayers((previousLayers) =>
-      previousLayers.map((layer) => ({
-        ...layer,
-        visible: layer.id === layerId,
-      })),
-    )
-
-    if (cleanupTimerRef.current !== null) {
-      window.clearTimeout(cleanupTimerRef.current)
-    }
-    cleanupTimerRef.current = window.setTimeout(() => {
-      setLayers((previousLayers) => previousLayers.filter((layer) => layer.id === layerId))
-      cleanupTimerRef.current = null
-    }, DASHBOARD_BACKGROUND_FADE_MS + 180)
-  }, [])
-
-  const handleLayerError = useCallback((layerId: number) => {
-    setLayers((previousLayers) => {
-      const nextLayers = previousLayers.filter((layer) => layer.id !== layerId)
-      if (layerId !== latestLayerIdRef.current || nextLayers.length === 0) {
-        return nextLayers
-      }
-      const fallbackLayer = nextLayers[nextLayers.length - 1]
-      latestLayerIdRef.current = fallbackLayer.id
-      latestSrcRef.current = fallbackLayer.src
-      return nextLayers.map((layer) => ({
-        ...layer,
-        visible: layer.id === fallbackLayer.id,
-      }))
-    })
-  }, [])
-
-  const imageSx = {
-    position: 'absolute',
-    inset: '-12%',
-    width: '124%',
-    height: '124%',
-    objectFit: 'cover',
-    objectPosition: 'center',
-    filter: 'blur(118px) saturate(0.84) brightness(0.72)',
-    transform: 'scale(1.08)',
-    willChange: 'opacity',
   }
 
   return (
-    <>
-      {layers.map((layer) => (
-        <Box
-          key={layer.id}
-          component="img"
-          src={layer.src}
-          alt=""
-          fetchPriority="low"
-          decoding="async"
-          onLoad={() => handleLayerReady(layer.id)}
-          onError={() => handleLayerError(layer.id)}
-          sx={{
-            ...imageSx,
-            opacity: layer.visible ? 1 : 0,
-            transition: `opacity ${DASHBOARD_BACKGROUND_FADE_MS}ms ease-in-out`,
-          }}
-        />
-      ))}
-    </>
+    <Box
+      component="img"
+      src={src}
+      alt=""
+      loading="eager"
+      decoding="async"
+      fetchPriority="high"
+      onLoad={handleLoad}
+      onError={handleError}
+      sx={{
+        position: 'absolute',
+        top: { xs: -68, md: -96 },
+        left: { xs: -72, md: -150 },
+        width: { xs: 'calc(100% + 144px)', md: 'calc(100% + 300px)' },
+        height: { xs: 'calc(100% + 136px)', md: 'calc(100% + 192px)' },
+        objectFit: 'cover',
+        objectPosition: 'center',
+        filter: 'blur(76px) saturate(1.22)',
+        transform: 'scale(1.06)',
+        opacity: loaded ? 0.5 : 0,
+        transition: 'opacity 900ms ease',
+        pointerEvents: 'none',
+      }}
+    />
   )
 }
+
 const APP_CARD_BACKGROUND = 'var(--morius-card-bg)'
 const APP_BORDER_COLOR = 'var(--morius-card-border)'
 const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
@@ -713,7 +640,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
   const handledMobileActionRef = useRef<string | null>(null)
   const newsAutoAdvanceTimerRef = useRef<number | null>(null)
-  const isPhoneLayout = useMediaQuery('(max-width:899.95px)')
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -1703,7 +1629,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         title: 'Продолжить',
         description: hasDashboardLastPlayedGame
           ? buildDashboardGameDescription(dashboardLastPlayedGame!)
-          : `Добро пожаловать, ${profileName}. Начните новую историю или быстро вернитесь в библиотеку миров.`,
+          : `Добро пожаловать, ${profileName}. Начните новую историю или быстро вернитесь в библиотеку игр.`,
         headline: hasDashboardLastPlayedGame ? buildDashboardGameHeadline(dashboardLastPlayedGame!) : undefined,
         imageSrc: dashboardHeroCoverUrl || undefined,
         imageMode: dashboardHeroCoverUrl ? 'cover' : 'contain',
@@ -1723,8 +1649,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       },
       {
         key: 'new-world',
-        title: 'Новый мир',
-        description: 'Соберите сеттинг, правила и персонажей вручную с полной настройкой мира.',
+        title: 'Новая игра',
+        description: 'Соберите сеттинг, правила и персонажей вручную с полной настройкой игры.',
         imageSrc: newWorldDashboardImage,
         iconMarkup: sidebarPlusIconMarkup,
         onClick: () => onNavigate('/worlds/new'),
@@ -1795,10 +1721,17 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [newsXfCurrentSrc, setNewsXfCurrentSrc] = useState(selectedDashboardNewsImage)
   const [newsXfNextSrc, setNewsXfNextSrc] = useState<string | undefined>(undefined)
   const [newsXfNextKey, setNewsXfNextKey] = useState(0)
+  const [newsBgCurrentSrc, setNewsBgCurrentSrc] = useState(selectedDashboardNewsImage)
+  const [newsBgNextSrc, setNewsBgNextSrc] = useState<string | undefined>(undefined)
+  const [newsBgNextKey, setNewsBgNextKey] = useState(0)
   useEffect(() => {
     if (selectedDashboardNewsImage !== newsXfCurrentSrc) {
       setNewsXfNextSrc(selectedDashboardNewsImage)
       setNewsXfNextKey((k) => k + 1)
+    }
+    if (selectedDashboardNewsImage !== newsBgCurrentSrc) {
+      setNewsBgNextSrc(selectedDashboardNewsImage)
+      setNewsBgNextKey((k) => k + 1)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDashboardNewsImage])
@@ -1807,8 +1740,10 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setNewsXfCurrentSrc(src)
     setNewsXfNextSrc(undefined)
   }, [])
-  const dashboardBackgroundImage = selectedDashboardNewsImage
-
+  const handleNewsBgReady = useCallback((src: string) => {
+    setNewsBgCurrentSrc(src)
+    setNewsBgNextSrc(undefined)
+  }, [])
   return (
     <Box
       className="morius-app-shell"
@@ -1820,27 +1755,6 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         overflowX: 'hidden',
       }}
     >
-      {/* Blurred hero background — fades into page background */}
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '100vh',
-          zIndex: 0,
-          overflow: 'hidden',
-          pointerEvents: 'none',
-          // CSS mask fades the entire layer to transparent at the bottom
-          // This is theme-agnostic: whatever color is underneath shows through
-          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black 45%, transparent 88%)',
-          maskImage: 'linear-gradient(to bottom, black 0%, black 45%, transparent 88%)',
-        }}
-      >
-        <DashboardNewsBackgroundImage src={dashboardBackgroundImage} />
-      </Box>
-
       <AppHeader
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
@@ -1873,182 +1787,82 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         sx={{
           position: 'relative',
           zIndex: 1,
-          pt: { xs: 'max(46px, calc(var(--morius-header-menu-top) - 20px))', md: 'var(--morius-header-menu-top)' },
+          pt: { xs: 'max(56px, calc(var(--morius-header-menu-top) - 10px))', md: 'calc(var(--morius-header-menu-top) + 10px)' },
           pb: { xs: 'calc(88px + env(safe-area-inset-bottom))', md: 6 },
           px: { xs: 2, md: 3.2 },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
-          <Stack
-            alignItems="center"
-            spacing={0.35}
+        <Box
+          sx={{
+            position: 'relative',
+            isolation: 'isolate',
+            width: '100%',
+            maxWidth: 1400,
+            mx: 'auto',
+            '& > :not(.morius-home-news-bg)': {
+              position: 'relative',
+              zIndex: 1,
+            },
+          }}
+        >
+          <Box
+            className="morius-home-news-bg"
+            aria-hidden
             sx={{
-              display: { xs: 'none', md: 'flex' },
-              mb: 'var(--morius-cards-title-gap)',
+              position: 'absolute',
+              top: { xs: -58, md: -94 },
+              left: '50%',
+              width: '100vw',
+              height: { xs: 560, sm: 610, md: 650, xl: 610 },
+              transform: 'translateX(-50%)',
+              zIndex: 0,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+              opacity: selectedDashboardNews ? 1 : 0,
+              transition: 'opacity 320ms ease',
+              maskImage: 'linear-gradient(180deg, #000 0%, #000 50%, rgba(0,0,0,0.78) 64%, transparent 100%)',
+              WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 50%, rgba(0,0,0,0.78) 64%, transparent 100%)',
             }}
           >
-            <Typography sx={{ fontSize: { xs: '2rem', md: '2.35rem' }, fontWeight: 900, color: APP_TEXT_PRIMARY, textAlign: 'center' }}>
-              Главная
-            </Typography>
-          </Stack>
-
-          <Box sx={{ display: 'grid', gap: 3.5, mb: 'var(--morius-cards-title-gap)' }}>
-            {!isPhoneLayout ? (
+            {newsBgCurrentSrc ? (
               <Box
+                component="img"
+                src={newsBgCurrentSrc}
+                alt=""
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
                 sx={{
-                  display: 'grid',
-                  gap: 1,
-                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
+                  position: 'absolute',
+                  top: { xs: -68, md: -96 },
+                  left: { xs: -72, md: -150 },
+                  width: { xs: 'calc(100% + 144px)', md: 'calc(100% + 300px)' },
+                  height: { xs: 'calc(100% + 136px)', md: 'calc(100% + 192px)' },
+                  objectFit: 'cover',
+                  objectPosition: 'center',
+                  filter: 'blur(76px) saturate(1.22)',
+                  transform: 'scale(1.06)',
+                  opacity: 0.5,
                 }}
-              >
-                {dashboardQuickActions.map((action) => {
-                  const isContinueCard = action.key === 'continue'
-                  const hasContinueCover = action.imageMode === 'cover' && Boolean(action.imageSrc)
-                  const isActionDisabled = Boolean(action.disabled) || (isContinueCard && isDashboardContinueResolving)
-
-                  return (
-                    <ButtonBase
-                      key={action.key}
-                      onClick={action.onClick}
-                      disabled={isActionDisabled}
-                      sx={{
-                        position: 'relative',
-                        overflow: 'hidden',
-                        minHeight: 140,
-                        borderRadius: '12px',
-                        border: 'none',
-                        backgroundColor: APP_CARD_BACKGROUND,
-                        justifyContent: 'flex-start',
-                        alignItems: 'stretch',
-                        textAlign: 'left',
-                        boxShadow: 'none',
-                        transition: 'transform 180ms ease, opacity 180ms ease, background-color 180ms ease',
-                        '&:hover': {
-                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, var(--morius-title-text) 14%)',
-                          transform: isActionDisabled ? 'none' : 'translateY(-2px)',
-                        },
-                      }}
-                    >
-                      {hasContinueCover ? (
-                        <>
-                          <DeferredImage
-                            src={action.imageSrc}
-                            alt=""
-                            rootMargin="0px"
-                            objectFit="cover"
-                            objectPosition={action.imagePosition ?? `${dashboardHeroCoverPositionX}% ${dashboardHeroCoverPositionY}%`}
-                            imgSx={{ opacity: 0.82 }}
-                          />
-                          <Box
-                            aria-hidden
-                            sx={{
-                              position: 'absolute',
-                              inset: 0,
-                              background:
-                                'linear-gradient(180deg, rgba(8, 12, 18, 0.54) 0%, rgba(8, 12, 18, 0.74) 52%, rgba(8, 12, 18, 0.9) 100%)',
-                            }}
-                          />
-                        </>
-                      ) : null}
-
-                      {!isContinueCard && action.imageSrc ? (
-                        <DeferredImage
-                          src={action.imageSrc}
-                          alt=""
-                          rootMargin="0px"
-                          objectFit="contain"
-                          objectPosition="right bottom"
-                          sx={{
-                            inset: 'auto',
-                            right: { xs: 0, md: 4 },
-                            bottom: { xs: -4, md: -2 },
-                            width: { xs: 114, md: 124 },
-                            height: { xs: 114, md: 124 },
-                          }}
-                          imgSx={{ opacity: 1 }}
-                        />
-                      ) : null}
-
-                      <Stack
-                        spacing={0.8}
-                        sx={{
-                          position: 'relative',
-                          zIndex: 1,
-                          width: '100%',
-                          minHeight: '100%',
-                          p: 1.2,
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <Stack spacing={0.8}>
-                          <Stack spacing={action.headline ? 0.15 : 0.4}>
-                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                              <Stack direction="row" alignItems="center" spacing={0.7} sx={{ minWidth: 0 }}>
-                                <Box
-                                  sx={{
-                                    width: 26,
-                                    height: 26,
-                                    display: 'grid',
-                                    placeItems: 'center',
-                                    flexShrink: 0,
-                                    color: APP_TEXT_PRIMARY,
-                                  }}
-                                >
-                                  <ThemedSvgIcon markup={action.iconMarkup} size={18} />
-                                </Box>
-                                <Typography
-                                  sx={{
-                                    color: action.headline && hasContinueCover ? 'rgba(236, 243, 250, 0.82)' : APP_TEXT_PRIMARY,
-                                    fontSize: action.headline ? '0.84rem' : '1.04rem',
-                                    fontWeight: 900,
-                                    lineHeight: 1.05,
-                                  }}
-                                >
-                                  {action.title}
-                                </Typography>
-                              </Stack>
-                            </Stack>
-
-                            {action.headline ? (
-                              <Typography
-                                sx={{
-                                  color: APP_TEXT_PRIMARY,
-                                  fontSize: '1.18rem',
-                                  fontWeight: 900,
-                                  lineHeight: 1.08,
-                                  display: '-webkit-box',
-                                  WebkitLineClamp: 1,
-                                  WebkitBoxOrient: 'vertical',
-                                  overflow: 'hidden',
-                                }}
-                              >
-                                {action.headline}
-                              </Typography>
-                            ) : null}
-                          </Stack>
-
-                          <Typography
-                            sx={{
-                              color: hasContinueCover ? 'rgba(235, 242, 251, 0.9)' : APP_TEXT_SECONDARY,
-                              fontSize: '0.9rem',
-                              lineHeight: 1.45,
-                              maxWidth: isContinueCard ? '100%' : '66%',
-                              display: '-webkit-box',
-                              WebkitLineClamp: action.headline ? 2 : 3,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                            }}
-                          >
-                            {action.description}
-                          </Typography>
-                        </Stack>
-                      </Stack>
-                    </ButtonBase>
-                  )
-                })}
-              </Box>
+              />
             ) : null}
-
+            {newsBgNextSrc ? (
+              <NewsBlurBackgroundXfLayer
+                key={newsBgNextKey}
+                src={newsBgNextSrc}
+                onReady={handleNewsBgReady}
+              />
+            ) : null}
+            <Box
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                background:
+                  'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-bg) 56%, transparent) 0%, color-mix(in srgb, var(--morius-app-bg) 34%, transparent) 42%, color-mix(in srgb, var(--morius-app-bg) 72%, transparent) 100%), radial-gradient(circle at 50% 4%, rgba(88, 146, 233, 0.16), transparent 52%)',
+              }}
+            />
+          </Box>
+          <Box sx={{ display: 'grid', gap: 3.5, mb: 'var(--morius-cards-title-gap)' }}>
             <Box
               sx={{
                 display: 'grid',

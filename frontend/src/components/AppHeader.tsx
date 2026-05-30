@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react'
 import {
   Box,
   Button,
@@ -7,6 +7,7 @@ import {
   Grow,
   IconButton,
   MenuItem,
+  Popover,
   Select,
   Slide,
   Stack,
@@ -78,6 +79,7 @@ type AppHeaderProps = {
   rightToggleLabels: ToggleLabels
   rightActions: ReactNode
   rightActionsWidth?: number
+  hidePageMenu?: boolean
   hideRightToggle?: boolean
   onOpenTopUpDialog?: () => void
   onOpenBugReportDialog?: () => void
@@ -104,21 +106,71 @@ const HIDE_LOGO_MEDIA_QUERY = '(max-width:499.95px)'
 const MOBILE_BOTTOM_NAV_HEIGHT = 'calc(78px + env(safe-area-inset-bottom))'
 const MOBILE_SHEET_TOP_OFFSET = 'calc(var(--morius-header-menu-top) + 8px)'
 const MOBILE_ACTION_CARD_HEIGHT = 118
+const HEADER_NAV_KEYS = new Set(['dashboard', 'games-all', 'community-worlds'])
+const HEADER_NAV_ACTIVE_COLOR = '#4F8DFF'
+const HEADER_PLAY_ICON_COLOR = '#D88C36'
+const HEADER_CONTENT_MAX_WIDTH = 1120
+
+const headerBackdropSx = {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  height: 'var(--morius-header-menu-top)',
+  zIndex: 34,
+  pointerEvents: 'none',
+  backgroundColor: 'color-mix(in srgb, var(--morius-app-base) 50%, transparent)',
+  backdropFilter: 'blur(4px)',
+  WebkitBackdropFilter: 'blur(4px)',
+} as const
 
 const shellButtonSx = {
   width: HEADER_BUTTON_SIZE,
   height: HEADER_BUTTON_SIZE,
-  borderRadius: '10px',
+  minWidth: HEADER_BUTTON_SIZE,
+  minHeight: HEADER_BUTTON_SIZE,
+  maxWidth: HEADER_BUTTON_SIZE,
+  maxHeight: HEADER_BUTTON_SIZE,
+  borderRadius: '99px !important',
   border: 'none',
-  backgroundColor: 'transparent',
-  color: 'var(--morius-text-secondary)',
-  transition: 'color 180ms ease',
+  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
+  color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+  transition: 'background-color 160ms ease, color 160ms ease',
   '&:hover': {
-    color: 'var(--morius-accent)',
-    backgroundColor: 'transparent',
+    color: 'var(--morius-title-text) !important',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
   },
   '&:active': {
-    backgroundColor: 'transparent',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+  },
+} as const
+
+const headerRoundActionButtonSx = {
+  minWidth: 0,
+  width: HEADER_BUTTON_SIZE,
+  height: HEADER_BUTTON_SIZE,
+  minHeight: HEADER_BUTTON_SIZE,
+  maxWidth: HEADER_BUTTON_SIZE,
+  maxHeight: HEADER_BUTTON_SIZE,
+  flex: `0 0 ${HEADER_BUTTON_SIZE}px`,
+  mr: 1,
+  p: 0,
+  borderRadius: '99px !important',
+  color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
+  border: 'none',
+  boxShadow: 'none !important',
+  opacity: '1 !important',
+  transition: 'background-color 160ms ease, color 160ms ease',
+  position: 'relative',
+  overflow: 'hidden',
+  '&:hover': {
+    color: 'var(--morius-title-text) !important',
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+    opacity: '1 !important',
+  },
+  '&:active': {
+    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
   },
 } as const
 
@@ -143,16 +195,16 @@ const sidebarButtonSx = (isActive: boolean, isExpanded: boolean, isUtility = fal
     letterSpacing: '0.01em',
     transition: 'color 180ms ease, min-width 220ms ease, padding 220ms ease',
     '&:hover': {
-      backgroundColor: 'transparent',
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, #000 26%)',
       boxShadow: 'none !important',
       color: preserveLabelColor ? baseTextColor : (isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)'),
     },
     '&:active': {
-      backgroundColor: 'transparent',
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%)',
       boxShadow: 'none !important',
     },
     '&.Mui-focusVisible': {
-      backgroundColor: 'transparent',
+      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, #000 26%)',
       boxShadow: 'none !important',
     },
   }
@@ -241,6 +293,7 @@ function AppHeader({
   rightToggleLabels,
   rightActions,
   rightActionsWidth = 240,
+  hidePageMenu = false,
   hideRightToggle = false,
   onOpenTopUpDialog,
   onOpenBugReportDialog,
@@ -256,6 +309,7 @@ function AppHeader({
   const [isAppDownloadDialogOpen, setIsAppDownloadDialogOpen] = useState(false)
   const [isMobileActionSheetOpen, setIsMobileActionSheetOpen] = useState(false)
   const [isMobileMoreSheetOpen, setIsMobileMoreSheetOpen] = useState(false)
+  const [headerQuickActionsAnchorEl, setHeaderQuickActionsAnchorEl] = useState<HTMLElement | null>(null)
   const menuTriggerRef = useRef<HTMLDivElement | null>(null)
   const menuPanelRef = useRef<HTMLDivElement | null>(null)
   const mobileActionSheet = useMobileDialogSheet({
@@ -427,10 +481,10 @@ function AppHeader({
   void getSidebarItemLabel
   void getDisplayedSidebarLabel
   void getUtilityItemLabel
-  const showLogo = !shouldHideBrandLogo && (isPageMenuOpen || !isCompactSidebar)
-  const showPrimaryItems = isPageMenuOpen || !isCompactSidebar
-  const showUtilityItems = isPageMenuOpen
-  const shouldRenderSidebarPanel = !isCompactSidebar || isPageMenuOpen
+  const showLogo = !hidePageMenu && !shouldHideBrandLogo && (isPageMenuOpen || !isCompactSidebar)
+  const showPrimaryItems = !hidePageMenu && (isPageMenuOpen || !isCompactSidebar)
+  const showUtilityItems = !hidePageMenu && isPageMenuOpen
+  const shouldRenderSidebarPanel = !hidePageMenu && (!isCompactSidebar || isPageMenuOpen)
   const sidebarWidth = isCompactSidebar
     ? (isPageMenuOpen ? MENU_EXPANDED_WIDTH : HEADER_BUTTON_SIZE)
     : (isPageMenuOpen ? MENU_EXPANDED_WIDTH : MENU_COLLAPSED_WIDTH)
@@ -487,7 +541,7 @@ function AppHeader({
           },
         ]
       : []),
-  ]
+  ].filter((item) => !['theme-settings', 'ai-assistant', 'support', 'top-up'].includes(item.key))
 
   const closeMobileSheets = useCallback(() => {
     setIsMobileActionSheetOpen(false)
@@ -510,13 +564,27 @@ function AppHeader({
   const mobileCommunityItem =
     resolvedMenuItems.find((item) => item.key === 'games-all' || item.key === 'community-worlds') ?? null
   const mobileMoreMenuItems = resolvedMenuItems.filter((item) => !mobilePrimaryKeys.has(item.key))
+  const headerNavItems = resolvedMenuItems.filter((item) => HEADER_NAV_KEYS.has(item.key))
+  const currentPathname = typeof window !== 'undefined' ? window.location.pathname : ''
+  const isHeaderNavItemActive = (item: AppHeaderMenuItem) => {
+    if (item.isActive) {
+      return true
+    }
+    if (item.key === 'dashboard') {
+      return currentPathname === '/' || currentPathname === '/dashboard'
+    }
+    if (item.key === 'games-all' || item.key === 'community-worlds') {
+      return currentPathname.startsWith('/games/all')
+    }
+    return false
+  }
   const fallbackMobileActionItems: AppHeaderMobileActionItem[] = [
     ...(resolvedMenuItems.find((item) => item.key === 'world-create')
       ? [
           {
             key: 'world-create',
-            title: '\u041d\u043e\u0432\u044b\u0439 \u043c\u0438\u0440',
-            description: '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0438\u043b\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u043c\u0438\u0440\u0430.',
+            title: '\u041d\u043e\u0432\u0430\u044f \u0438\u0433\u0440\u0430',
+            description: '\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u0438\u043b\u0438 \u043e\u0442\u043a\u0440\u044b\u0442\u044c \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440 \u0438\u0433\u0440\u044b.',
             iconMarkup: sidebarPlusIconMarkup,
             onClick: resolvedMenuItems.find((item) => item.key === 'world-create')!.onClick,
           },
@@ -545,10 +613,35 @@ function AppHeader({
         ]
       : []),
   ]
-  const resolvedMobileActionItems = mobileActionItems.length > 0 ? mobileActionItems : fallbackMobileActionItems
+  const resolvedMobileActionItems = (mobileActionItems.length > 0 ? mobileActionItems : fallbackMobileActionItems).filter(
+    (item) => !['theme-settings', 'top-up'].includes(item.key),
+  )
+  const headerSupportActionItem: AppHeaderMobileActionItem = {
+    key: 'support',
+    title: '\u041f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430',
+    description: '\u041f\u043e\u043c\u043e\u0449\u044c, FAQ \u0438 \u0441\u0441\u044b\u043b\u043a\u0438 \u0434\u043b\u044f \u0441\u0432\u044f\u0437\u0438.',
+    iconMarkup: sidebarHelpIconMarkup,
+    onClick: handleOpenSupportDialog,
+  }
+  const headerQuickActionItems =
+    mobileActionItems.length > 0 && !mobileActionItems.some((item) => item.key === headerSupportActionItem.key)
+      ? mobileActionItems.reduce<AppHeaderMobileActionItem[]>((items, item) => {
+          items.push(item)
+          if (item.key === 'new-world') {
+            items.push(headerSupportActionItem)
+          }
+          return items
+        }, mobileActionItems.some((item) => item.key === 'new-world') ? [] : [headerSupportActionItem])
+      : mobileActionItems
+  const shouldShowHeaderQuickActions = !hidePageMenu && !isMobileBottomNav && !isMobileStory && headerQuickActionItems.length > 0
+  const shouldShowHeaderAiAction = !hidePageMenu && !isMobileBottomNav && !isMobileStory && showAiAssistantAction
+  const isHeaderQuickActionsOpen = Boolean(headerQuickActionsAnchorEl)
+  const shouldRenderLegacyHeaderTrigger = false
+  const shouldRenderLegacyDesktopSidebar = false
+  const shouldRenderLegacyCompactSidebar = false
   const isMoreButtonActive =
     isMobileMoreSheetOpen || mobileMoreMenuItems.some((item) => item.isActive) || (!mobileHomeItem && !mobileLibraryItem && !mobileCommunityItem)
-  const shouldShowCompactSidebarOverlay = isCompactSidebar && isPageMenuOpen && !isMobileBottomNav && !isMobileStory
+  const shouldShowCompactSidebarOverlay = false
   const dashboardMenuItemOnClick = resolvedMenuItems.find((item) => item.key === 'dashboard')?.onClick
   const canLogoNavigateHome = Boolean(onGoHome || dashboardMenuItemOnClick)
 
@@ -559,6 +652,14 @@ function AppHeader({
       return
     }
     dashboardMenuItemOnClick?.()
+  }
+
+  const handleCloseHeaderQuickActions = () => {
+    setHeaderQuickActionsAnchorEl(null)
+  }
+
+  const handleToggleHeaderQuickActions = (event: ReactMouseEvent<HTMLElement>) => {
+    setHeaderQuickActionsAnchorEl((current) => (current ? null : event.currentTarget))
   }
 
   const renderBrandLogo = () => {
@@ -607,7 +708,7 @@ function AppHeader({
   }
 
   useEffect(() => {
-    if (!isPageMenuOpen || isMobileBottomNav || !isCompactSidebar) {
+    if (hidePageMenu || !isPageMenuOpen || isMobileBottomNav || !isCompactSidebar) {
       return
     }
 
@@ -630,7 +731,7 @@ function AppHeader({
     return () => {
       window.removeEventListener('pointerdown', handleOutsideMenuClick)
     }
-  }, [closePageMenu, isCompactSidebar, isMobileBottomNav, isPageMenuOpen])
+  }, [closePageMenu, hidePageMenu, isCompactSidebar, isMobileBottomNav, isPageMenuOpen])
 
   useEffect(() => {
     if (isPhoneLayout) {
@@ -643,26 +744,207 @@ function AppHeader({
     return () => window.clearTimeout(timeoutId)
   }, [isPhoneLayout])
 
+  useEffect(() => {
+    if (shouldShowHeaderQuickActions) {
+      return
+    }
+    const timeoutId = window.setTimeout(() => {
+      setHeaderQuickActionsAnchorEl(null)
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
+  }, [shouldShowHeaderQuickActions])
+
+  const headerQuickActionsNode = shouldShowHeaderQuickActions ? (
+    <>
+      <IconButton
+        className="morius-header-play-button"
+        aria-label={'\u0411\u044b\u0441\u0442\u0440\u044b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f'}
+        aria-expanded={isHeaderQuickActionsOpen ? 'true' : undefined}
+        onClick={handleToggleHeaderQuickActions}
+        sx={{
+          ...headerRoundActionButtonSx,
+          color: `${isHeaderQuickActionsOpen ? 'var(--morius-title-text)' : 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)'} !important`,
+        }}
+      >
+        <ThemedSvgIcon markup={mobilePlayIconMarkup} size={16} sx={{ color: HEADER_PLAY_ICON_COLOR }} />
+      </IconButton>
+
+      <Popover
+        open={isHeaderQuickActionsOpen}
+        anchorEl={headerQuickActionsAnchorEl}
+        onClose={handleCloseHeaderQuickActions}
+        disableScrollLock
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 1.05,
+            width: 292,
+            maxWidth: 'calc(100vw - 28px)',
+            p: 0,
+            borderRadius: 0,
+            border: 'none',
+            background: 'transparent',
+            boxShadow: 'none',
+            overflow: 'visible',
+          },
+        }}
+      >
+        <Stack spacing={1.05}>
+          {headerQuickActionItems.map((item) => {
+            const isContinueAction = item.key === 'continue'
+            const hasCoverImage = isContinueAction && item.imageMode === 'cover' && Boolean(item.imageSrc)
+            const subtitle = item.headline || (isContinueAction ? item.description : '')
+
+            return (
+              <Button
+                key={item.key}
+                onClick={() => {
+                  handleCloseHeaderQuickActions()
+                  item.onClick()
+                }}
+                disabled={item.disabled}
+                sx={{
+                  position: 'relative',
+                  width: '100%',
+                  minHeight: isContinueAction ? 112 : 58,
+                  height: isContinueAction ? 112 : 58,
+                  px: isContinueAction ? 1.35 : 1.65,
+                  py: isContinueAction ? 1.15 : 0,
+                  justifyContent: 'flex-start',
+                  alignItems: 'center',
+                  overflow: 'hidden',
+                  borderRadius: '12px',
+                  border: 'none',
+                  color: 'var(--morius-title-text)',
+                  textTransform: 'none',
+                  textAlign: 'left',
+                  background: hasCoverImage ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 88%, black 12%)',
+                  boxShadow: '0 14px 30px rgba(0, 0, 0, 0.22)',
+                  transition: 'transform 160ms ease, background 160ms ease, opacity 160ms ease',
+                  '&:hover': {
+                    background: hasCoverImage ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%)',
+                    transform: item.disabled ? 'none' : 'translateY(-1px)',
+                  },
+                  '&:hover .morius-header-action-cover-shade': {
+                    opacity: 1,
+                  },
+                  '&.Mui-disabled': {
+                    opacity: 0.55,
+                    color: 'var(--morius-title-text)',
+                  },
+                }}
+              >
+                {hasCoverImage && item.imageSrc ? (
+                  <>
+                    <ProgressiveImage
+                      src={item.imageSrc}
+                      alt=""
+                      loading="eager"
+                      fetchPriority="high"
+                      objectFit="cover"
+                      objectPosition={item.imagePosition ?? 'center'}
+                      loaderSize={18}
+                      containerSx={{
+                        position: 'absolute',
+                        inset: 0,
+                      }}
+                      imgSx={{
+                        opacity: 0.88,
+                      }}
+                    />
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        background:
+                          'linear-gradient(180deg, rgba(7, 10, 14, 0.44) 0%, rgba(7, 10, 14, 0.7) 46%, rgba(7, 10, 14, 0.88) 100%)',
+                      }}
+                    />
+                    <Box
+                      aria-hidden
+                      className="morius-header-action-cover-shade"
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        opacity: 0,
+                        background: 'rgba(0, 0, 0, 0.18)',
+                        transition: 'opacity 160ms ease',
+                      }}
+                    />
+                  </>
+                ) : null}
+
+                <Stack
+                  spacing={isContinueAction ? 0.35 : 0}
+                  sx={{
+                    position: 'relative',
+                    zIndex: 1,
+                    minWidth: 0,
+                    width: '100%',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
+                    {item.iconMarkup ? <ThemedSvgIcon markup={item.iconMarkup} size={isContinueAction ? 18 : 20} /> : null}
+                    <Typography
+                      noWrap={!isContinueAction}
+                      sx={{
+                        minWidth: 0,
+                        color: hasCoverImage ? '#f5f8ff' : 'var(--morius-title-text)',
+                        fontSize: isContinueAction ? '0.96rem' : '1.08rem',
+                        fontWeight: 900,
+                        lineHeight: 1.08,
+                      }}
+                    >
+                      {item.title}
+                    </Typography>
+                  </Stack>
+                  {subtitle ? (
+                    <Typography
+                      sx={{
+                        color: hasCoverImage ? '#f5f8ff' : 'var(--morius-text-secondary)',
+                        fontSize: isContinueAction ? '0.86rem' : '0.82rem',
+                        fontWeight: isContinueAction ? 800 : 700,
+                        lineHeight: 1.2,
+                        display: '-webkit-box',
+                        WebkitLineClamp: isContinueAction ? 2 : 1,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {subtitle}
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </Button>
+            )
+          })}
+        </Stack>
+      </Popover>
+    </>
+  ) : null
+
+  const headerAiActionNode = shouldShowHeaderAiAction ? (
+    <IconButton
+      className="morius-header-ai-button"
+      aria-label={'AI-\u043f\u043e\u043c\u043e\u0449\u043d\u0438\u043a'}
+      onClick={handleOpenAiAssistant}
+      sx={headerRoundActionButtonSx}
+    >
+      <ThemedSvgIcon markup={aiIconMarkup} size={16} sx={{ color: 'inherit' }} />
+    </IconButton>
+  ) : null
+
   return (
     <>
       {isMobileBottomNav ? (
         <>
-          <Box
-            component="header"
-            sx={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 'calc(var(--morius-header-height) + 40px)',
-              zIndex: 34,
-              pointerEvents: 'none',
-              backdropFilter: 'blur(5px)',
-              WebkitBackdropFilter: 'blur(5px)',
-              maskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-              WebkitMaskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-              background:
-                'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-base) 68%, transparent) 0%, color-mix(in srgb, var(--morius-app-base) 32%, transparent) 46%, rgba(0, 0, 0, 0) 100%)',
+      <Box
+        component="header"
+        sx={{
+              ...headerBackdropSx,
             }}
           />
 
@@ -689,14 +971,15 @@ function AppHeader({
           >
             <Box
               sx={{
-                '& .MuiButtonBase-root:not(.morius-daily-rewards-button)': {
-                  border: 'none !important',
-                  backgroundColor: 'transparent !important',
-                  boxShadow: 'none !important',
-                },
+                display: 'flex',
+                alignItems: 'center',
               }}
             >
-              {rightActions}
+              {headerAiActionNode}
+              {headerQuickActionsNode}
+              <Box>
+                {rightActions}
+              </Box>
             </Box>
           </Box>
 
@@ -1122,22 +1405,11 @@ function AppHeader({
           <Box
             component="header"
             sx={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 'calc(var(--morius-header-height) + 40px)',
-              zIndex: 34,
-              pointerEvents: 'none',
-              backdropFilter: 'blur(5px)',
-              WebkitBackdropFilter: 'blur(5px)',
-              maskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-              WebkitMaskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-              background:
-                'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-base) 68%, transparent) 0%, color-mix(in srgb, var(--morius-app-base) 32%, transparent) 46%, rgba(0, 0, 0, 0) 100%)',
+              ...headerBackdropSx,
             }}
           />
 
+          {!hidePageMenu ? (
           <Fade in={isPageMenuOpen} mountOnEnter unmountOnExit timeout={{ enter: 180, exit: 140 }}>
             <Box
               onClick={closePageMenu}
@@ -1151,7 +1423,9 @@ function AppHeader({
               }}
             />
           </Fade>
+          ) : null}
 
+          {!hidePageMenu ? (
           <Box
             ref={menuTriggerRef}
             sx={{
@@ -1201,7 +1475,9 @@ function AppHeader({
               {renderBrandLogo()}
             </Box>
           </Box>
+          ) : null}
 
+          {!hidePageMenu ? (
           <Grow in={isPageMenuOpen} mountOnEnter unmountOnExit timeout={{ enter: 220, exit: 160 }} style={{ transformOrigin: 'top left' }}>
             <Box
               ref={menuPanelRef}
@@ -1279,6 +1555,7 @@ function AppHeader({
               </Stack>
             </Box>
           </Grow>
+          ) : null}
 
           <Box
             sx={{
@@ -1289,6 +1566,8 @@ function AppHeader({
             }}
           >
             <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {headerAiActionNode}
+              {headerQuickActionsNode}
               <IconButton
                 data-tour-id="header-right-panel-toggle"
                 aria-label={isRightPanelOpen ? rightToggleLabels.expanded : rightToggleLabels.collapsed}
@@ -1312,7 +1591,7 @@ function AppHeader({
 
               <Box
                 sx={{
-                  ml: isRightPanelOpen ? 'var(--morius-icon-gap)' : 0,
+                  ml: isRightPanelOpen ? 1 : 0,
                   maxWidth: isRightPanelOpen ? rightActionsWidth : 0,
                   opacity: isRightPanelOpen ? 1 : 0,
                   transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',
@@ -1331,22 +1610,91 @@ function AppHeader({
           <Box
         component="header"
         sx={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: 'calc(var(--morius-header-height) + 40px)',
-          zIndex: 34,
-          pointerEvents: 'none',
-          backdropFilter: 'blur(5px)',
-          WebkitBackdropFilter: 'blur(5px)',
-          maskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-          WebkitMaskImage: 'linear-gradient(180deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.52) 64%, rgba(0, 0, 0, 0) 100%)',
-          background:
-            'linear-gradient(180deg, color-mix(in srgb, var(--morius-app-base) 68%, transparent) 0%, color-mix(in srgb, var(--morius-app-base) 32%, transparent) 46%, rgba(0, 0, 0, 0) 100%)',
+          ...headerBackdropSx,
         }}
       />
 
+      {!hidePageMenu ? (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 'var(--morius-header-top-offset)',
+            left: 'var(--morius-header-side-offset)',
+            zIndex: 38,
+            height: HEADER_BUTTON_SIZE,
+            display: { xs: 'none', md: 'flex' },
+            alignItems: 'center',
+            pointerEvents: 'auto',
+          }}
+        >
+          <Stack direction="row" spacing={1.55} alignItems="center" sx={{ height: '100%' }}>
+            <Box
+              sx={{
+                width: LOGO_WIDTH,
+                display: shouldHideBrandLogo ? 'none' : 'block',
+                flexShrink: 0,
+                pointerEvents: canLogoNavigateHome ? 'auto' : 'none',
+              }}
+            >
+              {renderBrandLogo()}
+            </Box>
+            <Stack direction="row" spacing={1.15} alignItems="center" sx={{ height: '100%' }}>
+              {headerNavItems.map((item, index) => {
+                const MenuIcon = primaryMenuIconByKey[item.key] ?? primaryMenuIcons[index % primaryMenuIcons.length]
+                const isActive = isHeaderNavItemActive(item)
+                const navItemColor = isActive ? HEADER_NAV_ACTIVE_COLOR : 'var(--morius-title-text)'
+
+                return (
+                  <Button
+                    key={`header-nav-${item.key}`}
+                    onClick={item.onClick}
+                    disableRipple
+                    sx={{
+                      minWidth: 0,
+                      minHeight: HEADER_BUTTON_SIZE,
+                      px: 0.35,
+                      py: 0,
+                      gap: 1,
+                      border: 'none',
+                      borderRadius: '99px !important',
+                      backgroundColor: 'transparent !important',
+                      color: `${navItemColor} !important`,
+                      textTransform: 'none',
+                      fontSize: '0.9rem',
+                      fontWeight: 800,
+                      lineHeight: 1,
+                      '&:hover': {
+                        backgroundColor: 'transparent !important',
+                        color: `${navItemColor} !important`,
+                      },
+                      '&:active': {
+                        backgroundColor: 'transparent !important',
+                      },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        display: 'inline-flex',
+                        color: `${navItemColor} !important`,
+                        '&, & *': { color: `${navItemColor} !important` },
+                        '& svg': { color: `${navItemColor} !important` },
+                        '& path': { fill: 'currentColor !important', stroke: 'currentColor !important' },
+                      }}
+                    >
+                      <MenuIcon />
+                    </Box>
+                    <Box component="span" sx={{ color: `${navItemColor} !important` }}>
+                      {getSafeSidebarLabel(item)}
+                    </Box>
+                  </Button>
+                )
+              })}
+            </Stack>
+          </Stack>
+        </Box>
+      ) : null}
+
+      {shouldRenderLegacyHeaderTrigger ? (
       <Box
         ref={menuTriggerRef}
         sx={{
@@ -1399,18 +1747,21 @@ function AppHeader({
           {renderBrandLogo()}
         </Box>
       </Box>
+      ) : null}
 
       {centerSlot ? (
         <Box
           sx={{
             position: 'fixed',
             top: 'var(--morius-header-top-offset)',
-            left: `calc(var(--morius-header-side-offset) + ${MENU_EXPANDED_WIDTH + 12}px)`,
-            right: `calc(var(--morius-header-side-offset) + 160px)`,
+            left: '50%',
+            transform: 'translateX(-50%)',
             height: HEADER_BUTTON_SIZE,
             zIndex: 37,
+            width: `clamp(260px, calc(100vw - var(--morius-header-side-offset) * 2 - 700px), ${HEADER_CONTENT_MAX_WIDTH}px)`,
             display: { xs: 'none', md: 'flex' },
             alignItems: 'center',
+            pointerEvents: 'auto',
           }}
         >
           {centerSlot}
@@ -1431,7 +1782,7 @@ function AppHeader({
         />
       </Fade>
 
-      {!isCompactSidebar && shouldRenderSidebarPanel ? (
+      {shouldRenderLegacyDesktopSidebar && !isCompactSidebar && shouldRenderSidebarPanel ? (
         <Box
           ref={menuPanelRef}
           sx={{
@@ -1547,7 +1898,7 @@ function AppHeader({
         </Box>
       ) : null}
 
-      {isCompactSidebar ? (
+      {shouldRenderLegacyCompactSidebar && !hidePageMenu && isCompactSidebar ? (
         <Grow in={isPageMenuOpen} mountOnEnter unmountOnExit timeout={{ enter: 220, exit: 160 }} style={{ transformOrigin: 'top left' }}>
           <Box
             ref={menuPanelRef}
@@ -1635,6 +1986,8 @@ function AppHeader({
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          {headerAiActionNode}
+          {headerQuickActionsNode}
           {!shouldHideRightToggle ? (
             <IconButton
               data-tour-id="header-right-panel-toggle"
@@ -1661,15 +2014,9 @@ function AppHeader({
           <Box
             sx={
               shouldHideRightToggle
-                ? {
-                    '& .MuiButtonBase-root:not(.morius-daily-rewards-button)': {
-                      border: 'none !important',
-                      backgroundColor: 'transparent !important',
-                      boxShadow: 'none !important',
-                    },
-                  }
+                ? undefined
                 : {
-                    ml: isRightPanelOpen ? 'var(--morius-icon-gap)' : 0,
+                    ml: isRightPanelOpen ? 1 : 0,
                     maxWidth: isRightPanelOpen ? rightActionsWidth : 0,
                     opacity: isRightPanelOpen ? 1 : 0,
                     transform: isRightPanelOpen ? 'translateX(0)' : 'translateX(14px)',

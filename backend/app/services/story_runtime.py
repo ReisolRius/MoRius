@@ -1202,6 +1202,7 @@ def _generate_story_response_locked(
                 "Failed to ensure baseline story environment snapshot: game_id=%s",
                 game.id,
             )
+    is_administrator = str(getattr(user, "role", "") or "").strip().lower() == "administrator"
     raw_ambient_enabled = getattr(game, "ambient_enabled", None)
     ambient_enabled = bool(raw_ambient_enabled)
     if payload.ambient_enabled is not None:
@@ -1210,7 +1211,8 @@ def _generate_story_response_locked(
     emotion_visualization_enabled = bool(raw_emotion_visualization_enabled)
     if payload.emotion_visualization_enabled is not None:
         emotion_visualization_enabled = bool(payload.emotion_visualization_enabled)
-    if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
+    if not is_administrator:
+        ambient_enabled = False
         emotion_visualization_enabled = False
     logger.info(
         "Story generate settings: game_id=%s memory_optimization_enabled=%s payload_override=%s game_value=%s environment_enabled=%s environment_payload_override=%s environment_game_value=%s ambient_enabled=%s ambient_payload_override=%s ambient_game_value=%s emotion_visualization_enabled=%s emotion_payload_override=%s emotion_game_value=%s",

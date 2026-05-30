@@ -2091,7 +2091,9 @@ export async function generateStoryResponseStream(options: StoryGenerationStream
   const requestPayload: Record<string, unknown> = {
     prompt: options.prompt,
     reroll_last_response: Boolean(options.rerollLastResponse),
-    instructions: options.instructions ?? [],
+  }
+  if (Array.isArray(options.instructions)) {
+    requestPayload.instructions = options.instructions
   }
   if (typeof options.discardLastAssistantSteps === 'number' && Number.isFinite(options.discardLastAssistantSteps)) {
     requestPayload.discard_last_assistant_steps = Math.max(0, Math.trunc(options.discardLastAssistantSteps))

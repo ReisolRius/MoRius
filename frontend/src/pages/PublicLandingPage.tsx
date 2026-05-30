@@ -10,7 +10,7 @@ import {
   type Theme,
 } from '@mui/material'
 import { brandLogo } from '../assets'
-import heroNewBg from '../assets/images/hero-new-bg.png'
+import heroNewBg from '../assets/images/landing-hero-rebrand.webp'
 import characterAboutImg from '../assets/images/character-about.png'
 import slideTemplatesPreview from '../assets/images/advantages/slide-templates.png'
 import advantageAvatarsPreview from '../assets/images/advantages/avatars-preview.png'
@@ -43,8 +43,10 @@ const STORY_TEXT =
 
 const LANDING_PROMPT_MAX_LENGTH = 8000
 
-const ORANGE = '#ef6c00'
-const ORANGE_HOVER = '#c85700'
+const ACCENT = '#578EEE'
+const ACCENT_HOVER = '#477AD7'
+const ACCENT_ICON_FILTER =
+  'brightness(0) saturate(100%) invert(59%) sepia(85%) saturate(1731%) hue-rotate(194deg) brightness(97%) contrast(92%)'
 const TEXT_HEADING = '#d4cdc8'
 const TEXT_BODY = '#b6ada4'
 const TEXT_SUBTITLE = '#c2b8af'
@@ -87,7 +89,7 @@ const advantageSlides: AdvantageSlide[] = [
     number: '03',
     title: 'РАССКАЗЧИКИ',
     description:
-      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2 и MiMo V2 Flash уже ждут, чтобы начать ваше приключение.',
+      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2 и Gemini 3.1 Pro уже ждут, чтобы начать ваше приключение.',
     preview: advantageStorytellersPreview,
   },
   {
@@ -203,16 +205,16 @@ const ctaButtonSx: SxProps<Theme> = {
   fontWeight: 700,
   fontSize: '1rem',
   fontFamily: '"Nunito Sans", sans-serif',
-  backgroundColor: ORANGE,
+  backgroundColor: ACCENT,
   color: '#ffffff',
-  boxShadow: '0 8px 20px rgba(239,108,0,0.35)',
+  boxShadow: '0 8px 20px rgba(87,142,238,0.35)',
   transition: 'transform 200ms ease, box-shadow 200ms ease, background-color 200ms ease',
   textTransform: 'none',
   '&:hover': {
-    backgroundColor: ORANGE_HOVER,
+    backgroundColor: ACCENT_HOVER,
     color: '#ffffff',
     transform: 'translateY(-2px)',
-    boxShadow: '0 12px 28px rgba(239,108,0,0.45)',
+    boxShadow: '0 12px 28px rgba(87,142,238,0.45)',
   },
 }
 
@@ -319,11 +321,11 @@ function LandingPublicWorldCard({
           ? undefined
           : {
               transform: 'translateY(-6px)',
-              borderColor: 'rgba(239,108,0,0.45)',
-              boxShadow: '0 26px 64px rgba(0,0,0,0.48), 0 0 28px rgba(239,108,0,0.16)',
+              borderColor: 'rgba(87,142,238,0.45)',
+              boxShadow: '0 26px 64px rgba(0,0,0,0.48), 0 0 28px rgba(87,142,238,0.16)',
             },
         '&:focus-visible': {
-          outline: '2px solid rgba(239,108,0,0.72)',
+          outline: '2px solid rgba(87,142,238,0.72)',
           outlineOffset: '3px',
         },
         '&:disabled': {
@@ -584,7 +586,7 @@ export default function PublicLandingPage({
             inset: 0,
             backgroundImage: `url(${heroNewBg})`,
             backgroundSize: 'cover',
-            backgroundPosition: 'center center',
+            backgroundPosition: { xs: '58% 54%', md: 'center 54%' },
             backgroundRepeat: 'no-repeat',
             opacity: isHeroBackgroundLoaded ? 1 : 0,
             transform: isHeroBackgroundLoaded ? 'scale(1)' : 'scale(1.025)',
@@ -599,7 +601,8 @@ export default function PublicLandingPage({
           sx={{
             position: 'absolute',
             inset: 0,
-            background: 'linear-gradient(180deg, rgba(10,8,6,0.25) 0%, rgba(10,8,6,0.4) 55%, rgba(17,17,17,1) 100%)',
+            background:
+              'linear-gradient(180deg, rgba(4,8,18,0.2) 0%, rgba(4,8,18,0.36) 48%, rgba(17,17,17,0.98) 100%)',
             zIndex: 1,
           }}
         />
@@ -624,9 +627,9 @@ export default function PublicLandingPage({
                 px: { xs: 1, md: 1.25 },
                 py: 0.42,
                 borderRadius: '999px',
-                border: '1px solid rgba(239,108,0,0.62)',
-                background: 'linear-gradient(180deg, rgba(239,108,0,0.92), rgba(160,65,0,0.92))',
-                boxShadow: '0 10px 26px rgba(239,108,0,0.34)',
+                border: '1px solid rgba(87,142,238,0.62)',
+                background: 'linear-gradient(180deg, rgba(87,142,238,0.92), rgba(53,101,196,0.92))',
+                boxShadow: '0 10px 26px rgba(87,142,238,0.34)',
                 color: '#ffffff',
                 fontFamily: '"Nunito Sans", sans-serif',
                 fontSize: { xs: '0.72rem', md: '0.82rem' },
@@ -648,7 +651,7 @@ export default function PublicLandingPage({
               animationDelay: '80ms',
             }}
           >
-            Твой ход. Твоя игра{'\n'}История начинается сейчас
+            Твой ход. Твоя игра.{'\n'}История начинается сейчас
           </Typography>
           <Typography
             sx={{
@@ -683,15 +686,14 @@ export default function PublicLandingPage({
         component="section"
         sx={{
           position: 'relative',
-          background: 'linear-gradient(180deg, #111111 0%, #1a1309 18%, #1a1309 68%, #111111 100%)',
+          background: 'linear-gradient(180deg, #111111 0%, #11151d 24%, #101216 72%, #111111 100%)',
           py: { xs: 0, md: 0 },
           overflow: 'hidden',
-          /* warm radial glow on the left */
           '&::before': {
             content: '""',
             position: 'absolute',
             inset: 0,
-            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(120,60,10,0.35) 0%, rgba(120,60,10,0.2) 42%, transparent 78%)',
+            background: 'radial-gradient(ellipse 55% 78% at 20% 54%, rgba(87,142,238,0.22) 0%, rgba(87,142,238,0.12) 42%, transparent 78%)',
             pointerEvents: 'none',
             zIndex: 0,
           },
@@ -723,6 +725,7 @@ export default function PublicLandingPage({
               <Box
                 sx={{
                   flex: { md: '0 0 48%' },
+                  display: 'flex',
                   alignItems: 'flex-end',
                   justifyContent: 'center',
                   position: 'relative',
@@ -735,12 +738,13 @@ export default function PublicLandingPage({
                   alt="Morius character"
                   sx={{
                     width: { xs: '90%', sm: '70%', md: '100%' },
-                    maxWidth: { xs: 380, md: 600 },
+                    maxWidth: { xs: 380, md: 620 },
                     objectFit: 'contain',
                     display: 'block',
+                    transform: { xs: 'translateY(8px)', md: 'translate(-4%, 16px) scale(1.08)' },
                     WebkitMaskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
                     maskImage: 'linear-gradient(180deg, black 55%, transparent 100%)',
-                    filter: 'drop-shadow(0 0 40px rgba(180,80,0,0.25))',
+                    filter: 'drop-shadow(0 0 40px rgba(87,142,238,0.22))',
                   }}
                 />
               </Box>
@@ -1106,7 +1110,7 @@ export default function PublicLandingPage({
                   fontSize: { xs: '9rem', md: '13rem' },
                   lineHeight: 0.85,
                   WebkitTextFillColor: 'transparent',
-                  WebkitTextStroke: `2px ${ORANGE}`,
+                  WebkitTextStroke: `2px ${ACCENT}`,
                   letterSpacing: 0,
                   fontVariantNumeric: 'tabular-nums',
                   WebkitMaskImage: 'linear-gradient(180deg, #000 0%, #000 36%, rgba(0,0,0,0.28) 56%, transparent 78%)',
@@ -1163,7 +1167,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowPrevIcon}
                     alt="prev"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
                 <IconButton
@@ -1185,7 +1189,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowNextIcon}
                     alt="next"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
               </Box>
@@ -1204,7 +1208,7 @@ export default function PublicLandingPage({
                       borderRadius: '2px',
                       border: 'none',
                       cursor: 'pointer',
-                      backgroundColor: i === currentSlide ? ORANGE : 'rgba(217,217,217,0.5)',
+                      backgroundColor: i === currentSlide ? ACCENT : 'rgba(217,217,217,0.5)',
                       transition: 'background-color 220ms ease, width 220ms ease',
                       p: 0,
                     }}
@@ -1216,7 +1220,7 @@ export default function PublicLandingPage({
               </Box>
             </Box>
 
-            {/* Right: preview image with orange glow */}
+            {/* Right: preview image with accent glow */}
             <Box
               sx={{
                 width: '100%',
@@ -1252,7 +1256,7 @@ export default function PublicLandingPage({
                         position: 'absolute',
                         inset: { xs: '10% 0 8%', md: '5% -6% 4%' },
                         background:
-                          'radial-gradient(ellipse at center, rgba(239,108,0,0.2) 0%, rgba(239,108,0,0.12) 34%, rgba(239,108,0,0.05) 54%, transparent 76%)',
+                          'radial-gradient(ellipse at center, rgba(87,142,238,0.2) 0%, rgba(87,142,238,0.12) 34%, rgba(87,142,238,0.05) 54%, transparent 76%)',
                         zIndex: 0,
                         pointerEvents: 'none',
                       }}
@@ -1283,7 +1287,7 @@ export default function PublicLandingPage({
                           width: '100%',
                           display: 'block',
                           borderRadius: '12px',
-                          boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(239,108,0,0.14)',
+                          boxShadow: '0 24px 48px rgba(0,0,0,0.55), 0 0 100px rgba(87,142,238,0.14)',
                         }}
                       />
                     </Box>
@@ -1320,7 +1324,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowPrevIcon}
                     alt="prev"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
                 <IconButton
@@ -1342,7 +1346,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowNextIcon}
                     alt="next"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
               </Box>
@@ -1359,7 +1363,7 @@ export default function PublicLandingPage({
                       borderRadius: '2px',
                       border: 'none',
                       cursor: 'pointer',
-                      backgroundColor: i === currentSlide ? ORANGE : 'rgba(217,217,217,0.5)',
+                      backgroundColor: i === currentSlide ? ACCENT : 'rgba(217,217,217,0.5)',
                       transition: 'background-color 220ms ease, width 220ms ease',
                       p: 0,
                     }}
@@ -1449,7 +1453,7 @@ export default function PublicLandingPage({
                             width: 40,
                             height: 40,
                             flexShrink: 0,
-                            filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)`,
+                            filter: ACCENT_ICON_FILTER,
                           }}
                         />
                       </Box>
@@ -1490,7 +1494,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowPrevIcon}
                     alt="prev"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
                 <IconButton
@@ -1512,7 +1516,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowNextIcon}
                     alt="next"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
               </Box>
@@ -1529,7 +1533,7 @@ export default function PublicLandingPage({
                       borderRadius: '2px',
                       border: 'none',
                       cursor: 'pointer',
-                      backgroundColor: i === currentFeatureSlide ? ORANGE : 'rgba(217,217,217,0.5)',
+                      backgroundColor: i === currentFeatureSlide ? ACCENT : 'rgba(217,217,217,0.5)',
                       transition: 'background-color 220ms ease, width 220ms ease',
                       p: 0,
                     }}
@@ -1594,7 +1598,7 @@ export default function PublicLandingPage({
                         width: 40,
                         height: 40,
                         flexShrink: 0,
-                        filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)`,
+                        filter: ACCENT_ICON_FILTER,
                       }}
                     />
                   </Box>
@@ -1640,8 +1644,8 @@ export default function PublicLandingPage({
                 mb: 2.5,
               }}
             >
-              {/* Orange header */}
-              <Box sx={{ backgroundColor: ORANGE, px: 3, py: 1.8 }}>
+              {/* Accent header */}
+              <Box sx={{ backgroundColor: ACCENT, px: 3, py: 1.8 }}>
                 <Typography
                   sx={{
                     fontFamily: '"Nunito Sans", sans-serif',
@@ -1796,7 +1800,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowPrevIcon}
                     alt="prev"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
                 <IconButton
@@ -1818,7 +1822,7 @@ export default function PublicLandingPage({
                     component="img"
                     src={arrowNextIcon}
                     alt="next"
-                    sx={{ width: 28, filter: `brightness(0) saturate(100%) invert(55%) sepia(99%) saturate(1800%) hue-rotate(5deg)` }}
+                    sx={{ width: 28, filter: ACCENT_ICON_FILTER }}
                   />
                 </IconButton>
               </Box>
@@ -1835,7 +1839,7 @@ export default function PublicLandingPage({
                       borderRadius: '2px',
                       border: 'none',
                       cursor: 'pointer',
-                      backgroundColor: i === currentPlanSlide ? ORANGE : 'rgba(217,217,217,0.5)',
+                      backgroundColor: i === currentPlanSlide ? ACCENT : 'rgba(217,217,217,0.5)',
                       transition: 'background-color 220ms ease, width 220ms ease',
                       p: 0,
                     }}
@@ -1863,7 +1867,7 @@ export default function PublicLandingPage({
                     display: 'flex',
                     flexDirection: 'column',
                     transition: 'transform 240ms ease, border-color 240ms ease',
-                    '&:hover': { transform: 'translateY(-6px)', borderColor: 'rgba(239,108,0,0.3)' },
+                    '&:hover': { transform: 'translateY(-6px)', borderColor: 'rgba(87,142,238,0.3)' },
                   }}
                 >
                   {/* Package image header */}

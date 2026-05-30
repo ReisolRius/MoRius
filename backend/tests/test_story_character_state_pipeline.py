@@ -53,10 +53,21 @@ class StoryCharacterStatePipelineTests(unittest.TestCase):
 
         self.assertIsInstance(normalized, dict)
         card = normalized["cards"][0]
-        self.assertEqual(card["status"], "healthy")
+        self.assertEqual(card["status"], "Состояние нормальное")
         self.assertEqual(card["clothing"], "black coat and boots")
         self.assertEqual(card["equipment"], "phone and keys")
         self.assertEqual(card["location"], "в библиотеке")
+
+
+    def test_character_state_status_uses_health_template(self) -> None:
+        self.assertEqual(
+            story_memory_pipeline._normalize_story_character_state_status_template("перелом правой руки"),
+            "Ранен: перелом правой руки",
+        )
+        self.assertEqual(
+            story_memory_pipeline._normalize_story_character_state_status_template("болен: терница"),
+            "Болен: терница",
+        )
 
 
 if __name__ == "__main__":

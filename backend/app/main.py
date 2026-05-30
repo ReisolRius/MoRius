@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, POLZA_GEMINI_25_FLASH_MODEL, settings
 from app.database import SessionLocal
 from app.models import (
     StoryGame,
@@ -297,15 +297,18 @@ STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS = 6
 STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS = 25
 STORY_PLOT_CARD_REQUEST_MAX_TOKENS = 700
 STORY_SERVICE_TEXT_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
-STORY_PLOT_CARD_MEMORY_MODEL = STORY_SERVICE_TEXT_MODEL
+STORY_PLOT_CARD_MEMORY_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 STORY_OUTPUT_TRANSLATION_MODEL = STORY_SERVICE_TEXT_MODEL
 STORY_MEMORY_LOCATION_TITLE = "Место"
 STORY_MEMORY_LOCATION_CONTENT_MAX_CHARS = 280
 STORY_MEMORY_LOCATION_REQUEST_MAX_TOKENS = 240
 STORY_MEMORY_WEATHER_TITLE = "Погода и время"
 STORY_MEMORY_WEATHER_CONTENT_MAX_CHARS = 1_200
-STORY_MEMORY_POSTPROCESS_REQUEST_MAX_TOKENS = 1_600
-STORY_ENVIRONMENT_ANALYSIS_MODEL = STORY_SERVICE_TEXT_MODEL
+STORY_MEMORY_POSTPROCESS_REQUEST_MAX_TOKENS = 2_400
+STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_TURN_POSTPROCESS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+STORY_CHARACTER_STATE_REQUEST_MAX_TOKENS = 1_200
 STORY_ENVIRONMENT_ANALYSIS_REQUEST_MAX_TOKENS = 520
 STORY_ENVIRONMENT_TIME_CARD_TITLE = "Время"
 STORY_ENVIRONMENT_WEEKDAY_SHORT_NAMES_RU = (
@@ -392,7 +395,7 @@ STORY_MEMORY_RAW_USER_MAX_CHARS = 420
 STORY_MEMORY_RAW_ASSISTANT_MAX_LINES = 8
 STORY_MEMORY_RAW_ASSISTANT_MAX_CHARS = 2_600
 STORY_MEMORY_RAW_KEEP_LATEST_ASSISTANT_FULL_TURNS = 1
-STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 78
+STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE = 60
 STORY_MEMORY_KEY_EVENT_DEDUP_SIMILARITY = 0.72
 STORY_MEMORY_KEY_EVENT_STRONG_TOKENS = (
     "квест",
@@ -502,8 +505,8 @@ STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
     STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B: 3,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 5,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 6,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 5,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 7,
     STORY_TURN_IMAGE_MODEL_FLUX: 9,
     STORY_TURN_IMAGE_MODEL_SEEDREAM: 10,
     STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT: 12,
@@ -1115,11 +1118,11 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
-    "xiaomi/mimo-v2-flash": STORY_SERVICE_TEXT_MODEL,
     "xiaomi/mimo-v2-pro": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
+    "google/gemini-3.1-pro-preview": STORY_SERVICE_TEXT_MODEL,
     "qwen/qwen3.5-122b-a10b": STORY_SERVICE_TEXT_MODEL,
 }
 STORY_LEGACY_MODEL_ALIASES = {}
@@ -1141,11 +1144,11 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
     "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
     "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
+    POLZA_GEMINI_25_FLASH_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
     STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
     "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
-    "xiaomi/mimo-v2-flash": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "xiaomi/mimo-v2-pro": STORY_POLZA_PROVIDER_XIAOMI,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
@@ -1160,16 +1163,17 @@ STORY_PAID_MODEL_HINTS = {
     "deepseek/deepseek-chat-v3-0324",
     "deepseek/deepseek-v3.2",
     "mistralai/mistral-nemo",
-    "xiaomi/mimo-v2-flash",
     "xiaomi/mimo-v2-pro",
     "aion-labs/aion-2.0",
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
     "qwen/qwen3.5-122b-a10b",
 }
 STORY_NON_SAMPLING_MODEL_HINTS: set[str] = {
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
+    "google/gemini-3.1-pro-preview",
 }
 STORY_DISABLE_THINKING_MODEL_IDS: set[str] = {
     "qwen/qwen3.5-122b-a10b",
@@ -1455,15 +1459,6 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "РУССКИЙ ЯЗЫК:",
         "Пиши только корректным литературным русским. Не допускай транслитераций и искажений слов.",
     ),
-    "xiaomi/mimo-v2-flash": (
-        "",
-        "MODEL-SPECIFIC DIRECTIVES (MiMo V2 Flash):",
-        "Пиши кратко, но ярко. Не пытайся быть сложным — сосредоточься на:",
-        "1) Чёткие, понятные реакции NPC на действия игрока.",
-        "2) Одна яркая деталь окружения в каждом ответе.",
-        "3) Естественные короткие диалоги.",
-        "Русский язык: используй только простые, точно верные слова.",
-    ),
     "aion-labs/aion-2.0": (
         "",
         "MODEL-SPECIFIC DIRECTIVES (Aion-2):",
@@ -1484,6 +1479,18 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "MODEL-SPECIFIC DIRECTIVES (Gemini 2.5 Pro):",
         "Use the long context carefully: resolve contradictions, keep continuity, and avoid generic summaries.",
         "Prefer concise sensory detail and concrete character choices over broad exposition.",
+        "Do not restate, quote, summarize, or paraphrase the player's latest message; treat it as already performed and continue from its consequences.",
+        "Do not open the reply by describing what the player just wrote unless one short consequence absolutely requires it.",
+        "Never put the player's wording in quotation marks or turn the player turn into a recap.",
+    ),
+    "google/gemini-3.1-pro-preview": (
+        "",
+        "MODEL-SPECIFIC DIRECTIVES (Gemini 3.1 Pro):",
+        "Use the long context carefully: resolve contradictions, keep continuity, and avoid generic summaries.",
+        "Prefer concise sensory detail and concrete character choices over broad exposition.",
+        "Do not restate, quote, summarize, or paraphrase the player's latest message; treat it as already performed and continue from its consequences.",
+        "Do not open the reply by describing what the player just wrote unless one short consequence absolutely requires it.",
+        "Never put the player's wording in quotation marks or turn the player turn into a recap.",
     ),
     "qwen/qwen3.5-122b-a10b": (
         "",
@@ -4618,10 +4625,16 @@ def _build_story_system_prompt(
             [
                 "",
                 "PLAYER INSTRUCTION PRIORITY:",
+                "Active player instruction cards are the highest-priority player prompt for this turn.",
+                "They are not suggestions, flavor text, or optional style hints.",
+                "Treat them as mandatory system-level operating rules after platform safety and before plot memory, world cards, style defaults, pacing, and model habits.",
+                "Only active instruction cards listed in this prompt exist; disabled or absent cards must have zero effect.",
+                "Before writing the final answer, silently check every active instruction card. If the draft violates any active card, rewrite the answer until it complies.",
                 "Active player instruction cards are hard constraints for this turn.",
                 "Follow every active instruction card strictly and literally whenever possible.",
                 "If an instruction card conflicts with your default habits, pacing, or stylistic preference, the instruction card wins.",
                 "Never ignore, weaken, or silently reinterpret player instruction cards for convenience.",
+                "If two active instruction cards conflict so compliance is impossible, obey the more specific card and avoid inventing behavior outside both cards.",
             ]
         )
     if plot_cards_for_prompt:
@@ -10196,6 +10209,23 @@ def _upsert_story_plot_memory_card(
         environment_enabled = story_memory_pipeline._normalize_story_environment_enabled(
             getattr(game, "environment_enabled", None)
         )
+        if bool(getattr(game, "character_state_enabled", None)):
+            try:
+                if story_memory_pipeline._seed_story_character_state_cards_from_world_cards(
+                    db=db,
+                    game=game,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
+                ):
+                    db.flush()
+            except Exception as exc:
+                logger.warning(
+                    "Story character-state pre-seed failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
         postprocess_payload = (
             resolved_postprocess_payload_override
             if isinstance(resolved_postprocess_payload_override, dict)
@@ -10251,7 +10281,21 @@ def _upsert_story_plot_memory_card(
             and isinstance(postprocess_payload.get("important_event"), tuple)
             else important_payload
         )
-        if important_payload is None and not isinstance(postprocess_payload, dict):
+        if important_payload is None:
+            try:
+                important_payload = story_memory_pipeline._extract_story_important_plot_card_payload(
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Story important-event model extraction failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
+
+        if important_payload is None:
             try:
                 important_payload = story_memory_pipeline._extract_story_important_plot_card_payload_locally(
                     latest_user_prompt=latest_user_prompt,
@@ -10286,6 +10330,9 @@ def _upsert_story_plot_memory_card(
                     assistant_message=assistant_message,
                     resolved_payload_override=character_state_payload_for_sync,
                     current_location_content=current_location_content,
+                    latest_user_prompt=latest_user_prompt,
+                    previous_assistant_text=previous_assistant_text,
+                    latest_assistant_text=latest_assistant_text,
                 )
                 from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
 

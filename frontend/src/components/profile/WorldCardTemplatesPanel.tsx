@@ -573,14 +573,14 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
       ) : (
         <>
           {renderSection({
-            title: 'Мир',
-            emptyText: 'У вас пока нет карточек мира.',
+            title: 'Описание мира',
+            emptyText: 'Карточка описания мира пока не добавлена.',
             kind: 'world_profile',
             items: worldProfileTemplates,
           })}
           {renderSection({
-            title: 'Связанное с миром',
-            emptyText: 'У вас пока нет связанных карточек мира.',
+            title: 'Детали',
+            emptyText: 'Деталей пока нет.',
             kind: 'world',
             items: worldDetailTemplates,
           })}

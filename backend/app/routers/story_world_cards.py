@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import func, select, update as sa_update
 from sqlalchemy.orm import Session
@@ -32,7 +34,10 @@ from app.services.story_characters import (
     normalize_story_character_race,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
-from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
+from app.services.story_character_state_fields import (
+    apply_story_character_state_payload_to_world_cards,
+    sync_story_character_state_payload_from_world_cards,
+)
 from app.services.story_queries import (
     get_story_character_for_user_or_404,
     get_story_main_hero_card,
@@ -67,6 +72,7 @@ from app.services.story_world_card_templates import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _normalize_character_identity_name(value: str) -> str:
@@ -446,6 +452,24 @@ def update_story_world_card_ai_edit(
         game=game,
         sync_manual_snapshot=bool(getattr(game, "character_state_enabled", None)),
     )
+    if bool(payload.ai_edit_enabled) and bool(getattr(game, "character_state_enabled", None)):
+        try:
+            from app.services import story_memory_pipeline
+
+            story_memory_pipeline._seed_story_character_state_cards_from_world_cards(
+                db=db,
+                game=game,
+                force=True,
+            )
+            apply_story_character_state_payload_to_world_cards(db=db, game=game)
+        except Exception as exc:
+            # The toggle itself should still persist; the next turn can retry state seeding.
+            logger.warning(
+                "Story character-state seed on ai-edit toggle failed: game_id=%s card_id=%s error=%s",
+                game.id,
+                world_card.id,
+                exc,
+            )
     touch_story_game(game)
     _refresh_public_story_game_snapshots_if_needed(db, game)
     db.commit()

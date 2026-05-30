@@ -5,7 +5,6 @@ import {
   MORIUS_THEME_STORAGE_KEY,
   getMoriusThemeById,
   moriusThemePlaceholders,
-  moriusThemePresets,
   type MoriusThemeId,
   type MoriusThemePreset,
 } from './presets'
@@ -107,16 +106,7 @@ type MoriusThemeControllerValue = {
 const MoriusThemeControllerContext = createContext<MoriusThemeControllerValue | null>(null)
 
 function readInitialThemeId(): MoriusThemeId {
-  if (typeof window === 'undefined') {
-    return MORIUS_DEFAULT_THEME_ID
-  }
-
-  try {
-    const rawThemeId = window.localStorage.getItem(MORIUS_THEME_STORAGE_KEY)
-    return getMoriusThemeById(rawThemeId).id
-  } catch {
-    return MORIUS_DEFAULT_THEME_ID
-  }
+  return MORIUS_DEFAULT_THEME_ID
 }
 
 function readInitialStoryHistoryFontFamilyId(): StoryHistoryFontFamilyId {
@@ -233,7 +223,7 @@ type MoriusThemeProviderProps = {
 }
 
 export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
-  const [themeId, setThemeId] = useState<MoriusThemeId>(() => readInitialThemeId())
+  const [, setThemeId] = useState<MoriusThemeId>(() => readInitialThemeId())
   const [customTheme, setCustomThemeState] = useState<MoriusThemePreset | null>(() => readInitialCustomTheme())
   const [storyHistoryFontFamily, setStoryHistoryFontFamilyState] = useState<StoryHistoryFontFamilyId>(
     () => readInitialStoryHistoryFontFamilyId(),
@@ -243,12 +233,7 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
   )
   const [voiceInputEnabled, setVoiceInputEnabledState] = useState<boolean>(() => readInitialVoiceInputEnabled())
 
-  const activeTheme = useMemo(() => {
-    if (customTheme && customTheme.id === themeId) {
-      return customTheme
-    }
-    return getMoriusThemeById(themeId)
-  }, [customTheme, themeId])
+  const activeTheme = useMemo(() => getMoriusThemeById(MORIUS_DEFAULT_THEME_ID), [])
   const cssVariables = useMemo(() => createMoriusCssVariables(activeTheme.colors), [activeTheme.colors])
   const muiTheme = useMemo(() => createMoriusMuiTheme(activeTheme.colors, activeTheme.mode), [activeTheme.colors, activeTheme.mode])
 
@@ -306,15 +291,13 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
   }, [voiceInputEnabled])
 
   const setTheme = useCallback((nextThemeId: MoriusThemeId) => {
-    setThemeId(getMoriusThemeById(nextThemeId).id)
+    void nextThemeId
+    setThemeId(MORIUS_DEFAULT_THEME_ID)
   }, [])
 
   const setCustomTheme = useCallback((nextTheme: MoriusThemePreset | null) => {
-    setCustomThemeState(nextTheme)
-    if (nextTheme) {
-      setThemeId(nextTheme.id)
-      return
-    }
+    void nextTheme
+    setCustomThemeState(null)
     setThemeId(MORIUS_DEFAULT_THEME_ID)
   }, [])
 
@@ -337,7 +320,7 @@ export function MoriusThemeProvider({ children }: MoriusThemeProviderProps) {
       customTheme,
       cssVariables,
       muiTheme,
-      themes: moriusThemePresets,
+      themes: [activeTheme],
       placeholders: moriusThemePlaceholders,
       setTheme,
       setCustomTheme,

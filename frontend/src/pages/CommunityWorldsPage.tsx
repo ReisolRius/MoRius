@@ -2180,21 +2180,6 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             </Alert>
           ) : null}
 
-          {/* Title */}
-          <Box sx={{ textAlign: 'center', mb: '10px' }}>
-            <Typography
-              sx={{
-                fontSize: { xs: '1.85rem', md: '2.2rem' },
-                fontWeight: 700,
-                color: APP_TEXT_PRIMARY,
-                letterSpacing: '-0.01em',
-                lineHeight: 1.2,
-              }}
-            >
-              Сообщество
-            </Typography>
-          </Box>
-
           {/* Tabs — use Box component="button" to avoid global MUI Button CSS overrides */}
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: '8px', mb: '27px', flexWrap: 'wrap' }}>
             {([

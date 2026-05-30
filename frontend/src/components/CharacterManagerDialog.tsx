@@ -110,16 +110,16 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     cost: 3,
   },
   {
-    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
-    title: 'Nano Banano 7',
-    description: 'Maximum detail and depth rendering.',
-    cost: 5,
-  },
-  {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
     description: 'High-detail character rendering.',
-    cost: 6,
+    cost: 5,
+  },
+  {
+    id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
+    title: 'Nano Banano 2',
+    description: 'Maximum detail and depth rendering.',
+    cost: 7,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,

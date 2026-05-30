@@ -14,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, load_only
 
 from app.database import get_db
-from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, settings
+from app.config import POLZA_GEMINI_25_FLASH_LITE_MODEL, POLZA_GEMINI_25_FLASH_MODEL, settings
 from app.models import (
     StoryBugReport,
     StoryCommunityWorldComment,
@@ -128,7 +128,10 @@ from app.services.story_games import (
     STORY_APPEARANCE_DEFAULT_SOLID_COLOR,
 )
 from app.services.story_cards import story_plot_card_to_out
-from app.services.story_character_state_fields import sync_story_character_state_payload_from_world_cards
+from app.services.story_character_state_fields import (
+    apply_story_character_state_payload_to_world_cards,
+    sync_story_character_state_payload_from_world_cards,
+)
 from app.services.story_memory import (
     STORY_MEMORY_LAYER_COMPRESSED,
     STORY_MEMORY_LAYER_LOCATION,
@@ -865,7 +868,7 @@ def _normalize_story_environment_location_label(value: str | None) -> str:
     return " ".join(str(value).replace("\r", " ").replace("\n", " ").split()).strip()[:160]
 
 
-_STORY_ENVIRONMENT_SERVICE_MODEL = POLZA_GEMINI_25_FLASH_LITE_MODEL
+_STORY_ENVIRONMENT_SERVICE_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 _STORY_ENVIRONMENT_TIMELINE_SLOTS: tuple[tuple[str, str], ...] = (
     ("00:00", "06:00"),
     ("06:00", "12:00"),
@@ -3090,7 +3093,7 @@ def update_story_game_settings(
         game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     if payload.show_npc_thoughts is not None:
         game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
-    if payload.ambient_enabled is not None:
+    if payload.ambient_enabled is not None and user.role == "administrator":
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     if "appearance_background_mode" in payload.model_fields_set:
         game.appearance_background_mode = normalize_story_appearance_background_mode(payload.appearance_background_mode)
@@ -3124,6 +3127,22 @@ def update_story_game_settings(
             game=game,
             sync_manual_snapshot=bool(game.character_state_enabled),
         )
+        if bool(game.character_state_enabled):
+            try:
+                from app.services import story_memory_pipeline
+
+                story_memory_pipeline._seed_story_character_state_cards_from_world_cards(
+                    db=db,
+                    game=game,
+                    force=True,
+                )
+                apply_story_character_state_payload_to_world_cards(db=db, game=game)
+            except Exception as exc:
+                logger.warning(
+                    "Story character-state seed on settings update failed: game_id=%s error=%s",
+                    game.id,
+                    exc,
+                )
     if payload.environment_enabled is not None and payload.environment_time_enabled is None:
         next_environment_time_enabled = normalize_story_environment_time_enabled(
             None,

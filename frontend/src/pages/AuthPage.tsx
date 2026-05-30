@@ -11,7 +11,7 @@ import {
   Typography,
 } from '@mui/material'
 import { brandLogo } from '../assets'
-import authHero from '../assets/images/auth-hero.png'
+import authHero from '../assets/images/auth-hero-rebrand.webp'
 import { GOOGLE_CLIENT_ID, IS_GOOGLE_AUTH_CONFIGURED } from '../config/env'
 import {
   loginWithEmail,
@@ -52,9 +52,9 @@ const AUTH_PASSWORD_MAX_LENGTH = 128
 const AUTH_CODE_LENGTH = 6
 const RESEND_COOLDOWN_SECONDS = 60
 const RESEND_COOLDOWN_REGEX = /please wait\s+(\d+)\s+seconds?/i
-const LOGIN_BUTTON_COLOR = '#EF6C00'
-const LOGIN_BUTTON_HOVER = '#D76000'
-const REGISTER_LINK_COLOR = '#FF7707'
+const LOGIN_BUTTON_COLOR = '#578EEE'
+const LOGIN_BUTTON_HOVER = '#477AD7'
+const REGISTER_LINK_COLOR = '#578EEE'
 const PAGE_BACKGROUND = '#121212'
 const INPUT_BACKGROUND = '#1b2024'
 const INPUT_TEXT = '#f1f1f1'
@@ -596,7 +596,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
           height: '100dvh',
           minHeight: '100dvh',
           boxSizing: 'border-box',
-          p: { md: 2 },
+          p: 0,
           backgroundColor: PAGE_BACKGROUND,
         }}
       >
@@ -606,9 +606,9 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             width: '100%',
             height: '100%',
             overflow: 'hidden',
-            borderRadius: '18px',
+            borderRadius: 0,
             background:
-              'radial-gradient(ellipse at 35% 18%, rgba(239,108,0,0.18) 0%, transparent 42%), linear-gradient(180deg, #1c1713 0%, #121212 100%)',
+              'radial-gradient(ellipse at 35% 18%, rgba(87,142,238,0.18) 0%, transparent 42%), linear-gradient(180deg, #111927 0%, #121212 100%)',
           }}
         >
           <Box
@@ -621,15 +621,15 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
             onError={() => setIsAuthHeroLoaded(true)}
             sx={{
               position: 'absolute',
-              left: '50%',
-              top: '50%',
-              width: 'min(100%, 920px)',
-              height: 'min(100%, 1024px)',
+              inset: 0,
+              width: '100%',
+              height: '100%',
               display: 'block',
-              objectFit: 'contain',
-              objectPosition: 'center center',
+              objectFit: 'cover',
+              objectPosition: '32% center',
               opacity: isAuthHeroLoaded ? 1 : 0,
-              transform: isAuthHeroLoaded ? 'translate(-50%, -50%) scale(1)' : 'translate(-50%, -50%) scale(0.992)',
+              transform: isAuthHeroLoaded ? 'scale(1)' : 'scale(1.012)',
+              transformOrigin: '32% center',
               transition: 'opacity 720ms ease, transform 900ms ease',
             }}
           />

@@ -683,12 +683,13 @@ function SettingsDialog({
         <Box
           sx={{
             display: 'grid',
-            gridTemplateColumns: mobileSheet.isMobileSheet ? '1fr' : { xs: '1fr', md: '280px minmax(0, 1fr)' },
+            gridTemplateColumns: '1fr',
             minHeight: mobileSheet.isMobileSheet ? 'auto' : 'min(920px, calc(100vh - 24px))',
           }}
         >
           <Box
             sx={{
+              display: 'none',
               borderRight: { xs: 'none', md: 'var(--morius-border-width) solid var(--morius-card-border)' },
               borderBottom: mobileSheet.isMobileSheet
                 ? 'var(--morius-border-width) solid var(--morius-card-border)'

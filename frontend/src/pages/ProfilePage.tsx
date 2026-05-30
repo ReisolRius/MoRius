@@ -13,6 +13,7 @@ import {
   IconButton,
   Menu,
   MenuItem,
+  Popover,
   Skeleton,
   Stack,
   SvgIcon,
@@ -36,6 +37,7 @@ import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
+import { MobileCardItem } from '../components/mobile/MobileCardSlider'
 import AdminPanelDialog from '../components/profile/AdminPanelDialog'
 import ConfirmLogoutDialog from '../components/profile/ConfirmLogoutDialog'
 import PaymentSuccessDialog from '../components/profile/PaymentSuccessDialog'
@@ -71,9 +73,12 @@ import {
 } from '../services/authApi'
 import { buildReferralLink } from '../utils/referrals'
 import {
+  cloneStoryGame,
   deleteStoryCharacter,
+  deleteStoryGame,
   deleteStoryInstructionTemplate,
   favoriteCommunityWorld,
+  listStoryGames,
   listFavoriteCommunityWorlds,
   listStoryCharacters,
   listStoryInstructionTemplates,
@@ -92,6 +97,16 @@ import type {
 import { moriusThemeTokens } from '../theme'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { dispatchNotificationsChanged } from '../utils/notifications'
+import { buildWorldFallbackArtwork } from '../utils/worldBackground'
+import {
+  PublicationEntityCard,
+  buildPublicationCardPresentation,
+  mergePublicationWorldSourceRows,
+  resolvePublicationDisplayState,
+  resolvePublicationWorldEditTargetId,
+  selectVisiblePublicationItems,
+  type PublicationSection,
+} from './MyPublicationsPage'
 
 type ProfilePageProps = {
   user: AuthUser
@@ -102,7 +117,8 @@ type ProfilePageProps = {
   viewedUserId?: number | null
 }
 
-type TabId = 'characters' | 'world_cards' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
+type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'favorites' | 'notifications' | 'plots' | 'subscriptions' | 'publications'
+type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
 
@@ -119,29 +135,33 @@ const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const PROFILE_CONTENT_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) => `profile-content-skeleton-${index}`)
 const PROFILE_TAB_BUTTON_SKELETON_KEYS = Array.from({ length: 6 }, (_, index) => `profile-tab-skeleton-${index}`)
+const PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
 
 const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'games', label: 'Игры' },
+  { id: 'world_cards', label: 'Миры' },
   { id: 'characters', label: 'Персонажи' },
-  { id: 'world_cards', label: 'Карточки мира' },
-  { id: 'instructions', label: 'Инструкции' },
-  { id: 'favorites', label: 'Любимые миры' },
-  { id: 'plots', label: 'Сюжеты' },
-  { id: 'subscriptions', label: 'Подписки' },
-  { id: 'publications', label: 'Публикации' },
+  { id: 'instructions', label: 'Правила' },
+]
+
+const PROFILE_PUBLICATION_TABS: Array<{ id: PublicationSection; label: string; iconTab: TabId }> = [
+  { id: 'worlds', label: 'Игры', iconTab: 'games' },
+  { id: 'characters', label: 'Персонажи', iconTab: 'characters' },
+  { id: 'instructions', label: 'Правила', iconTab: 'instructions' },
 ]
 
 const PROFILE_TAB_LABELS: Record<Exclude<TabId, 'notifications'>, string> = {
-  publications: 'Публикации',
+  games: 'Игры',
+  publications: 'Миры',
   characters: 'Персонажи',
-  world_cards: 'Карточки мира',
-  instructions: 'Инструкции',
+  world_cards: 'Миры',
+  instructions: 'Правила',
   favorites: 'Любимое',
   plots: 'Сюжеты',
   subscriptions: 'Подписки',
 }
 
 const PROFILE_NOTIFICATIONS_LABEL = 'Уведомления'
-const NOTIFICATIONS_TAB = { id: 'notifications' as const, label: PROFILE_NOTIFICATIONS_LABEL }
 const NOTIFICATION_SORT_OPTIONS: Array<{ value: NotificationSortMode; label: string }> = [
   { value: 'newest', label: 'Сначала новые' },
   { value: 'oldest', label: 'Сначала старые' },
@@ -150,6 +170,12 @@ const NOTIFICATION_SORT_OPTIONS: Array<{ value: NotificationSortMode; label: str
 const PROFILE_SORT_COLLATOR = new Intl.Collator('ru-RU', { sensitivity: 'base', numeric: true })
 
 const PROFILE_TAB_SORT_OPTIONS: Partial<Record<TabId, Array<{ value: string; label: string }>>> = {
+  games: [
+    { value: 'updated_desc', label: 'Сначала новые' },
+    { value: 'updated_asc', label: 'Сначала старые' },
+    { value: 'name_asc', label: 'Название А-Я' },
+    { value: 'name_desc', label: 'Название Я-А' },
+  ],
   characters: [
     { value: 'updated_desc', label: 'Сначала новые' },
     { value: 'updated_asc', label: 'Сначала старые' },
@@ -185,6 +211,7 @@ const PROFILE_TAB_SORT_OPTIONS: Partial<Record<TabId, Array<{ value: string; lab
 }
 
 const PROFILE_TAB_DEFAULT_SORT_MODE: Partial<Record<TabId, ProfileContentSortMode>> = {
+  games: 'updated_desc',
   characters: 'updated_desc',
   instructions: 'updated_desc',
   favorites: 'popular_desc',
@@ -206,6 +233,8 @@ type ProfileSortableWorldCard = Pick<
   StoryCommunityWorldSummary,
   'id' | 'title' | 'created_at' | 'updated_at' | 'community_launches' | 'community_views' | 'community_rating_avg' | 'community_rating_count'
 >
+
+type ProfileSortableGameCard = Pick<StoryGameSummary, 'id' | 'title' | 'created_at' | 'updated_at' | 'last_activity_at'>
 
 type ProfileSortableSubscription = Pick<ProfileView['subscriptions'][number], 'id' | 'display_name'>
 
@@ -325,6 +354,21 @@ function sortProfileWorlds<T extends ProfileSortableWorldCard>(items: T[], mode:
   })
 }
 
+function sortProfileGames<T extends ProfileSortableGameCard>(items: T[], mode: ProfileContentSortMode): T[] {
+  return [...items].sort((left, right) => {
+    if (mode === 'name_asc') {
+      return compareProfileText(left.title, right.title) || parseSortDate(right.last_activity_at || right.updated_at || right.created_at) - parseSortDate(left.last_activity_at || left.updated_at || left.created_at) || right.id - left.id
+    }
+    if (mode === 'name_desc') {
+      return compareProfileText(right.title, left.title) || parseSortDate(right.last_activity_at || right.updated_at || right.created_at) - parseSortDate(left.last_activity_at || left.updated_at || left.created_at) || right.id - left.id
+    }
+    if (mode === 'updated_asc') {
+      return parseSortDate(left.last_activity_at || left.updated_at || left.created_at) - parseSortDate(right.last_activity_at || right.updated_at || right.created_at) || left.id - right.id
+    }
+    return parseSortDate(right.last_activity_at || right.updated_at || right.created_at) - parseSortDate(left.last_activity_at || left.updated_at || left.created_at) || right.id - left.id
+  })
+}
+
 function sortProfileSubscriptions<T extends ProfileSortableSubscription>(
   items: T[],
   mode: Extract<ProfileContentSortMode, 'name_asc' | 'name_desc'>,
@@ -374,7 +418,7 @@ function toPublicationWorld(
     cover_position_x: game.cover_position_x,
     cover_position_y: game.cover_position_y,
     community_views: game.community_views,
-    community_launches: game.community_launches,
+    community_launches: Math.max(0, game.turn_count || 0),
     community_rating_avg: game.community_rating_avg,
     community_rating_count: game.community_rating_count,
     user_rating: null,
@@ -399,6 +443,34 @@ function formatNotificationDate(rawValue: string): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(parsed))
+}
+
+function formatProfileGameTurnCount(value: number): string {
+  const count = Math.max(0, Number.isFinite(value) ? Math.trunc(value) : 0)
+  const mod10 = count % 10
+  const mod100 = count % 100
+  const label = mod10 === 1 && mod100 !== 11 ? 'ход' : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'хода' : 'ходов'
+  return `${count.toLocaleString('ru-RU')} ${label}`
+}
+
+function formatProfileGameCardDate(rawValue: string | null | undefined): string {
+  const parsed = Date.parse(String(rawValue || ''))
+  if (!Number.isFinite(parsed)) {
+    return ''
+  }
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(parsed))
+}
+
+function resolveProfileGameCardDescription(game: StoryGameSummary): string {
+  return (
+    (game.latest_message_preview || '').trim()
+    || (game.description || '').trim()
+    || (game.opening_scene || '').trim()
+    || 'Продолжите историю с последнего хода.'
+  )
 }
 
 function clampAvatarScale(value: number | null | undefined): number {
@@ -454,7 +526,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     const isOwnProfile = normalizedViewedUserId === null || normalizedViewedUserId === user.id
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
-  const [tab, setTab] = useState<TabId>('characters')
+  const [profileMainSection, setProfileMainSection] = useState<ProfileMainSection>('library')
+  const [tab, setTab] = useState<TabId>('games')
+  const [publicationSection, setPublicationSection] = useState<PublicationSection>('worlds')
   const [contentSearchQuery, setContentSearchQuery] = useState('')
   const [contentSortMenuAnchorEl, setContentSortMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [contentSortModeByTab, setContentSortModeByTab] = useState<Partial<Record<TabId, ProfileContentSortMode>>>(
@@ -485,11 +559,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [characters, setCharacters] = useState<StoryCharacter[]>([])
   const [templates, setTemplates] = useState<StoryInstructionTemplate[]>([])
   const [worldCardTemplateCount, setWorldCardTemplateCount] = useState(0)
+  void worldCardTemplateCount
   const [favoriteWorlds, setFavoriteWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [hasLoadedFavoriteWorlds, setHasLoadedFavoriteWorlds] = useState(false)
   const [isFavoriteWorldsLoading, setIsFavoriteWorldsLoading] = useState(false)
   const [favoriteLoadingById, setFavoriteLoadingById] = useState<Record<number, boolean>>({})
+  const [ownGames, setOwnGames] = useState<StoryGameSummary[]>([])
+  const [isOwnGamesLoading, setIsOwnGamesLoading] = useState(false)
   const [notifications, setNotifications] = useState<UserNotification[]>([])
+  const [notificationPopoverAnchorEl, setNotificationPopoverAnchorEl] = useState<HTMLElement | null>(null)
   const [notificationCounts, setNotificationCounts] = useState<UserNotificationCounters>({ unread_count: 0, total_count: 0 })
   const [hasLoadedNotifications, setHasLoadedNotifications] = useState(false)
   const [isNotificationsLoading, setIsNotificationsLoading] = useState(false)
@@ -512,6 +590,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [contentCardMenuAnchorEl, setContentCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [contentCardMenuType, setContentCardMenuType] = useState<'character' | 'instruction' | null>(null)
   const [contentCardMenuItemId, setContentCardMenuItemId] = useState<number | null>(null)
+  const [gameCardMenuAnchorEl, setGameCardMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const [gameCardMenuGameId, setGameCardMenuGameId] = useState<number | null>(null)
+  const [gameCardMenuBusyAction, setGameCardMenuBusyAction] = useState<'clone' | 'delete' | null>(null)
 
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
@@ -591,6 +672,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
   const isProfileBootstrapLoading = isProfileViewLoading
   const isCurrentTabContentLoading =
+    (tab === 'games' && isOwnProfile && isOwnGamesLoading && ownGames.length === 0) ||
     (tab === 'characters' && isOwnProfile && isLoadingContent && characters.length === 0) ||
     (tab === 'instructions' && isOwnProfile && isLoadingContent && templates.length === 0) ||
     (tab === 'favorites' && isOwnProfile && isFavoriteWorldsLoading && !hasLoadedFavoriteWorlds) ||
@@ -601,24 +683,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     !profileView &&
     (!isOwnProfile || tab === 'publications' || tab === 'subscriptions')
   const tabs = useMemo(() => {
-    const subscriptionsLabel = `${isOwnProfile ? 'Мои подписки' : 'Подписки'} (${subscriptionsCount})`
     if (isOwnProfile) {
-      const ownTabs = BASE_PROFILE_TABS.map((item) =>
-        item.id === 'subscriptions'
-          ? {
-              ...item,
-              label: subscriptionsLabel,
-            }
-          : item,
-      )
-      ownTabs.splice(3, 0, NOTIFICATIONS_TAB)
-      return ownTabs
+      return BASE_PROFILE_TABS
     }
     return [
-      { id: 'subscriptions' as TabId, label: subscriptionsLabel },
-      { id: 'publications' as TabId, label: 'Публикации' },
+      { id: 'publications' as TabId, label: 'Миры' },
+      { id: 'characters' as TabId, label: 'Персонажи' },
+      { id: 'instructions' as TabId, label: 'Правила' },
     ]
-  }, [isOwnProfile, subscriptionsCount])
+  }, [isOwnProfile])
 
   const managedCharacters = useMemo(
     () =>
@@ -673,12 +746,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         : null,
     [contentCardMenuItemId, contentCardMenuType, sortedTemplates],
   )
+  const selectedGameCardMenuItem = useMemo(
+    () => (gameCardMenuGameId !== null ? ownGames.find((game) => game.id === gameCardMenuGameId) ?? null : null),
+    [gameCardMenuGameId, ownGames],
+  )
   const normalizedContentSearchQuery = useMemo(
     () => normalizeProfileSearchValue(deferredContentSearchQuery),
     [deferredContentSearchQuery],
   )
   const characterSortMode = contentSortModeByTab.characters ?? PROFILE_TAB_DEFAULT_SORT_MODE.characters ?? 'updated_desc'
   const instructionSortMode = contentSortModeByTab.instructions ?? PROFILE_TAB_DEFAULT_SORT_MODE.instructions ?? 'updated_desc'
+  const gameSortMode = contentSortModeByTab.games ?? PROFILE_TAB_DEFAULT_SORT_MODE.games ?? 'updated_desc'
   const favoriteSortMode = contentSortModeByTab.favorites ?? PROFILE_TAB_DEFAULT_SORT_MODE.favorites ?? 'popular_desc'
   const publicationSortMode = contentSortModeByTab.publications ?? PROFILE_TAB_DEFAULT_SORT_MODE.publications ?? 'popular_desc'
   const subscriptionSortMode = contentSortModeByTab.subscriptions ?? PROFILE_TAB_DEFAULT_SORT_MODE.subscriptions ?? 'name_asc'
@@ -694,6 +772,22 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     [activeContentSortMode, activeContentSortOptions],
   )
   const isActiveContentSortDefault = activeContentSortMode === (tab === 'notifications' ? 'newest' : PROFILE_TAB_DEFAULT_SORT_MODE[tab] ?? '')
+  const filteredOwnGames = useMemo(
+    () =>
+      sortProfileGames(
+        ownGames.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [
+            item.title,
+            item.description,
+            item.opening_scene,
+            item.latest_message_preview,
+            item.genres.join(' '),
+          ]),
+        ),
+        gameSortMode,
+      ),
+    [gameSortMode, normalizedContentSearchQuery, ownGames],
+  )
   const filteredCharacters = useMemo(
     () =>
       sortProfileCharacters(
@@ -801,6 +895,72 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [normalizedContentSearchQuery, publicationSortMode, visibleUnpublishedWorlds],
   )
+  const profilePublicationWorldSelection = useMemo(
+    () => selectVisiblePublicationItems(mergePublicationWorldSourceRows(ownGames), (item) => item.source_world_id),
+    [ownGames],
+  )
+  const profilePublicationCharacterSelection = useMemo(
+    () => selectVisiblePublicationItems(characters, (item) => item.source_character_id),
+    [characters],
+  )
+  const profilePublicationTemplateSelection = useMemo(
+    () => selectVisiblePublicationItems(templates, (item) => item.source_template_id),
+    [templates],
+  )
+  const profilePublicationGames = profilePublicationWorldSelection.visibleItems
+  const profilePublicationWorldCopySourceIds = profilePublicationWorldSelection.publicationCopySourceIds
+  const profilePublicationCharacters = profilePublicationCharacterSelection.visibleItems
+  const profilePublicationCharacterCopySourceIds = profilePublicationCharacterSelection.publicationCopySourceIds
+  const profilePublicationTemplates = profilePublicationTemplateSelection.visibleItems
+  const profilePublicationTemplateCopySourceIds = profilePublicationTemplateSelection.publicationCopySourceIds
+  const filteredProfilePublicationGames = useMemo(
+    () =>
+      sortProfileGames(
+        profilePublicationGames.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [
+            item.title,
+            item.description,
+            item.opening_scene,
+            item.genres.join(' '),
+          ]),
+        ),
+        'updated_desc',
+      ),
+    [normalizedContentSearchQuery, profilePublicationGames],
+  )
+  const filteredProfilePublicationCharacters = useMemo(
+    () =>
+      sortProfileCharacters(
+        profilePublicationCharacters.filter((item) =>
+          matchesProfileSearch(normalizedContentSearchQuery, [
+            item.name,
+            item.race,
+            item.description,
+            item.note,
+            item.triggers.join(' '),
+          ]),
+        ),
+        'updated_desc',
+      ),
+    [normalizedContentSearchQuery, profilePublicationCharacters],
+  )
+  const filteredProfilePublicationTemplates = useMemo(
+    () =>
+      sortProfileTemplates(
+        profilePublicationTemplates.filter((item) => matchesProfileSearch(normalizedContentSearchQuery, [item.title, item.content])),
+        'updated_desc',
+      ),
+    [normalizedContentSearchQuery, profilePublicationTemplates],
+  )
+  const {
+    visibleItems: visibleOwnGames,
+    hasMore: hasMoreOwnGames,
+    loadMoreRef: loadMoreOwnGamesRef,
+  } = useIncrementalList(filteredOwnGames, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|games|${filteredOwnGames.length}`,
+  })
   const {
     visibleItems: visibleCharacters,
     hasMore: hasMoreCharacters,
@@ -886,9 +1046,42 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     step: PROFILE_CARD_BATCH_SIZE,
     resetKey: `${normalizedContentSearchQuery}|published-instructions|${filteredVisiblePublicationTemplates.length}`,
   })
+  const {
+    visibleItems: visibleProfilePublicationGames,
+    hasMore: hasMoreProfilePublicationGames,
+    loadMoreRef: loadMoreProfilePublicationGamesRef,
+  } = useIncrementalList(filteredProfilePublicationGames, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-games|${filteredProfilePublicationGames.length}`,
+  })
+  const {
+    visibleItems: visibleProfilePublicationCharacters,
+    hasMore: hasMoreProfilePublicationCharacters,
+    loadMoreRef: loadMoreProfilePublicationCharactersRef,
+  } = useIncrementalList(filteredProfilePublicationCharacters, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-characters|${filteredProfilePublicationCharacters.length}`,
+  })
+  const {
+    visibleItems: visibleProfilePublicationTemplates,
+    hasMore: hasMoreProfilePublicationTemplates,
+    loadMoreRef: loadMoreProfilePublicationTemplatesRef,
+  } = useIncrementalList(filteredProfilePublicationTemplates, {
+    initialCount: PROFILE_CARD_BATCH_SIZE,
+    step: PROFILE_CARD_BATCH_SIZE,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-instructions|${filteredProfilePublicationTemplates.length}`,
+  })
   const activeContentHeading = tab === 'notifications' ? PROFILE_NOTIFICATIONS_LABEL : PROFILE_TAB_LABELS[tab]
+  void activeContentHeading
   const profileSidebarItems = useMemo(() => {
     const items: Array<{ id: TabId; label: string; count: number }> = [
+      {
+        id: 'games',
+        label: PROFILE_TAB_LABELS.games,
+        count: ownGames.length,
+      },
       {
         id: 'publications',
         label: PROFILE_TAB_LABELS.publications,
@@ -902,36 +1095,28 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     if (isOwnProfile) {
       items.push(
         { id: 'characters', label: PROFILE_TAB_LABELS.characters, count: managedCharacters.length },
-        { id: 'world_cards', label: PROFILE_TAB_LABELS.world_cards, count: worldCardTemplateCount },
         { id: 'instructions', label: PROFILE_TAB_LABELS.instructions, count: sortedTemplates.length },
-        { id: 'favorites', label: PROFILE_TAB_LABELS.favorites, count: favoriteWorlds.length },
-        { id: 'notifications', label: PROFILE_NOTIFICATIONS_LABEL, count: notificationCounts.total_count },
       )
     }
-    items.push({ id: 'subscriptions', label: PROFILE_TAB_LABELS.subscriptions, count: subscriptionsCount })
     return items
   }, [
     canViewPrivateWorlds,
-    favoriteWorlds.length,
     isOwnProfile,
     managedCharacters.length,
-    notificationCounts.total_count,
+    ownGames.length,
     sortedTemplates.length,
-    subscriptionsCount,
     visiblePublicationCharacters.length,
     visiblePublicationTemplates.length,
     visiblePublicationWorlds.length,
     visibleUnpublishedWorlds.length,
-    worldCardTemplateCount,
   ])
   const profileSidebarSubscriptions = useMemo(() => visibleSubscriptions.slice(0, 6), [visibleSubscriptions])
   const mobileContentTabs = useMemo(
     () => [
-      { id: 'publications' as TabId, label: 'Публикации' },
-      { id: 'instructions' as TabId, label: 'Инструкции' },
+      { id: 'games' as TabId, label: 'Игры' },
+      { id: 'publications' as TabId, label: 'Миры' },
       { id: 'characters' as TabId, label: 'Персонажи' },
-      { id: 'world_cards' as TabId, label: 'Карточки мира' },
-      { id: 'plots' as TabId, label: 'Сюжеты' },
+      { id: 'instructions' as TabId, label: 'Правила' },
     ].filter((item) => tabs.some((tabItem) => tabItem.id === item.id)),
     [tabs],
   )
@@ -1013,26 +1198,40 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
   const loadProfileContent = useCallback(async () => {
     if (!isOwnProfile) {
+      setOwnGames([])
       setCharacters([])
       setTemplates([])
       setFavoriteWorlds([])
       setHasLoadedFavoriteWorlds(false)
       setIsLoadingContent(false)
+      setIsOwnGamesLoading(false)
       setIsFavoriteWorldsLoading(false)
       return
     }
 
     setError('')
     setIsLoadingContent(true)
-    setIsFavoriteWorldsLoading(true)
+    setIsOwnGamesLoading(true)
 
-    const [charactersResult, templatesResult, favoritesResult] = await Promise.allSettled([
+    const [gamesResult, charactersResult, templatesResult, favoritesResult] = await Promise.allSettled([
+      listStoryGames(authToken, { compact: true }),
       listStoryCharacters(authToken),
       listStoryInstructionTemplates(authToken),
       listFavoriteCommunityWorlds(authToken),
     ])
 
     const nextErrors: string[] = []
+
+    if (gamesResult.status === 'fulfilled') {
+      setOwnGames(gamesResult.value)
+    } else {
+      setOwnGames([])
+      nextErrors.push(
+        gamesResult.reason instanceof Error
+          ? gamesResult.reason.message
+          : 'Не удалось загрузить игры',
+      )
+    }
 
     if (charactersResult.status === 'fulfilled') {
       setCharacters(charactersResult.value)
@@ -1071,6 +1270,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
 
     setError(nextErrors[0] ?? '')
     setIsLoadingContent(false)
+    setIsOwnGamesLoading(false)
     setIsFavoriteWorldsLoading(false)
   }, [authToken, isOwnProfile])
 
@@ -1295,6 +1495,35 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     [onNavigate],
   )
 
+  const handleToggleNotificationPopover = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      if (notificationPopoverAnchorEl) {
+        setNotificationPopoverAnchorEl(null)
+        return
+      }
+      setNotificationPopoverAnchorEl(event.currentTarget)
+      if (!hasLoadedNotifications && !isNotificationsLoading) {
+        void loadNotifications()
+      }
+    },
+    [hasLoadedNotifications, isNotificationsLoading, loadNotifications, notificationPopoverAnchorEl],
+  )
+
+  const handleCloseNotificationPopover = useCallback(() => {
+    setNotificationPopoverAnchorEl(null)
+  }, [])
+
+  const handleOpenAllNotifications = useCallback(() => {
+    setNotificationPopoverAnchorEl(null)
+    setTab('notifications')
+    window.setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }, 0)
+    if (!hasLoadedNotifications && !isNotificationsLoading) {
+      void loadNotifications()
+    }
+  }, [hasLoadedNotifications, isNotificationsLoading, loadNotifications])
+
   const loadProfileView = useCallback(async () => {
     setIsProfileViewLoading(true)
     setError('')
@@ -1324,6 +1553,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   useEffect(() => {
     setProfileView(null)
     setWorldCardTemplateCount(0)
+    setOwnGames([])
     setFavoriteWorlds([])
     setHasLoadedFavoriteWorlds(false)
     setNotifications([])
@@ -1350,14 +1580,29 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     if (tabs.length === 0) {
       return
     }
+    if (tab === 'notifications') {
+      return
+    }
     if (!tabs.some((item) => item.id === tab)) {
       setTab(tabs[0].id)
     }
   }, [tab, tabs])
 
   useEffect(() => {
-    setContentSortMenuAnchorEl(null)
+    if (!isOwnProfile && profileMainSection === 'publications') {
+      setProfileMainSection('library')
+    }
+  }, [isOwnProfile, profileMainSection])
+
+  useEffect(() => {
+    if (tab === 'favorites' || tab === 'notifications' || tab === 'subscriptions') {
+      setProfileMainSection('library')
+    }
   }, [tab])
+
+  useEffect(() => {
+    setContentSortMenuAnchorEl(null)
+  }, [profileMainSection, publicationSection, tab])
 
   useEffect(() => {
     setMobileProfileMenuAnchorEl(null)
@@ -1368,13 +1613,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       lastContentTabRef.current = tab
     }
   }, [tab])
-
-  useEffect(() => {
-    if (tab !== 'notifications' || !hasLoadedNotifications || isNotificationsLoading) {
-      return
-    }
-    void markNotificationsRead()
-  }, [hasLoadedNotifications, isNotificationsLoading, markNotificationsRead, tab])
 
   useEffect(() => {
     if (!isOwnProfile || tab !== 'notifications' || hasLoadedNotifications || isNotificationsLoading) {
@@ -1741,20 +1979,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
   }, [applyFollowState, authToken, isFollowSaving, isOwnProfile, profileView])
 
-  const handleOpenPrivacyDialog = useCallback(() => {
-    if (!isOwnProfile || !profileView) {
-      return
-    }
-    setPrivacyDraft({
-      show_subscriptions: profileView.privacy.show_subscriptions,
-      show_public_worlds: profileView.privacy.show_public_worlds,
-      show_private_worlds: profileView.privacy.show_private_worlds,
-      show_public_characters: profileView.privacy.show_public_characters ?? false,
-      show_public_instruction_templates: profileView.privacy.show_public_instruction_templates ?? false,
-    })
-    setPrivacyDialogOpen(true)
-  }, [isOwnProfile, profileView])
-
   const handleSavePrivacy = useCallback(async () => {
     if (!isOwnProfile || isSavingPrivacy) {
       return
@@ -1967,6 +2191,87 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setContentCardMenuItemId(null)
   }, [])
 
+  const handleOpenGameCardMenu = useCallback((event: ReactMouseEvent<HTMLElement>, gameId: number) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setGameCardMenuAnchorEl(event.currentTarget)
+    setGameCardMenuGameId(gameId)
+  }, [])
+
+  const handleCloseGameCardMenu = useCallback(() => {
+    if (gameCardMenuBusyAction !== null) {
+      return
+    }
+    setGameCardMenuAnchorEl(null)
+    setGameCardMenuGameId(null)
+  }, [gameCardMenuBusyAction])
+
+  const handleEditGameCardFromMenu = useCallback(() => {
+    if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
+      return
+    }
+    const targetGameId = selectedGameCardMenuItem.id
+    setGameCardMenuAnchorEl(null)
+    setGameCardMenuGameId(null)
+    onNavigate(`/worlds/${targetGameId}/edit?source=profile`)
+  }, [gameCardMenuBusyAction, onNavigate, selectedGameCardMenuItem])
+
+  const handleCloneGameCardFromMenu = useCallback(async () => {
+    if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
+      return
+    }
+    setError('')
+    setGameCardMenuBusyAction('clone')
+    try {
+      const clonedGame = await cloneStoryGame({
+        token: authToken,
+        gameId: selectedGameCardMenuItem.id,
+        copy_instructions: true,
+        copy_plot: true,
+        copy_world: true,
+        copy_main_hero: true,
+        copy_history: true,
+      })
+      setOwnGames((previousGames) => [clonedGame, ...previousGames.filter((game) => game.id !== clonedGame.id)])
+      setGameCardMenuAnchorEl(null)
+      setGameCardMenuGameId(null)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось клонировать мир'
+      setError(detail)
+    } finally {
+      setGameCardMenuBusyAction(null)
+    }
+  }, [authToken, gameCardMenuBusyAction, selectedGameCardMenuItem])
+
+  const handleDeleteGameCardFromMenu = useCallback(async () => {
+    if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
+      return
+    }
+    const confirmed = typeof window === 'undefined' || window.confirm('Удалить выбранный мир? Это действие нельзя отменить.')
+    if (!confirmed) {
+      setGameCardMenuAnchorEl(null)
+      setGameCardMenuGameId(null)
+      return
+    }
+    const targetGameId = selectedGameCardMenuItem.id
+    setError('')
+    setGameCardMenuBusyAction('delete')
+    try {
+      await deleteStoryGame({
+        token: authToken,
+        gameId: targetGameId,
+      })
+      setOwnGames((previousGames) => previousGames.filter((game) => game.id !== targetGameId))
+      setGameCardMenuAnchorEl(null)
+      setGameCardMenuGameId(null)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось удалить мир'
+      setError(detail)
+    } finally {
+      setGameCardMenuBusyAction(null)
+    }
+  }, [authToken, gameCardMenuBusyAction, selectedGameCardMenuItem])
+
   const handleEditContentCardFromMenu = useCallback(() => {
     if (contentCardMenuType === 'character' && selectedContentCharacterMenuItem) {
       openCharacterEdit(selectedContentCharacterMenuItem.id)
@@ -2088,6 +2393,130 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       </Box>
     </ButtonBase>
   )
+
+  const renderGames = () => {
+    if (!isOwnProfile) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
+    }
+
+    if (isOwnGamesLoading && ownGames.length === 0) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Загружаем игры...</Typography>
+    }
+
+    if (!filteredOwnGames.length) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Пока нет игр.</Typography>
+    }
+
+    return (
+      <>
+        <Box
+          sx={{
+            display: { xs: 'none', sm: 'grid' },
+            gap: 1,
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
+          }}
+        >
+          {visibleOwnGames.map((game) => (
+            <Box
+              key={game.id}
+              sx={{
+                position: 'relative',
+                minWidth: 0,
+                '&:hover .profile-game-card-menu-button, &:focus-within .profile-game-card-menu-button': {
+                  opacity: 1,
+                  pointerEvents: 'auto',
+                  transform: 'translateY(0)',
+                },
+              }}
+            >
+              <CommunityWorldCard
+                world={toPublicationWorld(game, {
+                  authorId: resolvedProfileUser.id,
+                  authorName: resolvedProfileName,
+                  authorAvatarUrl: resolvedProfileUser.avatar_url,
+                })}
+                onClick={() => onNavigate(`/home/${game.id}`)}
+              />
+              <IconButton
+                className="profile-game-card-menu-button"
+                aria-label="Действия с миром"
+                onClick={(event) => handleOpenGameCardMenu(event, game.id)}
+                sx={{
+                  position: 'absolute',
+                  top: 10,
+                  right: 10,
+                  zIndex: 4,
+                  width: 34,
+                  height: 34,
+                  borderRadius: '10px',
+                  border: 'var(--morius-border-width) solid rgba(214, 226, 244, 0.18)',
+                  backgroundColor: 'rgba(5, 8, 13, 0.66)',
+                  color: 'rgba(236, 243, 252, 0.96)',
+                  opacity: { xs: 1, md: 0 },
+                  pointerEvents: { xs: 'auto', md: 'none' },
+                  transform: { xs: 'translateY(0)', md: 'translateY(-4px)' },
+                  transition: 'opacity 180ms ease, transform 180ms ease, background-color 180ms ease',
+                  backdropFilter: 'blur(10px)',
+                  '&:hover': {
+                    backgroundColor: 'rgba(17, 27, 40, 0.82)',
+                  },
+                }}
+              >
+                <Box sx={{ fontSize: '1.15rem', lineHeight: 1 }}>{String.fromCharCode(8943)}</Box>
+              </IconButton>
+            </Box>
+          ))}
+        </Box>
+        <Stack spacing={1} sx={{ display: { xs: 'flex', sm: 'none' } }}>
+          {visibleOwnGames.map((game) => (
+            <MobileCardItem
+              key={`profile-game-mobile-${game.id}`}
+              imageUrl={resolveApiResourceUrl(game.cover_image_url)}
+              fallbackBackground={buildWorldFallbackArtwork(game.id) as Record<string, unknown>}
+              title={(game.title || '').trim() || `Игра #${game.id}`}
+              description={resolveProfileGameCardDescription(game)}
+              authorName={resolvedProfileName}
+              authorAvatarUrl={resolvedProfileUser.avatar_url}
+              stat1={formatProfileGameTurnCount(game.turn_count)}
+              stat2={formatProfileGameCardDate(game.last_activity_at || game.updated_at || game.created_at)}
+              onMenuClick={(event) => handleOpenGameCardMenu(event, game.id)}
+              onClick={() => onNavigate(`/home/${game.id}`)}
+            />
+          ))}
+        </Stack>
+        {hasMoreOwnGames ? <Box ref={loadMoreOwnGamesRef} sx={{ height: 1, width: '100%' }} /> : null}
+      </>
+    )
+  }
+
+  const renderLibraryTabIcon = (tabId: TabId) => {
+    if (tabId === 'games') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+          <path fill="currentColor" d="M7.2 9.2h2.1v1.9h1.9v2.1H9.3v1.9H7.2v-1.9H5.3v-2.1h1.9V9.2Zm8.15 1.35a1.15 1.15 0 1 0 0-2.3 1.15 1.15 0 0 0 0 2.3Zm2.6 3.1a1.15 1.15 0 1 0 0-2.3 1.15 1.15 0 0 0 0 2.3ZM7.4 6h9.2A5.4 5.4 0 0 1 22 11.4v1.2A5.4 5.4 0 0 1 16.6 18h-.9l-1.7-2H10l-1.7 2h-.9A5.4 5.4 0 0 1 2 12.6v-1.2A5.4 5.4 0 0 1 7.4 6Z" />
+        </SvgIcon>
+      )
+    }
+    if (tabId === 'publications' || tabId === 'world_cards') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+          <path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm6.9 9h-3.05a15.8 15.8 0 0 0-1.2-5.02A8.03 8.03 0 0 1 18.9 11ZM12 4.05c.77 1.1 1.7 3.02 1.9 6.95h-3.8c.2-3.93 1.13-5.85 1.9-6.95ZM4.1 13h3.05c.16 2 .6 3.73 1.2 5.02A8.03 8.03 0 0 1 4.1 13Zm3.05-2H4.1a8.03 8.03 0 0 1 4.25-5.02A15.8 15.8 0 0 0 7.15 11ZM12 19.95c-.77-1.1-1.7-3.02-1.9-6.95h3.8c-.2 3.93-1.13 5.85-1.9 6.95Zm3.65-1.93c.6-1.29 1.04-3.02 1.2-5.02h3.05a8.03 8.03 0 0 1-4.25 5.02Z" />
+        </SvgIcon>
+      )
+    }
+    if (tabId === 'characters') {
+      return (
+        <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+          <path fill="currentColor" d="M12 12a4.2 4.2 0 1 0 0-8.4 4.2 4.2 0 0 0 0 8.4Zm0 2c-4.45 0-8 2.2-8 4.9V21h16v-2.1c0-2.7-3.55-4.9-8-4.9Z" />
+        </SvgIcon>
+      )
+    }
+    return (
+      <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+        <path fill="currentColor" d="M6 3h11a2 2 0 0 1 2 2v15.5c0 .55-.45 1-1 1H7a3 3 0 0 1-3-3V5a2 2 0 0 1 2-2Zm1 14.5h10V5H6v10.67c.31-.11.65-.17 1-.17Zm0 2H17v-1H7a1 1 0 1 0 0 2ZM8 7h7v2H8V7Zm0 4h7v2H8v-2Z" />
+      </SvgIcon>
+    )
+  }
 
   const renderCharacters = () => {
     return (
@@ -2276,7 +2705,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           sx={{
             display: 'grid',
             gap: 1,
-            gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+            gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
           }}
         >
           {visibleFavoriteWorlds.map((item) => (
@@ -2603,7 +3032,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         sx={{
           display: 'grid',
           gap: 1,
-          gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
         }}
       >
         {visiblePublishedWorldCards.map((item) => (
@@ -2633,7 +3062,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 sx={{
                   display: 'grid',
                   gap: 1,
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
                 }}
               >
                 {visiblePublishedWorldCards.map((item) => (
@@ -2703,7 +3132,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 sx={{
                   display: 'grid',
                   gap: 1,
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
                 }}
               >
                 {visiblePublishedInstructionCards.map((item) => (
@@ -2791,7 +3220,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 sx={{
                   display: 'grid',
                   gap: 1,
-                  gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+                  gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
                 }}
               >
                 {visibleUnpublishedWorldCards.map((item) => (
@@ -2818,6 +3247,165 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     )
   }
 
+  const renderProfilePublications = () => {
+    if (!isOwnProfile) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
+    }
+
+    const isPublicationLoading =
+      (publicationSection === 'worlds' && isOwnGamesLoading && ownGames.length === 0) ||
+      (publicationSection === 'characters' && isLoadingContent && characters.length === 0) ||
+      (publicationSection === 'instructions' && isLoadingContent && templates.length === 0)
+
+    if (isPublicationLoading) {
+      return (
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.4,
+            gridTemplateColumns: PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS,
+          }}
+        >
+          {PROFILE_CONTENT_SKELETON_CARD_KEYS.map((cardKey) => (
+            <CommunityWorldCardSkeleton key={`profile-publication-${cardKey}`} />
+          ))}
+        </Box>
+      )
+    }
+
+    if (publicationSection === 'worlds') {
+      if (filteredProfilePublicationGames.length === 0) {
+        return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет игр на публикации.</Typography>
+      }
+
+      return (
+        <>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1.4,
+              gridTemplateColumns: PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS,
+            }}
+          >
+            {visibleProfilePublicationGames.map((game) => {
+              const publicationState = resolvePublicationDisplayState(
+                game.publication,
+                game.visibility,
+                profilePublicationWorldCopySourceIds.includes(game.id),
+              )
+              const publicationMeta = buildPublicationCardPresentation(publicationState, game.visibility)
+              return (
+                <PublicationEntityCard
+                  key={game.id}
+                  title={game.title || 'Без названия'}
+                  description={game.description || 'Описание отсутствует.'}
+                  note={publicationMeta.note || game.genres[0] || ''}
+                  authorName={resolvedProfileName}
+                  authorAvatarUrl={resolvedProfileUser.avatar_url}
+                  statusLabel={publicationMeta.statusLabel}
+                  statusTone={publicationMeta.statusTone}
+                  additionsCount={game.community_launches}
+                  ratingAvg={game.community_rating_avg}
+                  heroBackgroundSx={buildWorldFallbackArtwork(game.id)}
+                  heroImageUrl={game.cover_image_url}
+                  onClick={() => onNavigate(`/worlds/${resolvePublicationWorldEditTargetId(game, profilePublicationGames)}/edit?source=my-publications`)}
+                />
+              )
+            })}
+          </Box>
+          {hasMoreProfilePublicationGames ? <Box ref={loadMoreProfilePublicationGamesRef} sx={{ height: 2 }} /> : null}
+        </>
+      )
+    }
+
+    if (publicationSection === 'characters') {
+      if (filteredProfilePublicationCharacters.length === 0) {
+        return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет персонажей на публикации.</Typography>
+      }
+
+      return (
+        <>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 1.4,
+              gridTemplateColumns: PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS,
+            }}
+          >
+            {visibleProfilePublicationCharacters.map((character) => {
+              const publicationState = resolvePublicationDisplayState(
+                character.publication,
+                character.visibility,
+                profilePublicationCharacterCopySourceIds.includes(character.id),
+              )
+              const publicationMeta = buildPublicationCardPresentation(publicationState, character.visibility)
+              return (
+                <PublicationEntityCard
+                  key={character.id}
+                  title={character.name || 'Без имени'}
+                  description={character.description || 'Описание отсутствует.'}
+                  note={publicationMeta.note || character.note}
+                  authorName={resolvedProfileName}
+                  authorAvatarUrl={resolvedProfileUser.avatar_url}
+                  statusLabel={publicationMeta.statusLabel}
+                  statusTone={publicationMeta.statusTone}
+                  additionsCount={character.community_additions_count}
+                  ratingAvg={character.community_rating_avg}
+                  heroBackgroundSx={buildWorldFallbackArtwork(character.id)}
+                  heroImageUrl={character.avatar_url}
+                  onClick={() => openCharacterEdit(character.source_character_id ?? character.id)}
+                />
+              )
+            })}
+          </Box>
+          {hasMoreProfilePublicationCharacters ? <Box ref={loadMoreProfilePublicationCharactersRef} sx={{ height: 2 }} /> : null}
+        </>
+      )
+    }
+
+    if (filteredProfilePublicationTemplates.length === 0) {
+      return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>У вас пока нет правил на публикации.</Typography>
+    }
+
+    return (
+      <>
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 1.4,
+            gridTemplateColumns: PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS,
+          }}
+        >
+          {visibleProfilePublicationTemplates.map((template) => {
+            const publicationState = resolvePublicationDisplayState(
+              template.publication,
+              template.visibility,
+              profilePublicationTemplateCopySourceIds.includes(template.id),
+            )
+            const publicationMeta = buildPublicationCardPresentation(publicationState, template.visibility)
+            return (
+              <PublicationEntityCard
+                key={template.id}
+                title={template.title || 'Без названия'}
+                description={template.content || 'Текст правила отсутствует.'}
+                note={publicationMeta.note}
+                authorName={resolvedProfileName}
+                authorAvatarUrl={resolvedProfileUser.avatar_url}
+                statusLabel={publicationMeta.statusLabel}
+                statusTone={publicationMeta.statusTone}
+                additionsCount={template.community_additions_count}
+                ratingAvg={template.community_rating_avg}
+                heroBackgroundSx={buildWorldFallbackArtwork(template.id + 100000)}
+                onClick={() => openInstructionEdit(template.source_template_id ?? template.id)}
+              />
+            )
+          })}
+        </Box>
+        {hasMoreProfilePublicationTemplates ? <Box ref={loadMoreProfilePublicationTemplatesRef} sx={{ height: 2 }} /> : null}
+      </>
+    )
+  }
+
   const renderTabContent = () => {
     if (isCurrentTabWaitingForProfileView || isCurrentTabContentLoading) {
       return (
@@ -2827,7 +3415,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             sx={{
               display: 'grid',
               gap: 1,
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))' },
+              gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(4, minmax(0, 1fr))' },
             }}
           >
             {PROFILE_CONTENT_SKELETON_CARD_KEYS.map((cardKey) => (
@@ -2838,6 +3426,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       )
     }
 
+    if (tab === 'games') {
+      return renderGames()
+    }
     if (tab === 'characters') {
       if (!isOwnProfile) {
         return <Typography sx={{ color: 'var(--morius-text-secondary)' }}>Раздел доступен только владельцу профиля.</Typography>
@@ -2926,6 +3517,50 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         showAiAssistantAction={user.ai_assistant_visible ?? true}
         onOpenTopUpDialog={handleOpenTopUpDialog}
         hideRightToggle
+        centerSlot={
+          <Box sx={{ position: 'relative', width: '100%', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <Box
+              component="input"
+              type="text"
+              value={contentSearchQuery}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setContentSearchQuery(event.target.value.slice(0, PROFILE_CONTENT_SEARCH_MAX))}
+              placeholder="Поиск"
+              aria-label="Поиск по профилю"
+              sx={{
+                width: '100%',
+                height: '100%',
+                borderRadius: '9999px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-card-bg)',
+                color: 'var(--morius-text-primary)',
+                pl: '16px',
+                pr: '44px',
+                outline: 'none',
+                fontSize: '0.9rem',
+                fontFamily: 'inherit',
+                boxSizing: 'border-box',
+                transition: 'border-color 180ms ease',
+                '&::placeholder': { color: 'var(--morius-text-secondary)' },
+                '&:focus': { borderColor: 'color-mix(in srgb, var(--morius-accent) 60%, var(--morius-card-border))' },
+              }}
+            />
+            <SvgIcon
+              viewBox="0 0 24 24"
+              sx={{
+                position: 'absolute',
+                right: 14,
+                top: '50%',
+                width: 18,
+                height: 18,
+                transform: 'translateY(-50%)',
+                color: 'var(--morius-text-secondary)',
+                pointerEvents: 'none',
+              }}
+            >
+              <path fill="currentColor" d="M10.8 4a6.8 6.8 0 0 1 5.36 10.98l3.43 3.43-1.18 1.18-3.43-3.43A6.8 6.8 0 1 1 10.8 4Zm0 1.7a5.1 5.1 0 1 0 0 10.2 5.1 5.1 0 0 0 0-10.2Z" />
+            </SvgIcon>
+          </Box>
+        }
         rightActions={<Box sx={{ display: { xs: 'none', md: 'block' } }}><HeaderAccountActions user={user} authToken={authToken} avatarSize={HEADER_AVATAR_SIZE} onOpenProfile={() => onNavigate('/profile')} /></Box>}
       />
 
@@ -2936,7 +3571,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           px: { xs: 1.2, md: 3.2 },
         }}
       >
-        <Box sx={{ width: '100%', maxWidth: 1400, mx: 'auto' }}>
+        <Box sx={{ width: '100%', maxWidth: 1120, mx: 'auto' }}>
           {error ? (
             <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.1, borderRadius: '12px' }}>
               {error}
@@ -3317,30 +3952,31 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      backgroundColor: 'transparent',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
                     },
                   }}
                 >
                   {resolvedCanOpenAdmin ? 'Админка' : (isEditing ? 'Свернуть редактор' : 'Редактировать профиль')}
                 </Button>
 
-                <Button
-                  onClick={() => handleOpenPrivacyDialog()}
-                  sx={{
-                    display: isOwnProfile ? 'inline-flex' : 'none',
-                    minHeight: 34,
-                    borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'var(--morius-elevated-bg)',
-                    color: 'var(--morius-text-primary)',
-                    textTransform: 'none',
-                    '&:hover': {
-                      backgroundColor: 'transparent',
-                    },
-                  }}
-                >
-                  Приватность
-                </Button>
+                {isOwnProfile && resolvedCanOpenAdmin ? (
+                  <Button
+                    onClick={() => setIsEditing((previous) => !previous)}
+                    sx={{
+                      minHeight: 34,
+                      borderRadius: '999px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-elevated-bg)',
+                      color: 'var(--morius-text-primary)',
+                      textTransform: 'none',
+                      '&:hover': {
+                        backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
+                      },
+                    }}
+                  >
+                    {isEditing ? '\u0421\u0432\u0435\u0440\u043d\u0443\u0442\u044c \u0440\u0435\u0434\u0430\u043a\u0442\u043e\u0440' : '\u0420\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u0440\u043e\u0444\u0438\u043b\u044c'}
+                  </Button>
+                ) : null}
 
                 <Button
                   onClick={() => {
@@ -3352,16 +3988,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     display: isOwnProfile ? 'inline-flex' : 'none',
                     minHeight: 34,
                     borderRadius: '999px',
-                    border: 'var(--morius-border-width) solid rgba(228, 120, 120, 0.44)',
-                    color: 'rgba(251, 190, 190, 0.92)',
+                    border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    backgroundColor: 'var(--morius-elevated-bg)',
+                    color: 'var(--morius-text-primary)',
                     textTransform: 'none',
                     '&:hover': {
-                      borderColor: 'rgba(238, 148, 148, 0.72)',
-                      backgroundColor: 'rgba(214, 86, 86, 0.14)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
                     },
                   }}
                 >
-                  Выйти
+                  Выход
                 </Button>
               </Stack>
             </Stack>
@@ -3376,8 +4012,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   sx={{ minWidth: 0 }}
                 >
                   <Stack
-                    direction={{ xs: 'column', sm: 'row' }}
-                    spacing={{ xs: 1, md: 1.35 }}
+                    direction="column"
+                    spacing={{ xs: 1.65, md: 1.8 }}
                     alignItems={{ xs: (isEditing && isOwnProfile) ? 'stretch' : 'center', sm: 'flex-start' }}
                     sx={{ minWidth: 0, flex: 1 }}
                   >
@@ -3522,14 +4158,6 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.8rem', md: '2.15rem' }, fontWeight: 800, lineHeight: 1.05 }}>
                             {resolvedProfileName}
                           </Typography>
-                          <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap">
-                            {isOwnProfile ? (
-                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>{user.email}</Typography>
-                            ) : null}
-                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
-                              {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? 'подписчик' : 'подписчика'}
-                            </Typography>
-                          </Stack>
                           {resolvedProfileDescription ? (
                             <Box>
                               <Typography
@@ -3588,6 +4216,43 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                               Описание пока не добавлено.
                             </Typography>
                           )}
+                          <Stack direction="row" spacing={1.2} alignItems="center" flexWrap="wrap" sx={{ pt: 0.15, maxWidth: 680 }}>
+                            {isOwnProfile && user.email ? (
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', fontWeight: 700 }}>{user.email}</Typography>
+                            ) : null}
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                              {followersCount.toLocaleString('ru-RU')} {followersCount === 1 ? 'подписчик' : 'подписчика'}
+                            </Typography>
+                            {isOwnProfile || canViewSubscriptions ? (
+                              <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem' }}>
+                                {subscriptionsCount.toLocaleString('ru-RU')} {subscriptionsCount === 1 ? 'подписка' : 'подписки'}
+                              </Typography>
+                            ) : null}
+                          </Stack>
+                          {isOwnProfile ? (
+                            <Stack direction="row" spacing={0.85} useFlexGap flexWrap="wrap" sx={{ pt: 1 }}>
+                              <Button
+                                onClick={handleOpenTopUpDialog}
+                                sx={{
+                                  minHeight: 28,
+                                  px: 1.12,
+                                  borderRadius: '8px',
+                                  border: 'none',
+                                  backgroundColor: 'var(--morius-accent)',
+                                  color: '#fff',
+                                  textTransform: 'none',
+                                  fontSize: '0.72rem',
+                                  fontWeight: 800,
+                                  lineHeight: 1,
+                                  '&:hover': {
+                                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 86%, #fff 14%)',
+                                  },
+                                }}
+                              >
+                                {coins.toLocaleString('ru-RU')} Солов
+                              </Button>
+                            </Stack>
+                          ) : null}
                         </>
                       )}
                     </Stack>
@@ -3602,7 +4267,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     }}
                   >
                     {isOwnProfile ? (
-                      <Box sx={{ display: 'flex', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
+                      <Box sx={{ display: 'none', justifyContent: { xs: 'flex-start', lg: 'flex-end' } }}>
                         <Button
                           onClick={handleOpenTopUpDialog}
                           sx={{
@@ -3629,7 +4294,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     {isOwnProfile ? (
                       <Box
                         sx={{
-                          display: { xs: 'block', lg: 'none' },
+                          display: 'none',
                           p: 1.05,
                           borderRadius: '8px',
                           border: 'var(--morius-border-width) solid var(--morius-card-border)',
@@ -3677,6 +4342,60 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     ) : null}
 
                     <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }} sx={{ display: { xs: 'none', md: 'flex' } }}>
+                      {isOwnProfile ? (
+                        <IconButton
+                          onClick={handleToggleNotificationPopover}
+                          aria-label="Уведомления"
+                          sx={{
+                            position: 'relative',
+                            width: HEADER_AVATAR_SIZE,
+                            height: HEADER_AVATAR_SIZE,
+                            minWidth: HEADER_AVATAR_SIZE,
+                            minHeight: HEADER_AVATAR_SIZE,
+                            maxWidth: HEADER_AVATAR_SIZE,
+                            maxHeight: HEADER_AVATAR_SIZE,
+                            borderRadius: '99px !important',
+                            border: 'none',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
+                            color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            p: 0,
+                            '&:hover': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+                              color: 'var(--morius-title-text) !important',
+                            },
+                            '&:active': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+                            },
+                          }}
+                        >
+                          <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+                            <path fill="currentColor" d="M12 22a2.6 2.6 0 0 0 2.45-1.74h-4.9A2.6 2.6 0 0 0 12 22Zm7-5.2-1.6-2.5V10a5.4 5.4 0 0 0-4.35-5.3V3a1.05 1.05 0 1 0-2.1 0v1.7A5.4 5.4 0 0 0 6.6 10v4.3L5 16.8V18h14v-1.2Z" />
+                          </SvgIcon>
+                          {notificationCounts.unread_count > 0 ? (
+                            <Box
+                              sx={{
+                                position: 'absolute',
+                                top: -5,
+                                right: -2,
+                                minWidth: 24,
+                                height: 16,
+                                px: 0.45,
+                                borderRadius: '99px',
+                                backgroundColor: 'var(--morius-accent)',
+                                color: '#fff',
+                                fontSize: '0.62rem',
+                                fontWeight: 900,
+                                lineHeight: '16px',
+                              }}
+                            >
+                              {notificationCounts.unread_count > 99 ? '99+' : notificationCounts.unread_count}
+                            </Box>
+                          ) : null}
+                        </IconButton>
+                      ) : null}
                       {!isOwnProfile ? (
                         <Button
                           onClick={() => void handleToggleFollow()}
@@ -3700,42 +4419,58 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Button>
                       ) : (
                         <Button
-                          onClick={() => {
-                            if (resolvedCanOpenAdmin) {
-                              setAdminOpen(true)
-                              return
-                            }
-                            setIsEditing((previous) => !previous)
-                          }}
+                          onClick={() => setProfileDialogOpen(true)}
                           sx={{
                             minHeight: 40,
                             px: 1.75,
                             borderRadius: '16px',
                             border: 'none',
-                            backgroundColor: 'transparent',
-                            color: 'var(--morius-text-secondary)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-title-text)',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'transparent',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
                               color: 'var(--morius-title-text)',
                             },
                           }}
                         >
-                          {resolvedCanOpenAdmin ? 'Админка' : (isEditing ? 'Свернуть' : 'Редактировать')}
+                          Настройки
                         </Button>
                       )}
+
+                      {isOwnProfile && resolvedCanOpenAdmin ? (
+                        <Button
+                          onClick={() => setAdminOpen(true)}
+                          sx={{
+                            minHeight: 40,
+                            px: 1.75,
+                            borderRadius: '16px',
+                            border: 'none',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-title-text)',
+                            textTransform: 'none',
+                            fontWeight: 700,
+                            '&:hover': {
+                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                              color: 'var(--morius-title-text)',
+                            },
+                          }}
+                        >
+                          Админка
+                        </Button>
+                      ) : null}
 
                       {isOwnProfile ? (
                         <Button
                           onClick={() => setLogoutOpen(true)}
                           sx={{
                             minHeight: 40,
-                            px: 1.55,
+                            px: 1.75,
                             borderRadius: '16px',
                             border: 'none',
                             backgroundColor: 'transparent',
-                            color: 'var(--morius-text-secondary)',
+                            color: 'var(--morius-title-text)',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
@@ -3822,7 +4557,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             sx={{
               display: 'grid',
               gap: { xs: 1.4, lg: 2.2 },
-              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 272px' },
+              gridTemplateColumns: '1fr',
               minWidth: 0,
             }}
           >
@@ -3834,7 +4569,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 minWidth: 0,
               }}
             >
-              <Box sx={{ display: { xs: 'block', lg: 'none' }, mb: 1, minWidth: 0 }}>
+              <Box sx={{ display: 'none', mb: 1, minWidth: 0 }}>
                 {/* Mobile primary tabs: Контент / Лайки / Подписки */}
                 <Box
                   sx={{
@@ -3970,11 +4705,47 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 </Stack>
               </Box>
 
-              <Stack spacing={1.15} sx={{ display: { xs: 'none', lg: 'flex' }, mb: 1.15, width: '100%', minWidth: 0 }}>
-                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.02 }}>
-                  {activeContentHeading}
-                </Typography>
-                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
+              <Stack spacing={1.15} sx={{ display: 'flex', mb: 1.15, width: '100%', minWidth: 0 }}>
+                {tab === 'notifications' || !isOwnProfile ? (
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2rem', fontWeight: 800, lineHeight: 1.02 }}>
+                    {tab === 'notifications' ? 'Уведомления' : 'Библиотека'}
+                  </Typography>
+                ) : (
+                  <Stack direction="row" spacing={2.05} alignItems="baseline" sx={{ minWidth: 0, flexWrap: 'wrap' }}>
+                    {([
+                      { id: 'library' as const, label: 'Библиотека' },
+                      { id: 'publications' as const, label: 'Публикации' },
+                    ]).map((item) => {
+                      const isActive = profileMainSection === item.id
+                      return (
+                        <ButtonBase
+                          key={`profile-main-section-${item.id}`}
+                          onClick={() => setProfileMainSection(item.id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                            fontSize: { xs: '1.42rem', sm: '1.7rem', md: '2rem' },
+                            fontWeight: 800,
+                            lineHeight: 1.02,
+                            letterSpacing: 0,
+                            backgroundColor: 'transparent !important',
+                            border: 'none',
+                            borderRadius: 0,
+                            textAlign: 'left',
+                            transition: 'color 160ms ease',
+                            '&:hover': {
+                              backgroundColor: 'transparent !important',
+                              color: 'var(--morius-accent)',
+                            },
+                          }}
+                        >
+                          {item.label}
+                        </ButtonBase>
+                      )
+                    })}
+                  </Stack>
+                )}
+                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ display: 'none', width: '100%', minWidth: 0 }}>
                   <TextField
                     size="small"
                     value={contentSearchQuery}
@@ -4015,14 +4786,146 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     <Box component="img" src={icons.profileSearchFilter} alt="" sx={{ width: 18, height: 10, opacity: 0.95 }} />
                   </IconButton>
                 </Stack>
+                {tab === 'notifications' ? (
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Button
+                      onClick={() => setTab('games')}
+                      sx={{
+                        minHeight: 34,
+                        px: 1.2,
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-title-text)',
+                        textTransform: 'none',
+                        '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)' },
+                      }}
+                    >
+                      Назад
+                    </Button>
+                    <Button
+                      onClick={() => void markNotificationsRead()}
+                      disabled={!notifications.some((item) => !item.is_read)}
+                      sx={{
+                        minHeight: 34,
+                        px: 1.2,
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        color: 'var(--morius-title-text)',
+                        textTransform: 'none',
+                        '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)' },
+                      }}
+                    >
+                      Отметить все прочитанными
+                    </Button>
+                  </Stack>
+                ) : profileMainSection === 'publications' && isOwnProfile ? (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: 'repeat(3, minmax(0, 1fr))', md: 'repeat(3, minmax(0, 1fr))' },
+                      gap: 0.85,
+                      pb: 1.15,
+                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                    }}
+                  >
+                    {PROFILE_PUBLICATION_TABS.map((item) => {
+                      const isActive = publicationSection === item.id
+                      return (
+                        <ButtonBase
+                          key={`profile-publication-tab-${item.id}`}
+                          onClick={() => setPublicationSection(item.id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            minHeight: 38,
+                            borderRadius: '8px',
+                            backgroundColor: isActive
+                              ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
+                              : 'var(--morius-elevated-bg)',
+                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                            fontSize: '0.9rem',
+                            fontWeight: 800,
+                            gap: 0.65,
+                            transition: 'background-color 160ms ease, color 160ms ease',
+                            '&:hover': {
+                              backgroundColor: isActive
+                                ? 'color-mix(in srgb, var(--morius-elevated-bg) 70%, #000 30%)'
+                                : 'color-mix(in srgb, var(--morius-elevated-bg) 84%, #000 16%)',
+                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                            },
+                          }}
+                        >
+                          {renderLibraryTabIcon(item.iconTab)}
+                          <Box component="span">{item.label}</Box>
+                        </ButtonBase>
+                      )
+                    })}
+                  </Box>
+                ) : (
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr 1fr', md: 'repeat(4, minmax(0, 1fr))' },
+                      gap: 0.85,
+                      pb: 1.15,
+                      borderBottom: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                    }}
+                  >
+                    {tabs.map((item) => {
+                      const isActive = tab === item.id
+                      return (
+                        <ButtonBase
+                          key={`profile-library-tab-${item.id}`}
+                          onClick={() => {
+                            setProfileMainSection('library')
+                            setTab(item.id)
+                          }}
+                          sx={{
+                            minHeight: 38,
+                            borderRadius: '8px',
+                            backgroundColor: isActive
+                              ? 'color-mix(in srgb, var(--morius-elevated-bg) 78%, #000 22%)'
+                              : 'var(--morius-elevated-bg)',
+                            color: isActive ? 'var(--morius-accent)' : 'var(--morius-text-secondary)',
+                            fontSize: '0.9rem',
+                            fontWeight: 800,
+                            gap: 0.65,
+                            transition: 'background-color 160ms ease, color 160ms ease',
+                            '&:hover': {
+                              backgroundColor: isActive
+                                ? 'color-mix(in srgb, var(--morius-elevated-bg) 70%, #000 30%)'
+                                : 'color-mix(in srgb, var(--morius-elevated-bg) 84%, #000 16%)',
+                              color: isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)',
+                            },
+                          }}
+                        >
+                          {renderLibraryTabIcon(item.id)}
+                          <Box component="span">{item.label}</Box>
+                        </ButtonBase>
+                      )
+                    })}
+                  </Box>
+                )}
               </Stack>
 
-              {renderTabContent()}
+              <Box
+                key={`profile-tab-content-${profileMainSection}-${profileMainSection === 'publications' ? publicationSection : tab}`}
+                sx={{
+                  animation: 'moriusProfileTabEnter 220ms ease both',
+                  '@keyframes moriusProfileTabEnter': {
+                    '0%': { opacity: 0, transform: 'translateY(8px)' },
+                    '100%': { opacity: 1, transform: 'translateY(0)' },
+                  },
+                }}
+              >
+                {profileMainSection === 'publications' && isOwnProfile ? renderProfilePublications() : renderTabContent()}
+              </Box>
             </Box>
 
             <Box
               sx={{
-                display: { xs: 'none', lg: 'block' },
+                display: 'none',
                 p: 0,
                 border: 'none',
                 background: 'transparent',
@@ -4190,6 +5093,133 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           </Box>
         </Box>
       </Box>
+
+      <Popover
+        open={Boolean(notificationPopoverAnchorEl)}
+        anchorEl={notificationPopoverAnchorEl}
+        onClose={handleCloseNotificationPopover}
+        disableScrollLock
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 1,
+            width: 310,
+            maxWidth: 'calc(100vw - 24px)',
+            p: 1,
+            borderRadius: '8px',
+            border: 'none',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #000 6%)',
+            boxShadow: '0 18px 42px rgba(0, 0, 0, 0.38)',
+          },
+        }}
+      >
+        <Stack spacing={0.75}>
+          {isNotificationsLoading && notifications.length === 0 ? (
+            <Stack alignItems="center" sx={{ py: 2 }}>
+              <CircularProgress size={22} />
+            </Stack>
+          ) : notifications.length === 0 ? (
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.85rem', px: 0.6, py: 1 }}>
+              Уведомлений пока нет.
+            </Typography>
+          ) : (
+            notifications.slice(0, 3).map((notification) => {
+              const actorLabel = notification.actor_display_name?.trim() || 'MoRius'
+              return (
+                <Box
+                  key={`notification-popover-${notification.id}`}
+                  onClick={() => {
+                    handleCloseNotificationPopover()
+                    handleOpenNotification(notification)
+                  }}
+                  sx={{
+                    position: 'relative',
+                    p: 0.8,
+                    borderRadius: '8px',
+                    backgroundColor: notification.is_read ? 'var(--morius-elevated-bg)' : 'color-mix(in srgb, var(--morius-accent) 9%, var(--morius-elevated-bg))',
+                    cursor: notification.action_url ? 'pointer' : 'default',
+                    '&:hover': {
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                    },
+                  }}
+                >
+                  {!notification.is_read ? (
+                    <Box sx={{ position: 'absolute', top: 8, right: 8, width: 9, height: 9, borderRadius: '50%', backgroundColor: 'var(--morius-accent)' }} />
+                  ) : null}
+                  <Stack direction="row" spacing={0.75} alignItems="flex-start">
+                    <ProgressiveAvatar
+                      src={notification.actor_avatar_url}
+                      alt={actorLabel}
+                      fallbackLabel={actorLabel}
+                      size={34}
+                      priority={false}
+                    />
+                    <Stack spacing={0.15} sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.75rem', lineHeight: 1.15 }}>
+                        {actorLabel}
+                      </Typography>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.84rem', fontWeight: 800, lineHeight: 1.2 }}>
+                        {notification.title || 'Уведомление'}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: 'var(--morius-text-primary)',
+                          fontSize: '0.78rem',
+                          lineHeight: 1.25,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {notification.body || 'У вас новое уведомление.'}
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                </Box>
+              )
+            })
+          )}
+
+          <Stack direction="row" spacing={0.7} alignItems="center">
+            <Button
+              onClick={handleOpenAllNotifications}
+              sx={{
+                flex: 1,
+                minHeight: 34,
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: 'var(--morius-elevated-bg)',
+                color: 'var(--morius-title-text)',
+                textTransform: 'none',
+                fontSize: '0.8rem',
+                fontWeight: 700,
+                '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)' },
+              }}
+            >
+              Все уведомления
+            </Button>
+            <IconButton
+              onClick={() => void markNotificationsRead()}
+              disabled={!notifications.some((item) => !item.is_read)}
+              aria-label="Отметить все прочитанными"
+              sx={{
+                width: 34,
+                height: 34,
+                borderRadius: '99px',
+                backgroundColor: 'var(--morius-elevated-bg)',
+                color: 'var(--morius-title-text)',
+                '&:hover': { backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)' },
+              }}
+            >
+              <SvgIcon viewBox="0 0 24 24" sx={{ width: 18, height: 18 }}>
+                <path fill="currentColor" d="m9.2 16.6-4.1-4.1 1.4-1.4 2.7 2.7 8.3-8.3 1.4 1.4-9.7 9.7Z" />
+              </SvgIcon>
+            </IconButton>
+          </Stack>
+        </Stack>
+      </Popover>
 
       <Dialog
         open={privacyDialogOpen}
@@ -4430,28 +5460,24 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         ) : (
           <MenuItem
             onClick={() => {
-              if (resolvedCanOpenAdmin) {
-                setAdminOpen(true)
-              } else {
-                setIsEditing((previous) => !previous)
-              }
+              setProfileDialogOpen(true)
               handleCloseMobileProfileMenu()
             }}
             sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
           >
-            {resolvedCanOpenAdmin ? 'Админка' : (isEditing ? 'Свернуть редактор' : 'Редактировать профиль')}
+            Настройки
           </MenuItem>
         )}
 
-        {isOwnProfile ? (
+        {isOwnProfile && resolvedCanOpenAdmin ? (
           <MenuItem
             onClick={() => {
               handleCloseMobileProfileMenu()
-              handleOpenPrivacyDialog()
+              setAdminOpen(true)
             }}
             sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
           >
-            Приватность
+            Админка
           </MenuItem>
         ) : null}
 
@@ -4463,9 +5489,48 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             }}
             sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
           >
-            Выйти
+            Выход
           </MenuItem>
         ) : null}
+      </Menu>
+
+      <Menu
+        anchorEl={gameCardMenuAnchorEl}
+        open={Boolean(gameCardMenuAnchorEl && selectedGameCardMenuItem)}
+        onClose={handleCloseGameCardMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{
+          sx: {
+            mt: 0.5,
+            borderRadius: '12px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+            minWidth: 180,
+          },
+        }}
+      >
+        <MenuItem
+          onClick={handleEditGameCardFromMenu}
+          disabled={!selectedGameCardMenuItem || gameCardMenuBusyAction !== null}
+          sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+        >
+          Редактировать
+        </MenuItem>
+        <MenuItem
+          onClick={() => void handleCloneGameCardFromMenu()}
+          disabled={!selectedGameCardMenuItem || gameCardMenuBusyAction !== null}
+          sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
+        >
+          {gameCardMenuBusyAction === 'clone' ? 'Клонируем...' : 'Клонировать'}
+        </MenuItem>
+        <MenuItem
+          onClick={() => void handleDeleteGameCardFromMenu()}
+          disabled={!selectedGameCardMenuItem || gameCardMenuBusyAction !== null}
+          sx={{ color: 'rgba(248, 176, 176, 0.94)', fontSize: '0.9rem' }}
+        >
+          {gameCardMenuBusyAction === 'delete' ? 'Удаляем...' : 'Удалить'}
+        </MenuItem>
       </Menu>
 
       <Menu
@@ -4643,6 +5708,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         authToken={authToken}
         initialMode={characterDialogMode}
         initialCharacterId={characterEditId}
+        includePublicationCopies
         showEmotionTools={user.role === 'administrator'}
         onClose={closeCharacterDialog}
       />
@@ -4653,6 +5719,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         mode="manage"
         initialMode={instructionDialogMode}
         initialTemplateId={instructionEditId}
+        includePublicationCopies
         onClose={closeInstructionDialog}
       />
 

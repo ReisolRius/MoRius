@@ -495,7 +495,13 @@ def _fallback_build_provider_messages(
         "- Never invent or add new actions, movement, speech, thoughts, choices, emotions, intentions, or conclusions for the player character.\n"
         "- Never continue, finish, or paraphrase a player-character line as a new player-character line.\n"
         "- Do not output [[GG:...]] or [[GG_THOUGHT:...]] unless it is an exact quote explicitly present in the latest user message.\n"
-        "- Default behavior: narrate only world and NPC reactions to the already stated player move, then stop where the next move belongs to the player."
+        "- Default behavior: narrate only world and NPC reactions to the already stated player move, then stop where the next move belongs to the player.\n\n"
+        "PLAYER INSTRUCTION PRIORITY (MANDATORY):\n"
+        "- Active instruction cards in the context are highest-priority player prompts after platform safety.\n"
+        "- They are mandatory operating rules, not suggestions or optional flavor.\n"
+        "- Follow every active instruction card strictly and literally; if a draft violates one, rewrite it before answering.\n"
+        "- Disabled or absent instruction cards do not exist and must have zero effect.\n"
+        "- If two active cards conflict, obey the more specific card and avoid inventing behavior outside both cards."
     )
 
     context_sections: list[str] = []
@@ -506,7 +512,7 @@ def _fallback_build_provider_messages(
     context_sections.append(f"Known GG names: {known_gg_preview}")
     if instruction_cards:
         context_sections.append(
-            "Инструкции:\n"
+            "ACTIVE PLAYER INSTRUCTION CARDS (STRICT, HIGHEST PRIORITY):\n"
             + "\n".join(f"- {card['title']}: {card['content']}" for card in instruction_cards if card.get("content"))
         )
     if plot_cards:

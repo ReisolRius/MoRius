@@ -51,6 +51,7 @@ import cardsCharactersTabIconMarkup from '../assets/icons/cards-characters.svg?r
 import cardsPlotTabIconMarkup from '../assets/icons/cards-plot.svg?raw'
 import cardsRulesTabIconMarkup from '../assets/icons/cards-rules.svg?raw'
 import cardsWorldTabIconMarkup from '../assets/icons/cards-world.svg?raw'
+import aiIconMarkup from '../assets/icons/ai.svg?raw'
 import composerGenerateImageIcon from '../assets/icons/generateimage.svg'
 import composerRegenerateImageIcon from '../assets/icons/regenerateimag.svg'
 import environmentCloudIcon from '../assets/icons/environment-cloud.svg'
@@ -58,12 +59,13 @@ import environmentClearIcon from '../assets/icons/environment-clear.svg'
 import environmentFogIcon from '../assets/icons/environment-fog.svg'
 import environmentSnowIcon from '../assets/icons/environment-snow.svg'
 import environmentUnderwaterIcon from '../assets/icons/environment-underwater.svg'
+import riusMenuIcon from '../assets/icons/rius-menu-r.svg'
 import aiEditIconMarkup from '../assets/icons/custom/ai-edit.svg?raw'
 import clockMemoryIcon from '../assets/icons/custom/clock.svg'
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
-import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../components/ai/aiAssistantEvents'
+import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT, AI_ASSISTANT_OPEN_EVENT } from '../components/ai/aiAssistantEvents'
 import CharacterNoteBadge from '../components/characters/CharacterNoteBadge'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ImageCropper from '../components/ImageCropper'
@@ -260,6 +262,18 @@ type AiPanelTab = 'instructions' | 'settings'
 type WorldPanelTab = 'story' | 'world'
 type CardsPanelTab = 'characters' | 'world' | 'instructions' | 'plot'
 type MemoryPanelTab = 'memory' | 'dev'
+type EnvironmentModuleCardId = 'place' | 'time' | 'weather'
+type EnvironmentModuleCardPosition = {
+  x: number
+  y: number
+}
+type EnvironmentModuleCardBounds = {
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+}
+type StorySettingsTab = 'generation' | 'additional' | 'appearance'
 type PanelCardMenuType = 'instruction' | 'plot' | 'world'
 type DeletionTargetType = 'instruction' | 'plot' | 'world' | 'memory' | 'character'
 type CharacterDialogMode = 'manage' | 'select-main-hero' | 'select-npc'
@@ -274,6 +288,201 @@ type DeletionPrompt = {
   title: string
   message: string
 }
+
+const ENVIRONMENT_MODULE_CARD_IDS: readonly EnvironmentModuleCardId[] = ['place', 'time', 'weather']
+const ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN = 8
+const DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS: Record<EnvironmentModuleCardId, EnvironmentModuleCardPosition> = {
+  place: { x: 0, y: 0 },
+  time: { x: 0, y: 0 },
+  weather: { x: 0, y: 0 },
+}
+
+function createDefaultEnvironmentModuleCardPositions(): Record<EnvironmentModuleCardId, EnvironmentModuleCardPosition> {
+  return {
+    place: { ...DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS.place },
+    time: { ...DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS.time },
+    weather: { ...DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS.weather },
+  }
+}
+
+function clampEnvironmentModuleCardPosition(
+  position: EnvironmentModuleCardPosition,
+  bounds: EnvironmentModuleCardBounds,
+): EnvironmentModuleCardPosition {
+  const minX = Math.min(bounds.minX, bounds.maxX)
+  const maxX = Math.max(bounds.minX, bounds.maxX)
+  const minY = Math.min(bounds.minY, bounds.maxY)
+  const maxY = Math.max(bounds.minY, bounds.maxY)
+
+  return {
+    x: Math.min(maxX, Math.max(minX, position.x)),
+    y: Math.min(maxY, Math.max(minY, position.y)),
+  }
+}
+
+type EnvironmentModuleCardProps = {
+  cardId: EnvironmentModuleCardId
+  title: string
+  hideTitle?: boolean
+  checked?: boolean
+  switchDisabled?: boolean
+  switchHidden?: boolean
+  isExpanded?: boolean
+  position: EnvironmentModuleCardPosition
+  isReturning: boolean
+  isDragging: boolean
+  onToggle?: (checked: boolean) => void
+  onHandlePointerDown: (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => void
+  onHandlePointerMove: (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => void
+  onHandlePointerEnd: (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => void
+  onReset: (cardId: EnvironmentModuleCardId) => void
+  children: ReactNode
+}
+
+function EnvironmentModuleCard({
+  cardId,
+  title,
+  hideTitle = false,
+  checked = false,
+  switchDisabled = false,
+  switchHidden = false,
+  isExpanded = true,
+  position,
+  isReturning,
+  isDragging,
+  onToggle,
+  onHandlePointerDown,
+  onHandlePointerMove,
+  onHandlePointerEnd,
+  onReset,
+  children,
+}: EnvironmentModuleCardProps) {
+  const isShifted = Math.abs(position.x) > 1 || Math.abs(position.y) > 1
+
+  return (
+    <Box
+      data-environment-module-card={cardId}
+      sx={{
+        position: 'relative',
+        width: '100%',
+        zIndex: isShifted ? 8 : 1,
+        transform: `translate3d(${position.x}px, ${position.y}px, 0)`,
+        transition: isReturning
+          ? 'transform 360ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease'
+          : 'box-shadow 180ms ease',
+        willChange: 'transform',
+      }}
+    >
+      <Box
+        sx={{
+          borderRadius: '18px',
+          backgroundColor: isDragging
+            ? 'color-mix(in srgb, var(--morius-accent) 10%, var(--morius-card-bg))'
+            : 'color-mix(in srgb, var(--morius-card-bg) 92%, #000 8%)',
+          border: isDragging
+            ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 82%, transparent)'
+            : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+          boxShadow: isDragging
+            ? '0 0 0 1px color-mix(in srgb, var(--morius-accent) 34%, transparent), 0 0 32px color-mix(in srgb, var(--morius-accent) 22%, transparent), 0 24px 48px rgba(0, 0, 0, 0.34)'
+            : isShifted
+              ? '0 24px 48px rgba(0, 0, 0, 0.34)'
+              : '0 18px 34px rgba(0, 0, 0, 0.22)',
+          px: { xs: 1.8, md: 2 },
+          pt: 1.35,
+          pb: isExpanded ? 1.75 : 1.35,
+          minHeight: isExpanded ? 188 : 122,
+          transition: 'background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, min-height 220ms ease, padding 220ms ease',
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={0.8} sx={{ mb: 1.2 }}>
+          <Box
+            role="button"
+            aria-label={`Перетащить модуль ${title}`}
+            tabIndex={0}
+            onPointerDown={(event) => onHandlePointerDown(cardId, event)}
+            onPointerMove={(event) => onHandlePointerMove(cardId, event)}
+            onPointerUp={(event) => onHandlePointerEnd(cardId, event)}
+            onPointerCancel={(event) => onHandlePointerEnd(cardId, event)}
+            sx={{
+              flex: 1,
+              height: 18,
+              borderRadius: '999px',
+              cursor: 'grab',
+              touchAction: 'none',
+              backgroundImage: isDragging
+                ? 'repeating-linear-gradient(90deg, color-mix(in srgb, var(--morius-accent) 76%, #fff 24%) 0 2px, transparent 2px 8px)'
+                : 'repeating-linear-gradient(90deg, rgba(255,255,255,0.14) 0 2px, transparent 2px 8px)',
+              backgroundSize: '8px 100%',
+              backgroundPosition: 'center',
+              opacity: isDragging ? 1 : 0.78,
+              '&:active': {
+                cursor: 'grabbing',
+              },
+            }}
+          />
+          <Tooltip title="Вернуть карточку на место">
+            <IconButton
+              aria-label={`Вернуть модуль ${title} на место`}
+              onClick={() => onReset(cardId)}
+              sx={{
+                width: 34,
+                height: 34,
+                color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)',
+                borderRadius: '10px',
+                '&:hover': {
+                  color: 'var(--morius-accent)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 78%, transparent)',
+                },
+              }}
+            >
+              <SvgIcon viewBox="0 0 24 24" sx={{ width: 22, height: 22 }}>
+                <path
+                  d="M6.3 7.2A8.1 8.1 0 0 1 20 13a8 8 0 0 1-8 8 7.9 7.9 0 0 1-5.7-2.4 1 1 0 0 1 1.44-1.38A5.9 5.9 0 0 0 12 19a6 6 0 1 0-5.66-8H9a1 1 0 1 1 0 2H4a1 1 0 0 1-1-1V7a1 1 0 0 1 2 0v1.55c.38-.49.81-.94 1.3-1.35Z"
+                  fill="currentColor"
+                />
+              </SvgIcon>
+            </IconButton>
+          </Tooltip>
+        </Stack>
+
+        {!hideTitle || !switchHidden ? (
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2} sx={{ mb: isExpanded ? 1.15 : 0 }}>
+            {!hideTitle ? (
+              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800, lineHeight: 1.2 }}>
+                {title}
+              </Typography>
+            ) : (
+              <Box sx={{ minWidth: 0, flex: 1 }} />
+            )}
+            {!switchHidden ? (
+              <Switch
+                checked={checked}
+                disabled={switchDisabled}
+                onChange={(event) => onToggle?.(event.target.checked)}
+                color="default"
+                sx={{
+                  mr: -0.6,
+                  '& .MuiSwitch-switchBase.Mui-checked': {
+                    color: 'var(--morius-accent)',
+                  },
+                  '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                    backgroundColor: 'var(--morius-accent)',
+                    opacity: 0.86,
+                  },
+                }}
+              />
+            ) : null}
+          </Stack>
+        ) : null}
+
+        <Collapse in={isExpanded} timeout={220} unmountOnExit>
+          {children}
+        </Collapse>
+      </Box>
+    </Box>
+  )
+}
+
 type AssistantDialogueDelivery = 'speech' | 'thought'
 type AssistantMessageBlock =
   | { type: 'narrative'; text: string }
@@ -380,6 +589,7 @@ const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number, n
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 30]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 6, 12, 18, 35]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [5, 10, 18, 30, 30]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [4, 7, 10, 17, 17]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
   'aion-labs/aion-2.0',
@@ -388,7 +598,6 @@ const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-chat-v3-0324',
   'deepseek/deepseek-v3.2',
   'z-ai/glm-4.7',
-  'xiaomi/mimo-v2-flash',
   'mistralai/mistral-nemo',
 ])
 const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
@@ -650,12 +859,6 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
-  'xiaomi/mimo-v2-flash': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
-  },
   'xiaomi/mimo-v2-pro': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
@@ -675,6 +878,12 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopR: STORY_DEFAULT_TOP_R,
   },
   'google/gemini-2.5-pro': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
+  'google/gemini-3.1-pro-preview': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
     storyTopK: STORY_DEFAULT_TOP_K,
@@ -755,19 +964,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'xiaomi/mimo-v2-flash',
-    title: 'MiMo V2 Flash',
-    description:
-      'Легкая и быстрая модель Xiaomi для коротких сцен и динамичных проб. Лучше чувствует себя в простых играх с небольшим числом правил, чем в сложной дисциплине.',
-    portraitSrc: narratorIsidaPortrait,
-    portraitAlt: 'MiMo V2 Flash',
-    stats: [
-      { label: 'Интеллект', value: 2 },
-      { label: 'Скорость', value: 5 },
-      { label: 'Глубина', value: 3 },
-    ],
-  },
-  {
     id: 'mistralai/mistral-nemo',
     title: 'Mistral Nemo',
     description:
@@ -820,6 +1016,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
+    id: 'google/gemini-3.1-pro-preview',
+    title: 'Gemini 3.1 Pro',
+    description:
+      'Новая Pro-модель Gemini через Polza AI для сложных сцен, строгих правил и аккуратной работы с большим контекстом.',
+    portraitSrc: narratorOgmaPortrait,
+    portraitAlt: 'Gemini 3.1 Pro',
+    stats: [
+      { label: 'Интеллект', value: 5 },
+      { label: 'Скорость', value: 3 },
+      { label: 'Глубина', value: 5 },
+    ],
+  },
+  {
     id: 'qwen/qwen3.5-122b-a10b',
     title: 'Qwen 3.5 122B',
     description:
@@ -862,16 +1071,16 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
     priceLabel: '3 \u0441\u043e\u043b\u0430',
   },
   {
-    id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
-    title: 'Nano Banano 7',
+    id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
+    title: 'Nano Banano',
     description: '5 солов за генерацию кадра.',
     priceLabel: '5 \u0441\u043e\u043b\u043e\u0432',
   },
   {
-    id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
-    title: 'Nano Banano',
-    description: '6 солов за генерацию кадра.',
-    priceLabel: '6 \u0441\u043e\u043b\u043e\u0432',
+    id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
+    title: 'Nano Banano 2',
+    description: '7 солов за генерацию кадра.',
+    priceLabel: '7 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
@@ -907,7 +1116,7 @@ const STORY_SETTINGS_INFO_TEXT = {
   memoryOptimizationMode:
     'Вы можете изменить уровень оптимизации памяти, чтобы замедлить заполнение контекста. Важно: чем выше уровень, тем раньше могут начать пропадать детали.',
   ambient:
-    'Бета. Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация. Включение стоит +1 сол за ход, а ответ может генерироваться дольше.',
+    'Бета. Подсветка вокруг поля ввода меняется по окружению сцены: фон, свет, погода и локация.',
   advancedRegeneration:
     'Перед перегенерацией позволяет выбрать, что именно исправить: язык, длину, стиль, факты, повторения и т.д.',
   canonicalStatePipeline:
@@ -3245,6 +3454,9 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'anthropic/claude-sonnet-4.6') {
     return STORY_TURN_COST_CLAUDE_SONNET_TIERS
   }
+  if (modelId === 'google/gemini-3.1-pro-preview') {
+    return STORY_TURN_COST_GEMINI_31_PRO_TIERS
+  }
   if (STORY_TURN_COST_PREMIUM_NARRATOR_MODELS.has(modelId)) {
     return STORY_TURN_COST_PREMIUM_TIERS
   }
@@ -3258,7 +3470,7 @@ function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста:',
     '',
-    'DeepSeek V3, DeepSeek V3.2, MiMo V2 Flash:',
+    'DeepSeek V3, DeepSeek V3.2:',
     'до 6000 — 1 сол',
     '6001–16000 — 2 сола',
     '16001–32000 — 4 сола',
@@ -3290,8 +3502,12 @@ function getStoryTurnCostTooltipText(): string {
     '16001–32000 — 18 солов',
     '32001–64000 — 30 солов',
     '',
-    'Эмбиент подсветка: +1 сол за ход',
-    'Визуализация эмоций: +1 сол за ход',
+    'Gemini 3.1 Pro:',
+    'до 6000 — 4 сола',
+    '6001–16000 — 7 солов',
+    '16001–32000 — 10 солов',
+    '32001–64000 — 17 солов',
+    '',
   ].join('\n')
 }
 
@@ -4693,8 +4909,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     transition: 'color 160ms ease, transform 160ms ease, opacity 160ms ease',
     '&&& .MuiTypography-root, &&& .MuiBox-root, &&& svg, &&& path': {
       color: 'inherit !important',
-      fill: 'currentColor !important',
-      stroke: 'currentColor !important',
     },
     '&&&:hover': {
       backgroundColor: 'transparent !important',
@@ -4710,41 +4924,90 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       boxShadow: 'none',
     },
   })
+  const storySettingsTabButtonSx = (isActive: boolean) => ({
+    '&&&': {
+      color: `${isActive ? 'var(--morius-accent)' : 'var(--morius-title-text)'} !important`,
+      opacity: 1,
+      fontWeight: isActive ? 850 : 650,
+    },
+    minHeight: 46,
+    px: 1.35,
+    py: 0.9,
+    borderRadius: '12px',
+    gap: 0.62,
+    justifyContent: 'center',
+    textTransform: 'none',
+    backgroundColor: 'transparent !important',
+    border: 'none',
+    boxShadow: 'none',
+    fontSize: '12px',
+    lineHeight: 1,
+    letterSpacing: 0,
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+    transition: 'color 160ms ease, transform 160ms ease, opacity 160ms ease',
+    '& .MuiSvgIcon-root': {
+      fontSize: 18,
+      color: 'inherit !important',
+      flexShrink: 0,
+    },
+    '&:hover': {
+      color: 'var(--morius-accent) !important',
+      backgroundColor: 'transparent !important',
+      boxShadow: 'none',
+    },
+    '&:active': {
+      transform: 'translateY(1px)',
+      backgroundColor: 'transparent !important',
+    },
+    '&.Mui-focusVisible': {
+      backgroundColor: 'transparent !important',
+      boxShadow: 'none',
+    },
+  })
   const environmentEditorFieldSx = {
     '& .MuiInputLabel-root': {
-      color: 'var(--morius-text-secondary)',
+      color: '#AAB4C0',
+      fontWeight: 700,
     },
     '& .MuiInputLabel-root.Mui-focused': {
       color: 'var(--morius-accent)',
     },
     '& .MuiOutlinedInput-root': {
       borderRadius: '14px',
-      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
-      color: 'var(--morius-title-text)',
+      backgroundColor: '#222426',
+      color: '#F1F3F8',
       '& fieldset': {
-        borderColor: 'color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+        borderColor: 'rgba(221, 229, 241, 0.16)',
       },
       '&:hover fieldset': {
-        borderColor: 'color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
+        borderColor: 'color-mix(in srgb, var(--morius-accent) 48%, rgba(221, 229, 241, 0.24))',
       },
       '&.Mui-focused fieldset': {
-        borderColor: 'color-mix(in srgb, var(--morius-accent) 56%, var(--morius-card-border))',
+        borderColor: 'color-mix(in srgb, var(--morius-accent) 72%, rgba(221, 229, 241, 0.28))',
       },
     },
     '& .MuiOutlinedInput-input': {
-      color: 'var(--morius-title-text)',
-      '&[type="datetime-local"]': {
+      color: '#F1F3F8',
+      '&::placeholder': {
+        color: '#AAB4C0',
+        opacity: 0.78,
+      },
+      '&[type="datetime-local"], &[type="time"]': {
         colorScheme: 'dark',
       },
-      '&[type="datetime-local"]::-webkit-calendar-picker-indicator': {
+      '&[type="datetime-local"]::-webkit-calendar-picker-indicator, &[type="time"]::-webkit-calendar-picker-indicator': {
         filter:
-          'brightness(0) saturate(100%) invert(91%) sepia(8%) saturate(325%) hue-rotate(183deg) brightness(104%) contrast(95%)',
-        opacity: 0.92,
+          'brightness(0) saturate(100%) invert(93%) sepia(9%) saturate(247%) hue-rotate(183deg) brightness(105%) contrast(97%)',
+        opacity: 0.96,
         cursor: 'pointer',
       },
     },
-    '& .MuiSvgIcon-root': {
-      color: 'var(--morius-text-secondary)',
+    '& .MuiSelect-select': {
+      color: '#F1F3F8',
+    },
+    '& .MuiSvgIcon-root, & .MuiSelect-icon': {
+      color: '#DDE5F1',
     },
   } as const
   const rightPanelActionButtonSx = {
@@ -4809,6 +5072,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   >({})
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
+  const [isGameMenuOpen, setIsGameMenuOpen] = useState(true)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
@@ -4961,6 +5225,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
+  const [storySettingsTab, setStorySettingsTab] = useState<StorySettingsTab>('generation')
   const [isNarratorSettingsExpanded, setIsNarratorSettingsExpanded] = useState(false)
   const [isVisualizationSettingsExpanded, setIsVisualizationSettingsExpanded] = useState(false)
   const [isAdditionalSettingsExpanded, setIsAdditionalSettingsExpanded] = useState(false)
@@ -5010,8 +5275,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [persistedAmbientProfile, setPersistedAmbientProfile] = useState<StoryAmbientProfile | null>(null)
   const [storySettingsOverrides, setStorySettingsOverrides] = useState<Record<number, StorySettingsOverride>>({})
   const storySettingsOverridesRef = useRef<Record<number, StorySettingsOverride>>({})
+  const [environmentModuleCardPositions, setEnvironmentModuleCardPositions] = useState<
+    Record<EnvironmentModuleCardId, EnvironmentModuleCardPosition>
+  >(() => createDefaultEnvironmentModuleCardPositions())
+  const [returningEnvironmentModuleCardIds, setReturningEnvironmentModuleCardIds] = useState<EnvironmentModuleCardId[]>([])
+  const [draggingEnvironmentModuleCardId, setDraggingEnvironmentModuleCardId] = useState<EnvironmentModuleCardId | null>(null)
+  const environmentModuleCardDragRef = useRef<{
+    cardId: EnvironmentModuleCardId
+    pointerId: number
+    startX: number
+    startY: number
+    originX: number
+    originY: number
+    bounds: EnvironmentModuleCardBounds
+  } | null>(null)
+  const environmentModulesScrollRef = useRef<HTMLDivElement | null>(null)
   const cardsPanelTabsScrollerRef = useRef<HTMLDivElement | null>(null)
   const cardsPanelTabsDragStateRef = useRef<{
+    pointerId: number | null
+    startX: number
+    startY: number
+    scrollLeft: number
+    isDragging: boolean
+    suppressClick: boolean
+  }>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    isDragging: false,
+    suppressClick: false,
+  })
+  const storySettingsTabsScrollerRef = useRef<HTMLDivElement | null>(null)
+  const storySettingsTabsDragStateRef = useRef<{
     pointerId: number | null
     startX: number
     startY: number
@@ -5261,7 +5557,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [getEmotionStageHeightBounds],
   )
   const composerAmbientVisual = useMemo(() => {
-    if (!ambientEnabled) {
+    if (!ambientEnabled || user.role !== 'administrator') {
       return null
     }
 
@@ -5296,7 +5592,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       gradientOpacityMin,
       gradientOpacityMax,
     }
-  }, [activeAmbientProfile, ambientEnabled, isGenerating])
+  }, [activeAmbientProfile, ambientEnabled, isGenerating, user.role])
   const storyHistoryTextFontFamily = useMemo(() => {
     return (
       STORY_APPEARANCE_TEXT_STYLE_OPTIONS.find((option) => option.id === appearanceTextStyle)?.cssFontFamily ??
@@ -5642,10 +5938,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     currentRerollAssistantMessage !== null &&
     continueHiddenForMessageId !== currentRerollAssistantMessage.id
   const isAdministrator = user.role === 'administrator'
+  const effectiveAmbientEnabled = isAdministrator && ambientEnabled
+  const effectiveEmotionVisualizationEnabled = isAdministrator && emotionVisualizationEnabled
   const canEditStoryAppearance = Boolean(user)
   const canViewDevMemoryTab = isAdministrator
-  const isRightPanelSecondTabVisible =
-    rightPanelMode === 'world' || (rightPanelMode === 'memory' && canViewDevMemoryTab)
+  const isRightPanelSecondTabVisible = rightPanelMode === 'memory' && canViewDevMemoryTab
   const leftPanelTabLabel =
     rightPanelMode === 'ai'
       ? 'Настройки'
@@ -5713,6 +6010,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeAiPanelTab])
 
   useEffect(() => {
+    if (activeWorldPanelTab === 'world') {
+      setActiveWorldPanelTab('story')
+    }
+  }, [activeWorldPanelTab])
+
+  useEffect(() => {
     if (!canViewDevMemoryTab && activeMemoryPanelTab === 'dev') {
       setActiveMemoryPanelTab('memory')
     }
@@ -5763,6 +6066,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       .trim()
     return contentLabel || readEnvironmentString(activeGameSummary?.current_location_label) || 'Место не определено'
   }, [activeGameSummary?.current_location_label, aiMemoryBlocks])
+  const environmentSummaryText = readEnvironmentString(environmentCurrentWeather?.summary) || 'Погода уточняется'
+  const environmentWeatherMeta = environmentWeatherEnabled
+    ? [environmentDateInfo.seasonAndMonth || environmentDateInfo.season, environmentSummaryText].filter(Boolean).join(' • ')
+    : 'Погода отключена'
+  const isEnvironmentModuleCardDetached =
+    Boolean(draggingEnvironmentModuleCardId) ||
+    ENVIRONMENT_MODULE_CARD_IDS.some((id) => {
+      const position = environmentModuleCardPositions[id]
+      return Math.abs(position.x) > 1 || Math.abs(position.y) > 1
+    })
+  const gameMenuFallbackArtwork = useMemo(
+    () => buildWorldFallbackArtwork(activeGameId ?? 1),
+    [activeGameId],
+  )
+  const gameMenuCoverUrl = resolveApiResourceUrl(activeGameSummary?.cover_image_url)
+  const gameMenuCoverPosition = `${activeGameSummary?.cover_position_x ?? 50}% ${activeGameSummary?.cover_position_y ?? 50}%`
   const worldCardEventsByAssistantId = useMemo(() => {
     const nextMap = new Map<number, StoryWorldCardEvent[]>()
     visibleWorldCardEvents.forEach((event) => {
@@ -6083,10 +6402,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       getStoryTurnCostTokens(
         cardsContextCharsUsed,
         storyLlmModel,
-        ambientEnabled,
-        isAdministrator && emotionVisualizationEnabled,
+        effectiveAmbientEnabled,
+        effectiveEmotionVisualizationEnabled,
       ),
-    [ambientEnabled, cardsContextCharsUsed, emotionVisualizationEnabled, isAdministrator, storyLlmModel],
+    [cardsContextCharsUsed, effectiveAmbientEnabled, effectiveEmotionVisualizationEnabled, storyLlmModel],
   )
   const hasInsufficientTokensForTurn = user.coins < currentTurnCostTokens
   useEffect(() => {
@@ -6287,6 +6606,178 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (cardsPanelTabsDragStateRef.current.suppressClick) {
       window.setTimeout(() => {
         cardsPanelTabsDragStateRef.current.suppressClick = false
+      }, 0)
+    }
+  }, [])
+  const resetEnvironmentModuleCardPositions = useCallback((animated = false) => {
+    if (animated) {
+      setReturningEnvironmentModuleCardIds(ENVIRONMENT_MODULE_CARD_IDS.slice())
+    }
+    setEnvironmentModuleCardPositions(createDefaultEnvironmentModuleCardPositions())
+    if (animated) {
+      window.setTimeout(() => {
+        setReturningEnvironmentModuleCardIds([])
+      }, 380)
+    }
+  }, [])
+  const handleEnvironmentModuleCardPointerDown = useCallback(
+    (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.pointerType === 'mouse' && event.button !== 0) {
+        return
+      }
+
+      const currentPosition = environmentModuleCardPositions[cardId] ?? DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS[cardId]
+      const cardElement = event.currentTarget.closest('[data-environment-module-card]') as HTMLElement | null
+      const cardRect = cardElement?.getBoundingClientRect()
+      const viewportWidth = window.visualViewport?.width ?? window.innerWidth
+      const viewportHeight = window.visualViewport?.height ?? window.innerHeight
+      const bounds =
+        cardRect
+          ? {
+              minX: ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN - (cardRect.left - currentPosition.x),
+              maxX: viewportWidth - ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN - (cardRect.right - currentPosition.x),
+              minY: ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN - (cardRect.top - currentPosition.y),
+              maxY: viewportHeight - ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN - (cardRect.bottom - currentPosition.y),
+            }
+          : {
+              minX: -24,
+              maxX: 24,
+              minY: -48,
+              maxY: 48,
+            }
+      environmentModuleCardDragRef.current = {
+        cardId,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: currentPosition.x,
+        originY: currentPosition.y,
+        bounds,
+      }
+      setReturningEnvironmentModuleCardIds((previousIds) => previousIds.filter((id) => id !== cardId))
+      setDraggingEnvironmentModuleCardId(cardId)
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      document.body.style.userSelect = 'none'
+      document.body.style.cursor = 'grabbing'
+      event.preventDefault()
+      event.stopPropagation()
+    },
+    [environmentModuleCardPositions],
+  )
+  const handleEnvironmentModuleCardPointerMove = useCallback(
+    (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = environmentModuleCardDragRef.current
+      if (!dragState || dragState.cardId !== cardId || dragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      const nextPosition = {
+        x: dragState.originX + event.clientX - dragState.startX,
+        y: dragState.originY + event.clientY - dragState.startY,
+      }
+      setEnvironmentModuleCardPositions((previousPositions) => ({
+        ...previousPositions,
+        [cardId]: clampEnvironmentModuleCardPosition(nextPosition, dragState.bounds),
+      }))
+      event.preventDefault()
+      event.stopPropagation()
+    },
+    [],
+  )
+  const handleEnvironmentModuleCardPointerEnd = useCallback(
+    (cardId: EnvironmentModuleCardId, event: ReactPointerEvent<HTMLDivElement>) => {
+      const dragState = environmentModuleCardDragRef.current
+      if (!dragState || dragState.cardId !== cardId || dragState.pointerId !== event.pointerId) {
+        return
+      }
+
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+      environmentModuleCardDragRef.current = null
+      setDraggingEnvironmentModuleCardId(null)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      event.preventDefault()
+      event.stopPropagation()
+    },
+    [],
+  )
+  const handleResetEnvironmentModuleCardPosition = useCallback((cardId: EnvironmentModuleCardId) => {
+    setReturningEnvironmentModuleCardIds((previousIds) =>
+      previousIds.includes(cardId) ? previousIds : [...previousIds, cardId],
+    )
+    setEnvironmentModuleCardPositions((previousPositions) => ({
+      ...previousPositions,
+      [cardId]: DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS[cardId],
+    }))
+    window.setTimeout(() => {
+      setReturningEnvironmentModuleCardIds((previousIds) => previousIds.filter((id) => id !== cardId))
+    }, 380)
+  }, [])
+  useEffect(() => {
+    resetEnvironmentModuleCardPositions(false)
+  }, [activeGameId, resetEnvironmentModuleCardPositions])
+  useEffect(() => {
+    return () => {
+      if (environmentModuleCardDragRef.current) {
+        document.body.style.userSelect = ''
+        document.body.style.cursor = ''
+      }
+      setDraggingEnvironmentModuleCardId(null)
+    }
+  }, [])
+  const handleStorySettingsTabSelect = useCallback((nextTab: StorySettingsTab) => {
+    if (storySettingsTabsDragStateRef.current.suppressClick) {
+      storySettingsTabsDragStateRef.current.suppressClick = false
+      return
+    }
+    setStorySettingsTab(nextTab)
+  }, [])
+  const handleStorySettingsTabsPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) {
+      return
+    }
+    const currentTarget = event.currentTarget
+    storySettingsTabsDragStateRef.current.pointerId = event.pointerId
+    storySettingsTabsDragStateRef.current.startX = event.clientX
+    storySettingsTabsDragStateRef.current.startY = event.clientY
+    storySettingsTabsDragStateRef.current.scrollLeft = currentTarget.scrollLeft
+    storySettingsTabsDragStateRef.current.isDragging = false
+    storySettingsTabsDragStateRef.current.suppressClick = false
+  }, [])
+  const handleStorySettingsTabsPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (storySettingsTabsDragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    const deltaX = event.clientX - storySettingsTabsDragStateRef.current.startX
+    const deltaY = event.clientY - storySettingsTabsDragStateRef.current.startY
+    const hasEnoughHorizontalTravel = Math.abs(deltaX) >= CARDS_PANEL_TABS_DRAG_THRESHOLD_PX
+    const isHorizontalIntent = Math.abs(deltaX) > Math.abs(deltaY) * 1.1
+
+    if (!storySettingsTabsDragStateRef.current.isDragging) {
+      if (!hasEnoughHorizontalTravel || !isHorizontalIntent) {
+        return
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      storySettingsTabsDragStateRef.current.isDragging = true
+    }
+    event.currentTarget.scrollLeft = storySettingsTabsDragStateRef.current.scrollLeft - deltaX
+    storySettingsTabsDragStateRef.current.suppressClick = true
+    event.preventDefault()
+  }, [])
+  const handleStorySettingsTabsPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (storySettingsTabsDragStateRef.current.pointerId !== event.pointerId) {
+      return
+    }
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    storySettingsTabsDragStateRef.current.pointerId = null
+    storySettingsTabsDragStateRef.current.isDragging = false
+    if (storySettingsTabsDragStateRef.current.suppressClick) {
+      window.setTimeout(() => {
+        storySettingsTabsDragStateRef.current.suppressClick = false
       }, 0)
     }
   }, [])
@@ -8215,6 +8706,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         ai_edit_enabled: !targetCard.ai_edit_enabled,
       })
       setWorldCards((previousCards) => previousCards.map((card) => (card.id === updatedCard.id ? updatedCard : card)))
+      if (!targetCard.ai_edit_enabled) {
+        try {
+          const refreshedPayload = await getStoryGame({ token: authToken, gameId: activeGameId, assistantTurnsLimit: 1 })
+          setWorldCards(normalizeStoryWorldCards(refreshedPayload.world_cards))
+        } catch (refreshError) {
+          const detail = refreshError instanceof Error ? refreshError.message : 'Не удалось обновить карточки авто состояния'
+          setErrorMessage(detail)
+        }
+      }
       setCardMenuAnchorEl(null)
       setCardMenuType(null)
       setCardMenuCardId(null)
@@ -11798,6 +12298,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           ),
         ),
       )
+      if (nextValue) {
+        try {
+          const refreshedPayload = await getStoryGame({ token: authToken, gameId: targetGameId, assistantTurnsLimit: 1 })
+          setWorldCards(normalizeStoryWorldCards(refreshedPayload.world_cards))
+        } catch (refreshError) {
+          const detail = refreshError instanceof Error ? refreshError.message : 'Не удалось обновить карточки авто состояния'
+          setErrorMessage(detail)
+        }
+      }
     } catch (error) {
       setCharacterStateEnabled(previousValue)
       setStorySettingsOverrides((previousOverrides) => ({
@@ -13026,9 +13535,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           storyTopR,
           showGgThoughts,
           showNpcThoughts,
-          ambientEnabled,
+          ambientEnabled: effectiveAmbientEnabled,
           environmentEnabled: environmentTimeEnabled || environmentWeatherEnabled,
-          emotionVisualizationEnabled: isAdministrator ? emotionVisualizationEnabled : false,
+          emotionVisualizationEnabled: effectiveEmotionVisualizationEnabled,
           signal: controller.signal,
           onStart: (payload) => {
             streamStarted = true
@@ -13355,12 +13864,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [
       applyPlotCardEvents,
       applyWorldCardEvents,
-      ambientEnabled,
+      effectiveAmbientEnabled,
+      effectiveEmotionVisualizationEnabled,
       environmentTimeEnabled,
       environmentWeatherEnabled,
       authToken,
-      emotionVisualizationEnabled,
-      isAdministrator,
       loadGameById,
       memoryOptimizationEnabled,
       onUserUpdate,
@@ -14242,6 +14750,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     onLogout()
   }
 
+  const handleLeaveStoryGame = () => {
+    if (window.history.length > 1) {
+      window.history.back()
+      return
+    }
+    onNavigate('/dashboard')
+  }
+
   const profileName = user.display_name || 'грок'
 
   return (
@@ -14257,6 +14773,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     >
       <AppHeader
         mobileVariant="story"
+        hidePageMenu
         isPageMenuOpen={isPageMenuOpen}
         onTogglePageMenu={() => setIsPageMenuOpen((previous) => !previous)}
         onClosePageMenu={() => setIsPageMenuOpen(false)}
@@ -14327,6 +14844,492 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Stack>
         }
       />
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 'var(--morius-header-top-offset)',
+          left: 'var(--morius-header-side-offset)',
+          zIndex: 50,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+        }}
+      >
+        <Tooltip title={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}>
+          <IconButton
+            aria-label={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}
+            onClick={() => {
+              setIsGameMenuOpen((previous) => {
+                const nextOpen = !previous
+                if (nextOpen) {
+                  resetEnvironmentModuleCardPositions(true)
+                }
+                return nextOpen
+              })
+            }}
+            sx={{
+              width: 40,
+              height: 40,
+              borderRadius: '10px',
+              color: 'var(--morius-accent)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 78%, #000 22%)',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+              boxShadow: '0 12px 28px rgba(0, 0, 0, 0.26)',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%)',
+              },
+            }}
+          >
+            <Box component="img" src={riusMenuIcon} alt="" sx={{ width: 17, height: 15, display: 'block' }} />
+          </IconButton>
+        </Tooltip>
+        {(user.ai_assistant_visible ?? true) ? (
+          <Tooltip title="AI-помощник">
+            <IconButton
+              aria-label="Открыть AI-помощника"
+              onClick={() => window.dispatchEvent(new CustomEvent(AI_ASSISTANT_OPEN_EVENT))}
+              sx={{
+                width: 40,
+                height: 40,
+                borderRadius: '9999px',
+                color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)',
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, #000 26%)',
+                border: 'none',
+                boxShadow: '0 12px 28px rgba(0, 0, 0, 0.26)',
+                '&:hover': {
+                  color: 'var(--morius-title-text)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 58%, #000 42%)',
+                },
+              }}
+            >
+              <ThemedSvgIcon markup={aiIconMarkup} size={16} sx={{ color: 'inherit' }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
+      </Box>
+
+      <Box
+        sx={{
+          position: 'fixed',
+          top: 'calc(var(--morius-header-top-offset) + 52px)',
+          left: { xs: 8, md: 'var(--morius-header-side-offset)' },
+          bottom: { xs: 8, md: 'var(--morius-interface-gap)' },
+          width: { xs: 'min(292px, calc(100vw - 16px))', md: 304 },
+          zIndex: 44,
+          borderRadius: '16px',
+          backgroundColor: 'color-mix(in srgb, var(--morius-app-base) 92%, #000 8%)',
+          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
+          boxShadow: '22px 0 58px rgba(0, 0, 0, 0.28)',
+          transform: isGameMenuOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(-100% - 28px), 0, 0)',
+          opacity: isGameMenuOpen ? 1 : 0,
+          pointerEvents: isGameMenuOpen ? 'auto' : 'none',
+          transition: 'transform 260ms ease, opacity 220ms ease',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'visible',
+        }}
+      >
+        <Stack spacing={1.25} sx={{ p: 1.1, pb: 0, flexShrink: 0 }}>
+          <Box
+            sx={{
+              position: 'relative',
+              minHeight: 122,
+              borderRadius: '14px',
+              overflow: 'hidden',
+              p: 1.15,
+              display: 'flex',
+              alignItems: 'stretch',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 54%, transparent)',
+              backgroundColor: 'var(--morius-card-bg)',
+            }}
+          >
+            {gameMenuCoverUrl ? (
+              <Box
+                component="img"
+                src={gameMenuCoverUrl}
+                alt=""
+                decoding="async"
+                referrerPolicy="no-referrer"
+                sx={{
+                  position: 'absolute',
+                  inset: -18,
+                  width: 'calc(100% + 36px)',
+                  height: 'calc(100% + 36px)',
+                  objectFit: 'cover',
+                  objectPosition: gameMenuCoverPosition,
+                  filter: 'blur(16px)',
+                  transform: `scale(${Math.max(1.12, Math.min(2.6, activeGameSummary?.cover_scale ?? 1.12))})`,
+                  opacity: 0.72,
+                }}
+              />
+            ) : (
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  inset: -18,
+                  filter: 'blur(14px)',
+                  transform: 'scale(1.16)',
+                  opacity: 0.9,
+                  ...gameMenuFallbackArtwork,
+                }}
+              />
+            )}
+            <Box
+              aria-hidden
+              sx={{
+                position: 'absolute',
+                inset: 0,
+                background:
+                  'linear-gradient(90deg, rgba(14, 14, 15, 0.84) 0%, rgba(14, 14, 15, 0.68) 54%, rgba(14, 14, 15, 0.42) 100%)',
+              }}
+            />
+            <Box
+              aria-hidden
+              sx={{
+                position: 'absolute',
+                top: 8,
+                right: 8,
+                bottom: 8,
+                width: '42%',
+                borderRadius: '11px',
+                overflow: 'hidden',
+                opacity: 0.86,
+                border: 'var(--morius-border-width) solid rgba(255,255,255,0.08)',
+                display: { xs: 'none', sm: 'block' },
+                ...(gameMenuCoverUrl
+                  ? {}
+                  : {
+                      ...gameMenuFallbackArtwork,
+                    }),
+              }}
+            >
+              {gameMenuCoverUrl ? (
+                <Box
+                  component="img"
+                  src={gameMenuCoverUrl}
+                  alt=""
+                  decoding="async"
+                  referrerPolicy="no-referrer"
+                  sx={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'block',
+                    objectFit: 'cover',
+                    objectPosition: gameMenuCoverPosition,
+                    transform: `scale(${Math.max(1, Math.min(2.6, activeGameSummary?.cover_scale ?? 1))})`,
+                  }}
+                />
+              ) : null}
+            </Box>
+            <Stack spacing={0.8} sx={{ position: 'relative', zIndex: 1, minWidth: 0, pr: { xs: 0, sm: '39%' } }}>
+              <Typography sx={{ color: 'rgba(245, 247, 251, 0.9)', fontSize: '0.78rem', fontWeight: 700 }}>
+                Сейчас вы играете в
+              </Typography>
+              <Typography
+                component="div"
+                contentEditable={!isGenerating && Boolean(activeGameId)}
+                suppressContentEditableWarning
+                spellCheck={false}
+                onFocus={handleInlineTitleFocus}
+                onInput={(event) => {
+                  truncateContentEditableText(event.currentTarget, STORY_GAME_TITLE_MAX_LENGTH)
+                }}
+                onBlur={handleInlineTitleBlur}
+                onKeyDown={handleInlineTitleKeyDown}
+                sx={{
+                  color: '#FFFFFF',
+                  fontSize: '0.94rem',
+                  fontWeight: 900,
+                  lineHeight: 1.17,
+                  cursor: isGenerating ? 'default' : 'text',
+                  outline: 'none',
+                  wordBreak: 'break-word',
+                  textShadow: '0 2px 12px rgba(0, 0, 0, 0.62)',
+                }}
+              >
+                {activeDisplayTitle}
+              </Typography>
+            </Stack>
+          </Box>
+
+          <Button
+            onClick={handleLeaveStoryGame}
+            sx={{
+              minHeight: 48,
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: 'var(--morius-title-text)',
+              fontSize: '0.95rem',
+              fontWeight: 900,
+              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #000 12%)',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #fff 4%)',
+              },
+            }}
+          >
+            Покинуть игру
+          </Button>
+
+          <Typography
+            sx={{
+              color: 'var(--morius-title-text)',
+              textAlign: 'center',
+              fontSize: '1.1rem',
+              fontWeight: 900,
+              lineHeight: 1.2,
+              pt: 0.25,
+            }}
+          >
+            Модули
+          </Typography>
+
+          <Stack direction="row" spacing={0.65} flexWrap="wrap" useFlexGap>
+            <Button
+              disableRipple
+              disableFocusRipple
+              sx={{
+                ...storySettingsTabButtonSx(true),
+                minHeight: 38,
+                px: 0.2,
+                justifyContent: 'flex-start',
+              }}
+            >
+              <ThemedSvgIcon markup={cardsWorldTabIconMarkup} size={18} sx={{ color: 'inherit' }} />
+              Окружение
+            </Button>
+          </Stack>
+        </Stack>
+
+        <Box
+          ref={environmentModulesScrollRef}
+          className="morius-scrollbar"
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: isEnvironmentModuleCardDetached ? 'visible' : 'auto',
+            overflowX: isEnvironmentModuleCardDetached ? 'visible' : 'hidden',
+            px: 1.4,
+            pt: 1.45,
+            pb: 1.35,
+          }}
+        >
+          <EnvironmentModuleCard
+            cardId="place"
+            title="Окружение"
+            hideTitle
+            switchHidden
+            position={environmentModuleCardPositions.place}
+            isReturning={returningEnvironmentModuleCardIds.includes('place')}
+            isDragging={draggingEnvironmentModuleCardId === 'place'}
+            onHandlePointerDown={handleEnvironmentModuleCardPointerDown}
+            onHandlePointerMove={handleEnvironmentModuleCardPointerMove}
+            onHandlePointerEnd={handleEnvironmentModuleCardPointerEnd}
+            onReset={handleResetEnvironmentModuleCardPosition}
+          >
+            <Stack spacing={1.35}>
+              <Box
+                role="button"
+                tabIndex={0}
+                onClick={openEnvironmentEditor}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    openEnvironmentEditor()
+                  }
+                }}
+                sx={{ cursor: 'pointer', outline: 'none' }}
+              >
+                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                  Место
+                </Typography>
+                <Typography sx={{ mt: 0.65, color: 'var(--morius-accent)', fontSize: '1.02rem', fontWeight: 900, lineHeight: 1.22 }}>
+                  Действие происходит...
+                </Typography>
+                <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mt: 1.05 }}>
+                  <Box
+                    sx={{
+                      width: 26,
+                      height: 26,
+                      borderRadius: '50%',
+                      display: 'grid',
+                      placeItems: 'center',
+                      color: 'var(--morius-title-text)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <ThemedSvgIcon markup={cardsWorldTabIconMarkup} size={20} sx={{ color: 'currentColor' }} />
+                  </Box>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.9rem', fontWeight: 800, lineHeight: 1.35 }}>
+                    {latestLocationMemoryLabel}
+                  </Typography>
+                </Stack>
+              </Box>
+
+              <Box
+                sx={{
+                  pt: 1.15,
+                  borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                    Время
+                  </Typography>
+                  <Switch
+                    checked={environmentTimeEnabled}
+                    disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                    onChange={(event) => void handleToggleEnvironmentEnabled(event.target.checked)}
+                    color="default"
+                    sx={{
+                      mr: -0.6,
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: 'var(--morius-accent)',
+                      },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                        backgroundColor: 'var(--morius-accent)',
+                        opacity: 0.86,
+                      },
+                    }}
+                  />
+                </Stack>
+                <Collapse in={environmentTimeEnabled} timeout={220} unmountOnExit>
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    onClick={openEnvironmentEditor}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openEnvironmentEditor()
+                      }
+                    }}
+                    sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
+                  >
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.34rem', fontWeight: 900, lineHeight: 1.2 }}>
+                      {environmentDateInfo.title}
+                    </Typography>
+                    <Typography sx={{ mt: 0.45, color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.35 }}>
+                      {environmentDateInfo.meta}
+                    </Typography>
+                    {environmentDateInfo.seasonAndMonth ? (
+                      <Typography sx={{ mt: 1.2, color: 'var(--morius-accent)', fontSize: '0.9rem', fontWeight: 900 }}>
+                        {environmentDateInfo.seasonAndMonth}
+                      </Typography>
+                    ) : null}
+                  </Box>
+                </Collapse>
+              </Box>
+
+              <Box
+                sx={{
+                  pt: 1.15,
+                  borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 68%, transparent)',
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.2}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 900, lineHeight: 1.2 }}>
+                    Погода
+                  </Typography>
+                  <Switch
+                    checked={environmentWeatherEnabled}
+                    disabled={isSavingEnvironmentPanel || isRegeneratingEnvironmentWeather}
+                    onChange={(event) => void handleToggleEnvironmentWeatherEnabled(event.target.checked)}
+                    color="default"
+                    sx={{
+                      mr: -0.6,
+                      '& .MuiSwitch-switchBase.Mui-checked': {
+                        color: 'var(--morius-accent)',
+                      },
+                      '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                        backgroundColor: 'var(--morius-accent)',
+                        opacity: 0.86,
+                      },
+                    }}
+                  />
+                </Stack>
+                <Collapse in={environmentWeatherEnabled} timeout={220} unmountOnExit>
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    onClick={openEnvironmentEditor}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        openEnvironmentEditor()
+                      }
+                    }}
+                    sx={{ pt: 0.8, cursor: 'pointer', outline: 'none' }}
+                  >
+                    <Stack direction="row" spacing={0.8} alignItems="center">
+                      <Box
+                        component="img"
+                        src={resolveEnvironmentSummaryIcon(environmentSummaryText)}
+                        alt=""
+                        sx={environmentPanelIconSx}
+                      />
+                      <Stack spacing={0.2} sx={{ minWidth: 0 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 900, lineHeight: 1.2 }}>
+                          {environmentSummaryText}
+                        </Typography>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.35 }}>
+                          {environmentWeatherMeta}
+                        </Typography>
+                      </Stack>
+                    </Stack>
+                    <Stack direction="row" spacing={0.75} sx={{ mt: 1.45, overflowX: 'auto', pb: 0.2 }} className="morius-scrollbar">
+                      {environmentTimeline.slice(0, 4).map((entry, index) => {
+                        const isActive = index === activeEnvironmentTimelineIndex
+                        const label = resolveEnvironmentTimelineLabel(entry, index)
+                        const summary = readEnvironmentString(entry.summary) || environmentSummaryText
+                        return (
+                          <Box
+                            key={`${label}-${index}`}
+                            sx={{
+                              minWidth: 62,
+                              borderRadius: '12px',
+                              px: 0.7,
+                              py: 0.72,
+                              textAlign: 'center',
+                              border: isActive
+                                ? 'var(--morius-border-width) solid var(--morius-accent)'
+                                : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                              backgroundColor: isActive
+                                ? 'color-mix(in srgb, var(--morius-accent) 12%, var(--morius-elevated-bg))'
+                                : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, transparent)',
+                              boxShadow: isActive ? '0 0 22px color-mix(in srgb, var(--morius-accent) 22%, transparent)' : 'none',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.72rem', fontWeight: 900, lineHeight: 1.15 }}>
+                              {label}
+                            </Typography>
+                            <Box
+                              component="img"
+                              src={resolveEnvironmentSummaryIcon(summary)}
+                              alt=""
+                              sx={{ ...environmentPanelIconSx, width: 22, height: 22, mt: 0.55, mx: 'auto' }}
+                            />
+                          </Box>
+                        )
+                      })}
+                    </Stack>
+                    {isRegeneratingEnvironmentWeather ? (
+                      <Stack direction="row" spacing={0.7} alignItems="center" sx={{ mt: 1.2 }}>
+                        <CircularProgress size={15} sx={{ color: 'var(--morius-accent)' }} />
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', fontWeight: 700 }}>
+                          Обновляется
+                        </Typography>
+                      </Stack>
+                    ) : null}
+                  </Box>
+                </Collapse>
+              </Box>
+            </Stack>
+          </EnvironmentModuleCard>
+        </Box>
+      </Box>
 
       {isMobileComposer && isRightPanelOpen ? (
         <Box
@@ -14442,11 +15445,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     : setActiveMemoryPanelTab('memory')
               }
               sx={{
-                ...rightPanelTextTabButtonSx(isLeftPanelTabActive, rightPanelMode === 'world'),
-                color:
-                  rightPanelMode === 'world' && isLeftPanelTabActive
-                    ? 'var(--morius-accent) !important'
-                    : undefined,
+                ...rightPanelTextTabButtonSx(isLeftPanelTabActive, false),
                 fontSize: 'var(--morius-body-size)',
                 lineHeight: 1.1,
                 textAlign: 'center',
@@ -14458,20 +15457,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             >
               {leftPanelTabLabel}
             </Button>
-              {isRightPanelSecondTabVisible ? (
-                <Button
-                  data-tour-id="story-right-subtab-secondary"
-                  onClick={() =>
-                    rightPanelMode === 'world'
-                      ? setActiveWorldPanelTab('world')
-                      : setActiveMemoryPanelTab('dev')
-                }
+            {isRightPanelSecondTabVisible ? (
+              <Button
+                data-tour-id="story-right-subtab-secondary"
+                onClick={() => setActiveMemoryPanelTab('dev')}
                 sx={{
-                  ...rightPanelTextTabButtonSx(!isLeftPanelTabActive, rightPanelMode === 'world'),
-                  color:
-                    rightPanelMode === 'world' && !isLeftPanelTabActive
-                      ? 'var(--morius-accent) !important'
-                      : undefined,
+                  ...rightPanelTextTabButtonSx(!isLeftPanelTabActive, false),
                   fontSize: 'var(--morius-body-size)',
                   lineHeight: 1.1,
                   textAlign: 'center',
@@ -15756,16 +16747,90 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               ) : (
                 <>
                   <Box
-                    data-tour-id="story-settings-narrator-section"
+                    ref={storySettingsTabsScrollerRef}
+                    data-tour-id="story-settings-tabs"
+                    className="morius-scrollbar"
+                    onPointerDown={handleStorySettingsTabsPointerDown}
+                    onPointerMove={handleStorySettingsTabsPointerMove}
+                    onPointerUp={handleStorySettingsTabsPointerEnd}
+                    onPointerCancel={handleStorySettingsTabsPointerEnd}
                     sx={{
                       mt: 0.35,
-                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      mb: 0.35,
+                      display: 'flex',
+                      gap: 0.6,
+                      overflowX: 'auto',
+                      overflowY: 'hidden',
+                      scrollbarWidth: 'none',
+                      msOverflowStyle: 'none',
+                      touchAction: 'pan-x',
+                      cursor: 'grab',
+                      pr: 0.2,
+                      '&::-webkit-scrollbar': {
+                        display: 'none',
+                      },
+                      '&:active': {
+                        cursor: 'grabbing',
+                      },
+                    }}
+                  >
+                    {([
+                      {
+                        key: 'generation' as const,
+                        label: 'Генерация',
+                        icon: (
+                          <SvgIcon viewBox="0 0 24 24">
+                            <path d="M19 1l-1.26 3.26L14.5 5.5l3.24 1.24L19 10l1.26-3.26L23.5 5.5l-3.24-1.24L19 1ZM11 3l-1.74 4.26L5 9l4.26 1.74L11 15l1.74-4.26L17 9l-4.26-1.74L11 3Zm-5 10-.97 2.03L3 16l2.03.97L6 19l.97-2.03L9 16l-2.03-.97L6 13Z" />
+                          </SvgIcon>
+                        ),
+                      },
+                      {
+                        key: 'additional' as const,
+                        label: 'Дополнительно',
+                        icon: (
+                          <SvgIcon viewBox="0 0 24 24">
+                            <path d="M3 7h8V5h2v6h-2V9H3V7Zm12 0h6v2h-6V7ZM3 15h4v-2h2v6H7v-2H3v-2Zm8 0h10v2H11v-2Z" />
+                          </SvgIcon>
+                        ),
+                      },
+                      {
+                        key: 'appearance' as const,
+                        label: 'Оформление',
+                        icon: (
+                          <SvgIcon viewBox="0 0 24 24">
+                            <path d="M12 3C7.03 3 3 6.58 3 11c0 3.31 2.69 6 6 6h1.5c.83 0 1.5.67 1.5 1.5S12.67 20 13.5 20H15c3.31 0 6-2.69 6-6 0-6.08-4.93-11-9-11ZM6.5 11C5.67 11 5 10.33 5 9.5S5.67 8 6.5 8 8 8.67 8 9.5 7.33 11 6.5 11Zm3-4C8.67 7 8 6.33 8 5.5S8.67 4 9.5 4 11 4.67 11 5.5 10.33 7 9.5 7Zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 4 14.5 4 16 4.67 16 5.5 15.33 7 14.5 7Zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 8 17.5 8 19 8.67 19 9.5 18.33 11 17.5 11Z" />
+                          </SvgIcon>
+                        ),
+                      },
+                    ] satisfies readonly { key: StorySettingsTab; label: string; icon: ReactNode }[]).map((tab) => {
+                      const isActive = storySettingsTab === tab.key
+                      return (
+                        <Button
+                          key={tab.key}
+                          type="button"
+                          aria-pressed={isActive}
+                          onClick={() => handleStorySettingsTabSelect(tab.key)}
+                          sx={storySettingsTabButtonSx(isActive)}
+                        >
+                          {tab.icon}
+                          {tab.label}
+                        </Button>
+                      )
+                    })}
+                  </Box>
+
+                  <Box
+                    data-tour-id="story-settings-narrator-section"
+                    sx={{
+                      display: storySettingsTab === 'generation' ? 'block' : 'none',
+                      borderTop: 'none',
                     }}
                   >
                     <Button
                       data-tour-id="story-settings-narrator-toggle"
                       onClick={() => setIsNarratorSettingsExpanded((previous) => !previous)}
                       sx={{
+                        display: 'none',
                         width: '100%',
                         minHeight: 54,
                         px: 0,
@@ -15793,14 +16858,14 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
                       </SvgIcon>
                     </Button>
-                    <Collapse in={isNarratorSettingsExpanded} timeout={200} unmountOnExit>
+                    <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
                       <Box data-tour-id="story-settings-narrator-panel" sx={{ pb: 0.9 }}>
                         <Stack direction="row" spacing={0.45} alignItems="center">
                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
                             Выбор рассказчика
                           </Typography>
                           <SettingsInfoTooltipIcon
-                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, Xiaomi Mimo Pro, AionLabs, Gemini 2.5 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
+                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, Xiaomi Mimo Pro, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
                           />
                         </Stack>
                         <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
@@ -16028,11 +17093,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Collapse>
                   </Box>
 
-                  <Box data-tour-id="story-settings-visualization-section" sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                  <Box
+                    data-tour-id="story-settings-visualization-section"
+                    sx={{
+                      display: storySettingsTab === 'generation' ? 'block' : 'none',
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
                     <Button
                       data-tour-id="story-settings-visualization-toggle"
                       onClick={() => setIsVisualizationSettingsExpanded((previous) => !previous)}
                       sx={{
+                        display: 'none',
                         width: '100%',
                         minHeight: 54,
                         px: 0,
@@ -16060,7 +17132,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
                       </SvgIcon>
                     </Button>
-                    <Collapse in={isVisualizationSettingsExpanded} timeout={200} unmountOnExit>
+                    <Collapse in={storySettingsTab === 'generation'} timeout={200} unmountOnExit>
                       <Box data-tour-id="story-settings-visualization-panel" sx={{ pb: 0.9, pt: 0.08 }}>
                         <Stack direction="row" spacing={0.45} alignItems="center">
                           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem', fontWeight: 600 }}>
@@ -16184,7 +17256,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Collapse>
                   </Box>
 
-                  <Box data-tour-id="story-settings-additional-section" sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                  <Box
+                    data-tour-id="story-settings-additional-section"
+                    sx={{
+                      display: storySettingsTab === 'additional' ? 'block' : 'none',
+                      borderTop: 'none',
+                    }}
+                  >
                     <Button
                       data-tour-id="story-settings-additional-toggle"
                       onClick={() => setIsAdditionalSettingsExpanded((previous) => !previous)}
@@ -16227,34 +17305,36 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           gap: 0.72,
                         }}
                       >
-                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
-                          <Stack direction="row" spacing={0.45} alignItems="center">
-                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
-                              Эмбиент подсветка
-                            </Typography>
-                            <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.ambient} />
+                        {isAdministrator ? (
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Эмбиент подсветка
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.ambient} />
+                            </Stack>
+                            <Switch
+                              checked={ambientEnabled}
+                              onChange={() => {
+                                void toggleAmbientEnabled()
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: 'var(--morius-accent)',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: switchCheckedTrackColor,
+                                  opacity: 1,
+                                },
+                                '& .MuiSwitch-track': {
+                                  backgroundColor: switchTrackColor,
+                                  opacity: 1,
+                                },
+                              }}
+                            />
                           </Stack>
-                          <Switch
-                            checked={ambientEnabled}
-                            onChange={() => {
-                              void toggleAmbientEnabled()
-                            }}
-                            disabled={isSavingStorySettings || isGenerating}
-                            sx={{
-                              '& .MuiSwitch-switchBase.Mui-checked': {
-                                color: 'var(--morius-accent)',
-                              },
-                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
-                                backgroundColor: switchCheckedTrackColor,
-                                opacity: 1,
-                              },
-                              '& .MuiSwitch-track': {
-                                backgroundColor: switchTrackColor,
-                                opacity: 1,
-                              },
-                            }}
-                          />
-                        </Stack>
+                        ) : null}
 
                         <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
                           <Stack direction="row" spacing={0.45} alignItems="center">
@@ -16471,7 +17551,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Collapse>
                   </Box>
 
-                  <Box data-tour-id="story-settings-finetune-section" sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                  <Box
+                    data-tour-id="story-settings-finetune-section"
+                    sx={{
+                      display: storySettingsTab === 'additional' ? 'block' : 'none',
+                      borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                    }}
+                  >
                     <Button
                       data-tour-id="story-settings-finetune-toggle"
                       onClick={() => setIsFineTuneSettingsExpanded((previous) => !previous)}
@@ -17025,10 +18111,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Box>
 
                   {canEditStoryAppearance ? (
-                    <Box sx={{ borderTop: 'var(--morius-border-width) solid var(--morius-card-border)' }}>
+                    <Box
+                      sx={{
+                        display: storySettingsTab === 'appearance' ? 'block' : 'none',
+                        borderTop: 'none',
+                      }}
+                    >
                       <Button
                         onClick={() => setIsAppearanceSettingsExpanded((previous) => !previous)}
                         sx={{
+                          display: 'none',
                           width: '100%',
                           minHeight: 54,
                           px: 0,
@@ -17056,7 +18148,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <path d="M7.41 8.59 12 13.17 16.59 8.59 18 10l-6 6-6-6z" />
                         </SvgIcon>
                       </Button>
-                      <Collapse in={isAppearanceSettingsExpanded} timeout={200} unmountOnExit>
+                      <Collapse in={storySettingsTab === 'appearance'} timeout={200} unmountOnExit>
                         <Box sx={{ pb: 0.95, pt: 0.08 }}>
                           <Stack spacing={1.15}>
                             <Box>
@@ -19804,17 +20896,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         transitionComponent={DialogTransition}
         paperSx={{
           borderRadius: 'var(--morius-radius)',
-          border: 'var(--morius-border-width) solid var(--morius-card-border)',
-          background: 'var(--morius-dialog-bg)',
+          border: 'var(--morius-border-width) solid rgba(221, 229, 241, 0.16)',
+          background:
+            'linear-gradient(180deg, color-mix(in srgb, #222426 78%, #19191A 22%) 0%, #19191A 100%)',
+          color: '#F1F3F8',
+          boxShadow: '0 28px 70px rgba(0, 0, 0, 0.58)',
         }}
         rawChildren
       >
         <DialogTitle sx={{ pb: 1 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: '1.18rem' }}>Погода и время</Typography>
+          <Typography sx={{ color: '#F1F3F8', fontWeight: 800, fontSize: '1.18rem' }}>Погода и время</Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.3 }}>
           <Stack spacing={1.2}>
-            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', lineHeight: 1.45 }}>
+            <Typography sx={{ color: '#AAB4C0', fontSize: '0.86rem', lineHeight: 1.5 }}>
               Здесь можно вручную задать место сцены, сезон, месяц, текущее время и текущую погоду. Время и погода работают независимо: можно оставить только одно из них активным.
             </Typography>
 
@@ -19878,7 +20973,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Stack>
 
             <Stack spacing={0.8}>
-              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 800 }}>
+              <Typography sx={{ color: '#F1F3F8', fontSize: '0.96rem', fontWeight: 800 }}>
                 Текущая погода
               </Typography>
               <TextField
@@ -19899,9 +20994,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             sx={{
               minHeight: 38,
               borderRadius: '12px',
-              border: 'var(--morius-border-width) solid var(--morius-card-border)',
-              color: 'var(--morius-text-primary)',
-              backgroundColor: 'var(--morius-elevated-bg)',
+              border: 'var(--morius-border-width) solid rgba(221, 229, 241, 0.16)',
+              color: '#F1F3F8',
+              backgroundColor: '#222426',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, #222426 82%, #fff 6%)',
+              },
             }}
           >
             Отмена
@@ -19912,9 +21010,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             sx={{
               minHeight: 38,
               borderRadius: '12px',
-              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 34%, var(--morius-card-border))',
-              color: 'var(--morius-title-text)',
-              backgroundColor: 'color-mix(in srgb, var(--morius-button-active) 32%, var(--morius-elevated-bg))',
+              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 56%, rgba(221, 229, 241, 0.18))',
+              color: '#FFFFFF',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 38%, #222426)',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 48%, #222426)',
+              },
             }}
           >
             {isSavingEnvironmentPanel ? 'Сохранение...' : 'Сохранить'}

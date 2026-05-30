@@ -632,11 +632,11 @@ function App() {
   const shouldShowBugReportPage = isAuthenticated && adminBugReportId !== null
   const shouldShowStoryGamePage = isAuthenticated && (path === '/home' || path.startsWith('/home/')) && !shouldShowBugReportPage
   const shouldShowDashboardPage = isAuthenticated && path === '/dashboard'
-  const shouldShowMyGamesPage = isAuthenticated && path === '/games'
+  const shouldShowMyGamesPage = false
   const shouldShowMyPublicationsPage = isAuthenticated && path === '/games/publications'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
-  const shouldShowProfilePage = isAuthenticated && (path === '/profile' || profileUserId !== null)
+  const shouldShowProfilePage = isAuthenticated && (path === '/profile' || path === '/games' || profileUserId !== null)
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'

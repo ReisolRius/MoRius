@@ -91,7 +91,7 @@ function HeaderAccountActions({
   }, [refreshUnreadCount])
 
   return (
-    <Stack direction="row" spacing={2.35} alignItems="center">
+    <Stack direction="row" spacing={1} alignItems="center">
       {showDailyRewards ? <DailyRewardsButton authToken={authToken} size={avatarSize} /> : null}
       {shouldHideAvatar ? null : (
         <Box

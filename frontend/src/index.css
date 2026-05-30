@@ -250,6 +250,32 @@ select {
   height: var(--morius-daily-rewards-icon-size, var(--morius-action-icon-size)) !important;
 }
 
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button,
+.morius-app-shell .MuiIconButton-root.morius-header-play-button {
+  width: var(--morius-action-size) !important;
+  height: var(--morius-action-size) !important;
+  min-width: var(--morius-action-size) !important;
+  min-height: var(--morius-action-size) !important;
+  max-width: var(--morius-action-size) !important;
+  max-height: var(--morius-action-size) !important;
+  border-radius: 9999px !important;
+  background: var(--morius-elevated-bg) !important;
+  color: color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover,
+.morius-app-shell .MuiIconButton-root.morius-header-play-button:hover {
+  background: color-mix(in srgb, var(--morius-elevated-bg) 82%, black 18%) !important;
+  color: var(--morius-title-text) !important;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.22) !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-header-ai-button:active,
+.morius-app-shell .MuiIconButton-root.morius-header-play-button:active {
+  background: color-mix(in srgb, var(--morius-elevated-bg) 74%, black 26%) !important;
+}
+
 .morius-app-shell h1,
 .morius-app-shell .morius-title {
   color: var(--morius-title-text);

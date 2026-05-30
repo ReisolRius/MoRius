@@ -69,7 +69,6 @@ function CommunityWorldCard({
   onAuthorClick,
   disabled = false,
   sx,
-  showFavoriteButton = false,
   isFavoriteSaving = false,
   onToggleFavorite,
   coverBadge,
@@ -84,6 +83,7 @@ function CommunityWorldCard({
   })
   const [isCoverLoaded, setIsCoverLoaded] = useState(false)
   const [isCoverFailed, setIsCoverFailed] = useState(false)
+  const shouldShowFavoriteButton = false
 
   useEffect(() => {
     setIsCoverLoaded(false)
@@ -301,7 +301,7 @@ function CommunityWorldCard({
             left: { xs: '12px', md: '14px' },
             right: { xs: '12px', md: '14px' },
             minWidth: 0,
-            pr: showFavoriteButton ? '44px' : 0,
+            pr: shouldShowFavoriteButton ? '44px' : 0,
             cursor: onAuthorClick && !disabled ? 'pointer' : 'default',
             '&:focus-visible': onAuthorClick && !disabled
               ? {
@@ -339,7 +339,7 @@ function CommunityWorldCard({
           </Typography>
         </Stack>
 
-        {showFavoriteButton ? (
+        {shouldShowFavoriteButton ? (
           <IconButton
             className="community-world-card-favorite"
             aria-label={world.is_favorited_by_user ? 'Убрать из любимых миров' : 'Добавить в любимые миры'}

@@ -125,24 +125,24 @@ const yamiRiusColors: MoriusThemeColors = {
 
 const riusDungeonColors: MoriusThemeColors = {
   ...moriusThemeTokens.colors,
-  appBackground: 'transparent',
-  appBase: '#000000',
-  appSurface: '#1a1e21',
-  appElevated: '#1a1e21',
-  inputBg: '#1a1e21',
+  appBackground: '#19191A',
+  appBase: '#19191A',
+  appSurface: '#222426',
+  appElevated: '#222426',
+  inputBg: '#222426',
   inputBorder: 'rgba(201, 210, 223, 0.34)',
   appBorder: 'transparent',
-  accent: '#2c9cf8',
+  accent: '#578EEE',
   titleText: '#dbdde7',
   textPrimary: '#e6e6e7',
   textSecondary: '#818a94',
-  buttonHover: '#2c9cf8',
-  buttonActive: '#2c9cf8',
-  sendButton: '#2c9cf8',
-  panelGradient: '#1a1e21',
-  bootBackground: '#000000',
+  buttonHover: '#578EEE',
+  buttonActive: '#578EEE',
+  sendButton: '#578EEE',
+  panelGradient: '#222426',
+  bootBackground: '#19191A',
   baseText: '#a4adb6',
-  dialogBg: '#000000',
+  dialogBg: '#19191A',
 }
 
 export const moriusThemePresets: readonly MoriusThemePreset[] = [
@@ -217,10 +217,11 @@ export const moriusThemePlaceholders: readonly MoriusThemePlaceholder[] = [
 export const MORIUS_DEFAULT_THEME_ID: MoriusThemeId = 'rius-dungeon'
 
 export function getMoriusThemeById(themeId: string | null | undefined): MoriusThemePreset {
+  const defaultTheme = moriusThemePresets.find((theme) => theme.id === MORIUS_DEFAULT_THEME_ID) ?? moriusThemePresets[0]
   if (!themeId) {
-    return moriusThemePresets[0]
+    return defaultTheme
   }
 
   const foundTheme = moriusThemePresets.find((theme) => theme.id === themeId)
-  return foundTheme ?? moriusThemePresets[0]
+  return foundTheme ?? defaultTheme
 }

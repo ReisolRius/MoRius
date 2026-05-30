@@ -142,6 +142,9 @@ POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "server_error",
     "upstream",
 )
+POLZA_GEMINI_25_PRO_MODEL_ID = "google/gemini-2.5-pro"
+POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS = 1
+POLZA_GEMINI_PRO_RETRY_STATUS_CODES = {400, 408, 409, 425, 429, 499, 500, 502, 503, 504}
 
 
 def _apply_polza_story_reasoning_preferences(
@@ -240,6 +243,25 @@ def _should_retry_polza_chat_request(*, status_code: int, detail: str, attempt_i
     if status_code == 429:
         return True
     return _is_polza_temporary_provider_failure(status_code, detail)
+
+
+def _is_polza_gemini_25_pro_model(model_name: str | None) -> bool:
+    return _normalize_story_model_id(model_name) == POLZA_GEMINI_25_PRO_MODEL_ID
+
+
+def _should_retry_polza_gemini_pro_turn_failure(
+    *,
+    model_name: str | None,
+    attempt_index: int,
+    status_code: int | None = None,
+) -> bool:
+    if not _is_polza_gemini_25_pro_model(model_name):
+        return False
+    if attempt_index >= POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS:
+        return False
+    if status_code is None:
+        return True
+    return int(status_code) in POLZA_GEMINI_PRO_RETRY_STATUS_CODES
 
 
 def _should_try_polza_fallback_model(
@@ -685,6 +707,10 @@ def _iter_polza_story_stream_chunks(
                         status_code=response.status_code,
                         detail=detail,
                         attempt_index=attempt_index,
+                    ) or _should_retry_polza_gemini_pro_turn_failure(
+                        model_name=model_name,
+                        attempt_index=attempt_index,
+                        status_code=response.status_code,
                     ):
                         logger.warning(
                             "Polza.ai stream temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",
@@ -816,6 +842,25 @@ def _iter_polza_story_stream_chunks(
                     if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                         raise StoryGenerationCancelled("Story generation cancelled") from exc
                     raise RuntimeError("Failed while reading Polza.ai chat stream") from exc
+                except RuntimeError as exc:
+                    if (
+                        not emitted_delta
+                        and _should_retry_polza_gemini_pro_turn_failure(
+                            model_name=model_name,
+                            attempt_index=attempt_index,
+                        )
+                    ):
+                        last_error = RuntimeError(str(exc).strip() or "Polza.ai stream returned an error")
+                        logger.warning(
+                            "Polza.ai Gemini 2.5 Pro stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            model_name,
+                            provider_label,
+                            attempt_index + 1,
+                            exc,
+                        )
+                        _sleep_polza_retry(attempt_index)
+                        continue
+                    raise
 
                 if is_story_generation_cancelled(story_generation_game_id, story_generation_id):
                     raise StoryGenerationCancelled("Story generation cancelled")
@@ -1111,6 +1156,10 @@ def _request_polza_story_text(
                     status_code=response.status_code,
                     detail=detail,
                     attempt_index=attempt_index,
+                ) or _should_retry_polza_gemini_pro_turn_failure(
+                    model_name=candidate_model,
+                    attempt_index=attempt_index,
+                    status_code=response.status_code,
                 ):
                     logger.warning(
                         "Polza.ai text temporary failure; retrying same model: model=%s provider=%s status=%s detail=%s next_attempt=%s",

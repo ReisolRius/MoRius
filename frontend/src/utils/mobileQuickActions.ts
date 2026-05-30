@@ -167,8 +167,8 @@ export function buildUnifiedMobileQuickActions({
     },
     {
       key: 'new-world',
-      title: 'Новый мир',
-      description: 'Соберите сеттинг, правила и персонажей вручную с полной настройкой мира.',
+      title: 'Новая игра',
+      description: 'Соберите сеттинг, правила и персонажей вручную с полной настройкой игры.',
       imageSrc: newWorldDashboardImage,
       iconMarkup: sidebarPlusIconMarkup,
       onClick: onCreateWorld,

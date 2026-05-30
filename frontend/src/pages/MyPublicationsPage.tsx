@@ -52,7 +52,7 @@ type MyPublicationsPageProps = {
   onLogout: () => void
 }
 
-type PublicationSection = 'worlds' | 'characters' | 'instructions'
+export type PublicationSection = 'worlds' | 'characters' | 'instructions'
 type PublicationMenuType = 'world' | 'character' | 'instruction'
 type PublicationSectionState = Record<PublicationSection, boolean>
 type PublicationDisplayState = StoryPublicationState & { status: StoryPublicationStatus }
@@ -126,7 +126,7 @@ function sortByUpdatedDesc<T extends { id: number; updated_at: string }>(items: 
   return [...items].sort((left, right) => parseDate(right.updated_at) - parseDate(left.updated_at) || right.id - left.id)
 }
 
-function mergePublicationWorldSourceRows(games: StoryGameSummary[]): StoryGameSummary[] {
+export function mergePublicationWorldSourceRows(games: StoryGameSummary[]): StoryGameSummary[] {
   const publicationCopyBySourceId = new Map<number, StoryGameSummary>()
   games.forEach((game) => {
     const sourceWorldId = game.source_world_id
@@ -158,7 +158,7 @@ function mergePublicationWorldSourceRows(games: StoryGameSummary[]): StoryGameSu
   })
 }
 
-function selectVisiblePublicationItems<
+export function selectVisiblePublicationItems<
   T extends {
     id: number
     visibility: 'private' | 'public'
@@ -231,7 +231,7 @@ function normalizePublicationStatus(
   return visibility === 'public' ? 'approved' : 'none'
 }
 
-function buildPublicationCardPresentation(
+export function buildPublicationCardPresentation(
   publication: StoryPublicationState | null | undefined,
   visibility: 'private' | 'public',
 ): PublicationCardPresentation {
@@ -264,7 +264,7 @@ function buildPublicationCardPresentation(
   }
 }
 
-function resolvePublicationDisplayState(
+export function resolvePublicationDisplayState(
   publication: StoryPublicationState | null | undefined,
   visibility: 'private' | 'public',
   hasPublicCopy: boolean,
@@ -297,7 +297,7 @@ function resolvePublicationDisplayState(
   }
 }
 
-function resolvePublicationWorldEditTargetId(game: StoryGameSummary, visibleGames: StoryGameSummary[]): number {
+export function resolvePublicationWorldEditTargetId(game: StoryGameSummary, visibleGames: StoryGameSummary[]): number {
   const sourceWorldId = game.source_world_id
   if (typeof sourceWorldId !== 'number' || !Number.isFinite(sourceWorldId) || sourceWorldId <= 0) {
     return game.id
@@ -330,11 +330,11 @@ type PublicationEntityCardProps = {
   heroBackgroundSx: Record<string, string | number>
   heroImageUrl?: string | null
   onClick: () => void
-  onOpenMenu: (event: ReactMouseEvent<HTMLElement>) => void
-  menuAriaLabel: string
+  onOpenMenu?: (event: ReactMouseEvent<HTMLElement>) => void
+  menuAriaLabel?: string
 }
 
-function PublicationEntityCard(props: PublicationEntityCardProps) {
+export function PublicationEntityCard(props: PublicationEntityCardProps) {
   const {
     title,
     description,
@@ -356,6 +356,7 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
   const normalizedNote = note.trim()
   const statusChipColors = resolvePublicationChipColors(statusTone)
   const noteChipColors = resolvePublicationChipColors(statusTone === 'danger' ? 'danger' : 'info')
+  const hasMenu = typeof onOpenMenu === 'function'
 
   return (
     <Box
@@ -407,7 +408,7 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
               background: 'linear-gradient(180deg, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.54) 44%, rgba(0,0,0,0) 100%)',
             }}
           />
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 10, right: 10, minWidth: 0, pr: 4.2 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ position: 'absolute', top: 10, left: 10, right: 10, minWidth: 0, pr: hasMenu ? 4.2 : 0 }}>
             <ProgressiveAvatar
               src={authorAvatarUrl}
               alt={normalizedAuthorName}
@@ -435,27 +436,29 @@ function PublicationEntityCard(props: PublicationEntityCardProps) {
               {normalizedAuthorName}
             </Typography>
           </Stack>
-          <IconButton
-            onClick={onOpenMenu}
-            className="publication-card-menu-trigger"
-            aria-label={menuAriaLabel}
-            sx={{
-              position: 'absolute',
-              top: 10,
-              right: 10,
-              zIndex: 3,
-              width: 32,
-              height: 32,
-              borderRadius: '999px',
-              border: 'none',
-              backgroundColor: 'rgba(5, 8, 13, 0.64)',
-              color: 'rgba(220, 231, 245, 0.94)',
-              transition: 'opacity 180ms ease, background-color 180ms ease',
-              '&:hover': { backgroundColor: 'rgba(17, 27, 40, 0.78)' },
-            }}
-          >
-            <Box component="span" sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
-          </IconButton>
+          {hasMenu ? (
+            <IconButton
+              onClick={onOpenMenu}
+              className="publication-card-menu-trigger"
+              aria-label={menuAriaLabel ?? 'Открыть действия публикации'}
+              sx={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                zIndex: 3,
+                width: 32,
+                height: 32,
+                borderRadius: '999px',
+                border: 'none',
+                backgroundColor: 'rgba(5, 8, 13, 0.64)',
+                color: 'rgba(220, 231, 245, 0.94)',
+                transition: 'opacity 180ms ease, background-color 180ms ease',
+                '&:hover': { backgroundColor: 'rgba(17, 27, 40, 0.78)' },
+              }}
+            >
+              <Box component="span" sx={{ fontSize: '0.96rem', lineHeight: 1 }}>...</Box>
+            </IconButton>
+          ) : null}
         </Box>
 
         <Stack sx={{ p: 1.25, flex: 1, justifyContent: 'space-between' }}>

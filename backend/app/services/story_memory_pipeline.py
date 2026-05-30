@@ -44,8 +44,14 @@ _bind_monolith_names()
 
 if "STORY_SERVICE_TEXT_MODEL" not in globals():
     STORY_SERVICE_TEXT_MODEL = getattr(monolith_main, "STORY_SERVICE_TEXT_MODEL", "google/gemini-2.5-flash-lite")
+if "POLZA_GEMINI_25_FLASH_MODEL" not in globals():
+    POLZA_GEMINI_25_FLASH_MODEL = getattr(monolith_main, "POLZA_GEMINI_25_FLASH_MODEL", "google/gemini-2.5-flash")
+if "STORY_ENVIRONMENT_ANALYSIS_MODEL" not in globals():
+    STORY_ENVIRONMENT_ANALYSIS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 if "STORY_CHARACTER_STATE_GENERATION_MODEL" not in globals():
-    STORY_CHARACTER_STATE_GENERATION_MODEL = STORY_SERVICE_TEXT_MODEL
+    STORY_CHARACTER_STATE_GENERATION_MODEL = POLZA_GEMINI_25_FLASH_MODEL
+if "STORY_TURN_POSTPROCESS_MODEL" not in globals():
+    STORY_TURN_POSTPROCESS_MODEL = POLZA_GEMINI_25_FLASH_MODEL
 
 
 def _request_polza_story_text(messages_payload: list[dict[str, str]], *args: Any, **kwargs: Any) -> str:
@@ -4069,7 +4075,80 @@ def _format_story_environment_weather_timeline_line(
     return f"{label}: {'; '.join(rendered_segments)}."
 
 
+def _story_environment_hash_bucket(value: str, modulo: int) -> int:
+    try:
+        normalized_modulo = int(modulo)
+    except Exception:
+        normalized_modulo = 0
+    if normalized_modulo <= 0:
+        return 0
+    total = 0
+    for index, char in enumerate(str(value or "")):
+        total = (total + (index + 1) * ord(char)) % 1_000_003
+    return total % normalized_modulo
 
+
+def _story_environment_weather_refresh_threshold(
+    *,
+    game_id: int,
+    current_day_date: str | None,
+    last_weather_block_id: int | None,
+) -> int:
+    bucket = _story_environment_hash_bucket(
+        f"{int(game_id or 0)}:{current_day_date or ''}:{int(last_weather_block_id or 0)}",
+        5,
+    )
+    return 4 + bucket
+
+
+def _story_environment_should_refresh_weather_after_turns(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage | None,
+    current_day_date: str | None,
+) -> bool:
+    current_assistant_id = int(getattr(assistant_message, "id", 0) or 0)
+    if current_assistant_id <= 0:
+        return False
+    latest_weather_block = db.scalar(
+        select(StoryMemoryBlock)
+        .where(
+            StoryMemoryBlock.game_id == game.id,
+            StoryMemoryBlock.layer == STORY_MEMORY_LAYER_WEATHER,
+            StoryMemoryBlock.assistant_message_id.is_not(None),
+            StoryMemoryBlock.assistant_message_id < current_assistant_id,
+        )
+        .order_by(StoryMemoryBlock.assistant_message_id.desc(), StoryMemoryBlock.id.desc())
+        .limit(1)
+    )
+    if not isinstance(latest_weather_block, StoryMemoryBlock):
+        return False
+    last_weather_assistant_id = int(getattr(latest_weather_block, "assistant_message_id", 0) or 0)
+    stable_turns = db.scalar(
+        select(func.count())
+        .select_from(StoryMessage)
+        .where(
+            StoryMessage.game_id == game.id,
+            StoryMessage.role == STORY_ASSISTANT_ROLE,
+            StoryMessage.undone_at.is_(None),
+            StoryMessage.id > last_weather_assistant_id,
+            StoryMessage.id <= current_assistant_id,
+        )
+    )
+    stable_turn_count = max(int(stable_turns or 0), 0)
+    threshold = _story_environment_weather_refresh_threshold(
+        game_id=int(getattr(game, "id", 0) or 0),
+        current_day_date=current_day_date,
+        last_weather_block_id=int(getattr(latest_weather_block, "id", 0) or 0),
+    )
+    if stable_turn_count < threshold:
+        return False
+    roll = _story_environment_hash_bucket(
+        f"{int(getattr(game, 'id', 0) or 0)}:{current_day_date or ''}:{current_assistant_id}:weather-refresh",
+        100,
+    )
+    return stable_turn_count >= threshold + 2 or roll < 45
 
 
 def _resolve_story_environment_weather_state(
@@ -4089,6 +4168,8 @@ def _resolve_story_environment_weather_state(
     extracted_tomorrow_weather: dict[str, Any] | None,
 
     allow_weather_seed: bool = True,
+
+    force_weather_refresh: bool = False,
 
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     current_day_date = _story_environment_date_key_from_value(current_datetime)
@@ -4159,6 +4240,9 @@ def _resolve_story_environment_weather_state(
     )
     prefer_saved_current_timeline = can_reuse_current_timeline
     prefer_saved_tomorrow_forecast = can_reuse_tomorrow_forecast
+    if force_weather_refresh:
+        prefer_saved_current_timeline = False
+        prefer_saved_tomorrow_forecast = False
 
     if prefer_saved_current_timeline and prefer_saved_tomorrow_forecast:
         return (
@@ -4205,7 +4289,7 @@ def _resolve_story_environment_weather_state(
 
         )
 
-        if allow_weather_seed
+        if (allow_weather_seed or force_weather_refresh)
         and not isinstance(usable_extracted_current_weather, dict)
         and not isinstance(usable_extracted_tomorrow_weather, dict)
 
@@ -5102,6 +5186,138 @@ def _normalize_story_character_state_service_text(value: Any, *, max_length: int
     return normalized
 
 
+STORY_CHARACTER_STATE_STATUS_NORMAL = "Состояние нормальное"
+
+
+def _clean_story_character_state_status_detail(value: str) -> str:
+    detail = " ".join(str(value or "").split()).strip()
+    detail = re.sub(
+        r"^(?:состояние\s+здоровья|статус|health\s+status)\s*[:\-–—]?\s*",
+        "",
+        detail,
+        flags=re.IGNORECASE,
+    ).strip()
+    detail = re.sub(
+        r"^(?:болен|больна|болен\(а\)|заболел[а]?|болезнь|ранен|ранена|ранен\(а\)|ранение|травма|травмирован[а]?)\s*[:\-–—]?\s*",
+        "",
+        detail,
+        flags=re.IGNORECASE,
+    ).strip()
+    return detail.strip(" .,:;")
+
+
+def _normalize_story_character_state_status_template(value: Any) -> str:
+    normalized = _normalize_story_character_state_service_text(value)
+    if not normalized:
+        return ""
+
+    normalized_lower = normalized.casefold()
+    if normalized_lower.startswith("состояние нормальное"):
+        return STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    if normalized_lower.startswith(("болен:", "больна:", "болен(а):")):
+        detail = _clean_story_character_state_status_detail(normalized)
+        return f"Болен: {detail}" if detail else STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    if normalized_lower.startswith(("ранен:", "ранена:", "ранен(а):")):
+        detail = _clean_story_character_state_status_detail(normalized)
+        return f"Ранен: {detail}" if detail else STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    normal_markers = (
+        "здоров",
+        "здорова",
+        "здоровье в норме",
+        "состояние в норме",
+        "нормальное",
+        "норма",
+        "normal",
+        "healthy",
+        "no injuries",
+        "без ран",
+        "без травм",
+        "без болез",
+        "ничего не болит",
+    )
+    disease_markers = (
+        "болен",
+        "больна",
+        "болез",
+        "забол",
+        "лихорад",
+        "жар",
+        "температур",
+        "каш",
+        "инфекц",
+        "зараж",
+        "вирус",
+        "синдром",
+        "отрав",
+        "яд",
+        "прокля",
+        "тошнот",
+        "слабост",
+        "истощ",
+        "лихоман",
+        "fever",
+        "ill",
+        "sick",
+        "disease",
+        "poison",
+        "curse",
+        "infection",
+    )
+    injury_markers = (
+        "ран",
+        "травм",
+        "перелом",
+        "слом",
+        "царап",
+        "порез",
+        "ссадин",
+        "ушиб",
+        "синяк",
+        "кров",
+        "ожог",
+        "вывих",
+        "растяж",
+        "поврежд",
+        "укус",
+        "контуз",
+        "injur",
+        "wound",
+        "fracture",
+        "scratch",
+        "cut",
+        "bruise",
+        "bleed",
+        "burn",
+    )
+
+    clear_normal_markers = ("без ран", "без травм", "без болез", "no injuries", "no wounds")
+    strong_abnormal_markers = tuple(
+        marker
+        for marker in disease_markers + injury_markers
+        if marker not in {"ран", "травм", "болез"}
+    )
+    if any(marker in normalized_lower for marker in clear_normal_markers) and not any(
+        marker in normalized_lower for marker in strong_abnormal_markers
+    ):
+        return STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    if any(marker in normalized_lower for marker in normal_markers) and not any(
+        marker in normalized_lower for marker in disease_markers + injury_markers
+    ):
+        return STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    detail = _clean_story_character_state_status_detail(normalized)
+    if any(marker in normalized_lower for marker in injury_markers):
+        return f"Ранен: {detail}" if detail else STORY_CHARACTER_STATE_STATUS_NORMAL
+    if any(marker in normalized_lower for marker in disease_markers):
+        return f"Болен: {detail}" if detail else STORY_CHARACTER_STATE_STATUS_NORMAL
+
+    return normalized
+
+
 
 
 
@@ -5496,13 +5712,16 @@ def _normalize_story_character_state_update_payload(
             "attitude_to_hero",
             "personality",
         ):
-            merged_card[field_name] = _merge_story_character_state_text_field(
+            merged_value = _merge_story_character_state_text_field(
                 field_name=field_name,
                 existing_card=existing_card,
                 updated_card=updated_card,
                 scene_location_fallback=scene_location_fallback,
                 consume_manual_override_turns=consume_manual_override_turns,
             )
+            if field_name == "status":
+                merged_value = _normalize_story_character_state_status_template(merged_value)
+            merged_card[field_name] = merged_value
         for protected_field_name in ("status", "clothing", "equipment", "mood", "attitude_to_hero"):
             protected_turns = _get_story_character_state_manual_override_turns(
                 existing_card,
@@ -5907,6 +6126,10 @@ def _list_story_character_state_seed_candidates(
 
             continue
 
+        if not bool(getattr(world_card, "ai_edit_enabled", True)):
+
+            continue
+
         if only_missing_npc:
 
             if kind != STORY_CHARACTER_STATE_KIND_NPC:
@@ -6202,9 +6425,11 @@ def _request_story_character_state_seed_cards(
 
                 "status must describe only bodily or health condition: wounds, illness, poison, exhaustion, intoxication, or normal physical state. "
 
-                "If the source card or current continuity explicitly names a disease, poison, curse, chronic condition, disability, pregnancy, wound, or other abnormal physical state, preserve that exact condition in status instead of flattening it to 'нормальное'. "
+                "status must follow exactly one Russian template: 'Состояние нормальное' when there is no active abnormal health condition; 'Болен: <название болезни или состояния>' for illness, poison, curse, infection, fever, syndrome, exhaustion, or any invented disease that is clearly treated as illness in context; 'Ранен: <конкретные повреждения>' for wounds, scratches, fractures, cuts, bruises, bleeding, burns, or other injuries. If both illness and injury are explicit, include both parts separated by '; '. "
 
-                "Use 'нормальное' only when the available source material truly gives no evidence of any abnormal physical condition. "
+                "If the source card or current continuity explicitly names a disease, poison, curse, chronic condition, disability, pregnancy, wound, or other abnormal physical state, preserve that exact condition in status instead of flattening it to 'Состояние нормальное'. "
+
+                "Use 'Состояние нормальное' only when the available source material truly gives no evidence of any abnormal physical condition. "
 
                 "Never use action, pose, mood, or location in status. "
 
@@ -6331,6 +6556,13 @@ def _request_story_character_state_seed_cards(
 
         normalized_cards = _normalize_story_character_state_cards_payload(parsed_payload.get("cards"))
         if normalized_cards:
+            normalized_cards = [
+                {
+                    **card,
+                    "status": _normalize_story_character_state_status_template(card.get("status")),
+                }
+                for card in normalized_cards
+            ]
             has_user_messages = bool(
                 db.scalar(
                     select(StoryMessage.id)
@@ -6347,7 +6579,7 @@ def _request_story_character_state_seed_cards(
                 for card in normalized_cards:
                     if str(card.get("kind") or "") == STORY_CHARACTER_STATE_KIND_MAIN_HERO:
                         adjusted_card = dict(card)
-                        adjusted_card["status"] = "нормальное"
+                        adjusted_card["status"] = STORY_CHARACTER_STATE_STATUS_NORMAL
                         adjusted_cards.append(adjusted_card)
                     else:
                         adjusted_cards.append(card)
@@ -6752,7 +6984,8 @@ def _request_story_character_state_missing_body_field_cards(
                 "For the main hero, explicit player-stated bodily or clothing facts override softer inference unless the newest narrator reply clearly contradicts them. "
                 "If a target already has one of these two fields filled, preserve that filled field and only infer the missing one. "
                 "status must never be empty. It must describe bodily or health condition only. "
-                "If there is no evidence of illness, poison, injury, exhaustion, intoxication, or another abnormal condition, use 'нормальное'. "
+                "status must follow exactly one Russian template: 'Состояние нормальное' when there is no active abnormal health condition; 'Болен: <название болезни или состояния>' for illness, poison, curse, infection, fever, syndrome, exhaustion, or any invented disease that is clearly treated as illness in context; 'Ранен: <конкретные повреждения>' for wounds, scratches, fractures, cuts, bruises, bleeding, burns, or other injuries. If both illness and injury are explicit, include both parts separated by '; '. "
+                "If there is no evidence of illness, poison, injury, exhaustion, intoxication, or another abnormal condition, use 'Состояние нормальное'. "
                 "Never put mood, action, pose, role, or location into status. "
                 "clothing must never be empty. It must be a short concrete Russian description of what is worn. "
                 "If the exact outfit is not stated directly, infer one conservative concrete outfit from the target character's own description, role, and current scene continuity. "
@@ -6829,7 +7062,9 @@ def _request_story_character_state_missing_body_field_cards(
             if base_target_card is None:
                 continue
 
-            next_status = str(response_card.get("status") or base_target_card.get("status") or "").strip()
+            next_status = _normalize_story_character_state_status_template(
+                response_card.get("status") or base_target_card.get("status") or ""
+            )
             next_clothing = str(response_card.get("clothing") or base_target_card.get("clothing") or "").strip()
             if not next_status and not next_clothing:
                 continue
@@ -6890,6 +7125,112 @@ def _fill_story_character_state_missing_body_fields_payload(
     return merged_payload
 
 
+def _story_character_state_cards_need_model_refresh(cards: list[dict[str, Any]]) -> bool:
+    for card in _normalize_story_character_state_cards_payload(cards):
+        kind = str(card.get("kind") or "").strip().lower()
+        if kind not in {STORY_CHARACTER_STATE_KIND_MAIN_HERO, STORY_CHARACTER_STATE_KIND_NPC}:
+            continue
+        if kind == STORY_CHARACTER_STATE_KIND_NPC and not bool(card.get("is_active", True)):
+            continue
+        if not str(card.get("status") or "").strip():
+            return True
+        if not str(card.get("clothing") or "").strip():
+            return True
+        if not str(card.get("equipment") or "").strip():
+            return True
+    return False
+
+
+def _build_story_character_state_base_cards_from_seed_candidates(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    base_cards: list[dict[str, Any]] = []
+    for candidate in candidates:
+        world_card_id = candidate.get("world_card_id")
+        if not isinstance(world_card_id, int) or world_card_id <= 0:
+            continue
+        name = " ".join(str(candidate.get("name") or "").split()).strip()
+        kind = str(candidate.get("kind") or "").strip().lower()
+        if not name or kind not in {STORY_CHARACTER_STATE_KIND_MAIN_HERO, STORY_CHARACTER_STATE_KIND_NPC}:
+            continue
+        base_cards.append(
+            {
+                "world_card_id": world_card_id,
+                "name": name,
+                "kind": kind,
+                "is_active": kind == STORY_CHARACTER_STATE_KIND_MAIN_HERO,
+                "status": "",
+                "clothing": "",
+                "location": "",
+                "equipment": "",
+                "mood": "",
+                "attitude_to_hero": "",
+                "personality": "",
+            }
+        )
+    return _normalize_story_character_state_cards_payload(base_cards)
+
+
+def _seed_story_character_state_cards_from_world_cards(
+    *,
+    db: Session,
+    game: StoryGame,
+    latest_user_prompt: str = "",
+    previous_assistant_text: str = "",
+    latest_assistant_text: str = "",
+    force: bool = False,
+) -> bool:
+    if not _normalize_story_character_state_enabled(getattr(game, "character_state_enabled", None)):
+        return False
+
+    candidates = _list_story_character_state_seed_candidates(db=db, game=game)
+    if not candidates:
+        return False
+
+    existing_cards = _story_character_state_cards_from_game(game)
+    if existing_cards and not force and not _story_character_state_cards_need_model_refresh(existing_cards):
+        return False
+
+    base_cards = existing_cards or _build_story_character_state_base_cards_from_seed_candidates(candidates)
+    if not base_cards:
+        return False
+
+    seeded_cards = _request_story_character_state_seed_cards(db=db, game=game, candidates=candidates)
+    if not seeded_cards:
+        return False
+
+    current_location_content = _get_story_latest_location_memory_content(db=db, game_id=game.id)
+    normalized_payload = _normalize_story_character_state_update_payload(
+        {"cards": seeded_cards},
+        existing_cards=base_cards,
+        current_location_content=current_location_content,
+    )
+    normalized_payload = _fill_story_character_state_missing_body_fields_payload(
+        db=db,
+        game=game,
+        existing_cards=base_cards,
+        base_payload=normalized_payload,
+        current_location_content=current_location_content,
+        latest_user_prompt=latest_user_prompt,
+        previous_assistant_text=previous_assistant_text,
+        latest_assistant_text=latest_assistant_text,
+    )
+    if not isinstance(normalized_payload, dict):
+        return False
+
+    next_cards = _normalize_story_character_state_cards_payload(normalized_payload.get("cards"))
+    if not next_cards:
+        return False
+
+    next_payload = _serialize_story_character_state_cards_payload(next_cards)
+    if str(getattr(game, "character_state_payload", "") or "") == next_payload:
+        return False
+
+    game.character_state_payload = next_payload
+    logger.info("Story character-state seeded: game_id=%s cards=%s", game.id, len(next_cards))
+    return True
+
+
 def _sync_story_character_state_cards(
 
     *,
@@ -6903,6 +7244,10 @@ def _sync_story_character_state_cards(
     resolved_payload_override: dict[str, Any] | None = None,
 
     current_location_content: str = "",
+    latest_user_prompt: str = "",
+    previous_assistant_text: str = "",
+    latest_assistant_text: str = "",
+    allow_model_seed: bool = True,
 
 ) -> bool:
 
@@ -6912,8 +7257,31 @@ def _sync_story_character_state_cards(
 
     existing_cards = _story_character_state_cards_from_game(game)
 
-    if not existing_cards or not isinstance(resolved_payload_override, dict):
+    if not existing_cards and allow_model_seed:
+        _seed_story_character_state_cards_from_world_cards(
+            db=db,
+            game=game,
+            latest_user_prompt=latest_user_prompt,
+            previous_assistant_text=previous_assistant_text,
+            latest_assistant_text=latest_assistant_text,
+            force=True,
+        )
+        existing_cards = _story_character_state_cards_from_game(game)
 
+    if not existing_cards:
+
+        return False
+
+    if not isinstance(resolved_payload_override, dict):
+        if allow_model_seed and (latest_user_prompt or latest_assistant_text):
+            return _seed_story_character_state_cards_from_world_cards(
+                db=db,
+                game=game,
+                latest_user_prompt=latest_user_prompt,
+                previous_assistant_text=previous_assistant_text,
+                latest_assistant_text=latest_assistant_text,
+                force=True,
+            )
         return False
 
     normalized_payload = _normalize_story_character_state_update_payload(
@@ -6921,6 +7289,16 @@ def _sync_story_character_state_cards(
         existing_cards=existing_cards,
         current_location_content=current_location_content,
         consume_manual_override_turns=True,
+    )
+    normalized_payload = _fill_story_character_state_missing_body_fields_payload(
+        db=db,
+        game=game,
+        existing_cards=existing_cards,
+        base_payload=normalized_payload,
+        current_location_content=current_location_content,
+        latest_user_prompt=latest_user_prompt,
+        previous_assistant_text=previous_assistant_text,
+        latest_assistant_text=latest_assistant_text,
     )
     if not isinstance(normalized_payload, dict):
 
@@ -8265,10 +8643,11 @@ def _extract_story_postprocess_memory_payload(
                 "Never replace a known location with vague filler such as 'неизвестно', 'не указано', 'unknown', or an empty value.",
 
                 "status must describe only bodily or health condition: wounds, illness, poison, exhaustion, intoxication, or normal physical state.",
+                "status must follow exactly one Russian template: 'Состояние нормальное' when there is no active abnormal health condition; 'Болен: <название болезни или состояния>' for illness, poison, curse, infection, fever, syndrome, exhaustion, or any invented disease that is clearly treated as illness in context; 'Ранен: <конкретные повреждения>' for wounds, scratches, fractures, cuts, bruises, bleeding, burns, or other injuries. If both illness and injury are explicit, include both parts separated by '; '.",
                 "For the main hero card, explicit player-stated bodily facts are valid evidence: symptoms, illness names, poison, curses, injuries, exhaustion, medication, trembling, fever, nausea, pain, weakness, clothing changes, and carried equipment.",
                 "If a separate distilled block of explicit main-hero self-description from the latest player turn is provided, treat it as high-priority evidence and preserve its named conditions and symptoms literally unless the newest narrator reply clearly resolves or contradicts them.",
                 "For the main hero card, do not introduce a new non-normal status from subtext, atmosphere, genre expectation, or loose implication alone; require explicit player evidence or an unmistakable direct scene consequence in the newest texts.",
-                "If the player or narrator explicitly names a disease, poison, curse, wound, or other abnormal condition, keep that exact named condition in status instead of flattening it to 'нормальное' or other generic healthy wording.",
+                "If the player or narrator explicitly names a disease, poison, curse, wound, or other abnormal condition, keep that exact named condition in status instead of flattening it to 'Состояние нормальное' or other generic healthy wording.",
                 "Do not downgrade an established non-normal health state to normal unless the newest texts clearly show recovery, cure, treatment success, or that the earlier condition was mistaken.",
 
                 "Never put action, pose, mood, scene role, or location into status. If an existing status contains that, rewrite it into proper health/body state.",
@@ -8333,14 +8712,16 @@ def _extract_story_postprocess_memory_payload(
 
             [
 
-                "For important_event: decide whether this turn created a meaningful long-term plot event.",
+                "For important_event: decide whether this turn created a player-visible fact that should stay in Important Memory for future continuity.",
 
-                "Mark only major irreversible outcomes, decisive commitments, new long-term obligations/goals, key revelations, critical alliance/trust shifts, high-impact gains/losses, or new constraints that will matter in future turns.",
+                "Mark is_important=true for durable changes: decisive commitments, new obligations/goals, key revelations, alliance/trust shifts, gains/losses, constraints, named injury or condition, gained/lost key item, concrete clue, debt, promise, threat, invitation, unlocked route, or relationship turn.",
+
+                "Do not require epic scale or irreversible world-changing stakes; if a concrete change should affect future turns or prevent continuity loss, save one concise important_event.",
 
                 "Routine actions, atmosphere, ordinary dialogue, small emotions, or cosmetic details are not important events.",
                 "A vivid sentence, silence, hesitation, or a short emotional beat without a new long-term consequence is not an important event.",
                 "Self-description, mood, loneliness, a tired look, skipping lunch, or one ordinary social remark are not important events unless they create a new lasting consequence.",
-                "If nothing clearly changed long-term, return is_important=false with empty title/content.",
+                "Use is_important=false only when nothing concrete changed for future continuity.",
 
                 "important_event.content must be 1-2 short factual Russian sentences in past tense.",
 
@@ -8446,7 +8827,7 @@ def _extract_story_postprocess_memory_payload(
 
                 messages_payload,
 
-                model_name=STORY_SERVICE_TEXT_MODEL,
+                model_name=STORY_TURN_POSTPROCESS_MODEL,
                 allow_service_fallback=False,
 
                 translate_input=False,
@@ -9088,7 +9469,17 @@ def _sync_story_environment_state_for_assistant_message(
         for part in (resolved_latest_user_prompt, resolved_latest_assistant_text)
         if isinstance(part, str) and part.strip()
     )
-    estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text_for_time_progress)
+    explicit_time_skip_requested = _story_environment_has_explicit_time_skip(resolved_latest_user_prompt)
+    estimated_elapsed_minutes_from_user = _estimate_story_environment_elapsed_minutes(resolved_latest_user_prompt)
+    estimated_elapsed_minutes = estimated_elapsed_minutes_from_user
+    if estimated_elapsed_minutes is None:
+        estimated_elapsed_minutes = _estimate_story_environment_elapsed_minutes(source_text_for_time_progress)
+    if (
+        estimated_elapsed_minutes_from_user is None
+        and estimated_elapsed_minutes is not None
+        and not explicit_time_skip_requested
+    ):
+        estimated_elapsed_minutes = min(estimated_elapsed_minutes, 5)
     if _story_environment_has_brief_scene_signal(source_text_for_time_progress) and estimated_elapsed_minutes is not None:
         estimated_elapsed_minutes = min(estimated_elapsed_minutes, 3)
     if (
@@ -9097,7 +9488,7 @@ def _sync_story_environment_state_for_assistant_message(
         and isinstance(resolved_current_datetime, datetime)
         and source_text_for_time_progress
         and not _story_environment_has_precise_clock_reference(source_text_for_time_progress)
-        and not _story_environment_has_explicit_time_skip(source_text_for_time_progress)
+        and not explicit_time_skip_requested
     ):
         guarded_step_minutes = estimated_elapsed_minutes
         if guarded_step_minutes is None:
@@ -9161,6 +9552,13 @@ def _sync_story_environment_state_for_assistant_message(
             else datetime.now().replace(second=0, microsecond=0, tzinfo=None)
         )
         try:
+            weather_day_date = _story_environment_date_key_from_value(weather_reference_datetime)
+            force_weather_refresh = _story_environment_should_refresh_weather_after_turns(
+                db=db,
+                game=game,
+                assistant_message=assistant_message,
+                current_day_date=weather_day_date,
+            )
             resolved_current_weather, resolved_tomorrow_weather = _resolve_story_environment_weather_state(
                 game=game,
                 current_datetime=weather_reference_datetime,
@@ -9175,6 +9573,7 @@ def _sync_story_environment_state_for_assistant_message(
                     (resolved_payload or {}).get("tomorrow_weather")
                 ),
                 allow_weather_seed=allow_weather_seed,
+                force_weather_refresh=force_weather_refresh,
             )
         except Exception as exc:
             logger.warning(
@@ -11805,6 +12204,26 @@ def _should_accept_story_important_event_candidate(
     if turn_strong_hits > 0 or candidate_strong_hits > 0:
         return True
 
+    if (
+        importance_score >= max(STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE + 12, 82)
+        and candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE, STORY_MEMORY_RAW_MIN_SIGNAL_SCORE)
+    ):
+        return True
+
+    if (
+        importance_score >= max(STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE + 8, 68)
+        and candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 1, 6)
+        and turn_top_score >= max(STORY_MEMORY_RAW_MIN_SIGNAL_SCORE - 1, 5)
+    ):
+        return True
+
+    if (
+        importance_score >= STORY_MEMORY_KEY_EVENT_MIN_IMPORTANCE_SCORE
+        and (turn_important_hits > 0 or candidate_important_hits > 0)
+        and candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 1, 6)
+    ):
+        return True
+
     if turn_important_hits > 0 and candidate_important_hits > 0:
         return turn_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE, STORY_MEMORY_RAW_MIN_SIGNAL_SCORE)
 
@@ -11832,9 +12251,15 @@ def _extract_story_important_plot_card_payload_locally(
     top_score = int(signal.get("top_score", 0))
     important_hits = int(signal.get("important_hits", 0))
     strong_hits = int(signal.get("strong_hits", 0))
+    low_signal_hits = int(signal.get("low_signal_hits", 0))
     should_promote = (
         strong_hits > 0
         or (important_hits > 0 and top_score >= max(STORY_MEMORY_RAW_MIN_SIGNAL_SCORE, 6))
+        or (
+            sentence_count >= 2
+            and low_signal_hits <= 0
+            and top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE + 1, 8)
+        )
     )
     if not should_promote:
         return None
@@ -11871,6 +12296,7 @@ def _extract_story_important_plot_card_payload_locally(
         fallback="Важно: Важное событие",
     )
     if not _should_accept_story_important_event_candidate(
+        latest_user_prompt=normalized_prompt,
         latest_assistant_text=normalized_assistant,
         title=title,
         content=content,
@@ -12886,7 +13312,7 @@ def _extract_story_important_plot_card_payload(
 
             "content": (
 
-                "Analyze exactly one RPG turn and decide whether there is an important long-term plot event. "
+                "Analyze exactly one RPG turn and decide whether there is a player-visible fact that should stay in Important Memory for future continuity. "
 
                 "Return strict JSON only, without markdown: "
 
@@ -12894,7 +13320,10 @@ def _extract_story_important_plot_card_payload(
 
                 "importance_score must be in range 0..100. "
 
-                "Set is_important=true for meaningful events with likely consequences in future turns. "
+                "Set is_important=true for meaningful events or durable continuity changes with likely relevance in future turns. "
+
+                "Do not require epic scale: a concrete new clue, named injury or condition, important item gained/lost, promise, debt, betrayal, relationship shift, or new practical constraint can be important. "
+                "Prefer saving one concise event when a concrete change should affect future turns or prevent continuity loss. "
 
                 "Do not mark routine actions, atmosphere, small emotions, ordinary dialogue, or cosmetic details. "
 
@@ -12932,6 +13361,9 @@ def _extract_story_important_plot_card_payload(
 
                 "high-impact gain/loss of resource/artifact/ability, or a new constraint that changes next turns. "
 
+                "Also accept medium-sized but story-relevant continuity changes if they should be remembered later, such as a named wound, curse, disease, acquired key item, debt, promise, threat, invitation, discovered clue, unlocked route, changed access, or relationship turn. "
+
+                "If the turn contains any concrete durable change, do not be overly strict: return is_important=true with importance_score at least 70. "
                 "If the turn only adds tone, tension, or a short exchange without new lasting consequences, return is_important=false. "
 
                 "If there is no such event, return is_important=false, importance_score<=55, title=\"\", content=\"\"."

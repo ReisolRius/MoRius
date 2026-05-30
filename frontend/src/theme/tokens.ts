@@ -10,7 +10,7 @@ export const moriusThemeTokens = {
     appElevated: '#262624',
     inputBg: '#171716',
     appBorder: '#31302e',
-    accent: '#ef6c00',
+    accent: '#578EEE',
     titleText: '#d4cdc8',
     textPrimary: '#d4cdc8',
     textSecondary: '#b6ada4',
