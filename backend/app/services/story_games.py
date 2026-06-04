@@ -155,9 +155,7 @@ STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
-STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
-STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO = "xiaomi/mimo-v2-pro"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
 STORY_LLM_MODEL_CLAUDE_SONNET_46 = "anthropic/claude-sonnet-4.6"
 STORY_LLM_MODEL_GEMINI_25_PRO = "google/gemini-2.5-pro"
@@ -170,9 +168,7 @@ STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM51,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_DEEPSEEK_V3,
-    STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_MISTRAL_NEMO,
-    STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
     STORY_LLM_MODEL_AION_2,
     STORY_LLM_MODEL_CLAUDE_SONNET_46,
     STORY_LLM_MODEL_GEMINI_25_PRO,
@@ -185,13 +181,11 @@ STORY_EXTENDED_CONTEXT_LLM_MODELS = {
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
     STORY_LLM_MODEL_DEEPSEEK_V3,
-    STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_MISTRAL_NEMO,
 }
 STORY_TURN_COST_PREMIUM_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
-    STORY_LLM_MODEL_XIAOMI_MIMO_V2_PRO,
     STORY_LLM_MODEL_GEMINI_25_PRO,
     STORY_LLM_MODEL_QWEN35_122B_A10B,
 }
@@ -538,9 +532,8 @@ def normalize_story_llm_model(value: str | None) -> str:
             detail=(
                 "Unsupported story model. "
                 "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, "
-                "deepseek/deepseek-chat-v3-0324, deepseek/deepseek-v3.2, "
-                "mistralai/mistral-nemo, "
-                "xiaomi/mimo-v2-pro, aion-labs/aion-2.0, "
+                "deepseek/deepseek-chat-v3-0324, mistralai/mistral-nemo, "
+                "aion-labs/aion-2.0, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
                 "qwen/qwen3.5-122b-a10b"
             ),
@@ -1143,6 +1136,10 @@ def story_game_summary_to_out(
         ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
+        active_main_hero_card_id=(
+            int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
+        ),
+        auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)
@@ -1284,6 +1281,10 @@ def story_game_summary_to_compact_out(
         ),
         show_gg_thoughts=normalize_story_show_gg_thoughts(getattr(game, "show_gg_thoughts", None)),
         show_npc_thoughts=normalize_story_show_npc_thoughts(getattr(game, "show_npc_thoughts", None)),
+        active_main_hero_card_id=(
+            int(getattr(game, "active_main_hero_card_id", 0) or 0) or None
+        ),
+        auto_npc_cards_enabled=bool(getattr(game, "auto_npc_cards_enabled", False)),
         ambient_enabled=normalize_story_ambient_enabled(getattr(game, "ambient_enabled", None)),
         character_state_enabled=normalize_story_character_state_enabled(
             getattr(game, "character_state_enabled", None)

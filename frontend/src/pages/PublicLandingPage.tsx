@@ -89,7 +89,7 @@ const advantageSlides: AdvantageSlide[] = [
     number: '03',
     title: 'РАССКАЗЧИКИ',
     description:
-      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, DeepSeek V3.2 и Gemini 3.1 Pro уже ждут, чтобы начать ваше приключение.',
+      'Мы подбираем, тестируем и оставляем только лучшие модели на роль гейм-мастера. GLM 5.0, GLM 4.7 и Gemini 3.1 Pro уже ждут, чтобы начать ваше приключение.',
     preview: advantageStorytellersPreview,
   },
   {

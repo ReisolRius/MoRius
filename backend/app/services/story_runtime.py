@@ -41,7 +41,6 @@ from app.services.story_game_operation_lock import StoryGameOperationBusyError, 
 from app.services.story_canonical_pipeline import (
     build_canonical_generation_prompt,
     clear_canonical_state_payload,
-    guard_generated_story_output,
     persist_canonical_state_to_game,
 )
 from app.services.story_memory import resolve_story_current_location_label
@@ -92,7 +91,6 @@ class StoryRuntimeDeps:
     spend_user_tokens_if_sufficient: Callable[[Session, int, int], bool]
     add_user_tokens: Callable[[Session, int, int], None]
     stream_story_provider_chunks: Callable[..., Any]
-    normalize_generated_story_output: Callable[..., str]
     upsert_story_plot_memory_card: Callable[..., tuple[bool, list[Any]]]
     list_story_prompt_memory_cards: Callable[[Session, StoryGame, bool, list[StoryMessage] | None], list[dict[str, str]]]
     list_story_memory_blocks: Callable[[Session, int], list[Any]]
@@ -279,6 +277,26 @@ def _merge_story_active_world_cards(
         merged.append(card)
 
     return merged
+
+
+def _order_story_world_cards_for_active_main_hero(
+    game: StoryGame,
+    world_cards: list[Any],
+) -> list[Any]:
+    active_main_hero_card_id = int(getattr(game, "active_main_hero_card_id", 0) or 0)
+    if active_main_hero_card_id <= 0:
+        return list(world_cards)
+
+    def _rank(card: Any) -> tuple[int, int]:
+        card_id = int(getattr(card, "id", 0) or 0)
+        card_kind = str(getattr(card, "kind", "") or "").strip().lower()
+        if card_kind == "main_hero" and card_id == active_main_hero_card_id:
+            return (-2, card_id)
+        if card_kind == "main_hero":
+            return (-1, card_id)
+        return (0, card_id)
+
+    return sorted(list(world_cards), key=_rank)
 
 
 def _best_effort_sync_story_turn_memory_and_environment(
@@ -725,51 +743,9 @@ def _stream_story_response(
     if assistant_message is not None:
         yield _sse_event("progress", {"assistant_message_id": assistant_message.id, "stage": "finalizing"})
 
-    normalized_output = produced
-    if produced.strip():
-        try:
-            normalized_output = deps.normalize_generated_story_output(
-                text_value=produced,
-                world_cards=world_cards,
-                model_name=story_model_name,
-                show_gg_thoughts=show_gg_thoughts,
-                show_npc_thoughts=show_npc_thoughts,
-            )
-        except Exception:
-            logger.exception("Failed to normalize generated story output")
-            normalized_output = produced
-    canonical_pipeline_enabled = bool(settings.enable_canonical_state_pipeline) and bool(
-        getattr(game, "canonical_state_pipeline_enabled", True)
-    )
-    canonical_safe_fallback_enabled = bool(settings.canonical_state_safe_fallback) or bool(
-        getattr(game, "canonical_state_safe_fallback_enabled", False)
-    )
-    if canonical_pipeline_enabled and normalized_output.strip():
-        try:
-            guard_result = guard_generated_story_output(
-                output=normalized_output,
-                player_text=prompt,
-                game=game,
-                world_cards=world_cards,
-                context_messages=context_messages,
-                use_safe_fallback=canonical_safe_fallback_enabled,
-            )
-            normalized_output = guard_result.output
-            if guard_result.state is not None:
-                persist_canonical_state_to_game(game, guard_result.state)
-            if guard_result.patched or guard_result.fallback_used or guard_result.quality.issues:
-                logger.info(
-                    "Canonical output guard result: game_id=%s patched=%s fallback_used=%s contract_ok=%s language_ok=%s quality_ok=%s issues=%s",
-                    game.id,
-                    guard_result.patched,
-                    guard_result.fallback_used,
-                    guard_result.contract.ok,
-                    guard_result.language.ok,
-                    guard_result.quality.ok,
-                    len(guard_result.quality.issues),
-                )
-        except Exception:
-            logger.exception("Canonical output guard failed; preserving normalized legacy output")
+    # Preserve the provider's final text. The legacy post-generation normalizers
+    # rewrote dialogue markers after streaming and could break avatars/text.
+    normalized_output = str(produced or "").replace("\r\n", "\n").strip()
 
     try:
         assistant_message.content = normalized_output
@@ -813,16 +789,6 @@ def _stream_story_response(
     if _should_use_english_memory_source(story_model_name):
         raw_output_candidate = str(stream_runtime_meta.get("raw_output") or "").replace("\r\n", "\n").strip()
         if raw_output_candidate:
-            try:
-                raw_output_candidate = deps.normalize_generated_story_output(
-                    text_value=raw_output_candidate,
-                    world_cards=world_cards,
-                    model_name=None,
-                    show_gg_thoughts=show_gg_thoughts,
-                    show_npc_thoughts=show_npc_thoughts,
-                ).strip()
-            except Exception:
-                logger.exception("Failed to normalize raw English output for memory")
             if raw_output_candidate:
                 assistant_text_for_memory = raw_output_candidate
 
@@ -1388,7 +1354,10 @@ def _generate_story_response_locked(
         return deps.list_story_messages(db, game.id)
 
     def _calculate_turn_cost_tokens(context_messages_for_cost: list[StoryMessage]) -> int:
-        world_cards_for_cost = deps.list_story_world_cards(db, game.id)
+        world_cards_for_cost = _order_story_world_cards_for_active_main_hero(
+            game,
+            deps.list_story_world_cards(db, game.id),
+        )
         active_world_cards_for_cost = deps.select_story_world_cards_for_prompt(
             context_messages_for_cost,
             world_cards_for_cost,
@@ -1431,7 +1400,7 @@ def _generate_story_response_locked(
 
             last_message = current_messages[-1]
             if last_message.role != deps.story_assistant_role:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Last message is not AI-generated")
+                return current_messages
 
             source_user_message_for_step = next(
                 (message for message in reversed(current_messages[:-1]) if message.role == deps.story_user_role),
@@ -1637,16 +1606,15 @@ def _generate_story_response_locked(
         if payload.prompt is None:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Prompt is required")
         prompt_text = deps.normalize_text(payload.prompt)
-        if discard_last_assistant_steps > 0:
-            source_user_message = next(
-                (
-                    message
-                    for message in reversed(messages)
-                    if message.role == deps.story_user_role
-                    and _normalize_story_message_content(getattr(message, "content", None)) == prompt_text
-                ),
-                None,
-            )
+        source_user_message = next(
+            (
+                message
+                for message in reversed(messages)
+                if message.role == deps.story_user_role
+                and _normalize_story_message_content(getattr(message, "content", None)) == prompt_text
+            ),
+            None,
+        )
         turn_cost_tokens = _calculate_turn_cost_tokens(messages)
         if not deps.spend_user_tokens_if_sufficient(db, int(user.id), turn_cost_tokens):
             db.rollback()
@@ -1690,7 +1658,10 @@ def _generate_story_response_locked(
             len(str(smart_instruction_card.get("content", ""))),
         )
 
-    world_cards = deps.list_story_world_cards(db, game.id)
+    world_cards = _order_story_world_cards_for_active_main_hero(
+        game,
+        deps.list_story_world_cards(db, game.id),
+    )
     context_messages = deps.list_story_messages(db, game.id)
     active_world_cards = deps.select_story_world_cards_for_prompt(context_messages, world_cards)
     early_triggered_world_cards: list[dict[str, Any]] = []

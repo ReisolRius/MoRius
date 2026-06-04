@@ -545,6 +545,8 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     story_temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     show_gg_thoughts: bool | None = None
     show_npc_thoughts: bool | None = None
+    active_main_hero_card_id: int | None = Field(default=None, ge=1)
+    auto_npc_cards_enabled: bool | None = None
     ambient_enabled: bool | None = None
     emotion_visualization_enabled: bool | None = None
     appearance_background_mode: str | None = Field(default=None, max_length=32)
@@ -1338,6 +1340,8 @@ class StoryGameSummaryOut(BaseModel):
     story_temperature: float
     show_gg_thoughts: bool
     show_npc_thoughts: bool
+    active_main_hero_card_id: int | None = None
+    auto_npc_cards_enabled: bool = False
     ambient_enabled: bool
     character_state_enabled: bool = False
     appearance_background_mode: str = "custom"

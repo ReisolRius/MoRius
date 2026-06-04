@@ -3093,6 +3093,25 @@ def update_story_game_settings(
         game.show_gg_thoughts = normalize_story_show_gg_thoughts(payload.show_gg_thoughts)
     if payload.show_npc_thoughts is not None:
         game.show_npc_thoughts = normalize_story_show_npc_thoughts(payload.show_npc_thoughts)
+    if "active_main_hero_card_id" in payload.model_fields_set:
+        if payload.active_main_hero_card_id is None:
+            game.active_main_hero_card_id = None
+        else:
+            active_main_hero_card = db.scalar(
+                select(StoryWorldCard).where(
+                    StoryWorldCard.id == int(payload.active_main_hero_card_id),
+                    StoryWorldCard.game_id == game.id,
+                    StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+                )
+            )
+            if active_main_hero_card is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Active main hero card not found",
+                )
+            game.active_main_hero_card_id = int(active_main_hero_card.id)
+    if payload.auto_npc_cards_enabled is not None:
+        game.auto_npc_cards_enabled = bool(payload.auto_npc_cards_enabled)
     if payload.ambient_enabled is not None and user.role == "administrator":
         game.ambient_enabled = normalize_story_ambient_enabled(payload.ambient_enabled)
     if "appearance_background_mode" in payload.model_fields_set:

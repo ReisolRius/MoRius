@@ -448,6 +448,11 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
       typeof game.story_temperature === 'number' && Number.isFinite(game.story_temperature) ? game.story_temperature : 0.75,
     show_gg_thoughts: Boolean(game.show_gg_thoughts),
     show_npc_thoughts: Boolean(game.show_npc_thoughts),
+    active_main_hero_card_id:
+      typeof game.active_main_hero_card_id === 'number' && Number.isFinite(game.active_main_hero_card_id)
+        ? Math.trunc(game.active_main_hero_card_id)
+        : null,
+    auto_npc_cards_enabled: Boolean(game.auto_npc_cards_enabled),
     ambient_enabled: Boolean(game.ambient_enabled),
     character_state_enabled: Boolean(game.character_state_enabled),
     appearance_background_mode: normalizeStoryAppearanceBackgroundMode(game.appearance_background_mode),
@@ -1818,6 +1823,8 @@ export async function updateStoryGameSettings(payload: {
   storyTemperature?: number
   showGgThoughts?: boolean
   showNpcThoughts?: boolean
+  activeMainHeroCardId?: number | null
+  autoNpcCardsEnabled?: boolean
   ambientEnabled?: boolean
   characterStateEnabled?: boolean
   appearanceBackgroundMode?: StoryAppearanceBackgroundMode
@@ -1880,6 +1887,12 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.showNpcThoughts === 'boolean') {
     requestPayload.show_npc_thoughts = payload.showNpcThoughts
+  }
+  if (typeof payload.activeMainHeroCardId === 'number' || payload.activeMainHeroCardId === null) {
+    requestPayload.active_main_hero_card_id = payload.activeMainHeroCardId
+  }
+  if (typeof payload.autoNpcCardsEnabled === 'boolean') {
+    requestPayload.auto_npc_cards_enabled = payload.autoNpcCardsEnabled
   }
   if (typeof payload.ambientEnabled === 'boolean') {
     requestPayload.ambient_enabled = payload.ambientEnabled

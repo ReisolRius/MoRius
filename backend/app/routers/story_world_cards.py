@@ -289,18 +289,25 @@ def select_story_main_hero(
             detail="This character is already selected as NPC",
         )
 
-    existing_main_hero = get_story_main_hero_card(db, game.id)
+    existing_main_hero = next(
+        (
+            card
+            for card in existing_cards
+            if normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+            and _is_same_character_identity(
+                card,
+                character_id=payload.character_id,
+                normalized_name=normalized_character_name,
+            )
+        ),
+        None,
+    )
     if existing_main_hero is not None:
-        if _is_same_character_identity(
-            existing_main_hero,
-            character_id=payload.character_id,
-            normalized_name=normalized_character_name,
-        ):
-            return story_world_card_to_out(existing_main_hero)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Main hero is already selected and cannot be changed",
-        )
+        game.active_main_hero_card_id = int(existing_main_hero.id)
+        touch_story_game(game)
+        db.commit()
+        db.refresh(existing_main_hero)
+        return story_world_card_to_out(existing_main_hero)
 
     main_hero_card = build_story_world_card_from_character(
         game_id=game.id,
@@ -310,6 +317,8 @@ def select_story_main_hero(
         db=db,
     )
     db.add(main_hero_card)
+    db.flush()
+    game.active_main_hero_card_id = int(main_hero_card.id)
     sync_story_character_state_payload_from_world_cards(
         db=db,
         game=game,
@@ -334,15 +343,20 @@ def create_story_npc_from_character(
     character = get_story_character_for_user_or_404(db, user.id, payload.character_id)
     normalized_character_name = _normalize_character_identity_name(character.name)
     existing_cards = list_story_world_cards(db, game.id)
-    existing_main_hero = get_story_main_hero_card(db, game.id)
-    if (
-        existing_main_hero is not None
-        and _is_same_character_identity(
-            existing_main_hero,
-            character_id=payload.character_id,
-            normalized_name=normalized_character_name,
-        )
-    ):
+    existing_main_hero = next(
+        (
+            card
+            for card in existing_cards
+            if normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+            and _is_same_character_identity(
+                card,
+                character_id=payload.character_id,
+                normalized_name=normalized_character_name,
+            )
+        ),
+        None,
+    )
+    if existing_main_hero is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Main hero cannot be added as NPC",
@@ -519,11 +533,29 @@ def create_story_world_card(
         current_value=None,
     )
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
-        existing_main_hero = get_story_main_hero_card(db, game.id)
-        if existing_main_hero is not None:
+        duplicate_main_hero = next(
+            (
+                card
+                for card in existing_cards
+                if normalize_story_world_card_kind(card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO
+                and (
+                    (
+                        linked_character is not None
+                        and _is_same_character_identity(
+                            card,
+                            character_id=linked_character.id,
+                            normalized_name=normalized_title.casefold(),
+                        )
+                    )
+                    or _normalize_character_identity_name(card.title) == normalized_title.casefold()
+                )
+            ),
+            None,
+        )
+        if duplicate_main_hero is not None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Main hero is already selected and cannot be changed",
+                detail="This character is already selected as main hero",
             )
     if normalized_kind == STORY_WORLD_CARD_KIND_WORLD_PROFILE:
         existing_world_profile = next(
@@ -561,6 +593,9 @@ def create_story_world_card(
         source=STORY_WORLD_CARD_SOURCE_USER,
     )
     db.add(world_card)
+    db.flush()
+    if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        game.active_main_hero_card_id = int(world_card.id)
     if normalized_kind == STORY_WORLD_CARD_KIND_WORLD and normalized_detail_type:
         upsert_story_world_detail_type(db, user_id=int(user.id), name=normalized_detail_type)
     sync_story_character_state_payload_from_world_cards(
@@ -680,16 +715,18 @@ def delete_story_world_card(
     )
     if world_card is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="World card not found")
+    remaining_main_hero_id = None
     if normalize_story_world_card_kind(world_card.kind) == STORY_WORLD_CARD_KIND_MAIN_HERO:
-        can_delete_main_hero = (
-            allow_main_hero_delete
-            and (game.visibility or "").strip().lower() == STORY_GAME_VISIBILITY_PUBLIC
-        )
-        if not can_delete_main_hero:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Main hero cannot be removed once selected",
+        remaining_main_hero_id = db.scalar(
+            select(StoryWorldCard.id)
+            .where(
+                StoryWorldCard.game_id == game.id,
+                StoryWorldCard.kind == STORY_WORLD_CARD_KIND_MAIN_HERO,
+                StoryWorldCard.id != world_card.id,
             )
+            .order_by(StoryWorldCard.id.desc())
+            .limit(1)
+        )
 
     db.execute(
         sa_update(StoryWorldCardChangeEvent)
@@ -699,6 +736,8 @@ def delete_story_world_card(
         .values(world_card_id=None)
     )
     db.delete(world_card)
+    if int(getattr(game, "active_main_hero_card_id", 0) or 0) == int(card_id):
+        game.active_main_hero_card_id = int(remaining_main_hero_id or 0) or None
     sync_story_character_state_payload_from_world_cards(
         db=db,
         game=game,

@@ -27,9 +27,7 @@ export type StoryNarratorModelId =
   | 'z-ai/glm-5.1'
   | 'z-ai/glm-4.7'
   | 'deepseek/deepseek-chat-v3-0324'
-  | 'deepseek/deepseek-v3.2'
   | 'mistralai/mistral-nemo'
-  | 'xiaomi/mimo-v2-pro'
   | 'aion-labs/aion-2.0'
   | 'anthropic/claude-sonnet-4.6'
   | 'google/gemini-2.5-pro'
@@ -107,6 +105,8 @@ export type StoryGameSummary = {
   story_temperature: number
   show_gg_thoughts: boolean
   show_npc_thoughts: boolean
+  active_main_hero_card_id?: number | null
+  auto_npc_cards_enabled?: boolean
   ambient_enabled: boolean
   character_state_enabled: boolean
   appearance_background_mode: StoryAppearanceBackgroundMode

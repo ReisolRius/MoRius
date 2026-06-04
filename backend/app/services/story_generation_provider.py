@@ -314,7 +314,7 @@ def _build_polza_story_candidate_models(
     normalized_primary_model = _normalize_story_model_id(primary_model)
 
     if normalized_primary_model == "aion-labs/aion-2.0":
-        for fallback_model in ("deepseek/deepseek-v3.2", "z-ai/glm-5"):
+        for fallback_model in ("z-ai/glm-5", "z-ai/glm-4.7"):
             if fallback_model not in candidate_models:
                 candidate_models.append(fallback_model)
 

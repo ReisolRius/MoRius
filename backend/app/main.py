@@ -1116,9 +1116,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5.1": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
-    "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
-    "xiaomi/mimo-v2-pro": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
     "anthropic/claude-sonnet-4.6": STORY_SERVICE_TEXT_MODEL,
     "google/gemini-2.5-pro": STORY_SERVICE_TEXT_MODEL,
@@ -1128,7 +1126,6 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
 STORY_LEGACY_MODEL_ALIASES = {}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
     "deepseek/deepseek-chat-v3-0324",
-    "deepseek/deepseek-v3.2",
 }
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
 STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
@@ -1147,9 +1144,7 @@ STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     POLZA_GEMINI_25_FLASH_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
     STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
     "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
-    "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
-    "xiaomi/mimo-v2-pro": STORY_POLZA_PROVIDER_XIAOMI,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
     "anthropic/claude-sonnet-4.6": STORY_POLZA_PROVIDER_MIE,
     "google/gemini-2.5-pro": STORY_POLZA_PROVIDER_MIE,
@@ -1161,9 +1156,7 @@ STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5.1",
     "z-ai/glm-4.7",
     "deepseek/deepseek-chat-v3-0324",
-    "deepseek/deepseek-v3.2",
     "mistralai/mistral-nemo",
-    "xiaomi/mimo-v2-pro",
     "aion-labs/aion-2.0",
     "anthropic/claude-sonnet-4.6",
     "google/gemini-2.5-pro",
@@ -1361,9 +1354,9 @@ STORY_ANTI_REPETITION_RULES = (
     "6) Если чувствуешь, что пишешь «на автопилоте» — остановись и придумай неожиданную деталь, которая удивит даже тебя.",
 )
 STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
-    "deepseek/deepseek-v3.2": (
+    "__legacy_removed__/story-model-1": (
         "",
-        "MODEL-SPECIFIC DIRECTIVES (DeepSeek V3.2):",
+        "MODEL-SPECIFIC DIRECTIVES (legacy removed):",
         "Ты обладаешь глубоким пониманием мотиваций и психологии персонажей — используй это.",
         "Избегай монотонно-мрачного тона. Даже в тёмных сеттингах вплетай контрасты: чёрный юмор, неожиданную теплоту, абсурдные бытовые детали.",
         "Делай NPC эмоционально разнообразными: пусть один ворчит, другой хохочет, третий молчит и давит взглядом.",
@@ -1442,9 +1435,9 @@ STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
         "Пиши так, чтобы каждый абзац нёс энергию. Никакой «воды».",
         "Каждое предложение должно либо двигать сюжет, либо раскрывать персонажа, либо создавать атмосферу.",
     ),
-    "xiaomi/mimo-v2-pro": (
+    "__legacy_removed__/story-model-2": (
         "",
-        "MODEL-SPECIFIC DIRECTIVES (MiMo V2 Pro):",
+        "MODEL-SPECIFIC DIRECTIVES (legacy removed):",
         "Ты — сильная reasoning-модель. Используй эту силу для глубоких, многослойных сцен с подтекстом и внутренней логикой.",
         "",
         "БОРЬБА С ПОВТОРАМИ (твоя слабость):",
@@ -4307,16 +4300,25 @@ def _select_story_world_cards_for_prompt(
                     },
                 )
             )
+    active_main_hero_card_id = int(getattr(main_hero_card, "id", 0) or 0)
 
     for card in world_cards:
         card_kind = _normalize_story_world_card_kind(card.kind)
-        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+        card_id = int(getattr(card, "id", 0) or 0)
+        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and card_id == active_main_hero_card_id:
             continue
+        effective_card_kind = STORY_WORLD_CARD_KIND_NPC if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO else card_kind
 
         title = " ".join(card.title.split()).strip()
         content = _normalize_story_message_content(getattr(card, "content", None))
         if not title or not content:
             continue
+        if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+            content = (
+                f"{content}\n\n"
+                "Inactive player character note: this character is not currently controlled by the player. "
+                "Treat them as an autonomous NPC until the player switches back to this main-hero card."
+            ).strip()
 
         triggers = _deserialize_story_world_card_triggers(card.triggers)
         if not triggers:
@@ -4324,17 +4326,21 @@ def _select_story_world_cards_for_prompt(
         if not triggers:
             continue
 
-        memory_turns = _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind)
+        memory_turns = (
+            None
+            if card_kind == STORY_WORLD_CARD_KIND_MAIN_HERO
+            else _serialize_story_world_card_memory_turns(card.memory_turns, kind=card_kind)
+        )
         if memory_turns is None:
             ranked_cards.append(
                 (
-                    (0, -1, kind_rank.get(card_kind, 3), card.id),
+                    (0, -1, kind_rank.get(effective_card_kind, 3), card.id),
                     {
                         "id": card.id,
                         "title": title,
                         "content": content,
                         "triggers": triggers,
-                        "kind": card_kind,
+                        "kind": effective_card_kind,
                         "avatar_url": _normalize_avatar_value(card.avatar_url),
                         "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
                         "character_id": None,
@@ -4363,7 +4369,7 @@ def _select_story_world_cards_for_prompt(
         rank_key = (
             0 if turns_since_trigger == 0 else 1,
             turns_since_trigger,
-            kind_rank.get(card_kind, 3),
+            kind_rank.get(effective_card_kind, 3),
             card.id,
         )
         ranked_cards.append(
@@ -4374,7 +4380,7 @@ def _select_story_world_cards_for_prompt(
                     "title": title,
                     "content": content,
                     "triggers": triggers,
-                    "kind": card_kind,
+                    "kind": effective_card_kind,
                     "avatar_url": _normalize_avatar_value(card.avatar_url),
                     "avatar_scale": _normalize_story_avatar_scale(card.avatar_scale),
                     "character_id": None,
@@ -10375,6 +10381,24 @@ def _upsert_story_plot_memory_card(
                     assistant_message.id,
                     exc,
                 )
+        if bool(getattr(game, "auto_npc_cards_enabled", False)):
+            try:
+                created_auto_npc_cards = story_memory_pipeline._sync_story_auto_npc_cards_for_assistant_message(
+                    db=db,
+                    game=game,
+                    assistant_message=assistant_message,
+                    latest_user_prompt=latest_user_prompt,
+                    latest_assistant_text=latest_assistant_text,
+                )
+                if created_auto_npc_cards:
+                    should_force_memory_rebalance = True
+            except Exception as exc:
+                logger.warning(
+                    "Story auto-NPC post-process failed: game_id=%s assistant_message_id=%s error=%s",
+                    game.id,
+                    assistant_message.id,
+                    exc,
+                )
     except Exception as exc:
         logger.warning(
             "Story location post-process bootstrap failed: game_id=%s assistant_message_id=%s error=%s",
@@ -14146,7 +14170,6 @@ def _build_story_runtime_deps() -> StoryRuntimeDeps:
         spend_user_tokens_if_sufficient=_spend_user_tokens_if_sufficient,
         add_user_tokens=_add_user_tokens,
         stream_story_provider_chunks=_iter_story_provider_stream_chunks,
-        normalize_generated_story_output=_normalize_generated_story_output,
         upsert_story_plot_memory_card=_upsert_story_plot_memory_card,
         list_story_prompt_memory_cards=_list_story_prompt_memory_cards,
         list_story_memory_blocks=_list_story_memory_blocks,

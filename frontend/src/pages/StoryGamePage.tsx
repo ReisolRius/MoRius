@@ -44,7 +44,6 @@ import {
 } from '@mui/material'
 import { icons } from '../assets'
 import narratorFreyaPortrait from '../assets/images/narrators/freya.svg'
-import narratorIsidaPortrait from '../assets/images/narrators/isida.svg'
 import narratorOgmaPortrait from '../assets/images/narrators/ogma.svg'
 import narratorVelesPortrait from '../assets/images/narrators/veles.svg'
 import cardsCharactersTabIconMarkup from '../assets/icons/cards-characters.svg?raw'
@@ -232,6 +231,7 @@ type StorySettingsOverride = {
   storyTemperature?: number
   showGgThoughts: boolean
   showNpcThoughts: boolean
+  autoNpcCardsEnabled?: boolean
   ambientEnabled: boolean
   characterStateEnabled?: boolean
   emotionVisualizationEnabled?: boolean
@@ -287,6 +287,13 @@ type DeletionPrompt = {
   targetId: number
   title: string
   message: string
+}
+
+type CharacterAvatarPreviewState = {
+  url: string
+  name: string
+  card?: StoryWorldCard | null
+  character?: StoryCharacter | null
 }
 
 const ENVIRONMENT_MODULE_CARD_IDS: readonly EnvironmentModuleCardId[] = ['place', 'time', 'weather']
@@ -505,6 +512,8 @@ type SpeakerAvatarEntry = {
   avatar: string | null
   previewAvatar: string | null
   displayName: string
+  card: StoryWorldCard | null
+  character: StoryCharacter | null
 }
 type SceneEmotionCharacterEntry = {
   names: string[]
@@ -596,13 +605,11 @@ const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'deepseek/deepseek-chat-v3-0324',
-  'deepseek/deepseek-v3.2',
   'z-ai/glm-4.7',
   'mistralai/mistral-nemo',
 ])
 const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5',
-  'xiaomi/mimo-v2-pro',
   'google/gemini-2.5-pro',
   'qwen/qwen3.5-122b-a10b',
 ])
@@ -847,19 +854,7 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
-  'deepseek/deepseek-v3.2': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
-  },
   'mistralai/mistral-nemo': {
-    storyTemperature: STORY_DEFAULT_TEMPERATURE,
-    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
-    storyTopK: STORY_DEFAULT_TOP_K,
-    storyTopR: STORY_DEFAULT_TOP_R,
-  },
-  'xiaomi/mimo-v2-pro': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
     storyTopK: STORY_DEFAULT_TOP_K,
@@ -951,19 +946,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
-    id: 'deepseek/deepseek-v3.2',
-    title: 'DeepSeek V3.2',
-    description:
-      'Быстрая и энергичная модель для длинных сцен. Хорошо двигает сюжет вперед, но требует особенно четких инструкций и строгого контроля формата.',
-    portraitSrc: narratorVelesPortrait,
-    portraitAlt: 'DeepSeek V3.2',
-    stats: [
-      { label: 'Интеллект', value: 3 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 4 },
-    ],
-  },
-  {
     id: 'mistralai/mistral-nemo',
     title: 'Mistral Nemo',
     description:
@@ -974,19 +956,6 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
       { label: 'Интеллект', value: 4 },
       { label: 'Скорость', value: 4 },
       { label: 'Глубина', value: 3 },
-    ],
-  },
-  {
-    id: 'xiaomi/mimo-v2-pro',
-    title: 'Xiaomi Mimo Pro',
-    description:
-      'Более сильная версия Xiaomi с лучшей дисциплиной, большей детализацией и более уверенным ведением сцены, чем Flash.',
-    portraitSrc: narratorIsidaPortrait,
-    portraitAlt: 'Xiaomi Mimo Pro',
-    stats: [
-      { label: 'Интеллект', value: 4 },
-      { label: 'Скорость', value: 4 },
-      { label: 'Глубина', value: 4 },
     ],
   },
   {
@@ -1056,7 +1025,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
   },
 ].filter(
   (option): option is StoryNarratorModelOption =>
-    option.id !== 'z-ai/glm-4.7' && option.id !== 'mistralai/mistral-nemo',
+    option.id !== 'mistralai/mistral-nemo',
 )
 const STORY_IMAGE_MODEL_OPTIONS: Array<{
   id: StoryImageModelId
@@ -1103,7 +1072,7 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3.2 быстрее двигает сюжет, GLM 5.0 стабильнее держит инструкции, а Gemini, Qwen, AionLabs и Claude лучше раскрываются в сложных сценах.',
+    'Выберите модель рассказчика. DeepSeek V3 быстрее двигает сюжет, GLM 4.7 пишет мягче, GLM 5.0 стабильнее держит инструкции, а Gemini, Qwen, AionLabs и Claude лучше раскрываются в сложных сценах.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -2910,9 +2879,12 @@ type StreamingAssistantMessageContentProps = {
     avatarScale?: number
     fallbackLabel: string
     size?: number
+    profileCard?: StoryWorldCard | null
+    profileCharacter?: StoryCharacter | null
   }) => ReactNode
   resolveDialogueAvatar: (speakerName: string) => string | null
   resolveDialogueAvatarPreview: (speakerName: string) => string | null
+  resolveDialogueSpeakerEntry: (speakerName: string) => SpeakerAvatarEntry | null
   resolveDialogueSpeakerName: (speakerName: string, dialogueText: string, nearbyNarrativeText?: string) => string
 }
 
@@ -2930,6 +2902,7 @@ function StreamingAssistantMessageContent({
   renderPreviewableCharacterAvatar,
   resolveDialogueAvatar,
   resolveDialogueAvatarPreview,
+  resolveDialogueSpeakerEntry,
   resolveDialogueSpeakerName,
 }: StreamingAssistantMessageContentProps) {
   const streamingText = useSyncExternalStore(
@@ -2974,6 +2947,7 @@ function StreamingAssistantMessageContent({
             nearbyNarrativeContext,
           )
           const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+          const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
           return (
             <Stack
               key={`${messageId}-${index}-stream-character`}
@@ -2990,6 +2964,8 @@ function StreamingAssistantMessageContent({
                 previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                 fallbackLabel: resolvedSpeakerName,
                 size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                profileCard: speakerEntry?.card ?? null,
+                profileCharacter: speakerEntry?.character ?? null,
               })}
               <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                 <Typography
@@ -3470,13 +3446,13 @@ function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста:',
     '',
-    'DeepSeek V3, DeepSeek V3.2:',
+    'DeepSeek V3, GLM 4.7:',
     'до 6000 — 1 сол',
     '6001–16000 — 2 сола',
     '16001–32000 — 4 сола',
     '32001–64000 — 6 солов',
     '',
-    'GLM 5.0, Xiaomi MiMo V2 Pro, Gemini 2.5 Pro, Qwen 3.5 122B:',
+    'GLM 5.0, Gemini 2.5 Pro, Qwen 3.5 122B:',
     'до 6000 — 2 сола',
     '6001–16000 — 4 сола',
     '16001–32000 — 8 солов',
@@ -4709,7 +4685,7 @@ function StoryTitleLoadingSkeleton() {
   )
 }
 
-const MISSING_MAIN_HERO_DIALOG_SUPPRESS_KEY = 'morius:missing-main-hero-dialog:suppress'
+const MISSING_MAIN_HERO_DIALOG_SUPPRESS_KEY = 'morius:missing-main-hero-dialog:v2:suppress'
 
 function StoryMessagesLoadingSkeleton() {
   return (
@@ -5072,8 +5048,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   >({})
   const [activeAssistantMessageId, setActiveAssistantMessageId] = useState<number | null>(null)
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
-  const [isGameMenuOpen, setIsGameMenuOpen] = useState(true)
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [isGameMenuOpen, setIsGameMenuOpen] = useState(false)
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(false)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_WIDTH_DEFAULT)
   const [rightPanelMode, setRightPanelMode] = useState<RightPanelMode>('ai')
   const [activeAiPanelTab, setActiveAiPanelTab] = useState<AiPanelTab>('settings')
@@ -5222,7 +5198,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [hasLoadedWorldDetailTypes, setHasLoadedWorldDetailTypes] = useState(false)
   const [isLoadingWorldDetailTypes, setIsLoadingWorldDetailTypes] = useState(false)
   const [mainHeroPreviewOpen, setMainHeroPreviewOpen] = useState(false)
-  const [characterAvatarPreview, setCharacterAvatarPreview] = useState<{ url: string; name: string } | null>(null)
+  const [characterAvatarPreview, setCharacterAvatarPreview] = useState<CharacterAvatarPreviewState | null>(null)
   const [contextLimitChars, setContextLimitChars] = useState(STORY_DEFAULT_CONTEXT_LIMIT)
   const [contextLimitDraft, setContextLimitDraft] = useState(String(STORY_DEFAULT_CONTEXT_LIMIT))
   const [storySettingsTab, setStorySettingsTab] = useState<StorySettingsTab>('generation')
@@ -5256,6 +5232,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [storyTopR, setStoryTopR] = useState(STORY_DEFAULT_TOP_R)
   const [showGgThoughts, setShowGgThoughts] = useState(false)
   const [showNpcThoughts, setShowNpcThoughts] = useState(false)
+  const [autoNpcCardsEnabled, setAutoNpcCardsEnabled] = useState(false)
   const [ambientEnabled, setAmbientEnabled] = useState(false)
   const [characterStateEnabled, setCharacterStateEnabled] = useState(false)
   const [appearanceBackgroundMode, setAppearanceBackgroundMode] = useState<StoryAppearanceBackgroundMode>(
@@ -5329,6 +5306,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [isSavingStorySampling, setIsSavingStorySampling] = useState(false)
   const isSavingShowGgThoughts = false
   const [isSavingShowNpcThoughts, setIsSavingShowNpcThoughts] = useState(false)
+  const [isSavingAutoNpcCardsEnabled, setIsSavingAutoNpcCardsEnabled] = useState(false)
   const [isSavingAmbientEnabled, setIsSavingAmbientEnabled] = useState(false)
   const [isSavingCharacterStateEnabled, setIsSavingCharacterStateEnabled] = useState(false)
   const [isSavingStoryAppearance, setIsSavingStoryAppearance] = useState(false)
@@ -5340,6 +5318,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [cardMenuCardId, setCardMenuCardId] = useState<number | null>(null)
   const [deletionPrompt, setDeletionPrompt] = useState<DeletionPrompt | null>(null)
   const [missingMainHeroDialogOpen, setMissingMainHeroDialogOpen] = useState(false)
+  const [mainHeroSelectorAnchorEl, setMainHeroSelectorAnchorEl] = useState<HTMLElement | null>(null)
   const [tutorialGameId, setTutorialGameId] = useState<number | null>(null)
   const [bugReportDialogOpen, setBugReportDialogOpen] = useState(false)
   const [bugReportTitleDraft, setBugReportTitleDraft] = useState('')
@@ -5375,6 +5354,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const voiceBasePromptRef = useRef('')
   const voiceFinalTranscriptRef = useRef('')
   const missingMainHeroPromptedGameIdRef = useRef<number | null>(null)
+  const characterManagerCreateSelectionModeRef = useRef<CharacterSelectionDialogMode | null>(null)
+  const characterManagerKnownCharacterIdsRef = useRef<Set<number>>(new Set())
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const characterAvatarInputRef = useRef<HTMLInputElement | null>(null)
   const worldCardAvatarInputRef = useRef<HTMLInputElement | null>(null)
@@ -5386,8 +5367,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [activeGameId, customTitleMap],
   )
 
-  const handleOpenCharacterAvatarPreview = useCallback((event: ReactMouseEvent<HTMLElement>, avatarUrl: string | null, fallbackName: string) => {
-    const resolvedAvatarUrl = resolveApiResourceUrl(avatarUrl)
+  const handleOpenCharacterAvatarPreview = useCallback((
+    event: ReactMouseEvent<HTMLElement>,
+    avatarUrl: string | null,
+    fallbackName: string,
+    profileCard?: StoryWorldCard | null,
+    profileCharacter?: StoryCharacter | null,
+  ) => {
+    const profileAvatarUrl =
+      profileCard?.avatar_original_url ??
+      profileCharacter?.avatar_original_url ??
+      profileCard?.avatar_url ??
+      profileCharacter?.avatar_url ??
+      avatarUrl
+    const resolvedAvatarUrl = resolveApiResourceUrl(profileAvatarUrl)
     if (!resolvedAvatarUrl) {
       return
     }
@@ -5396,6 +5389,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterAvatarPreview({
       url: resolvedAvatarUrl,
       name: fallbackName,
+      card: profileCard ?? null,
+      character: profileCharacter ?? null,
     })
   }, [])
 
@@ -5410,6 +5405,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       avatarScale?: number
       fallbackLabel: string
       size?: number
+      profileCard?: StoryWorldCard | null
+      profileCharacter?: StoryCharacter | null
     }) => {
       const avatarNode = (
         <CharacterAvatar
@@ -5429,7 +5426,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       return (
         <Box
           component="span"
-          onClick={(event) => handleOpenCharacterAvatarPreview(event, previewUrl, options.fallbackLabel)}
+          onClick={(event) =>
+            handleOpenCharacterAvatarPreview(
+              event,
+              previewUrl,
+              options.fallbackLabel,
+              options.profileCard,
+              options.profileCharacter,
+            )
+          }
           sx={{
             display: 'inline-flex',
             borderRadius: '50%',
@@ -5776,6 +5781,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setStoryTopR(clampStoryTopR(override.storyTopR))
       setShowGgThoughts(false)
       setShowNpcThoughts(override.showNpcThoughts)
+      setAutoNpcCardsEnabled(
+        typeof override.autoNpcCardsEnabled === 'boolean'
+          ? override.autoNpcCardsEnabled
+          : Boolean(runtimeGame.auto_npc_cards_enabled),
+      )
       setAmbientEnabled(override.ambientEnabled)
       if (typeof override.characterStateEnabled === 'boolean') {
         setCharacterStateEnabled(override.characterStateEnabled)
@@ -5837,6 +5847,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } else {
       setShowNpcThoughts(false)
     }
+    if (typeof runtimeGame.auto_npc_cards_enabled === 'boolean') {
+      setAutoNpcCardsEnabled(runtimeGame.auto_npc_cards_enabled)
+    } else {
+      setAutoNpcCardsEnabled(false)
+    }
     if (typeof runtimeGame.ambient_enabled === 'boolean') {
       setAmbientEnabled(runtimeGame.ambient_enabled)
     } else {
@@ -5862,9 +5877,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const shouldShowRightPanelLoadingSkeleton =
     isBootstrappingGameData && instructionCards.length === 0 && plotCards.length === 0 && worldCards.length === 0
   const quickStartIntroBlocks = useMemo(() => {
-    const mainHeroName = worldCards.find((card) => card.kind === 'main_hero')?.title ?? null
+    const activeMainHeroId = activeGameSummary?.active_main_hero_card_id ?? null
+    const mainHeroName =
+      (activeMainHeroId !== null
+        ? worldCards.find((card) => card.kind === 'main_hero' && card.id === activeMainHeroId)?.title
+        : null) ??
+      worldCards.find((card) => card.kind === 'main_hero')?.title ??
+      null
     return parseAssistantMessageBlocks(replaceMainHeroInlineTags(quickStartIntro, mainHeroName))
-  }, [quickStartIntro, worldCards])
+  }, [activeGameSummary?.active_main_hero_card_id, quickStartIntro, worldCards])
   const shouldRenderStandaloneQuickStartIntro = useMemo(() => {
     const normalizedQuickStartIntro = quickStartIntro.replace(/\r\n/g, '\n').trim()
     if (!normalizedQuickStartIntro) {
@@ -5922,8 +5943,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
     Boolean(activeGameId) &&
-    currentRerollSourceUserMessage !== null &&
-    currentRerollAssistantMessage !== null
+    currentRerollSourceUserMessage !== null
   const canGenerateLatestTurnImage =
     !isStoryTurnBusy &&
     !isUndoingAssistantStep &&
@@ -6154,9 +6174,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [plotCardContextStateById, plotCards],
   )
   const mainHeroDisplayNameForTags = useMemo(() => {
-    const mainHero = worldCards.find((card) => card.kind === 'main_hero') ?? null
+    const activeMainHeroId = activeGameSummary?.active_main_hero_card_id ?? null
+    const mainHero =
+      (activeMainHeroId !== null
+        ? worldCards.find((card) => card.kind === 'main_hero' && card.id === activeMainHeroId)
+        : null) ??
+      worldCards.find((card) => card.kind === 'main_hero') ??
+      null
     return resolveMainHeroDisplayName(mainHero?.title)
-  }, [worldCards])
+  }, [activeGameSummary?.active_main_hero_card_id, worldCards])
   const assistantBlocksCacheRef = useRef<Map<number, { source: string; blocks: AssistantMessageBlock[] }>>(new Map())
   const assistantBlocksByMessageId = useMemo(() => {
     const cache = assistantBlocksCacheRef.current
@@ -6447,6 +6473,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingMemoryOptimization ||
     isSavingStorySampling ||
     isSavingThoughtVisibility ||
+    isSavingAutoNpcCardsEnabled ||
     isSavingAmbientEnabled ||
     isSavingCharacterStateEnabled ||
     isSavingStoryAppearance ||
@@ -6465,9 +6492,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         (deletionPrompt.type === 'memory' && deletingMemoryBlockId === deletionPrompt.targetId) ||
         (deletionPrompt.type === 'character' && deletingCharacterId === deletionPrompt.targetId)),
   )
-  const mainHeroCard = useMemo(
-    () => worldCards.find((card) => card.kind === 'main_hero') ?? null,
+  const mainHeroCards = useMemo(
+    () => worldCards.filter((card) => card.kind === 'main_hero'),
     [worldCards],
+  )
+  const activeMainHeroCardId = activeGameSummary?.active_main_hero_card_id ?? null
+  const mainHeroCard = useMemo(
+    () => {
+      if (activeMainHeroCardId !== null) {
+        const activeCard = mainHeroCards.find((card) => card.id === activeMainHeroCardId)
+        if (activeCard) {
+          return activeCard
+        }
+      }
+      return mainHeroCards[0] ?? null
+    },
+    [activeMainHeroCardId, mainHeroCards],
   )
   useEffect(() => {
     let isMounted = true
@@ -6492,7 +6532,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setMissingMainHeroDialogOpen(false)
       return
     }
-    if (mainHeroCard) {
+    if (mainHeroCards.length > 0) {
       setMissingMainHeroDialogOpen(false)
       return
     }
@@ -6510,7 +6550,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     missingMainHeroPromptedGameIdRef.current = activeGameId
     setMissingMainHeroDialogOpen(true)
-  }, [activeGameId, isBootstrappingGameData, isLoadingGameMessages, mainHeroCard, tutorialGameId])
+  }, [activeGameId, isBootstrappingGameData, isLoadingGameMessages, mainHeroCards.length, tutorialGameId])
   const displayedWorldCards = useMemo(
     () => worldCards.filter((card) => card.kind !== 'main_hero'),
     [worldCards],
@@ -6862,10 +6902,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
     )
   }, [normalizedWorldCardDetailTypeDraft, worldDetailTypeAutocompleteOptions])
-  const mainHeroCharacterId = useMemo(
-    () => (mainHeroCard && mainHeroCard.character_id && mainHeroCard.character_id > 0 ? mainHeroCard.character_id : null),
-    [mainHeroCard],
-  )
+  const mainHeroCharacterIds = useMemo(() => {
+    const selectedIds = new Set<number>()
+    mainHeroCards.forEach((card) => {
+      if (!card.character_id || card.character_id <= 0) {
+        return
+      }
+      selectedIds.add(card.character_id)
+    })
+    return selectedIds
+  }, [mainHeroCards])
   const npcCharacterIds = useMemo(() => {
     const selectedIds = new Set<number>()
     worldCards.forEach((card) => {
@@ -6998,13 +7044,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => resolveWorldCardPreviewAvatar(mainHeroCard),
     [mainHeroCard, resolveWorldCardPreviewAvatar],
   )
-  const mainHeroSourceCharacterId = useMemo(() => {
-    const linkedCharacter = resolveLinkedCharacterForWorldCard(mainHeroCard)
-    if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
-      return null
-    }
-    return linkedCharacter.source_character_id
-  }, [mainHeroCard, resolveLinkedCharacterForWorldCard])
+  const mainHeroSourceCharacterIds = useMemo(() => {
+    const selectedIds = new Set<number>()
+    mainHeroCards.forEach((card) => {
+      const linkedCharacter = resolveLinkedCharacterForWorldCard(card)
+      if (!linkedCharacter?.source_character_id || linkedCharacter.source_character_id <= 0) {
+        return
+      }
+      selectedIds.add(linkedCharacter.source_character_id)
+    })
+    return selectedIds
+  }, [mainHeroCards, resolveLinkedCharacterForWorldCard])
   const npcSourceCharacterIds = useMemo(() => {
     const selectedIds = new Set<number>()
     worldCards.forEach((card) => {
@@ -7024,7 +7074,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (mode === 'select-main-hero') {
         return npcCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
       }
-      if (mainHeroCharacterId !== null && character.id === mainHeroCharacterId) {
+      if (mainHeroCharacterIds.has(character.id)) {
         return 'Уже выбран как ГГ'
       }
       if (npcCharacterIds.has(character.id)) {
@@ -7032,7 +7082,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
       return null
     },
-    [mainHeroCharacterId, npcCharacterIds],
+    [mainHeroCharacterIds, npcCharacterIds],
   )
   const ownCharacterOptions = useMemo(
     () => [...characters].sort((left, right) => right.id - left.id),
@@ -7112,7 +7162,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (mode === 'select-main-hero') {
         return npcSourceCharacterIds.has(character.id) ? 'Уже выбран как NPC' : null
       }
-      if (mainHeroSourceCharacterId === character.id) {
+      if (mainHeroSourceCharacterIds.has(character.id)) {
         return 'Уже выбран как ГГ'
       }
       if (npcSourceCharacterIds.has(character.id)) {
@@ -7120,11 +7170,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
       return null
     },
-    [mainHeroSourceCharacterId, npcSourceCharacterIds],
+    [mainHeroSourceCharacterIds, npcSourceCharacterIds],
   )
   const speakerCardsForAvatar = useMemo(() => {
     const entries: SpeakerAvatarEntry[] = []
-    const appendEntry = (names: string[], avatar: string | null, previewAvatar: string | null, displayName: string) => {
+    const appendEntry = (
+      names: string[],
+      avatar: string | null,
+      previewAvatar: string | null,
+      displayName: string,
+      card: StoryWorldCard | null = null,
+      character: StoryCharacter | null = null,
+    ) => {
       const normalizedNames = [...new Set(names.filter(Boolean))]
       if (normalizedNames.length === 0) {
         return
@@ -7135,6 +7192,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         avatar,
         previewAvatar: previewAvatar ?? avatar,
         displayName: normalizedDisplayName || normalizedNames[0],
+        card,
+        character,
       })
     }
 
@@ -7165,7 +7224,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         linkedCharacter?.avatar_original_url ??
         linkedCharacter?.avatar_url ??
         avatar
-      appendEntry([...aliasSet], avatar, previewAvatar, card.title)
+      appendEntry([...aliasSet], avatar, previewAvatar, card.title, card, linkedCharacter)
     })
 
     characters.forEach((character) => {
@@ -7174,6 +7233,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         character.avatar_url,
         character.avatar_original_url ?? character.avatar_url,
         character.name,
+        null,
+        character,
       )
     })
 
@@ -7350,6 +7411,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       const speakerEntry = findSpeakerEntryByName(speakerName)
       return speakerEntry?.previewAvatar ?? speakerEntry?.avatar ?? null
     },
+    [findSpeakerEntryByName],
+  )
+  const resolveDialogueSpeakerEntry = useCallback(
+    (speakerName: string): SpeakerAvatarEntry | null => findSpeakerEntryByName(speakerName),
     [findSpeakerEntryByName],
   )
   const resolveDialogueSpeakerName = useCallback(
@@ -7690,7 +7755,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     selectedMenuWorldCard && updatingWorldCardAiEditId === selectedMenuWorldCard.id,
   )
   const canDeleteSelectedMenuWorldCard = Boolean(
-    selectedMenuWorldCard && selectedMenuWorldCard.kind !== 'main_hero',
+    selectedMenuWorldCard && !selectedMenuWorldCard.is_locked,
   )
   const getWorldCardAiEditStatusLabel = useCallback(
     (card: StoryWorldCard): string =>
@@ -7737,6 +7802,64 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [])
 
+  const applyActiveMainHeroCardId = useCallback((gameId: number, cardId: number | null) => {
+    const updateGame = (game: StoryGameSummary): StoryGameSummary => ({
+      ...game,
+      active_main_hero_card_id: cardId,
+    })
+    setActiveGameSummary((previousGame) =>
+      previousGame && previousGame.id === gameId ? updateGame(previousGame) : previousGame,
+    )
+    setGames((previousGames) =>
+      sortGamesByActivity(previousGames.map((game) => (game.id === gameId ? updateGame(game) : game))),
+    )
+  }, [])
+
+  const persistActiveMainHeroCard = useCallback(
+    async (cardId: number | null) => {
+      if (!activeGameId) {
+        return
+      }
+      const previousCardId = activeGameSummary?.active_main_hero_card_id ?? null
+      if (previousCardId === cardId) {
+        return
+      }
+      applyActiveMainHeroCardId(activeGameId, cardId)
+      setErrorMessage('')
+      try {
+        const updatedGame = await updateStoryGameSettings({
+          token: authToken,
+          gameId: activeGameId,
+          activeMainHeroCardId: cardId,
+        })
+        applyUpdatedGameSummary(updatedGame)
+      } catch (error) {
+        applyActiveMainHeroCardId(activeGameId, previousCardId)
+        const detail = error instanceof Error ? error.message : 'Не удалось переключить главного героя'
+        setErrorMessage(detail)
+      }
+    },
+    [activeGameId, activeGameSummary?.active_main_hero_card_id, applyActiveMainHeroCardId, applyUpdatedGameSummary, authToken],
+  )
+
+  const handleOpenMainHeroSelectorMenu = useCallback((event: ReactMouseEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    setMainHeroSelectorAnchorEl(event.currentTarget)
+  }, [])
+
+  const handleCloseMainHeroSelectorMenu = useCallback(() => {
+    setMainHeroSelectorAnchorEl(null)
+  }, [])
+
+  const handleSelectActiveMainHeroCard = useCallback(
+    (card: StoryWorldCard) => {
+      setMainHeroSelectorAnchorEl(null)
+      void persistActiveMainHeroCard(card.id)
+    },
+    [persistActiveMainHeroCard],
+  )
+
   const applyWorldCardEvents = useCallback((nextEvents: StoryWorldCardEvent[]) => {
     void nextEvents
     setWorldCardEvents([])
@@ -7773,6 +7896,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [authToken],
   )
+
+  useEffect(() => {
+    if (!missingMainHeroDialogOpen || hasLoadedCharacters || isLoadingCharacters) {
+      return
+    }
+    void loadCharacters({ silent: true })
+  }, [hasLoadedCharacters, isLoadingCharacters, loadCharacters, missingMainHeroDialogOpen])
 
   const loadCharacterRaces = useCallback(async () => {
     setIsLoadingCharacterRaces(true)
@@ -7858,6 +7988,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setCharacterManagerSyncCardId(syncCardId)
       setCharacterManagerSyncCardKind(syncCardKind)
       setCharacterManagerSyncCardMemoryTurnsDraft(memoryTurns)
+      characterManagerCreateSelectionModeRef.current = null
+      characterManagerKnownCharacterIdsRef.current = new Set()
       setCharacterManagerDialogOpen(true)
     },
     [],
@@ -7871,6 +8003,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const targetMemoryTurns =
       characterManagerSyncCardKind === 'npc' ? characterManagerSyncCardMemoryTurnsDraft : undefined
     const returnMode = characterDialogReturnMode
+    const autoAddMode = characterManagerCreateSelectionModeRef.current
+    const knownCharacterIds = characterManagerKnownCharacterIdsRef.current
     let latestCharacters = characters
 
     setCharacterManagerDialogOpen(false)
@@ -7880,6 +8014,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterManagerSyncCardKind(null)
     setCharacterManagerSyncCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setCharacterDialogReturnMode(null)
+    characterManagerCreateSelectionModeRef.current = null
+    characterManagerKnownCharacterIdsRef.current = new Set()
 
     void (async () => {
       try {
@@ -7889,6 +8025,63 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setHasLoadedCharacters(true)
       } catch {
         // Ignore transient load errors here; other requests can still proceed.
+      }
+
+      if (autoAddMode && targetGameId) {
+        const createdCharacter =
+          latestCharacters.find((character) => !knownCharacterIds.has(character.id)) ?? null
+        if (createdCharacter) {
+          try {
+            const createdCard =
+              autoAddMode === 'select-main-hero'
+                ? await selectStoryMainHero({
+                    token: authToken,
+                    gameId: targetGameId,
+                    characterId: createdCharacter.id,
+                  })
+                : await createStoryNpcFromCharacter({
+                    token: authToken,
+                    gameId: targetGameId,
+                    characterId: createdCharacter.id,
+                  })
+            setWorldCards((previousCards) => {
+              const hasCard = previousCards.some((card) => card.id === createdCard.id)
+              if (hasCard) {
+                return previousCards.map((card) => (card.id === createdCard.id ? createdCard : card))
+              }
+              return [...previousCards, createdCard]
+            })
+            if (autoAddMode === 'select-main-hero') {
+              applyActiveMainHeroCardId(targetGameId, createdCard.id)
+              setMissingMainHeroDialogOpen(false)
+            } else {
+              setEditingWorldCardId(createdCard.id)
+              setEditingWorldCardKind(createdCard.kind)
+              setWorldCardTitleDraft(createdCard.title)
+              setWorldCardContentDraft(createdCard.content)
+              setWorldCardRaceDraft(normalizeCharacterRaceValue(createdCard.race))
+              setWorldCardRaceInputDraft(normalizeCharacterRaceValue(createdCard.race))
+              setWorldCardClothingDraft(normalizeCharacterAdditionalValue(createdCard.clothing))
+              setWorldCardInventoryDraft(normalizeCharacterAdditionalValue(createdCard.inventory))
+              setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(createdCard.health_status))
+              setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+              setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
+              setIsWorldCardAdditionalExpanded(
+                Boolean(
+                  normalizeCharacterAdditionalValue(createdCard.clothing) ||
+                    normalizeCharacterAdditionalValue(createdCard.inventory) ||
+                    normalizeCharacterAdditionalValue(createdCard.health_status),
+                ),
+              )
+              setWorldCardDialogOpen(true)
+            }
+            setCharacterDialogOpen(false)
+            return
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : 'Не удалось добавить созданного персонажа в игру'
+            setErrorMessage(detail)
+          }
+        }
       }
 
       if (returnMode) {
@@ -7965,6 +8158,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })()
   }, [
     activeGameId,
+    applyActiveMainHeroCardId,
     authToken,
     characterDialogReturnMode,
     characterManagerInitialCharacterId,
@@ -7978,6 +8172,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const handleOpenCharacterSelectorForMainHero = useCallback(async () => {
     await openCharacterDialog('select-main-hero')
   }, [openCharacterDialog])
+
+  const handleAddMainHeroFromComposer = useCallback(() => {
+    setMainHeroSelectorAnchorEl(null)
+    void handleOpenCharacterSelectorForMainHero()
+  }, [handleOpenCharacterSelectorForMainHero])
 
   const handleOpenCharacterSelectorForNpc = useCallback(async () => {
     await openCharacterDialog('select-npc')
@@ -8119,8 +8318,27 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   )
 
   const handleStartCreateCharacter = useCallback(() => {
+    characterManagerCreateSelectionModeRef.current = null
+    characterManagerKnownCharacterIdsRef.current = new Set()
     resetCharacterDraft()
   }, [resetCharacterDraft])
+
+  const handleStartCreateCharacterFromMainHeroSelector = useCallback(() => {
+    if (isSelectingCharacter) {
+      return
+    }
+    setCharacterDialogOpen(false)
+    setMissingMainHeroDialogOpen(false)
+    setCharacterDialogReturnMode('select-main-hero')
+    setCharacterManagerInitialMode('create')
+    setCharacterManagerInitialCharacterId(null)
+    setCharacterManagerSyncCardId(null)
+    setCharacterManagerSyncCardKind(null)
+    setCharacterManagerSyncCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    characterManagerCreateSelectionModeRef.current = 'select-main-hero'
+    characterManagerKnownCharacterIdsRef.current = new Set(characters.map((character) => character.id))
+    setCharacterManagerDialogOpen(true)
+  }, [characters, isSelectingCharacter])
 
   const handleStartCreateCharacterFromNpcSelector = useCallback(() => {
     if (characterDialogMode !== 'select-npc' || isSelectingCharacter) {
@@ -8133,8 +8351,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterManagerSyncCardId(null)
     setCharacterManagerSyncCardKind(null)
     setCharacterManagerSyncCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
+    characterManagerCreateSelectionModeRef.current = 'select-npc'
+    characterManagerKnownCharacterIdsRef.current = new Set(characters.map((character) => character.id))
     setCharacterManagerDialogOpen(true)
-  }, [characterDialogMode, isSelectingCharacter])
+  }, [characterDialogMode, characters, isSelectingCharacter])
 
   const handleStartEditCharacter = useCallback((character: StoryCharacter) => {
     setCharacterDialogReturnMode(null)
@@ -8379,11 +8599,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [activeGameId, applyPlotCardEvents, applyStoryGameSettings, applyWorldCardEvents, authToken, onNavigate])
 
   const handleSelectCharacterForGame = useCallback(
-    async (character: StoryCharacter) => {
+    async (character: StoryCharacter, modeOverride?: CharacterSelectionDialogMode) => {
       if (isSelectingCharacter) {
         return
       }
-      const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
+      const effectiveMode = modeOverride ?? characterDialogMode
+      const disabledReason = getCharacterSelectionDisabledReason(character, effectiveMode)
       if (disabledReason) {
         setErrorMessage(disabledReason)
         return
@@ -8397,7 +8618,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
 
         const createdCard =
-          characterDialogMode === 'select-main-hero'
+          effectiveMode === 'select-main-hero'
             ? await selectStoryMainHero({
                 token: authToken,
                 gameId: targetGameId,
@@ -8416,8 +8637,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
           return [...previousCards, createdCard]
         })
+        if (effectiveMode === 'select-main-hero') {
+          applyActiveMainHeroCardId(targetGameId, createdCard.id)
+          setMissingMainHeroDialogOpen(false)
+        }
         setCharacterDialogOpen(false)
-        if (characterDialogMode === 'select-npc') {
+        if (effectiveMode === 'select-npc') {
           setEditingWorldCardId(createdCard.id)
           setEditingWorldCardKind(createdCard.kind)
           setWorldCardTitleDraft(createdCard.title)
@@ -8447,6 +8672,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [
       authToken,
+      applyActiveMainHeroCardId,
       characterDialogMode,
       ensureGameForCharacterSelection,
       getCharacterSelectionDisabledReason,
@@ -8463,7 +8689,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         return
       }
 
-      const disabledReason = getCommunityCharacterSelectionDisabledReason(character, characterDialogMode)
+      const effectiveMode = characterDialogMode
+      const disabledReason = getCommunityCharacterSelectionDisabledReason(character, effectiveMode)
       if (disabledReason) {
         setErrorMessage(disabledReason)
         return
@@ -8537,7 +8764,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }
 
         const createdCard =
-          characterDialogMode === 'select-main-hero'
+          effectiveMode === 'select-main-hero'
             ? await selectStoryMainHero({
                 token: authToken,
                 gameId: targetGameId,
@@ -8556,8 +8783,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
           return [...previousCards, createdCard]
         })
+        if (effectiveMode === 'select-main-hero') {
+          applyActiveMainHeroCardId(targetGameId, createdCard.id)
+          setMissingMainHeroDialogOpen(false)
+        }
         setCharacterDialogOpen(false)
-        if (characterDialogMode === 'select-npc') {
+        if (effectiveMode === 'select-npc') {
           setEditingWorldCardId(createdCard.id)
           setEditingWorldCardKind(createdCard.kind)
           setWorldCardTitleDraft(createdCard.title)
@@ -8588,6 +8819,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     },
     [
       authToken,
+      applyActiveMainHeroCardId,
       characterDialogMode,
       ensureGameForCharacterSelection,
       getCommunityCharacterSelectionDisabledReason,
@@ -10600,6 +10832,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ? [...previousCards.filter((card) => card.kind !== 'world_profile'), createdCard]
             : [...previousCards, createdCard],
         )
+        if (createdCard.kind === 'main_hero') {
+          applyActiveMainHeroCardId(targetGameId, createdCard.id)
+        }
       } else {
         const updatedCard = await updateStoryWorldCard({
           token: authToken,
@@ -10655,6 +10890,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
   }, [
     activeGameId,
+    applyActiveMainHeroCardId,
     authToken,
     editingWorldCardId,
     editingWorldCardKind,
@@ -10774,12 +11010,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setErrorMessage('')
       setDeletingWorldCardId(cardId)
       try {
+        const deletedCard = worldCards.find((card) => card.id === cardId) ?? null
         await deleteStoryWorldCard({
           token: authToken,
           gameId: activeGameId,
           cardId,
         })
         setWorldCards((previousCards) => previousCards.filter((card) => card.id !== cardId))
+        if (
+          deletedCard?.kind === 'main_hero' &&
+          (activeGameSummary?.active_main_hero_card_id ?? mainHeroCard?.id ?? null) === cardId
+        ) {
+          const nextMainHeroCardId =
+            worldCards
+              .filter((card) => card.kind === 'main_hero' && card.id !== cardId)
+              .sort((left, right) => right.id - left.id)[0]?.id ?? null
+          applyActiveMainHeroCardId(activeGameId, nextMainHeroCardId)
+        }
         setWorldCardCharacterMirrorByCardId((previous) => {
           if (!(cardId in previous)) {
             return previous
@@ -10805,7 +11052,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         setDeletingWorldCardId(null)
       }
     },
-    [activeGameId, authToken, deletingWorldCardId, editingWorldCardId, isCreatingGame, isSavingWorldCard],
+    [
+      activeGameId,
+      activeGameSummary?.active_main_hero_card_id,
+      applyActiveMainHeroCardId,
+      authToken,
+      deletingWorldCardId,
+      editingWorldCardId,
+      isCreatingGame,
+      isSavingWorldCard,
+      mainHeroCard?.id,
+      worldCards,
+    ],
   )
 
   const handleOpenCreateMemoryBlockDialog = useCallback(() => {
@@ -11025,13 +11283,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
     if (targetType === 'world') {
       const worldCard = worldCards.find((card) => card.id === targetCardId)
-      if (worldCard?.kind === 'main_hero') {
-        setErrorMessage('Главного героя нельзя удалить после выбора')
-        return
-      }
       const normalizedTitle = worldCard?.title?.trim() || 'без названия'
       const worldCardLabel =
-        worldCard?.kind === 'npc' ? 'NPC-карточку' : 'карточку мира'
+        worldCard?.kind === 'main_hero' ? 'карточку ГГ' : worldCard?.kind === 'npc' ? 'NPC-карточку' : 'карточку мира'
       setDeletionPrompt({
         type: 'world',
         targetId: targetCardId,
@@ -12212,6 +12466,41 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     storyTopK,
     storyTopR,
     storyLlmModel,
+  ])
+
+  const toggleAutoNpcCardsEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (!targetGameId || isSavingStorySettings || isGenerating) {
+      return
+    }
+
+    const previousValue = autoNpcCardsEnabled
+    const nextValue = !previousValue
+    setAutoNpcCardsEnabled(nextValue)
+    setErrorMessage('')
+    setIsSavingAutoNpcCardsEnabled(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        autoNpcCardsEnabled: nextValue,
+      })
+      setAutoNpcCardsEnabled(Boolean(updatedGame.auto_npc_cards_enabled))
+      applyUpdatedGameSummary(updatedGame)
+    } catch (error) {
+      setAutoNpcCardsEnabled(previousValue)
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить автокарточки'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingAutoNpcCardsEnabled(false)
+    }
+  }, [
+    activeGameId,
+    applyUpdatedGameSummary,
+    authToken,
+    autoNpcCardsEnabled,
+    isGenerating,
+    isSavingStorySettings,
   ])
 
   const toggleCharacterStateEnabled = useCallback(async () => {
@@ -14476,7 +14765,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     smartRegenerationOptions?: SmartRegenerationOption[],
     smartRegenerationMode?: SmartRegenerationMode,
   ) => {
-    if (!canReroll || !activeGameId || !currentRerollAssistantMessage || !currentRerollSourceUserMessage) {
+    if (!canReroll || !activeGameId || !currentRerollSourceUserMessage) {
       return
     }
 
@@ -14496,13 +14785,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setIsRerollTurnPendingReplacement(true)
     setMessages((previousMessages) =>
       previousMessages.filter(
-        (message) => message.id !== rerollAssistantMessage.id && message.id !== rerollSourceUserMessage.id,
+        (message) =>
+          message.id !== rerollSourceUserMessage.id &&
+          (rerollAssistantMessage ? message.id !== rerollAssistantMessage.id : true),
       ),
     )
-    clearTurnImageEntries([rerollAssistantMessage.id])
+    if (rerollAssistantMessage) {
+      clearTurnImageEntries([rerollAssistantMessage.id])
+    }
 
     const generationResult = await sendStoryPrompt(rerollSourceUserMessage.content, {
-      discardLastAssistantSteps: 1,
+      discardLastAssistantSteps: rerollAssistantMessage ? 1 : 0,
       smartRegenerationMode,
       smartRegenerationOptions,
     })
@@ -14512,7 +14805,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         if (!restoredMessages.some((message) => message.id === rerollSourceUserMessage.id)) {
           restoredMessages.push(rerollSourceUserMessage)
         }
-        if (!restoredMessages.some((message) => message.id === rerollAssistantMessage.id)) {
+        if (rerollAssistantMessage && !restoredMessages.some((message) => message.id === rerollAssistantMessage.id)) {
           restoredMessages.push(rerollAssistantMessage)
         }
         return restoredMessages.sort((left, right) => left.id - right.id)
@@ -14759,6 +15052,22 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }
 
   const profileName = user.display_name || 'грок'
+  const avatarPreviewProfileCard =
+    characterAvatarPreview?.card &&
+    (characterAvatarPreview.card.kind === 'npc' || characterAvatarPreview.card.kind === 'main_hero')
+      ? characterAvatarPreview.card
+      : null
+  const avatarPreviewProfileCharacter = characterAvatarPreview?.character ?? null
+  const avatarPreviewProfileName =
+    avatarPreviewProfileCard?.title || avatarPreviewProfileCharacter?.name || characterAvatarPreview?.name || 'Персонаж'
+  const avatarPreviewProfileDescription =
+    avatarPreviewProfileCard?.content || avatarPreviewProfileCharacter?.description || ''
+  const avatarPreviewProfileRace = avatarPreviewProfileCard?.race || avatarPreviewProfileCharacter?.race || ''
+  const avatarPreviewProfileClothing = avatarPreviewProfileCard?.clothing || avatarPreviewProfileCharacter?.clothing || ''
+  const avatarPreviewProfileInventory = avatarPreviewProfileCard?.inventory || avatarPreviewProfileCharacter?.inventory || ''
+  const avatarPreviewProfileHealthStatus =
+    avatarPreviewProfileCard?.health_status || avatarPreviewProfileCharacter?.health_status || ''
+  const avatarPreviewProfileTriggers = avatarPreviewProfileCard?.triggers ?? avatarPreviewProfileCharacter?.triggers ?? []
 
   return (
     <Box
@@ -14860,13 +15169,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           <IconButton
             aria-label={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}
             onClick={() => {
-              setIsGameMenuOpen((previous) => {
-                const nextOpen = !previous
-                if (nextOpen) {
-                  resetEnvironmentModuleCardPositions(true)
-                }
-                return nextOpen
-              })
+              setIsGameMenuOpen((previous) => !previous)
             }}
             sx={{
               width: 40,
@@ -14918,19 +15221,38 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           width: { xs: 'min(292px, calc(100vw - 16px))', md: 304 },
           zIndex: 44,
           borderRadius: '16px',
-          backgroundColor: 'color-mix(in srgb, var(--morius-app-base) 92%, #000 8%)',
-          border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
-          boxShadow: '22px 0 58px rgba(0, 0, 0, 0.28)',
-          transform: isGameMenuOpen ? 'translate3d(0, 0, 0)' : 'translate3d(calc(-100% - 28px), 0, 0)',
-          opacity: isGameMenuOpen ? 1 : 0,
-          pointerEvents: isGameMenuOpen ? 'auto' : 'none',
-          transition: 'transform 260ms ease, opacity 220ms ease',
+          backgroundColor:
+            !isGameMenuOpen && isEnvironmentModuleCardDetached
+              ? 'transparent'
+              : 'color-mix(in srgb, var(--morius-app-base) 92%, #000 8%)',
+          border:
+            !isGameMenuOpen && isEnvironmentModuleCardDetached
+              ? 'var(--morius-border-width) solid transparent'
+              : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 58%, transparent)',
+          boxShadow: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 'none' : '22px 0 58px rgba(0, 0, 0, 0.28)',
+          transform:
+            isGameMenuOpen || isEnvironmentModuleCardDetached
+              ? 'translate3d(0, 0, 0)'
+              : 'translate3d(calc(-100% - 28px), 0, 0)',
+          opacity: isGameMenuOpen || isEnvironmentModuleCardDetached ? 1 : 0,
+          pointerEvents: isGameMenuOpen || isEnvironmentModuleCardDetached ? 'auto' : 'none',
+          transition: 'transform 260ms ease, opacity 220ms ease, background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'visible',
         }}
       >
-        <Stack spacing={1.25} sx={{ p: 1.1, pb: 0, flexShrink: 0 }}>
+        <Stack
+          spacing={1.25}
+          sx={{
+            p: 1.1,
+            pb: 0,
+            flexShrink: 0,
+            opacity: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 0 : 1,
+            pointerEvents: !isGameMenuOpen && isEnvironmentModuleCardDetached ? 'none' : 'auto',
+            transition: 'opacity 180ms ease',
+          }}
+        >
           <Box
             sx={{
               position: 'relative',
@@ -15590,53 +15912,91 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 {cardsPanelTab === 'characters' ? (
                   <Stack spacing={0.9}>
                     <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ minWidth: 0 }}>
-                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Главный герой</Typography>
+                      <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.16rem', fontWeight: 800 }}>Главные герои</Typography>
                       <ViewToggleButton cardsViewMode={cardsViewMode} setCardsViewMode={setCardsViewMode} />
                     </Stack>
-                    {!mainHeroCard ? (
+                    {mainHeroCards.length === 0 ? (
                       <RightPanelEmptyState
                         iconSrc={icons.world}
                         title="Герой не выбран"
                         description="Выберите главного героя, чтобы зафиксировать его внешность и роль в текущей истории."
                       />
                     ) : cardsViewMode === 'full' ? (
-                      <Box sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}>
-                        <CharacterShowcaseCard
-                          title={mainHeroCard!.title}
-                          description={replaceMainHeroInlineTags(mainHeroCard!.content, mainHeroDisplayNameForTags)}
-                          imageUrl={mainHeroAvatarUrl}
-                          imageScale={mainHeroCard!.avatar_scale}
-                          hideFooter
-                          descriptionLineClamp={4}
-                          titleAccessory={characterStateEnabled ? renderWorldCardAiAccessBadge(mainHeroCard!) : null}
-                          onClick={() => handleOpenEditWorldCardDialog(mainHeroCard!)}
-                          actionSlot={
-                            <IconButton
-                              className="morius-overflow-action"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                handleOpenCardMenu(event, 'world', mainHeroCard!.id)
-                              }}
-                              disabled={isWorldCardActionLocked}
-                              sx={overflowActionButtonSx}
-                            >
-                              <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
-                            </IconButton>
-                          }
-                        />
-                      </Box>
+                      <Stack spacing={0.85}>
+                        {mainHeroCards.map((card) => {
+                          const isActiveHero = card.id === mainHeroCard?.id
+                          return (
+                            <Box key={card.id} sx={{ '&:hover .morius-overflow-action, &:focus-within .morius-overflow-action': { opacity: 1, pointerEvents: 'auto' } }}>
+                              <CharacterShowcaseCard
+                                title={card.title}
+                                description={replaceMainHeroInlineTags(card.content, card.title)}
+                                imageUrl={resolveWorldCardAvatar(card)}
+                                imageScale={card.avatar_scale}
+                                hideFooter
+                                highlighted={isActiveHero}
+                                descriptionLineClamp={4}
+                                titleAccessory={
+                                  <Stack direction="row" spacing={0.5} alignItems="center">
+                                    {isActiveHero ? (
+                                      <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.74rem', fontWeight: 900 }}>
+                                        Активный
+                                      </Typography>
+                                    ) : null}
+                                    {characterStateEnabled ? renderWorldCardAiAccessBadge(card) : null}
+                                  </Stack>
+                                }
+                                onClick={() => handleOpenEditWorldCardDialog(card)}
+                                actionSlot={
+                                  <IconButton
+                                    className="morius-overflow-action"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      handleOpenCardMenu(event, 'world', card.id)
+                                    }}
+                                    disabled={isWorldCardActionLocked}
+                                    sx={overflowActionButtonSx}
+                                  >
+                                    <Box sx={{ fontSize: '1rem', lineHeight: 1 }}>{'\u22EE'}</Box>
+                                  </IconButton>
+                                }
+                              />
+                            </Box>
+                          )
+                        })}
+                      </Stack>
                     ) : (
-                      <MobileCardItem
-                        imageUrl={mainHeroAvatarUrl}
-                        fallbackBackground={buildWorldFallbackArtwork(mainHeroCard!.id) as Record<string, unknown>}
-                        title={mainHeroCard!.title}
-                        description={replaceMainHeroInlineTags(mainHeroCard!.content, mainHeroDisplayNameForTags)}
-                        showPlayButton={false}
-                        onMenuClick={(e) => handleOpenCardMenu(e, 'world', mainHeroCard!.id)}
-                        infoNode={characterStateEnabled ? renderWorldCardAiAccessBadge(mainHeroCard!) : undefined}
-                        onClick={() => handleOpenEditWorldCardDialog(mainHeroCard!)}
-                      />
+                      <Stack spacing={1}>
+                        {mainHeroCards.map((card) => (
+                          <MobileCardItem
+                            key={card.id}
+                            imageUrl={resolveWorldCardAvatar(card)}
+                            fallbackBackground={buildWorldFallbackArtwork(card.id) as Record<string, unknown>}
+                            title={card.id === mainHeroCard?.id ? `${card.title} · активный` : card.title}
+                            description={replaceMainHeroInlineTags(card.content, card.title)}
+                            showPlayButton={false}
+                            onMenuClick={(e) => handleOpenCardMenu(e, 'world', card.id)}
+                            infoNode={characterStateEnabled ? renderWorldCardAiAccessBadge(card) : undefined}
+                            onClick={() => handleOpenEditWorldCardDialog(card)}
+                          />
+                        ))}
+                      </Stack>
                     )}
+
+                    <Button
+                      onClick={() => void handleOpenCharacterSelectorForMainHero()}
+                      disabled={isGenerating || isCreatingGame}
+                      sx={{
+                        minHeight: 40,
+                        borderRadius: '12px',
+                        textTransform: 'none',
+                        color: 'var(--morius-text-primary)',
+                        border: 'var(--morius-border-width) dashed var(--morius-card-border)',
+                        backgroundColor: 'var(--morius-elevated-bg)',
+                        '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+                      }}
+                    >
+                      Добавить ГГ
+                    </Button>
 
                     <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.08rem', fontWeight: 800, pt: 0.2 }}>Персонажи</Typography>
                     {displayedNpcCards.length === 0 ? (
@@ -16865,7 +17225,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             Выбор рассказчика
                           </Typography>
                           <SettingsInfoTooltipIcon
-                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, Xiaomi Mimo Pro, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
+                            text={`${STORY_SETTINGS_INFO_TEXT.narrator} Также доступны GLM 5.1, AionLabs, Gemini 2.5 Pro, Gemini 3.1 Pro, Qwen 3.5 122B и Claude Sonnet 4.6.`}
                           />
                         </Stack>
                         <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
@@ -17374,6 +17734,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             checked={smoothStreamingEnabled}
                             onChange={toggleSmoothStreamingEnabled}
                             disabled={isGenerating}
+                            sx={{
+                              '& .MuiSwitch-switchBase.Mui-checked': {
+                                color: 'var(--morius-accent)',
+                              },
+                              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                backgroundColor: switchCheckedTrackColor,
+                                opacity: 1,
+                              },
+                              '& .MuiSwitch-track': {
+                                backgroundColor: switchTrackColor,
+                                opacity: 1,
+                              },
+                            }}
+                          />
+                        </Stack>
+
+                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                          <Stack direction="row" spacing={0.45} alignItems="center">
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                              Авто-карточки
+                            </Typography>
+                            <SettingsInfoTooltipIcon text="Если включено, подкапотный ИИ после хода добавляет в NPC только новых значимых именованных персонажей: союзников, командиров, антагонистов, квестовых и повторяющихся героев." />
+                          </Stack>
+                          <Switch
+                            checked={autoNpcCardsEnabled}
+                            onChange={() => {
+                              void toggleAutoNpcCardsEnabled()
+                            }}
+                            disabled={isSavingStorySettings || isGenerating}
                             sx={{
                               '& .MuiSwitch-switchBase.Mui-checked': {
                                 color: 'var(--morius-accent)',
@@ -18921,6 +19310,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       avatarScale: mainHeroCard!.avatar_scale,
                       fallbackLabel: mainHeroCard!.title,
                       size: 28,
+                      profileCard: mainHeroCard,
+                      profileCharacter: resolveLinkedCharacterForWorldCard(mainHeroCard),
                     })}
                     <Stack spacing={0.05} sx={{ minWidth: 0 }}>
                       <Typography
@@ -19481,6 +19872,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                          nearbyNarrativeContext,
 	                        )
 	                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+	                        const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
 	                        return (
 	                          <Stack
                             key={`quick-start-character-${index}`}
@@ -19497,6 +19889,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                               fallbackLabel: resolvedSpeakerName,
                               size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                              profileCard: speakerEntry?.card ?? null,
+                              profileCharacter: speakerEntry?.character ?? null,
                             })}
                             <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                               <Typography
@@ -19719,6 +20113,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               renderPreviewableCharacterAvatar={renderPreviewableCharacterAvatar}
                               resolveDialogueAvatar={resolveDialogueAvatar}
                               resolveDialogueAvatarPreview={resolveDialogueAvatarPreview}
+                              resolveDialogueSpeakerEntry={resolveDialogueSpeakerEntry}
                               resolveDialogueSpeakerName={resolveDialogueSpeakerName}
                             />
                           ) : (
@@ -19735,6 +20130,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                                nearbyNarrativeContext,
 	                              )
 	                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
+	                              const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
 	                              return (
 	                                <Stack
                                   key={`${message.id}-${index}-character`}
@@ -19751,6 +20147,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                     previewUrl: resolveDialogueAvatarPreview(resolvedSpeakerName),
                                     fallbackLabel: resolvedSpeakerName,
                                     size: ASSISTANT_DIALOGUE_AVATAR_SIZE,
+                                    profileCard: speakerEntry?.card ?? null,
+                                    profileCharacter: speakerEntry?.character ?? null,
                                   })}
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
@@ -20311,6 +20709,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         previewUrl: mainHeroPreviewAvatarUrl,
                         fallbackLabel: mainHeroCard?.title || user.display_name || 'грок',
                         size: 28,
+                        profileCard: mainHeroCard,
+                        profileCharacter: resolveLinkedCharacterForWorldCard(mainHeroCard),
                       })}
                       <Box
                         component="div"
@@ -20649,6 +21049,45 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               },
             }}
           >
+            <Tooltip
+              arrow
+              placement="top"
+              title={mainHeroCard ? `Вы играете за ${mainHeroCard.title}` : 'Выбрать главного героя'}
+            >
+              <span>
+                <IconButton
+                  aria-label={mainHeroCard ? `Вы играете за ${mainHeroCard.title}` : 'Выбрать главного героя'}
+                  onClick={handleOpenMainHeroSelectorMenu}
+                  sx={{
+                    position: 'absolute',
+                    left: { xs: 8, sm: 10 },
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    width: 36,
+                    height: 36,
+                    minWidth: 36,
+                    minHeight: 36,
+                    p: 0,
+                    zIndex: 2,
+                    borderRadius: '999px',
+                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
+                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.24)',
+                    '&:hover': {
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
+                      borderColor: 'color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))',
+                    },
+                  }}
+                >
+                  <CharacterAvatar
+                    avatarUrl={mainHeroAvatarUrl}
+                    avatarScale={mainHeroCard?.avatar_scale ?? 1}
+                    fallbackLabel={mainHeroCard?.title ?? '+'}
+                    size={30}
+                  />
+                </IconButton>
+              </span>
+            </Tooltip>
             <Box
               component="textarea"
               ref={textAreaRef}
@@ -20685,6 +21124,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
                 boxSizing: 'border-box',
                 px: { xs: 1.95, sm: 2.15 },
+                pl: { xs: 6.1, sm: 6.35 },
                 py: { xs: '8px', sm: '9px' },
                 pr: { xs: 5.6, sm: 6 },
                 overflowY: 'hidden',
@@ -21225,6 +21665,93 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         ) : null}
       </Menu>
 
+      <Menu
+        anchorEl={mainHeroSelectorAnchorEl}
+        open={Boolean(mainHeroSelectorAnchorEl)}
+        onClose={handleCloseMainHeroSelectorMenu}
+        PaperProps={{
+          sx: {
+            mt: 0.75,
+            minWidth: 250,
+            maxWidth: 330,
+            borderRadius: '14px',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            backgroundColor: 'var(--morius-card-bg)',
+            boxShadow: '0 16px 38px rgba(0, 0, 0, 0.42)',
+            color: 'var(--morius-text-primary)',
+            overflow: 'hidden',
+          },
+        }}
+      >
+        {mainHeroCards.length > 0 ? (
+          mainHeroCards.map((card) => {
+            const isActiveHero = card.id === mainHeroCard?.id
+            return (
+              <MenuItem
+                key={card.id}
+                onClick={() => handleSelectActiveMainHeroCard(card)}
+                selected={isActiveHero}
+                sx={{
+                  minHeight: 46,
+                  gap: 0.85,
+                  color: 'var(--morius-text-primary)',
+                  backgroundColor: isActiveHero ? 'var(--morius-button-active)' : 'transparent',
+                  '&:hover': {
+                    backgroundColor: isActiveHero ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                  },
+                }}
+              >
+                <CharacterAvatar
+                  avatarUrl={resolveWorldCardAvatar(card)}
+                  avatarScale={card.avatar_scale}
+                  fallbackLabel={card.title}
+                  size={30}
+                />
+                <Stack spacing={0.05} sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontWeight: 800, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {card.title}
+                  </Typography>
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.1 }}>
+                    {isActiveHero ? 'Активный ГГ' : 'Переключиться'}
+                  </Typography>
+                </Stack>
+              </MenuItem>
+            )
+          })
+        ) : (
+          <MenuItem disabled sx={{ color: 'var(--morius-text-secondary)', opacity: 1, whiteSpace: 'normal' }}>
+            Главный герой пока не выбран
+          </MenuItem>
+        )}
+        <MenuItem
+          onClick={handleAddMainHeroFromComposer}
+          sx={{
+            minHeight: 44,
+            gap: 0.85,
+            borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+            color: 'var(--morius-text-primary)',
+            '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+          }}
+        >
+          <Box
+            sx={{
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
+              display: 'grid',
+              placeItems: 'center',
+              fontWeight: 900,
+              fontSize: '1.2rem',
+              lineHeight: 1,
+            }}
+          >
+            +
+          </Box>
+          <Typography sx={{ fontWeight: 800, fontSize: '0.9rem' }}>Добавить нового ГГ</Typography>
+        </MenuItem>
+      </Menu>
+
       <AdvancedRegenerationDialog
         open={advancedRegenerationDialogOpen}
         selectedMode={selectedSmartRegenerationMode}
@@ -21249,7 +21776,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
         header={
           <Stack spacing={0.35}>
-            <Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Выберите Главного Героя</Typography>
+            <Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Главный герой</Typography>
           </Stack>
         }
         actions={
@@ -21274,15 +21801,106 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 },
               }}
             >
-              Продолжить
+              Закрыть
             </Button>
           </Stack>
         }
       >
-        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.94rem', lineHeight: 1.55 }}>
-          Главный герой - то за кого вы играете. Он всегда есть в памяти модели чтобы она понимала за кого вы играете.
-          Рекомендуем не оставлять его пустым.
-        </Typography>
+        <Stack spacing={1.05}>
+          <Button
+            onClick={handleStartCreateCharacterFromMainHeroSelector}
+            disabled={isSelectingCharacter || isSavingCharacter}
+            sx={{
+              minHeight: 74,
+              borderRadius: '12px',
+              border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+              color: 'var(--morius-text-primary)',
+              textTransform: 'none',
+              '&:hover': {
+                backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
+                borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
+              },
+            }}
+          >
+            <Stack direction="row" spacing={0.85} alignItems="center">
+              <Box
+                sx={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: '50%',
+                  border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  fontSize: '1.5rem',
+                  fontWeight: 800,
+                  lineHeight: 1,
+                }}
+              >
+                +
+              </Box>
+              <Typography sx={{ fontWeight: 800, fontSize: '0.96rem' }}>Создать нового ГГ</Typography>
+            </Stack>
+          </Button>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.94rem', lineHeight: 1.55 }}>
+            В идеале нужен ГГ, чтобы модель лучше понимала, за кого вы играете. Можно создать нового персонажа или выбрать уже готового из профиля.
+          </Typography>
+
+          {isLoadingCharacters && ownCharacterOptions.length === 0 ? (
+            <Stack alignItems="center" sx={{ py: 1.3 }}>
+              <CircularProgress size={22} sx={{ color: 'var(--morius-accent)' }} />
+            </Stack>
+          ) : ownCharacterOptions.length > 0 ? (
+            <Stack spacing={0.7} className="morius-scrollbar" sx={{ maxHeight: 330, overflowY: 'auto', pr: 0.2 }}>
+              {ownCharacterOptions.map((character) => {
+                const disabledReason = getCharacterSelectionDisabledReason(character, 'select-main-hero')
+                return (
+                  <Button
+                    key={character.id}
+                    onClick={() => void handleSelectCharacterForGame(character, 'select-main-hero')}
+                    disabled={isSelectingCharacter || Boolean(disabledReason)}
+                    sx={{
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: 'var(--morius-card-bg)',
+                      color: 'var(--morius-text-primary)',
+                      textTransform: 'none',
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                      px: 0.9,
+                      py: 0.75,
+                      opacity: disabledReason ? 0.64 : 1,
+                    }}
+                  >
+                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
+                      {renderPreviewableCharacterAvatar({
+                        avatarUrl: character.avatar_url,
+                        previewUrl: character.avatar_original_url ?? character.avatar_url,
+                        avatarScale: character.avatar_scale,
+                        fallbackLabel: character.name,
+                        size: 36,
+                        profileCharacter: character,
+                      })}
+                      <Stack spacing={0.18} sx={{ minWidth: 0, alignItems: 'flex-start', flex: 1 }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 800, fontSize: '0.95rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                          {character.name}
+                        </Typography>
+                        <Typography sx={{ color: 'rgba(207, 217, 232, 0.78)', fontSize: '0.82rem', lineHeight: 1.28, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {character.description}
+                        </Typography>
+                        {disabledReason ? (
+                          <Typography sx={{ color: 'rgba(241, 189, 159, 0.9)', fontSize: '0.74rem', lineHeight: 1.2 }}>
+                            {disabledReason}
+                          </Typography>
+                        ) : null}
+                      </Stack>
+                    </Stack>
+                  </Button>
+                )
+              })}
+            </Stack>
+          ) : null}
+        </Stack>
       </BaseDialog>
 
       <BaseDialog
@@ -23237,6 +23855,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           avatarScale: character.avatar_scale,
                           fallbackLabel: character.name,
                           size: 34,
+                          profileCharacter: character,
                         })}
                         <Stack sx={{ flex: 1, minWidth: 0, alignItems: 'flex-start' }} spacing={0.34}>
                           <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
@@ -23284,7 +23903,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Stack spacing={0.85}>
               <Typography sx={{ color: 'rgba(190, 202, 220, 0.72)', fontSize: '0.9rem' }}>
                 {characterDialogMode === 'select-main-hero'
-                  ? 'Выберите персонажа для роли главного героя. После выбора смена будет недоступна.'
+                  ? 'Выберите персонажа для роли главного героя. Можно добавить нескольких ГГ и переключаться между ними в поле ввода.'
                   : 'Выберите персонажа для добавления как NPC.'}
               </Typography>
               <Stack direction="row" spacing={0.8}>
@@ -23393,9 +24012,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <Box className="morius-scrollbar" sx={{ maxHeight: 390, overflowY: 'auto', pr: 0.2 }}>
                 {characterSelectionTab === 'my' ? (
                   <Stack spacing={0.75}>
-                    {characterDialogMode === 'select-npc' ? (
+                    {characterDialogMode === 'select-npc' || characterDialogMode === 'select-main-hero' ? (
                       <Button
-                        onClick={handleStartCreateCharacterFromNpcSelector}
+                        onClick={
+                          characterDialogMode === 'select-main-hero'
+                            ? handleStartCreateCharacterFromMainHeroSelector
+                            : handleStartCreateCharacterFromNpcSelector
+                        }
                         aria-label="Create character"
                         disabled={isSavingCharacter || isSelectingCharacter}
                         sx={{
@@ -23459,6 +24082,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               avatarScale: character.avatar_scale,
                               fallbackLabel: character.name,
                               size: 34,
+                              profileCharacter: character,
                             })}
                             <Stack spacing={0.34} sx={{ minWidth: 0, alignItems: 'flex-start' }}>
                               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0, width: '100%' }}>
@@ -23793,28 +24417,119 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         onClose={handleCloseCharacterAvatarPreview}
         maxWidth={false}
         fullWidth={false}
-        header={characterAvatarPreview?.name || 'Аватар персонажа'}
+        header={avatarPreviewProfileCard ? avatarPreviewProfileName : characterAvatarPreview?.name || 'Аватар персонажа'}
         actions={
           <Button onClick={handleCloseCharacterAvatarPreview} sx={{ color: 'text.secondary' }}>
             Закрыть
           </Button>
         }
         paperSx={{
-          width: 'min(96vw, 1600px)',
+          width: avatarPreviewProfileCard ? 'min(94vw, 980px)' : 'min(96vw, 1600px)',
           maxWidth: 'none',
           maxHeight: '96vh',
         }}
         contentSx={{
-          px: 1,
+          px: avatarPreviewProfileCard ? { xs: 1.2, md: 1.6 } : 1,
           pt: 0.5,
-          pb: 0.7,
+          pb: avatarPreviewProfileCard ? 1.4 : 0.7,
           display: 'flex',
           justifyContent: 'center',
           alignItems: 'flex-start',
           overflow: 'auto',
         }}
       >
-        {characterAvatarPreview ? (
+        {characterAvatarPreview && avatarPreviewProfileCard ? (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 360px) 1fr' },
+              gap: { xs: 1.2, md: 1.55 },
+              width: '100%',
+              alignItems: 'stretch',
+            }}
+          >
+            <ProgressiveImage
+              src={characterAvatarPreview.url}
+              alt={avatarPreviewProfileName}
+              loading="eager"
+              fetchPriority="high"
+              objectFit="contain"
+              loaderSize={32}
+              containerSx={{
+                width: '100%',
+                minHeight: { xs: 320, md: 520 },
+                maxHeight: { xs: '62vh', md: '76vh' },
+                borderRadius: '14px',
+                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                backgroundColor: 'var(--morius-elevated-bg)',
+                overflow: 'hidden',
+              }}
+              imgSx={{
+                position: 'relative',
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+              }}
+            />
+            <Stack spacing={1.05} sx={{ minWidth: 0 }}>
+              <Stack spacing={0.25}>
+                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.25rem', md: '1.45rem' }, fontWeight: 900, lineHeight: 1.12 }}>
+                  {avatarPreviewProfileName}
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.86rem', fontWeight: 800 }}>
+                  {avatarPreviewProfileCard.kind === 'main_hero' ? 'Главный герой' : 'NPC'}
+                </Typography>
+              </Stack>
+              {avatarPreviewProfileDescription ? (
+                <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.95rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                  {replaceMainHeroInlineTags(avatarPreviewProfileDescription, mainHeroDisplayNameForTags)}
+                </Typography>
+              ) : null}
+              <Stack spacing={0.6}>
+                {[
+                  ['Раса', avatarPreviewProfileRace],
+                  ['Одежда', avatarPreviewProfileClothing],
+                  ['Инвентарь', avatarPreviewProfileInventory],
+                  ['Состояние', avatarPreviewProfileHealthStatus],
+                ].filter(([, value]) => Boolean(String(value || '').trim())).map(([label, value]) => (
+                  <Box
+                    key={label}
+                    sx={{
+                      borderRadius: '12px',
+                      border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, transparent)',
+                      px: 0.85,
+                      py: 0.68,
+                    }}
+                  >
+                    <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0 }}>
+                      {label}
+                    </Typography>
+                    <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.88rem', lineHeight: 1.35, whiteSpace: 'pre-wrap' }}>
+                      {value}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+              <Box
+                sx={{
+                  borderRadius: '12px',
+                  border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+                  backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 74%, transparent)',
+                  px: 0.85,
+                  py: 0.68,
+                }}
+              >
+                <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0 }}>
+                  Триггеры
+                </Typography>
+                <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.88rem', lineHeight: 1.35 }}>
+                  {avatarPreviewProfileTriggers.length ? avatarPreviewProfileTriggers.join(', ') : '—'}
+                </Typography>
+              </Box>
+            </Stack>
+          </Box>
+        ) : characterAvatarPreview ? (
           <ProgressiveImage
             src={characterAvatarPreview.url}
             alt={characterAvatarPreview.name || 'Character avatar'}

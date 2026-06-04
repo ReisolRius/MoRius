@@ -8019,6 +8019,207 @@ def _normalize_story_important_event_analysis_payload(
     return (normalized_title, sanitized_content)
 
 
+def _sync_story_auto_npc_cards_for_assistant_message(
+    *,
+    db: Session,
+    game: StoryGame,
+    assistant_message: StoryMessage,
+    latest_user_prompt: str,
+    latest_assistant_text: str,
+) -> list[Any]:
+    if not bool(getattr(game, "auto_npc_cards_enabled", False)):
+        return []
+    if not settings.polza_api_key:
+        return []
+
+    normalized_prompt = _normalize_story_prompt_text(latest_user_prompt, max_chars=1_600)
+    normalized_assistant = _normalize_story_prompt_text(latest_assistant_text, max_chars=4_500)
+    if not normalized_assistant:
+        return []
+
+    from app.models import StoryWorldCard
+    from app.services.story_characters import (
+        normalize_story_character_clothing,
+        normalize_story_character_health_status,
+        normalize_story_character_inventory,
+        normalize_story_character_race,
+    )
+    from app.services.story_queries import touch_story_game
+    from app.services.story_world_cards import (
+        STORY_WORLD_CARD_KIND_MAIN_HERO,
+        STORY_WORLD_CARD_KIND_NPC,
+        STORY_WORLD_CARD_SOURCE_AI,
+        normalize_story_npc_profile_content,
+        normalize_story_world_card_content,
+        normalize_story_world_card_kind,
+        normalize_story_world_card_memory_turns_for_storage,
+        normalize_story_world_card_title,
+        normalize_story_world_card_triggers,
+        serialize_story_world_card_triggers,
+    )
+
+    existing_cards = _list_story_world_cards(db, game.id)
+    existing_identity_keys: set[str] = set()
+    known_character_names: list[str] = []
+    for card in existing_cards:
+        card_kind = normalize_story_world_card_kind(getattr(card, "kind", None))
+        if card_kind not in {STORY_WORLD_CARD_KIND_MAIN_HERO, STORY_WORLD_CARD_KIND_NPC}:
+            continue
+        title = " ".join(str(getattr(card, "title", "") or "").split()).strip()
+        if not title:
+            continue
+        key = title.casefold()
+        existing_identity_keys.add(key)
+        known_character_names.append(title)
+        try:
+            for trigger in _deserialize_story_world_card_triggers(getattr(card, "triggers", "") or ""):
+                trigger_key = " ".join(str(trigger or "").split()).strip().casefold()
+                if trigger_key:
+                    existing_identity_keys.add(trigger_key)
+        except Exception:
+            pass
+
+    messages_payload = [
+        {
+            "role": "system",
+            "content": (
+                "You extract only NEW significant named NPCs from one RPG narrator reply. "
+                "Return strict JSON only: {\"npcs\":[{\"name\":\"...\",\"race\":\"...\","
+                "\"description\":\"...\",\"clothing\":\"...\",\"inventory\":\"...\","
+                "\"health_status\":\"...\",\"triggers\":[\"...\"],\"significance_score\":0,"
+                "\"reason\":\"...\"}]}. "
+                "Create an NPC only if the reply introduces a stable named person who is likely to matter later: "
+                "a named ally, commander, mentor, antagonist, quest giver, authority, recurring companion, rival, "
+                "witness with important information, or named character with a clear role/goal/relationship. "
+                "A unique proper name is strong evidence, but still exclude disposable guards, random bandits, crowds, "
+                "monsters, animals, merchants, servants, or unnamed roles unless the text makes them important. "
+                "Never add the player's main hero, existing known characters, generic titles, groups, locations, items, or organizations. "
+                "description must be useful for a character card in Russian: identity, role, personality, current relation to the hero, and scene facts. "
+                "Do not invent beyond the reply; if race/clothing/inventory/health are unknown, use a short conservative Russian value or an empty string. "
+                "Use significance_score >= 70 only for NPCs that should become cards. Return an empty array when there is no such NPC."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Existing character names:\n{json.dumps(known_character_names, ensure_ascii=False)}\n\n"
+                f"Latest player turn:\n{normalized_prompt or 'none'}\n\n"
+                f"Narrator reply:\n{normalized_assistant}"
+            ),
+        },
+    ]
+
+    try:
+        raw_response = _request_polza_story_text(
+            messages_payload,
+            model_name=STORY_TURN_POSTPROCESS_MODEL,
+            allow_service_fallback=False,
+            translate_input=False,
+            fallback_model_names=[],
+            temperature=0.0,
+            max_tokens=900,
+            request_timeout=(
+                STORY_PLOT_CARD_REQUEST_CONNECT_TIMEOUT_SECONDS,
+                STORY_PLOT_CARD_REQUEST_READ_TIMEOUT_SECONDS,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("Story auto-NPC extraction failed: game_id=%s error=%s", game.id, exc)
+        return []
+
+    parsed_payload = _extract_json_object_from_text(_normalize_story_message_content(raw_response))
+    if not isinstance(parsed_payload, dict):
+        return []
+    raw_npcs = parsed_payload.get("npcs")
+    if not isinstance(raw_npcs, list):
+        return []
+
+    created_cards: list[Any] = []
+    for raw_item in raw_npcs[:3]:
+        if not isinstance(raw_item, dict):
+            continue
+        try:
+            score_value = raw_item.get("significance_score", raw_item.get("importance_score", 0))
+            score = int(float(str(score_value).replace(",", ".").strip()))
+        except Exception:
+            score = 0
+        if score < 70:
+            continue
+
+        raw_name = str(raw_item.get("name") or raw_item.get("title") or "").strip()
+        try:
+            title = normalize_story_world_card_title(raw_name)
+        except Exception:
+            continue
+        if title.casefold() in existing_identity_keys:
+            continue
+        if len(title.split()) > 5:
+            continue
+
+        raw_description = str(raw_item.get("description") or raw_item.get("content") or "").strip()
+        if len(raw_description) < 24:
+            continue
+        try:
+            normalized_content = normalize_story_npc_profile_content(
+                title,
+                normalize_story_world_card_content(raw_description),
+            )
+        except Exception:
+            continue
+
+        raw_triggers = raw_item.get("triggers")
+        trigger_values = [title]
+        if isinstance(raw_triggers, list):
+            trigger_values.extend(str(value) for value in raw_triggers if isinstance(value, str))
+        elif isinstance(raw_triggers, str):
+            trigger_values.append(raw_triggers)
+        triggers = normalize_story_world_card_triggers(trigger_values, fallback_title=title)
+
+        card = StoryWorldCard(
+            game_id=game.id,
+            title=title,
+            content=normalized_content,
+            race=normalize_story_character_race(raw_item.get("race")),
+            clothing=normalize_story_character_clothing(raw_item.get("clothing")),
+            inventory=normalize_story_character_inventory(raw_item.get("inventory")),
+            health_status=normalize_story_character_health_status(raw_item.get("health_status")),
+            triggers=serialize_story_world_card_triggers(triggers),
+            kind=STORY_WORLD_CARD_KIND_NPC,
+            detail_type="",
+            avatar_url=None,
+            avatar_original_url=None,
+            avatar_scale=1.0,
+            character_id=None,
+            memory_turns=normalize_story_world_card_memory_turns_for_storage(
+                None,
+                kind=STORY_WORLD_CARD_KIND_NPC,
+                explicit=False,
+                current_value=None,
+            ),
+            is_locked=False,
+            ai_edit_enabled=True,
+            source=STORY_WORLD_CARD_SOURCE_AI,
+        )
+        db.add(card)
+        db.flush()
+        created_cards.append(card)
+        existing_identity_keys.add(title.casefold())
+        for trigger in triggers:
+            trigger_key = " ".join(str(trigger or "").split()).strip().casefold()
+            if trigger_key:
+                existing_identity_keys.add(trigger_key)
+
+    if created_cards:
+        touch_story_game(game)
+        logger.info(
+            "Story auto-NPC cards created: game_id=%s assistant_message_id=%s count=%s",
+            game.id,
+            assistant_message.id,
+            len(created_cards),
+        )
+    return created_cards
+
+
 
 
 
@@ -8752,10 +8953,14 @@ def _extract_story_postprocess_memory_payload(
                 "Mark is_important=true for durable changes: decisive commitments, new obligations/goals, key revelations, alliance/trust shifts, gains/losses, constraints, named injury or condition, gained/lost key item, concrete clue, debt, promise, threat, invitation, unlocked route, or relationship turn.",
 
                 "Do not require epic scale or irreversible world-changing stakes; if a concrete change should affect future turns or prevent continuity loss, save one concise important_event.",
+                "Also save a named NPC introduction when the NPC has a clear role, authority, relationship, quest relevance, unique information, or likely recurring presence.",
+                "Also save a concrete location transition, new access rule, opened/closed route, faction standing change, bargain condition, secret, clue, promise, threat, debt, injury, obtained/lost item, or relationship shift when it changes future choices.",
+                "If unsure and the turn contains a named actor plus a durable consequence, commitment, resource, relationship change, or new constraint, prefer is_important=true with importance_score at least 72.",
 
                 "Routine actions, atmosphere, ordinary dialogue, small emotions, or cosmetic details are not important events.",
                 "A vivid sentence, silence, hesitation, or a short emotional beat without a new long-term consequence is not an important event.",
                 "Self-description, mood, loneliness, a tired look, skipping lunch, or one ordinary social remark are not important events unless they create a new lasting consequence.",
+                "Generic fights with unnamed enemies, disposable guards, crowds, travel flavor, and isolated mood beats are not important unless they create a lasting state or decision.",
                 "Use is_important=false only when nothing concrete changed for future continuity.",
 
                 "important_event.content must be 1-2 short factual Russian sentences in past tense.",
@@ -12236,6 +12441,21 @@ def _should_accept_story_important_event_candidate(
     ):
         return False
 
+    if (
+        importance_score >= 78
+        and (turn_important_hits > 0 or candidate_important_hits > 0 or turn_strong_hits > 0 or candidate_strong_hits > 0)
+        and candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 2, 5)
+    ):
+        return True
+
+    if (
+        importance_score >= 72
+        and turn_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 1, 6)
+        and candidate_top_score >= max(STORY_MEMORY_KEY_EVENT_MIN_LINE_SCORE - 2, 5)
+        and (turn_important_hits > 0 or candidate_important_hits > 0)
+    ):
+        return True
+
     if turn_strong_hits > 0 or candidate_strong_hits > 0:
         return True
 
@@ -13358,12 +13578,15 @@ def _extract_story_important_plot_card_payload(
                 "Set is_important=true for meaningful events or durable continuity changes with likely relevance in future turns. "
 
                 "Do not require epic scale: a concrete new clue, named injury or condition, important item gained/lost, promise, debt, betrayal, relationship shift, or new practical constraint can be important. "
+                "A named NPC introduction is important when the NPC has a clear role, authority, relationship, quest relevance, unique information, or likely recurring presence. "
+                "A concrete location transition, new access rule, opened/closed route, faction standing change, bargain condition, secret, clue, promise, threat, debt, injury, obtained/lost item, or relationship shift is important when it changes future choices. "
                 "Prefer saving one concise event when a concrete change should affect future turns or prevent continuity loss. "
 
                 "Do not mark routine actions, atmosphere, small emotions, ordinary dialogue, or cosmetic details. "
 
                 "Do not mark silence, a short reaction, or a vivid phrase unless they create a clear long-term consequence. "
                 "Do not mark self-description, mood, loneliness, a tired look, skipping lunch, or one ordinary social remark unless they create a new lasting consequence. "
+                "Do not mark generic fights with unnamed enemies, disposable guards, crowds, travel flavor, or isolated mood beats unless they create a lasting state or decision. "
 
                 "title must be a short Russian event label without generic phrases like \"Важный момент\". "
 
@@ -13399,6 +13622,8 @@ def _extract_story_important_plot_card_payload(
                 "Also accept medium-sized but story-relevant continuity changes if they should be remembered later, such as a named wound, curse, disease, acquired key item, debt, promise, threat, invitation, discovered clue, unlocked route, changed access, or relationship turn. "
 
                 "If the turn contains any concrete durable change, do not be overly strict: return is_important=true with importance_score at least 70. "
+                "If the turn introduces a named NPC with role/authority/relationship/quest relevance or unique information, return is_important=true with importance_score at least 72. "
+                "If a named actor makes a promise, threat, bargain, request, alliance shift, or reveals a clue/secret, return is_important=true with importance_score at least 72. "
                 "If the turn only adds tone, tension, or a short exchange without new lasting consequences, return is_important=false. "
 
                 "If there is no such event, return is_important=false, importance_score<=55, title=\"\", content=\"\"."
