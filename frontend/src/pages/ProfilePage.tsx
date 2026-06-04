@@ -95,6 +95,7 @@ import type {
   StoryInstructionTemplate,
 } from '../types/story'
 import { moriusThemeTokens } from '../theme'
+import { getProfileBannerPreset, normalizeProfileBannerId } from '../constants/profileBanners'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { dispatchNotificationsChanged } from '../utils/notifications'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
@@ -121,6 +122,8 @@ type TabId = 'games' | 'characters' | 'world_cards' | 'instructions' | 'favorite
 type ProfileMainSection = 'library' | 'publications'
 type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
+type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history'
+type CloneSelectionState = Record<CloneSectionKey, boolean>
 
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
@@ -136,6 +139,20 @@ const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
 const PROFILE_CONTENT_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) => `profile-content-skeleton-${index}`)
 const PROFILE_TAB_BUTTON_SKELETON_KEYS = Array.from({ length: 6 }, (_, index) => `profile-tab-skeleton-${index}`)
 const PROFILE_PUBLICATION_CARD_GRID_TEMPLATE_COLUMNS = 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))'
+const DEFAULT_CLONE_SELECTION: CloneSelectionState = {
+  instructions: true,
+  plot: true,
+  world: true,
+  main_hero: true,
+  history: true,
+}
+const CLONE_SECTION_ITEMS: Array<{ key: CloneSectionKey; label: string }> = [
+  { key: 'instructions', label: 'Инструкции' },
+  { key: 'plot', label: 'Сюжет' },
+  { key: 'world', label: 'Мир' },
+  { key: 'main_hero', label: 'ГГ' },
+  { key: 'history', label: 'История' },
+]
 
 const BASE_PROFILE_TABS: Array<{ id: TabId; label: string }> = [
   { id: 'games', label: 'Игры' },
@@ -508,6 +525,7 @@ function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
     email: '',
     display_name: profileUser.display_name,
     profile_description: profileUser.profile_description,
+    profile_banner_id: normalizeProfileBannerId(profileUser.profile_banner_id),
     avatar_url: profileUser.avatar_url,
     avatar_scale: profileUser.avatar_scale,
     auth_provider: 'email',
@@ -593,6 +611,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [gameCardMenuAnchorEl, setGameCardMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [gameCardMenuGameId, setGameCardMenuGameId] = useState<number | null>(null)
   const [gameCardMenuBusyAction, setGameCardMenuBusyAction] = useState<'clone' | 'delete' | null>(null)
+  const [cloneDialogSourceGame, setCloneDialogSourceGame] = useState<StoryGameSummary | null>(null)
+  const [cloneSelection, setCloneSelection] = useState<CloneSelectionState>({ ...DEFAULT_CLONE_SELECTION })
 
   const [topUpDialogOpen, setTopUpDialogOpen] = useState(false)
   const [topUpPlans, setTopUpPlans] = useState<CoinTopUpPlan[]>([])
@@ -627,6 +647,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     id: user.id,
     display_name: profileName,
     profile_description: profileDescription,
+    profile_banner_id: normalizeProfileBannerId(user.profile_banner_id),
     avatar_url: user.avatar_url,
     avatar_scale: user.avatar_scale ?? 1,
     created_at: user.created_at,
@@ -635,6 +656,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     id: normalizedViewedUserId ?? 0,
     display_name: '',
     profile_description: '',
+    profile_banner_id: normalizeProfileBannerId(null),
     avatar_url: null,
     avatar_scale: 1,
     created_at: user.created_at,
@@ -642,6 +664,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const resolvedProfileUser = profileView?.user ?? (isOwnProfile ? fallbackOwnProfileUser : fallbackViewedProfileUser)
   const resolvedProfileName = resolvedProfileUser.display_name?.trim() || (isOwnProfile ? profileName : 'Игрок')
   const resolvedProfileDescription = resolvedProfileUser.profile_description || ''
+  const resolvedProfileBanner = getProfileBannerPreset(resolvedProfileUser.profile_banner_id)
   const resolvedAvatarUser = isOwnProfile ? user : toAvatarUser(resolvedProfileUser)
   const resolvedCanOpenAdmin = isOwnProfile && canOpenAdmin
   const followersCount = Math.max(0, profileView?.followers_count ?? 0)
@@ -1791,6 +1814,30 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     [authToken, loadProfileView, onUserUpdate],
   )
 
+  const handleProfileDialogUserUpdate = useCallback(
+    (nextUser: AuthUser) => {
+      onUserUpdate(nextUser)
+      setProfileView((previous) => {
+        if (!previous?.is_self) {
+          return previous
+        }
+        return {
+          ...previous,
+          user: {
+            ...previous.user,
+            display_name: nextUser.display_name?.trim() || previous.user.display_name,
+            profile_description: nextUser.profile_description ?? '',
+            profile_banner_id: normalizeProfileBannerId(nextUser.profile_banner_id),
+            avatar_url: nextUser.avatar_url,
+            avatar_scale: nextUser.avatar_scale ?? 1,
+          },
+        }
+      })
+      void loadProfileView()
+    },
+    [loadProfileView, onUserUpdate],
+  )
+
   const handleOpenTopUpDialog = useCallback(() => {
     setProfileDialogOpen(false)
     setLogoutOpen(false)
@@ -2216,8 +2263,33 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     onNavigate(`/worlds/${targetGameId}/edit?source=profile`)
   }, [gameCardMenuBusyAction, onNavigate, selectedGameCardMenuItem])
 
-  const handleCloneGameCardFromMenu = useCallback(async () => {
+  const handleOpenCloneGameCardDialogFromMenu = useCallback(() => {
     if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
+      return
+    }
+    setCloneDialogSourceGame(selectedGameCardMenuItem)
+    setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
+    setGameCardMenuAnchorEl(null)
+    setGameCardMenuGameId(null)
+  }, [gameCardMenuBusyAction, selectedGameCardMenuItem])
+
+  const handleCloseCloneGameCardDialog = useCallback(() => {
+    if (gameCardMenuBusyAction === 'clone') {
+      return
+    }
+    setCloneDialogSourceGame(null)
+    setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
+  }, [gameCardMenuBusyAction])
+
+  const handleToggleCloneSection = useCallback((key: CloneSectionKey) => {
+    setCloneSelection((previous) => ({
+      ...previous,
+      [key]: !previous[key],
+    }))
+  }, [])
+
+  const handleSubmitCloneGameCard = useCallback(async () => {
+    if (!cloneDialogSourceGame || gameCardMenuBusyAction !== null) {
       return
     }
     setError('')
@@ -2225,23 +2297,23 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     try {
       const clonedGame = await cloneStoryGame({
         token: authToken,
-        gameId: selectedGameCardMenuItem.id,
-        copy_instructions: true,
-        copy_plot: true,
-        copy_world: true,
-        copy_main_hero: true,
-        copy_history: true,
+        gameId: cloneDialogSourceGame.id,
+        copy_instructions: cloneSelection.instructions,
+        copy_plot: cloneSelection.plot,
+        copy_world: cloneSelection.world,
+        copy_main_hero: cloneSelection.main_hero,
+        copy_history: cloneSelection.history,
       })
       setOwnGames((previousGames) => [clonedGame, ...previousGames.filter((game) => game.id !== clonedGame.id)])
-      setGameCardMenuAnchorEl(null)
-      setGameCardMenuGameId(null)
+      setCloneDialogSourceGame(null)
+      setCloneSelection({ ...DEFAULT_CLONE_SELECTION })
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось клонировать мир'
       setError(detail)
     } finally {
       setGameCardMenuBusyAction(null)
     }
-  }, [authToken, gameCardMenuBusyAction, selectedGameCardMenuItem])
+  }, [authToken, cloneDialogSourceGame, cloneSelection, gameCardMenuBusyAction])
 
   const handleDeleteGameCardFromMenu = useCallback(async () => {
     if (!selectedGameCardMenuItem || gameCardMenuBusyAction !== null) {
@@ -4002,8 +4074,46 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </Stack>
             </Stack>
 
-            <Box sx={{ display: isProfileShellBlocked ? 'none' : undefined }}>
-              <Stack spacing={{ xs: 1.2, md: 1.45 }}>
+            <Box
+              sx={{
+                display: isProfileShellBlocked ? 'none' : undefined,
+                position: 'relative',
+                overflow: 'hidden',
+                minHeight: { xs: 420, sm: 368, md: 328 },
+                p: { xs: 2, sm: 2.4, md: 4 },
+                borderRadius: { xs: '18px', md: '24px' },
+                border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+                backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 82%, #05080c 18%)',
+              }}
+            >
+              <ProgressiveImage
+                src={resolvedProfileBanner.src}
+                alt=""
+                loading="lazy"
+                objectFit="cover"
+                objectPosition={resolvedProfileBanner.objectPosition}
+                loaderSize={30}
+                fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
+                containerSx={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  backgroundColor: 'var(--morius-card-bg)',
+                }}
+                imgSx={{ filter: 'saturate(0.96) contrast(1.02)' }}
+              />
+              <Box
+                aria-hidden
+                sx={{
+                  position: 'absolute',
+                  inset: 0,
+                  zIndex: 1,
+                  background:
+                    'linear-gradient(90deg, rgba(4, 7, 11, 0.76) 0%, rgba(4, 7, 11, 0.42) 44%, rgba(4, 7, 11, 0.7) 100%), linear-gradient(0deg, rgba(4, 7, 11, 0.78) 0%, rgba(4, 7, 11, 0.18) 56%, rgba(4, 7, 11, 0.1) 100%)',
+                }}
+              />
+              <Stack spacing={{ xs: 1.2, md: 1.45 }} sx={{ position: 'relative', zIndex: 2, minHeight: { xs: 372, sm: 320, md: 264 } }}>
                 <Stack
                   direction={{ xs: 'column', lg: 'row' }}
                   justifyContent="space-between"
@@ -4045,7 +4155,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         cursor: isOwnProfile && !isAvatarSaving ? 'pointer' : 'default',
                         flexShrink: 0,
                         mx: { xs: 'auto', sm: 0 },
-                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--morius-card-border) 88%, transparent)',
+                        boxShadow: '0 0 0 4px var(--morius-app-base), 0 18px 42px rgba(0, 0, 0, 0.3)',
                         '&:hover .morius-profile-avatar-overlay': {
                           opacity: isOwnProfile && !isAvatarSaving ? 1 : 0,
                         },
@@ -4341,27 +4451,38 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       </Box>
                     ) : null}
 
-                    <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }} sx={{ display: { xs: 'none', md: 'flex' } }}>
+                    <Stack
+                      direction="row"
+                      spacing={0.75}
+                      useFlexGap
+                      flexWrap="wrap"
+                      alignItems="center"
+                      justifyContent={{ xs: 'flex-start', lg: 'flex-end' }}
+                      sx={{ display: { xs: 'none', md: 'flex' } }}
+                    >
                       {isOwnProfile ? (
                         <IconButton
                           onClick={handleToggleNotificationPopover}
                           aria-label="Уведомления"
                           sx={{
                             position: 'relative',
-                            width: HEADER_AVATAR_SIZE,
-                            height: HEADER_AVATAR_SIZE,
-                            minWidth: HEADER_AVATAR_SIZE,
-                            minHeight: HEADER_AVATAR_SIZE,
-                            maxWidth: HEADER_AVATAR_SIZE,
-                            maxHeight: HEADER_AVATAR_SIZE,
-                            borderRadius: '99px !important',
+                            flex: `0 0 ${HEADER_AVATAR_SIZE}px`,
+                            alignSelf: 'center',
+                            width: `${HEADER_AVATAR_SIZE}px !important`,
+                            height: `${HEADER_AVATAR_SIZE}px !important`,
+                            minWidth: `${HEADER_AVATAR_SIZE}px !important`,
+                            minHeight: `${HEADER_AVATAR_SIZE}px !important`,
+                            maxWidth: `${HEADER_AVATAR_SIZE}px !important`,
+                            maxHeight: `${HEADER_AVATAR_SIZE}px !important`,
+                            borderRadius: '50% !important',
                             border: 'none',
+                            boxSizing: 'border-box',
                             backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
                             color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            p: 0,
+                            p: '0 !important',
                             '&:hover': {
                               backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
                               color: 'var(--morius-title-text) !important',
@@ -5518,7 +5639,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           Редактировать
         </MenuItem>
         <MenuItem
-          onClick={() => void handleCloneGameCardFromMenu()}
+          onClick={handleOpenCloneGameCardDialogFromMenu}
           disabled={!selectedGameCardMenuItem || gameCardMenuBusyAction !== null}
           sx={{ color: 'rgba(220, 231, 245, 0.92)', fontSize: '0.9rem' }}
         >
@@ -5532,6 +5653,91 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           {gameCardMenuBusyAction === 'delete' ? 'Удаляем...' : 'Удалить'}
         </MenuItem>
       </Menu>
+
+      <Dialog
+        open={Boolean(cloneDialogSourceGame)}
+        onClose={handleCloseCloneGameCardDialog}
+        fullWidth
+        maxWidth="sm"
+        PaperProps={{
+          sx: {
+            borderRadius: 'var(--morius-radius)',
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            background: 'var(--morius-card-bg)',
+          },
+        }}
+      >
+        <DialogTitle sx={{ fontWeight: 700, color: 'var(--morius-text-primary)' }}>Клонировать мир</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25}>
+            <Typography sx={{ color: 'var(--morius-text-secondary)' }}>
+              {cloneDialogSourceGame
+                ? `Выберите, что перенести в новый мир из «${(cloneDialogSourceGame.title || '').trim() || `Игра #${cloneDialogSourceGame.id}`}».`
+                : 'Выберите, что нужно перенести в новый мир.'}
+            </Typography>
+            <Stack direction="row" flexWrap="wrap" gap={0.85}>
+              {CLONE_SECTION_ITEMS.map((item) => {
+                const isSelected = cloneSelection[item.key]
+                return (
+                  <Button
+                    key={item.key}
+                    onClick={() => handleToggleCloneSection(item.key)}
+                    disabled={gameCardMenuBusyAction === 'clone'}
+                    sx={{
+                      minHeight: 34,
+                      px: 1.2,
+                      borderRadius: '10px',
+                      textTransform: 'none',
+                      color: 'var(--morius-text-primary)',
+                      border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                      backgroundColor: isSelected ? 'var(--morius-button-active)' : 'var(--morius-card-bg)',
+                      '&:hover': {
+                        backgroundColor: 'var(--morius-button-hover)',
+                      },
+                    }}
+                  >
+                    <Stack direction="row" spacing={0.65} alignItems="center">
+                      <Box component="span" sx={{ fontSize: '0.9rem', lineHeight: 1 }}>
+                        {isSelected ? String.fromCharCode(10003) : String.fromCharCode(9711)}
+                      </Box>
+                      <Box component="span">{item.label}</Box>
+                    </Stack>
+                  </Button>
+                )
+              })}
+            </Stack>
+            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.9rem' }}>
+              Пункты можно выбрать или оставить пустыми.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button
+            onClick={handleCloseCloneGameCardDialog}
+            disabled={gameCardMenuBusyAction === 'clone'}
+            sx={{ color: 'var(--morius-text-secondary)', textTransform: 'none' }}
+          >
+            Отмена
+          </Button>
+          <Button
+            onClick={() => void handleSubmitCloneGameCard()}
+            disabled={gameCardMenuBusyAction === 'clone'}
+            sx={{
+              textTransform: 'none',
+              color: 'var(--morius-text-primary)',
+              border: 'var(--morius-border-width) solid var(--morius-card-border)',
+              backgroundColor: 'var(--morius-button-active)',
+              '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+            }}
+          >
+            {gameCardMenuBusyAction === 'clone' ? (
+              <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
+            ) : (
+              'Клонировать'
+            )}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Menu
         anchorEl={contentCardMenuAnchorEl}
@@ -5700,7 +5906,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
         }}
         onRequestLogout={() => setLogoutOpen(true)}
         onUpdateProfileName={handleUpdateProfileName}
-        onUserUpdate={onUserUpdate}
+        onUserUpdate={handleProfileDialogUserUpdate}
       />
 
       <CharacterManagerDialog

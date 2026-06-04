@@ -14,6 +14,8 @@ from app.security import create_access_token, safe_decode_access_token
 DISPLAY_NAME_MAX_LENGTH = 25
 DISPLAY_NAME_FALLBACK = "Player"
 PROFILE_DESCRIPTION_MAX_LENGTH = 2_000
+PROFILE_BANNER_DEFAULT_ID = "2"
+PROFILE_BANNER_IDS = {"1", "2", "3", "4", "5"}
 ROLE_USER = "user"
 ROLE_ADMINISTRATOR = "administrator"
 ROLE_MODERATOR = "moderator"
@@ -103,6 +105,11 @@ def normalize_profile_description(value: str | None) -> str:
     if len(normalized) > PROFILE_DESCRIPTION_MAX_LENGTH:
         return normalized[:PROFILE_DESCRIPTION_MAX_LENGTH].rstrip()
     return normalized
+
+
+def normalize_profile_banner_id(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    return normalized if normalized in PROFILE_BANNER_IDS else PROFILE_BANNER_DEFAULT_ID
 
 
 def parse_google_client_ids(raw_value: str) -> set[str]:

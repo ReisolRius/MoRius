@@ -47,6 +47,8 @@ from app.schemas import (
     AdminUserModeratorUpdateRequest,
     AdminUserOut,
     AdminUserTokensUpdateRequest,
+    MaintenanceSettingsOut,
+    MaintenanceSettingsUpdateRequest,
     MessageResponse,
 )
 from app.services.auth_identity import (
@@ -59,6 +61,7 @@ from app.services.auth_identity import (
     user_has_admin_panel_access,
 )
 from app.services.concurrency import add_user_tokens, spend_user_tokens_if_sufficient
+from app.services.maintenance import read_maintenance_settings, write_maintenance_settings
 from app.services.story_characters import unlink_story_character_from_world_cards
 from app.services.story_games import delete_story_game_with_relations, story_author_name
 
@@ -443,6 +446,36 @@ def _delete_instruction_template_with_relations(db: Session, *, template: StoryI
         )
     )
     db.delete(template)
+
+
+@router.get("/api/auth/maintenance", response_model=MaintenanceSettingsOut)
+def get_maintenance_settings(
+    db: Session = Depends(get_db),
+) -> MaintenanceSettingsOut:
+    return MaintenanceSettingsOut(**read_maintenance_settings(db))
+
+
+@router.get("/api/auth/admin/maintenance", response_model=MaintenanceSettingsOut)
+def get_maintenance_settings_for_admin(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MaintenanceSettingsOut:
+    _require_administrator(db=db, authorization=authorization)
+    return MaintenanceSettingsOut(**read_maintenance_settings(db))
+
+
+@router.put("/api/auth/admin/maintenance", response_model=MaintenanceSettingsOut)
+def update_maintenance_settings_for_admin(
+    payload: MaintenanceSettingsUpdateRequest,
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+) -> MaintenanceSettingsOut:
+    _require_administrator(db=db, authorization=authorization)
+    updated_settings = write_maintenance_settings(
+        db,
+        payload.model_dump(exclude_unset=True),
+    )
+    return MaintenanceSettingsOut(**updated_settings)
 
 
 @router.get("/api/auth/admin/users", response_model=AdminUserListResponse)

@@ -3,6 +3,7 @@ export type AuthUser = {
   email: string
   display_name: string | null
   profile_description: string
+  profile_banner_id: string
   avatar_url: string | null
   avatar_scale: number
   auth_provider: string

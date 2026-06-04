@@ -290,6 +290,10 @@ def _merge_user_profile(*, target_user: User, source_user: User, normalized_emai
     if not (target_user.avatar_url or "").strip() and (source_user.avatar_url or "").strip():
         target_user.avatar_url = source_user.avatar_url
         target_user.avatar_scale = source_user.avatar_scale or target_user.avatar_scale
+    target_banner_id = str(getattr(target_user, "profile_banner_id", "") or "").strip()
+    source_banner_id = str(getattr(source_user, "profile_banner_id", "") or "").strip()
+    if target_banner_id in {"", "2"} and source_banner_id in {"1", "3", "4", "5"}:
+        target_user.profile_banner_id = source_banner_id
 
     if not (target_user.password_hash or "").strip() and (source_user.password_hash or "").strip():
         target_user.password_hash = source_user.password_hash

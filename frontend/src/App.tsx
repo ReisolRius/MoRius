@@ -3,7 +3,9 @@ import {
   applyReferralCode,
   getCurrentUser,
   getCurrentUserThemeSettings,
+  getMaintenanceSettings,
   type CurrentUserThemeSettings,
+  type MaintenanceSettings,
 } from './services/authApi'
 import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { ReactNode } from 'react'
@@ -19,12 +21,14 @@ import {
   readPendingReferralCode,
   savePendingReferralCode,
 } from './utils/referrals'
+import { normalizeProfileBannerId } from './constants/profileBanners'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
 const YANDEX_METRIKA_ID = 106989437
 const SCROLLBAR_ACTIVE_CLASS = 'morius-scroll-active'
 const SCROLLBAR_HIDE_DELAY_MS = 2000
+const MAINTENANCE_REFRESH_INTERVAL_MS = 30_000
 
 type AuthSession = {
   token: string | null
@@ -186,6 +190,7 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     email: value.email,
     display_name: typeof value.display_name === 'string' ? value.display_name : null,
     profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
+    profile_banner_id: normalizeProfileBannerId(value.profile_banner_id),
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
     avatar_scale: typeof value.avatar_scale === 'number' ? value.avatar_scale : 1,
     auth_provider: typeof value.auth_provider === 'string' ? value.auth_provider : 'email',
@@ -249,6 +254,7 @@ const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
 const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
 const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
 const loadProfilePage = () => import('./pages/ProfilePage')
+const loadMaintenancePage = () => import('./pages/MaintenancePage')
 
 const PublicLandingPage = lazy(loadPublicLandingPage)
 const AuthPage = lazy(loadAuthPage)
@@ -261,6 +267,7 @@ const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
 const WorldCreatePage = lazy(loadWorldCreatePage)
 const LegalDocumentPage = lazy(loadLegalDocumentPage)
 const ProfilePage = lazy(loadProfilePage)
+const MaintenancePage = lazy(loadMaintenancePage)
 
 function warmPageLoaders(loaders: PageLoader[]): () => void {
   if (typeof window === 'undefined' || loaders.length === 0) {
@@ -302,9 +309,11 @@ function App() {
   const [pendingReferralCode, setPendingReferralCode] = useState(() => readPendingReferralCode())
   const [isRouteTransitionVisible, setIsRouteTransitionVisible] = useState(false)
   const [shouldOpenAiAssistantAfterAuth, setShouldOpenAiAssistantAfterAuth] = useState(false)
+  const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings | null>(null)
   const hasTrackedInitialRouteRef = useRef(false)
   const routeTransitionTimerRef = useRef<number | null>(null)
   const isAuthenticated = Boolean(authToken && authUser)
+  const isCurrentUserAdministrator = authUser?.role.trim().toLowerCase() === 'administrator'
 
   const triggerRouteTransition = useCallback(() => {
     if (routeTransitionTimerRef.current !== null) {
@@ -384,6 +393,31 @@ function App() {
 
     return warmPageLoaders(loaders)
   }, [isAuthenticated])
+
+  useEffect(() => {
+    let active = true
+
+    const loadMaintenanceSettings = () => {
+      void getMaintenanceSettings()
+        .then((settings) => {
+          if (active) {
+            setMaintenanceSettings(settings)
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setMaintenanceSettings(null)
+          }
+        })
+    }
+
+    loadMaintenanceSettings()
+    const intervalId = window.setInterval(loadMaintenanceSettings, MAINTENANCE_REFRESH_INTERVAL_MS)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
+  }, [])
 
   useEffect(() => {
     const hideTimers = new Map<HTMLElement, number>()
@@ -640,11 +674,21 @@ function App() {
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'
-  const shouldShowRouteTransition = isRouteTransitionVisible && !isStaticPublicPath(path)
+  const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
+  const shouldShowMaintenancePage = Boolean(
+    maintenanceSettings?.enabled && !isCurrentUserAdministrator && !shouldAllowMaintenanceAuthBypass,
+  )
+  const shouldShowRouteTransition = isRouteTransitionVisible && !isStaticPublicPath(path) && !shouldShowMaintenancePage
 
   let pageContent: ReactNode
 
-  if (shouldShowPrivacyPolicyPage) {
+  if (shouldShowMaintenancePage && maintenanceSettings) {
+    pageContent = (
+      <Suspense fallback={null}>
+        <MaintenancePage settings={maintenanceSettings} />
+      </Suspense>
+    )
+  } else if (shouldShowPrivacyPolicyPage) {
     pageContent = (
       <Suspense fallback={null}>
         <LegalDocumentPage
@@ -788,7 +832,7 @@ function App() {
     <>
       <FantasyRouteTransition active={shouldShowRouteTransition} />
       {pageContent}
-      {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage ? (
+      {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage && !shouldShowMaintenancePage ? (
         <AiAssistantPanel
           user={authUser}
           authToken={authToken}

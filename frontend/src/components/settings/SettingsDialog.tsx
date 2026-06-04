@@ -3,6 +3,7 @@ import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   Dialog,
   DialogActions,
   DialogContent,
@@ -36,8 +37,10 @@ import {
 import type { AuthUser } from '../../types/auth'
 import { getMoriusThemeById, moriusThemePresets, useMoriusThemeController, type MoriusThemePreset } from '../../theme'
 import { buildPresetFromCustomTheme } from '../../theme/customTheme'
+import { getProfileBannerPreset, normalizeProfileBannerId, PROFILE_BANNER_PRESETS } from '../../constants/profileBanners'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
+import ProgressiveImage from '../media/ProgressiveImage'
 import UserAvatar from '../profile/UserAvatar'
 
 type SettingsDialogProps = {
@@ -208,6 +211,7 @@ function SettingsDialog({
   const [themeSettings, setThemeSettings] = useState<CurrentUserThemeSettings | null>(null)
   const [displayName, setDisplayName] = useState(user.display_name ?? '')
   const [profileDescription, setProfileDescription] = useState(user.profile_description ?? '')
+  const [profileBannerId, setProfileBannerId] = useState(() => normalizeProfileBannerId(user.profile_banner_id))
   const [notifications, setNotifications] = useState({
     notifications_enabled: user.notifications_enabled ?? true,
     notify_comment_reply: user.notify_comment_reply ?? true,
@@ -270,6 +274,7 @@ function SettingsDialog({
     }
     setDisplayName(user.display_name ?? '')
     setProfileDescription(user.profile_description ?? '')
+    setProfileBannerId(normalizeProfileBannerId(user.profile_banner_id))
     setNotifications({
       notifications_enabled: user.notifications_enabled ?? true,
       notify_comment_reply: user.notify_comment_reply ?? true,
@@ -328,6 +333,7 @@ function SettingsDialog({
   const hasProfileUnsavedChanges = useMemo(() => (
     displayName !== (user.display_name ?? '') ||
     profileDescription !== (user.profile_description ?? '') ||
+    profileBannerId !== normalizeProfileBannerId(user.profile_banner_id) ||
     notifications.notifications_enabled !== (user.notifications_enabled ?? true) ||
     notifications.notify_comment_reply !== (user.notify_comment_reply ?? true) ||
     notifications.notify_world_comment !== (user.notify_world_comment ?? true) ||
@@ -342,7 +348,7 @@ function SettingsDialog({
     privacy.show_private_worlds !== (user.show_private_worlds ?? false) ||
     privacy.show_public_characters !== (user.show_public_characters ?? false) ||
     privacy.show_public_instruction_templates !== (user.show_public_instruction_templates ?? false)
-  ), [aiAssistantVisible, displayName, notifications, privacy, profileDescription, user])
+  ), [aiAssistantVisible, displayName, notifications, privacy, profileBannerId, profileDescription, user])
 
   const hasThemeDraftUnsavedChanges = useMemo(() => {
     if (!editingThemeId) {
@@ -511,6 +517,7 @@ function SettingsDialog({
         token: authToken,
         display_name: nextDisplayName,
         profile_description: nextDescription,
+        profile_banner_id: profileBannerId,
         notifications_enabled: notifications.notifications_enabled,
         notify_comment_reply: notifications.notify_comment_reply,
         notify_world_comment: notifications.notify_world_comment,
@@ -646,6 +653,7 @@ function SettingsDialog({
   const activeColorInputValue = colorInputDraft || activeFieldColor
   const pickerColorValue = normalizeHexColor(activeColorInputValue, activeFieldColor).toLowerCase()
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
+  const selectedProfileBanner = useMemo(() => getProfileBannerPreset(profileBannerId), [profileBannerId])
 
   useEffect(() => {
     syncColorPickerInputValue(pickerColorValue)
@@ -800,14 +808,56 @@ function SettingsDialog({
 
                 <Box
                   sx={{
+                    position: 'relative',
+                    overflow: 'hidden',
+                    minHeight: { xs: 228, sm: 196 },
                     borderRadius: '20px',
                     border: 'var(--morius-border-width) solid var(--morius-card-border)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #030405 28%)',
-                    p: { xs: 1.2, md: 1.35 },
+                    backgroundColor: 'var(--morius-card-bg)',
+                    p: { xs: 1.6, md: 2 },
                   }}
                 >
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.2} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                    <Box sx={{ position: 'relative', width: { xs: 76, sm: 88 }, height: { xs: 76, sm: 88 }, flexShrink: 0 }}>
+                  <ProgressiveImage
+                    src={selectedProfileBanner.src}
+                    alt=""
+                    objectFit="cover"
+                    objectPosition={selectedProfileBanner.objectPosition}
+                    loaderSize={24}
+                    fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
+                    containerSx={{
+                      position: 'absolute',
+                      inset: 0,
+                      width: '100%',
+                      height: '100%',
+                      backgroundColor: 'var(--morius-card-bg)',
+                    }}
+                  />
+                  <Box
+                    aria-hidden
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      zIndex: 1,
+                      background:
+                        'linear-gradient(90deg, rgba(5, 8, 12, 0.72) 0%, rgba(5, 8, 12, 0.38) 58%, rgba(5, 8, 12, 0.68) 100%), linear-gradient(0deg, rgba(5, 8, 12, 0.62) 0%, rgba(5, 8, 12, 0.16) 100%)',
+                    }}
+                  />
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1.2}
+                    alignItems={{ xs: 'flex-start', sm: 'center' }}
+                    sx={{ position: 'relative', zIndex: 2, minHeight: { xs: 176, sm: 144 } }}
+                  >
+                    <Box
+                      sx={{
+                        position: 'relative',
+                        width: { xs: 76, sm: 88 },
+                        height: { xs: 76, sm: 88 },
+                        flexShrink: 0,
+                        borderRadius: '50%',
+                        boxShadow: '0 0 0 4px var(--morius-app-base), 0 16px 32px rgba(0, 0, 0, 0.3)',
+                      }}
+                    >
                       {onChooseAvatar ? (
                         <Button
                           onClick={onChooseAvatar}
@@ -866,6 +916,77 @@ function SettingsDialog({
                     </Stack>
 
                   </Stack>
+                </Box>
+
+                <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.35 } }}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Фон профиля</Typography>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 0.85,
+                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
+                    }}
+                  >
+                    {PROFILE_BANNER_PRESETS.map((preset) => {
+                      const isActive = profileBannerId === preset.id
+                      return (
+                        <ButtonBase
+                          key={preset.id}
+                          onClick={() => setProfileBannerId(preset.id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            position: 'relative',
+                            overflow: 'hidden',
+                            aspectRatio: '16 / 9',
+                            borderRadius: '12px',
+                            border: isActive
+                              ? '2px solid var(--morius-accent)'
+                              : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            boxShadow: isActive ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 20%, transparent)' : 'none',
+                            transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+                            '&:hover': {
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 74%, var(--morius-card-border))',
+                              transform: 'translateY(-1px)',
+                            },
+                          }}
+                        >
+                          <ProgressiveImage
+                            src={preset.src}
+                            alt=""
+                            objectFit="cover"
+                            objectPosition={preset.objectPosition}
+                            loaderSize={18}
+                            containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                          />
+                          <Box
+                            aria-hidden
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              background: 'linear-gradient(0deg, rgba(3, 5, 8, 0.62) 0%, rgba(3, 5, 8, 0.05) 65%)',
+                              zIndex: 1,
+                            }}
+                          />
+                          <Typography
+                            component="span"
+                            sx={{
+                              position: 'absolute',
+                              left: 10,
+                              bottom: 8,
+                              zIndex: 2,
+                              color: '#fff',
+                              fontSize: '0.78rem',
+                              fontWeight: 900,
+                              lineHeight: 1,
+                            }}
+                          >
+                            {preset.label}
+                          </Typography>
+                        </ButtonBase>
+                      )
+                    })}
+                  </Box>
                 </Box>
 
                 <Box sx={{ display: 'grid', gap: 1.4, gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 0.92fr) minmax(320px, 0.72fr)' } }}>

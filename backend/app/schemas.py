@@ -15,6 +15,7 @@ class UserOut(BaseModel):
     email: EmailStr
     display_name: str | None
     profile_description: str
+    profile_banner_id: str = "2"
     avatar_url: str | None
     avatar_scale: float
     auth_provider: str
@@ -145,6 +146,7 @@ class ProfileUserOut(BaseModel):
     id: int
     display_name: str
     profile_description: str
+    profile_banner_id: str = "2"
     avatar_url: str | None
     avatar_scale: float
     created_at: datetime
@@ -222,6 +224,7 @@ class AvatarUpdateRequest(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)
     profile_description: str | None = Field(default=None, max_length=2_000)
+    profile_banner_id: str | None = Field(default=None, max_length=16)
     notifications_enabled: bool | None = None
     notify_comment_reply: bool | None = None
     notify_world_comment: bool | None = None
@@ -279,6 +282,21 @@ class ThemeSettingsOut(BaseModel):
     active_theme_id: str
     story: dict[str, Any]
     custom_themes: list[dict[str, Any]]
+
+
+class MaintenanceSettingsUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    title: str | None = Field(default=None, max_length=140)
+    message: str | None = Field(default=None, max_length=2_000)
+    eta_label: str | None = Field(default=None, max_length=120)
+
+
+class MaintenanceSettingsOut(BaseModel):
+    enabled: bool
+    title: str
+    message: str
+    eta_label: str
+    updated_at: datetime | None = None
 
 
 class AdminUserOut(BaseModel):

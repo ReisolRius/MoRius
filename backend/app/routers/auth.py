@@ -88,6 +88,7 @@ from app.services.auth_identity import (
     get_current_user,
     is_allowed_google_audience,
     issue_auth_response,
+    normalize_profile_banner_id,
     normalize_profile_description,
     normalize_profile_display_name,
     normalize_email,
@@ -1080,6 +1081,8 @@ def update_profile(
         user.display_name = normalize_profile_display_name(payload.display_name or "")
     if "profile_description" in payload.model_fields_set:
         user.profile_description = normalize_profile_description(payload.profile_description)
+    if "profile_banner_id" in payload.model_fields_set:
+        user.profile_banner_id = normalize_profile_banner_id(payload.profile_banner_id)
     if "notifications_enabled" in payload.model_fields_set:
         user.notifications_enabled = bool(payload.notifications_enabled)
     if "notify_comment_reply" in payload.model_fields_set:

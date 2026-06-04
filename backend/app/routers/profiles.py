@@ -31,7 +31,7 @@ from app.schemas import (
     StoryCommunityCharacterSummaryOut,
     StoryCommunityInstructionTemplateSummaryOut,
 )
-from app.services.auth_identity import get_current_user
+from app.services.auth_identity import get_current_user, normalize_profile_banner_id
 from app.services.media import normalize_media_scale, resolve_media_display_url
 from app.services.story_cards import STORY_TEMPLATE_VISIBILITY_PUBLIC, story_instruction_template_to_out
 from app.services.story_characters import STORY_CHARACTER_VISIBILITY_PUBLIC, story_character_to_out
@@ -144,6 +144,7 @@ def _build_profile_user(user: User) -> ProfileUserOut:
         id=user.id,
         display_name=story_author_name(user),
         profile_description=(user.profile_description or "").strip(),
+        profile_banner_id=normalize_profile_banner_id(getattr(user, "profile_banner_id", None)),
         avatar_url=resolve_media_display_url(
             getattr(user, "avatar_url", None),
             kind="user-avatar",

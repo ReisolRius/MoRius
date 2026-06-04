@@ -7098,10 +7098,13 @@ def _fill_story_character_state_missing_body_fields_payload(
     latest_user_prompt: str,
     previous_assistant_text: str,
     latest_assistant_text: str,
+    allow_model_request: bool = True,
 ) -> dict[str, Any] | None:
     base_cards_raw = base_payload.get("cards") if isinstance(base_payload, dict) else existing_cards
     normalized_base_cards = _normalize_story_character_state_cards_payload(base_cards_raw)
     if not normalized_base_cards:
+        return base_payload
+    if not allow_model_request:
         return base_payload
 
     fill_cards = _request_story_character_state_missing_body_field_cards(
@@ -7171,6 +7174,29 @@ def _build_story_character_state_base_cards_from_seed_candidates(
     return _normalize_story_character_state_cards_payload(base_cards)
 
 
+def _ensure_story_character_state_base_cards_from_world_cards(
+    *,
+    db: Session,
+    game: StoryGame,
+) -> bool:
+    if not _normalize_story_character_state_enabled(getattr(game, "character_state_enabled", None)):
+        return False
+    if _story_character_state_cards_from_game(game):
+        return False
+    candidates = _list_story_character_state_seed_candidates(db=db, game=game)
+    if not candidates:
+        return False
+    base_cards = _build_story_character_state_base_cards_from_seed_candidates(candidates)
+    if not base_cards:
+        return False
+    next_payload = _serialize_story_character_state_cards_payload(base_cards)
+    if str(getattr(game, "character_state_payload", "") or "") == next_payload:
+        return False
+    game.character_state_payload = next_payload
+    logger.info("Story character-state base seeded locally: game_id=%s cards=%s", game.id, len(base_cards))
+    return True
+
+
 def _seed_story_character_state_cards_from_world_cards(
     *,
     db: Session,
@@ -7214,6 +7240,7 @@ def _seed_story_character_state_cards_from_world_cards(
         latest_user_prompt=latest_user_prompt,
         previous_assistant_text=previous_assistant_text,
         latest_assistant_text=latest_assistant_text,
+        allow_model_request=True,
     )
     if not isinstance(normalized_payload, dict):
         return False
@@ -7248,6 +7275,7 @@ def _sync_story_character_state_cards(
     previous_assistant_text: str = "",
     latest_assistant_text: str = "",
     allow_model_seed: bool = True,
+    allow_model_fill: bool = True,
 
 ) -> bool:
 
@@ -7299,6 +7327,7 @@ def _sync_story_character_state_cards(
         latest_user_prompt=latest_user_prompt,
         previous_assistant_text=previous_assistant_text,
         latest_assistant_text=latest_assistant_text,
+        allow_model_request=allow_model_fill,
     )
     if not isinstance(normalized_payload, dict):
 
@@ -8331,6 +8360,12 @@ def _extract_story_postprocess_memory_payload(
         getattr(game, "environment_turn_step_minutes", None)
 
     )
+
+    if character_state_enabled and not _story_character_state_cards_from_game(game):
+        try:
+            _ensure_story_character_state_base_cards_from_world_cards(db=db, game=game)
+        except Exception as exc:
+            logger.warning("Story character-state local base seed failed: game_id=%s error=%s", game.id, exc)
 
     existing_character_state_cards = (
         _story_character_state_cards_from_game(game)

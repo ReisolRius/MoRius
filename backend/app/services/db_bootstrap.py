@@ -8,6 +8,7 @@ from sqlalchemy import inspect, or_, text
 
 from app.database import Base, SessionLocal, engine
 from app.models import (
+    AppSetting,
     AiAssistantActionBatch,
     AiAssistantConversation,
     AiAssistantMessage,
@@ -171,6 +172,8 @@ def _ensure_user_account_columns_exist() -> None:
         alter_statements.append("ALTER TABLE users ADD COLUMN coins INTEGER NOT NULL DEFAULT 0")
     if "profile_description" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN profile_description TEXT NOT NULL DEFAULT ''")
+    if "profile_banner_id" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN profile_banner_id VARCHAR(16) NOT NULL DEFAULT '2'")
     if "avatar_scale" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0")
     if "show_subscriptions" not in user_columns:

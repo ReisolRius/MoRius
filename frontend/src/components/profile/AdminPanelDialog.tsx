@@ -36,6 +36,7 @@ import {
   getModerationCharacterForAdmin,
   getModerationInstructionTemplateForAdmin,
   getModerationWorldForAdmin,
+  getMaintenanceSettingsForAdmin,
   listBugReportsForAdmin,
   listPendingModerationItemsForAdmin,
   listOpenReportsForAdmin,
@@ -51,9 +52,11 @@ import {
   updateModerationCharacterForAdmin,
   updateModerationInstructionTemplateForAdmin,
   updateModerationWorldForAdmin,
+  updateMaintenanceSettingsForAdmin,
   updateUserTokensAsAdmin,
   type AdminManagedUser,
   type AdminBugReportSummary,
+  type MaintenanceSettings,
   type AdminReport,
   type AdminReportReason,
   type AdminReportTargetType,
@@ -82,8 +85,15 @@ const ADMIN_SEARCH_QUERY_MAX_LENGTH = 120
 const ADMIN_TOKEN_AMOUNT_MAX_LENGTH = 10
 const ADMIN_BAN_DURATION_MAX_LENGTH = 5
 const ADMIN_USER_PAGE_SIZE = 40
+const MAINTENANCE_TITLE_MAX_LENGTH = 140
+const MAINTENANCE_MESSAGE_MAX_LENGTH = 2000
+const MAINTENANCE_ETA_MAX_LENGTH = 120
+const DEFAULT_MAINTENANCE_TITLE = 'Извините, идут технические работы'
+const DEFAULT_MAINTENANCE_MESSAGE =
+  'Мы обновляем MoRius и проверяем важные системы. Скоро сайт снова будет доступен, а ваши миры, истории и прогресс останутся на месте.'
+const DEFAULT_MAINTENANCE_ETA = 'Ориентировочно скоро вернемся'
 
-type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports'
+type AdminPanelTab = 'users' | 'reports' | 'moderation' | 'bug_reports' | 'maintenance'
 type AdminUserSortMode = 'created_desc' | 'coins_desc' | 'coins_asc'
 
 type ModerationWorldDraft = AdminModerationWorldDetail & {
@@ -308,6 +318,13 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
   const [moderationCharacterDraft, setModerationCharacterDraft] = useState<ModerationCharacterDraft | null>(null)
   const [moderationInstructionDraft, setModerationInstructionDraft] = useState<ModerationInstructionDraft | null>(null)
   const [moderationCommentDraft, setModerationCommentDraft] = useState('')
+  const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings | null>(null)
+  const [maintenanceEnabledDraft, setMaintenanceEnabledDraft] = useState(false)
+  const [maintenanceTitleDraft, setMaintenanceTitleDraft] = useState(DEFAULT_MAINTENANCE_TITLE)
+  const [maintenanceMessageDraft, setMaintenanceMessageDraft] = useState(DEFAULT_MAINTENANCE_MESSAGE)
+  const [maintenanceEtaDraft, setMaintenanceEtaDraft] = useState(DEFAULT_MAINTENANCE_ETA)
+  const [isLoadingMaintenanceSettings, setIsLoadingMaintenanceSettings] = useState(false)
+  const [isSavingMaintenanceSettings, setIsSavingMaintenanceSettings] = useState(false)
 
   const [errorMessage, setErrorMessage] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
@@ -320,6 +337,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     () => currentUserRole.trim().toLowerCase() === 'administrator',
     [currentUserRole],
   )
+  const canManageMaintenance = canManageModeratorRole
 
   const selectedUser = useMemo(
     () => users.find((user) => user.id === selectedUserId) ?? null,
@@ -356,6 +374,14 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     setModerationInstructionDraft(null)
   }, [])
 
+  const syncMaintenanceDraft = useCallback((settings: MaintenanceSettings) => {
+    setMaintenanceSettings(settings)
+    setMaintenanceEnabledDraft(settings.enabled)
+    setMaintenanceTitleDraft(settings.title || DEFAULT_MAINTENANCE_TITLE)
+    setMaintenanceMessageDraft(settings.message || DEFAULT_MAINTENANCE_MESSAGE)
+    setMaintenanceEtaDraft(settings.eta_label || DEFAULT_MAINTENANCE_ETA)
+  }, [])
+
   const mergeUpdatedUser = useCallback((updatedUser: AdminManagedUser) => {
     setUsers((previous) => {
       const nextUsers = previous.map((user) => (user.id === updatedUser.id ? updatedUser : user))
@@ -366,6 +392,23 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     })
     setSelectedUserId(updatedUser.id)
   }, [])
+
+  const loadMaintenanceSettings = useCallback(async () => {
+    if (!open || !canManageMaintenance) {
+      return
+    }
+    setIsLoadingMaintenanceSettings(true)
+    setErrorMessage('')
+    try {
+      const settings = await getMaintenanceSettingsForAdmin({ token: authToken })
+      syncMaintenanceDraft(settings)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить настройки техработ'
+      setErrorMessage(detail)
+    } finally {
+      setIsLoadingMaintenanceSettings(false)
+    }
+  }, [authToken, canManageMaintenance, open, syncMaintenanceDraft])
 
   const loadUsers = useCallback(
     async (searchValue: string, options?: { append?: boolean; offset?: number }) => {
@@ -612,8 +655,12 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       void loadModerationQueue()
       return
     }
+    if (activeTab === 'maintenance') {
+      void loadMaintenanceSettings()
+      return
+    }
     void loadBugReports()
-  }, [activeTab, loadBugReports, loadModerationQueue, loadReports, loadUsers, open, query, userSortMode])
+  }, [activeTab, loadBugReports, loadMaintenanceSettings, loadModerationQueue, loadReports, loadUsers, open, query, userSortMode])
 
   useEffect(() => {
     handleUsersListScroll()
@@ -654,6 +701,13 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
     setSelectedModerationKey(null)
     setModerationCommentDraft('')
     resetModerationDrafts()
+    setMaintenanceSettings(null)
+    setMaintenanceEnabledDraft(false)
+    setMaintenanceTitleDraft(DEFAULT_MAINTENANCE_TITLE)
+    setMaintenanceMessageDraft(DEFAULT_MAINTENANCE_MESSAGE)
+    setMaintenanceEtaDraft(DEFAULT_MAINTENANCE_ETA)
+    setIsLoadingMaintenanceSettings(false)
+    setIsSavingMaintenanceSettings(false)
     setErrorMessage('')
     setSuccessMessage('')
     usersRequestInFlightRef.current = false
@@ -666,6 +720,53 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       void openModerationItem(item)
     },
     [openModerationItem],
+  )
+
+  const handleSaveMaintenanceSettings = useCallback(
+    async (nextEnabled?: boolean) => {
+      if (!canManageMaintenance) {
+        setErrorMessage('Только администратор может менять режим техработ')
+        return
+      }
+      const normalizedTitle = maintenanceTitleDraft.replace(/\s+/g, ' ').trim()
+      const normalizedMessage = maintenanceMessageDraft.trim()
+      const normalizedEta = maintenanceEtaDraft.replace(/\s+/g, ' ').trim() || DEFAULT_MAINTENANCE_ETA
+      const enabled = typeof nextEnabled === 'boolean' ? nextEnabled : maintenanceEnabledDraft
+
+      if (enabled && (!normalizedTitle || !normalizedMessage)) {
+        setErrorMessage('Перед включением заполните заголовок и текст страницы')
+        return
+      }
+
+      setIsSavingMaintenanceSettings(true)
+      setErrorMessage('')
+      setSuccessMessage('')
+      try {
+        const settings = await updateMaintenanceSettingsForAdmin({
+          token: authToken,
+          enabled,
+          title: normalizedTitle || DEFAULT_MAINTENANCE_TITLE,
+          message: normalizedMessage || DEFAULT_MAINTENANCE_MESSAGE,
+          eta_label: normalizedEta,
+        })
+        syncMaintenanceDraft(settings)
+        setSuccessMessage(settings.enabled ? 'Страница техработ включена' : 'Настройки техработ сохранены')
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Не удалось сохранить настройки техработ'
+        setErrorMessage(detail)
+      } finally {
+        setIsSavingMaintenanceSettings(false)
+      }
+    },
+    [
+      authToken,
+      canManageMaintenance,
+      maintenanceEnabledDraft,
+      maintenanceEtaDraft,
+      maintenanceMessageDraft,
+      maintenanceTitleDraft,
+      syncMaintenanceDraft,
+    ],
   )
 
   const handleUpdateTokens = useCallback(
@@ -1254,11 +1355,11 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
             {errorMessage ? <Alert severity="error">{errorMessage}</Alert> : null}
             {successMessage ? <Alert severity="success">{successMessage}</Alert> : null}
 
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
               <Button
                 variant={activeTab === 'users' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('users')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -1270,7 +1371,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               <Button
                 variant={activeTab === 'reports' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -1282,7 +1383,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               <Button
                 variant={activeTab === 'moderation' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('moderation')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -1294,7 +1395,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               <Button
                 variant={activeTab === 'bug_reports' ? 'contained' : 'outlined'}
                 onClick={() => setActiveTab('bug_reports')}
-                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction}
+                disabled={!canUseAdminPanel || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
                 sx={{
                   textTransform: 'none',
                   borderRadius: 'var(--morius-radius)',
@@ -1302,6 +1403,18 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                 }}
               >
                 Reports
+              </Button>
+              <Button
+                variant={activeTab === 'maintenance' ? 'contained' : 'outlined'}
+                onClick={() => setActiveTab('maintenance')}
+                disabled={!canManageMaintenance || isApplyingUserAction || isApplyingReportAction || isApplyingModerationAction || isSavingMaintenanceSettings}
+                sx={{
+                  textTransform: 'none',
+                  borderRadius: 'var(--morius-radius)',
+                  border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                }}
+              >
+                Техработы
               </Button>
             </Stack>
 
@@ -2072,6 +2185,174 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     )}
                   </Box>
                 </Stack>
+              </Stack>
+            ) : activeTab === 'maintenance' ? (
+              <Stack spacing={1.2} sx={{ flex: 1, minHeight: 0 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1}>
+                  <Stack spacing={0.25}>
+                    <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1rem', fontWeight: 800 }}>
+                      Страница технических работ
+                    </Typography>
+                    <Typography sx={{ color: 'text.secondary', fontSize: '0.84rem' }}>
+                      Сейчас: {maintenanceEnabledDraft ? 'включена' : 'выключена'}
+                      {maintenanceSettings?.updated_at ? ` · ${formatReportDate(maintenanceSettings.updated_at)}` : ''}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Switch
+                      checked={maintenanceEnabledDraft}
+                      onChange={(event) => {
+                        const nextEnabled = event.target.checked
+                        void handleSaveMaintenanceSettings(nextEnabled)
+                      }}
+                      disabled={!canManageMaintenance || isLoadingMaintenanceSettings || isSavingMaintenanceSettings}
+                    />
+                    <Button
+                      variant="outlined"
+                      onClick={() => void loadMaintenanceSettings()}
+                      disabled={!canManageMaintenance || isLoadingMaintenanceSettings || isSavingMaintenanceSettings}
+                      sx={{
+                        minHeight: 36,
+                        textTransform: 'none',
+                        borderColor: 'rgba(188, 202, 221, 0.36)',
+                        color: 'var(--morius-text-primary)',
+                      }}
+                    >
+                      Обновить
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {isLoadingMaintenanceSettings ? (
+                  <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
+                    <CircularProgress size={26} />
+                  </Stack>
+                ) : (
+                  <Stack spacing={1.1}>
+                    <TextField
+                      label="Заголовок"
+                      size="small"
+                      value={maintenanceTitleDraft}
+                      onChange={(event) => setMaintenanceTitleDraft(event.target.value.slice(0, MAINTENANCE_TITLE_MAX_LENGTH))}
+                      disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                      inputProps={{ maxLength: MAINTENANCE_TITLE_MAX_LENGTH }}
+                      helperText={<TextLimitIndicator currentLength={maintenanceTitleDraft.length} maxLength={MAINTENANCE_TITLE_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Описание работ"
+                      value={maintenanceMessageDraft}
+                      onChange={(event) => setMaintenanceMessageDraft(event.target.value.slice(0, MAINTENANCE_MESSAGE_MAX_LENGTH))}
+                      disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                      inputProps={{ maxLength: MAINTENANCE_MESSAGE_MAX_LENGTH }}
+                      helperText={<TextLimitIndicator currentLength={maintenanceMessageDraft.length} maxLength={MAINTENANCE_MESSAGE_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      multiline
+                      minRows={4}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Время / срок"
+                      size="small"
+                      value={maintenanceEtaDraft}
+                      onChange={(event) => setMaintenanceEtaDraft(event.target.value.slice(0, MAINTENANCE_ETA_MAX_LENGTH))}
+                      disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                      inputProps={{ maxLength: MAINTENANCE_ETA_MAX_LENGTH }}
+                      helperText={<TextLimitIndicator currentLength={maintenanceEtaDraft.length} maxLength={MAINTENANCE_ETA_MAX_LENGTH} />}
+                      FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                      fullWidth
+                    />
+
+                    <Box
+                      sx={{
+                        borderRadius: '14px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        background:
+                          'linear-gradient(135deg, rgba(17, 26, 38, 0.78) 0%, rgba(27, 30, 35, 0.72) 58%, rgba(58, 42, 26, 0.54) 100%)',
+                        px: { xs: 1.3, sm: 1.6 },
+                        py: 1.4,
+                      }}
+                    >
+                      <Stack spacing={0.8}>
+                        <Typography sx={{ color: 'text.secondary', fontSize: '0.76rem', fontWeight: 800, textTransform: 'uppercase' }}>
+                          Предпросмотр
+                        </Typography>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontSize: { xs: '1.3rem', sm: '1.55rem' }, fontWeight: 900, lineHeight: 1.1 }}>
+                          {maintenanceTitleDraft.trim() || DEFAULT_MAINTENANCE_TITLE}
+                        </Typography>
+                        <Typography sx={{ color: 'text.secondary', fontSize: '0.92rem', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                          {maintenanceMessageDraft.trim() || DEFAULT_MAINTENANCE_MESSAGE}
+                        </Typography>
+                        <Box
+                          sx={{
+                            alignSelf: 'flex-start',
+                            borderRadius: '10px',
+                            border: 'var(--morius-border-width) solid rgba(224, 236, 250, 0.18)',
+                            backgroundColor: 'rgba(12, 18, 26, 0.48)',
+                            color: 'var(--morius-text-primary)',
+                            px: 1.1,
+                            py: 0.65,
+                            fontWeight: 800,
+                            fontSize: '0.88rem',
+                          }}
+                        >
+                          {maintenanceEtaDraft.trim() || DEFAULT_MAINTENANCE_ETA}
+                        </Box>
+                      </Stack>
+                    </Box>
+
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="flex-end">
+                      <Button
+                        onClick={() => void handleSaveMaintenanceSettings(false)}
+                        disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                        sx={{
+                          minHeight: 40,
+                          textTransform: 'none',
+                          borderRadius: 'var(--morius-radius)',
+                          border: 'var(--morius-border-width) solid rgba(188, 202, 221, 0.36)',
+                          color: 'var(--morius-text-primary)',
+                        }}
+                      >
+                        Выключить
+                      </Button>
+                      <Button
+                        onClick={() => void handleSaveMaintenanceSettings()}
+                        disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                        sx={{
+                          minHeight: 40,
+                          textTransform: 'none',
+                          borderRadius: 'var(--morius-radius)',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'var(--morius-button-active)',
+                          color: 'var(--morius-text-primary)',
+                          '&:hover': {
+                            backgroundColor: 'var(--morius-button-hover)',
+                          },
+                        }}
+                      >
+                        {isSavingMaintenanceSettings ? <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} /> : 'Сохранить настройки'}
+                      </Button>
+                      <Button
+                        onClick={() => void handleSaveMaintenanceSettings(true)}
+                        disabled={!canManageMaintenance || isSavingMaintenanceSettings}
+                        sx={{
+                          minHeight: 40,
+                          textTransform: 'none',
+                          borderRadius: 'var(--morius-radius)',
+                          border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          backgroundColor: 'rgba(89, 118, 191, 0.34)',
+                          color: 'var(--morius-text-primary)',
+                          '&:hover': {
+                            backgroundColor: 'rgba(104, 135, 212, 0.44)',
+                          },
+                        }}
+                      >
+                        Включить
+                      </Button>
+                    </Stack>
+                  </Stack>
+                )}
               </Stack>
             ) : (
               <Stack spacing={1.2}>

@@ -10209,7 +10209,18 @@ def _upsert_story_plot_memory_card(
         environment_enabled = story_memory_pipeline._normalize_story_environment_enabled(
             getattr(game, "environment_enabled", None)
         )
-        if bool(getattr(game, "character_state_enabled", None)):
+        postprocess_payload = (
+            resolved_postprocess_payload_override
+            if isinstance(resolved_postprocess_payload_override, dict)
+            else None
+        )
+        has_postprocess_payload_override = isinstance(resolved_postprocess_payload_override, dict)
+
+        if (
+            bool(getattr(game, "character_state_enabled", None))
+            and allow_model_postprocess_request
+            and not has_postprocess_payload_override
+        ):
             try:
                 if story_memory_pipeline._seed_story_character_state_cards_from_world_cards(
                     db=db,
@@ -10226,12 +10237,6 @@ def _upsert_story_plot_memory_card(
                     assistant_message.id,
                     exc,
                 )
-        postprocess_payload = (
-            resolved_postprocess_payload_override
-            if isinstance(resolved_postprocess_payload_override, dict)
-            else None
-        )
-        has_postprocess_payload_override = isinstance(resolved_postprocess_payload_override, dict)
 
         if postprocess_payload is None and allow_model_postprocess_request:
             try:
@@ -10281,7 +10286,7 @@ def _upsert_story_plot_memory_card(
             and isinstance(postprocess_payload.get("important_event"), tuple)
             else important_payload
         )
-        if important_payload is None:
+        if important_payload is None and allow_model_postprocess_request and not has_postprocess_payload_override:
             try:
                 important_payload = story_memory_pipeline._extract_story_important_plot_card_payload(
                     latest_user_prompt=latest_user_prompt,
@@ -10295,7 +10300,7 @@ def _upsert_story_plot_memory_card(
                     exc,
                 )
 
-        if important_payload is None:
+        if important_payload is None and not has_postprocess_payload_override:
             try:
                 important_payload = story_memory_pipeline._extract_story_important_plot_card_payload_locally(
                     latest_user_prompt=latest_user_prompt,
@@ -10333,6 +10338,8 @@ def _upsert_story_plot_memory_card(
                     latest_user_prompt=latest_user_prompt,
                     previous_assistant_text=previous_assistant_text,
                     latest_assistant_text=latest_assistant_text,
+                    allow_model_seed=allow_model_postprocess_request and not has_postprocess_payload_override,
+                    allow_model_fill=allow_model_postprocess_request and not has_postprocess_payload_override,
                 )
                 from app.services.story_character_state_fields import apply_story_character_state_payload_to_world_cards
 

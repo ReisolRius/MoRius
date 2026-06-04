@@ -17,6 +17,7 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     profile_description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    profile_banner_id: Mapped[str] = mapped_column(String(16), nullable=False, default="2", server_default="2")
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     show_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
@@ -98,6 +99,19 @@ class UserNotification(Base):
     action_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(120), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class EmailVerification(Base):

@@ -1,4 +1,5 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
+import { normalizeProfileBannerId } from '../constants/profileBanners'
 import type {
   StoryCharacter,
   StoryCommunityCharacterSummary,
@@ -81,6 +82,15 @@ export type CurrentUserThemeSettings = {
 }
 
 export const CURRENT_USER_CUSTOM_THEME_LIMIT = 5
+
+export type MaintenanceSettings = {
+  enabled: boolean
+  title: string
+  message: string
+  eta_label: string
+  updated_at: string | null
+}
+
 export type AdminModerationAuthor = {
   id: number
   email: string
@@ -130,6 +140,7 @@ export type ProfileUserView = {
   id: number
   display_name: string
   profile_description: string
+  profile_banner_id: string
   avatar_url: string | null
   avatar_scale: number
   created_at: string
@@ -404,6 +415,25 @@ function normalizeCurrentUserThemeSettings(
   }
 }
 
+function normalizeMaintenanceSettings(value: MaintenanceSettings | null | undefined): MaintenanceSettings {
+  const title = typeof value?.title === 'string' && value.title.trim()
+    ? value.title.trim()
+    : 'Извините, идут технические работы'
+  const message = typeof value?.message === 'string' && value.message.trim()
+    ? value.message.trim()
+    : 'Мы обновляем MoRius и скоро вернемся.'
+  const etaLabel = typeof value?.eta_label === 'string' && value.eta_label.trim()
+    ? value.eta_label.trim()
+    : 'Ориентировочно скоро вернемся'
+  return {
+    enabled: Boolean(value?.enabled),
+    title,
+    message,
+    eta_label: etaLabel,
+    updated_at: typeof value?.updated_at === 'string' ? value.updated_at : null,
+  }
+}
+
 function extractCompatToken(value: unknown): string {
   if (typeof value === 'string') {
     return value
@@ -457,6 +487,7 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
       id: 0,
       display_name: '',
       profile_description: '',
+      profile_banner_id: normalizeProfileBannerId(null),
       avatar_url: null,
       avatar_scale: 1,
       created_at: new Date(0).toISOString(),
@@ -466,6 +497,7 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
     id: typeof value.id === 'number' && Number.isFinite(value.id) ? Math.trunc(value.id) : 0,
     display_name: typeof value.display_name === 'string' ? value.display_name : '',
     profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
+    profile_banner_id: normalizeProfileBannerId(value.profile_banner_id),
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
     avatar_scale:
       typeof value.avatar_scale === 'number' && Number.isFinite(value.avatar_scale)
@@ -752,6 +784,7 @@ export async function updateCurrentUserProfile(payload: {
   token: string
   display_name?: string
   profile_description?: string
+  profile_banner_id?: string
   notifications_enabled?: boolean
   notify_comment_reply?: boolean
   notify_world_comment?: boolean
@@ -768,6 +801,9 @@ export async function updateCurrentUserProfile(payload: {
   }
   if (typeof payload.profile_description === 'string') {
     requestBody.profile_description = payload.profile_description
+  }
+  if (typeof payload.profile_banner_id === 'string') {
+    requestBody.profile_banner_id = normalizeProfileBannerId(payload.profile_banner_id)
   }
   if (typeof payload.notifications_enabled === 'boolean') {
     requestBody.notifications_enabled = payload.notifications_enabled
@@ -1182,6 +1218,56 @@ export async function getBugReportForAdmin(payload: {
     },
     AUTH_NETWORK_ERROR,
   )
+}
+
+export async function getMaintenanceSettings(): Promise<MaintenanceSettings> {
+  const response = await requestJson<MaintenanceSettings>(
+    '/api/auth/maintenance',
+    {
+      method: 'GET',
+      cache: 'no-store',
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeMaintenanceSettings(response)
+}
+
+export async function getMaintenanceSettingsForAdmin(payload: { token: string } | string): Promise<MaintenanceSettings> {
+  const token = extractCompatToken(payload)
+  const response = await requestJson<MaintenanceSettings>(
+    '/api/auth/admin/maintenance',
+    {
+      method: 'GET',
+      cache: 'no-store',
+      headers: buildCompatAuthHeaders(token),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeMaintenanceSettings(response)
+}
+
+export async function updateMaintenanceSettingsForAdmin(payload: {
+  token: string
+  enabled: boolean
+  title: string
+  message: string
+  eta_label: string
+}): Promise<MaintenanceSettings> {
+  const response = await requestJson<MaintenanceSettings>(
+    '/api/auth/admin/maintenance',
+    {
+      method: 'PUT',
+      headers: buildCompatAuthHeaders(payload.token),
+      body: JSON.stringify({
+        enabled: payload.enabled,
+        title: payload.title,
+        message: payload.message,
+        eta_label: payload.eta_label,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+  return normalizeMaintenanceSettings(response)
 }
 
 export async function closeBugReportForAdmin(payload: {
