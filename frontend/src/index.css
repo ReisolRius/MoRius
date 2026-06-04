@@ -23,6 +23,7 @@ body,
   margin: 0;
   min-width: 320px;
   min-height: 100%;
+  font-size: 16px;
 }
 
 body {
@@ -30,6 +31,7 @@ body {
   background: var(--morius-app-base);
   color: var(--morius-text-secondary);
   font-size: var(--morius-body-size);
+  line-height: 1.5;
   font-family: "Nunito Sans", "Segoe UI", sans-serif;
 }
 
@@ -103,6 +105,17 @@ select {
 .morius-app-shell {
   background: var(--morius-app-bg);
   color: var(--morius-text-primary);
+  font-size: var(--morius-body-size);
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+.morius-app-shell .MuiTypography-root,
+.morius-app-shell .MuiButton-root,
+.morius-app-shell .MuiInputBase-root,
+.morius-app-shell .MuiMenuItem-root,
+.morius-app-shell .MuiTooltip-tooltip {
+  letter-spacing: 0 !important;
 }
 
 .morius-skeleton-card {
@@ -162,8 +175,8 @@ select {
 }
 
 .morius-app-shell .morius-surface-button:hover {
-  background: transparent !important;
-  color: var(--morius-accent) !important;
+  background: var(--morius-button-hover) !important;
+  color: var(--morius-title-text) !important;
 }
 
 .morius-app-shell .MuiPaper-root,
@@ -193,6 +206,15 @@ select {
   height: var(--morius-action-icon-size) !important;
 }
 
+.morius-app-shell .MuiBadge-root,
+.morius-app-shell .MuiBadge-root .MuiBadge-badge {
+  overflow: visible !important;
+}
+
+.morius-app-shell .MuiBadge-root .MuiBadge-badge {
+  box-shadow: 0 0 0 2px var(--morius-app-base);
+}
+
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button {
   width: 24px !important;
   height: 24px !important;
@@ -208,21 +230,6 @@ select {
   height: 12px !important;
 }
 
-.morius-app-shell .MuiButton-root:hover,
-.morius-app-shell .MuiButton-root:active,
-.morius-app-shell .MuiIconButton-root:hover,
-.morius-app-shell .MuiIconButton-root:active {
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.morius-app-shell .MuiButton-root:hover,
-.morius-app-shell .MuiButton-root:active,
-.morius-app-shell .MuiIconButton-root:hover,
-.morius-app-shell .MuiIconButton-root:active {
-  color: var(--morius-accent) !important;
-}
-
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button {
   width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
   height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
@@ -233,6 +240,7 @@ select {
   border-radius: 9999px !important;
   background: var(--morius-elevated-bg) !important;
   color: var(--morius-daily-rewards-color, var(--morius-text-secondary)) !important;
+  overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button:hover {
@@ -262,6 +270,7 @@ select {
   background: var(--morius-elevated-bg) !important;
   color: color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important;
   box-shadow: none !important;
+  overflow: visible !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-header-ai-button:hover,
@@ -296,6 +305,54 @@ select {
   scrollbar-gutter: var(--morius-scrollbar-gutter, stable);
   padding-right: var(--morius-scrollbar-offset);
   transition: --morius-scrollbar-thumb-opacity 220ms ease, scrollbar-color 220ms ease;
+}
+
+html,
+body,
+.morius-app-shell,
+.morius-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--morius-accent) 56%, transparent) transparent;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+.morius-app-shell::-webkit-scrollbar,
+.morius-scrollbar::-webkit-scrollbar,
+.MuiDialogContent-root::-webkit-scrollbar,
+.MuiMenu-paper::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html::-webkit-scrollbar-track,
+body::-webkit-scrollbar-track,
+.morius-app-shell::-webkit-scrollbar-track,
+.morius-scrollbar::-webkit-scrollbar-track,
+.MuiDialogContent-root::-webkit-scrollbar-track,
+.MuiMenu-paper::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb,
+.morius-app-shell::-webkit-scrollbar-thumb,
+.morius-scrollbar::-webkit-scrollbar-thumb,
+.MuiDialogContent-root::-webkit-scrollbar-thumb,
+.MuiMenu-paper::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--morius-accent) 46%, var(--morius-elevated-bg));
+}
+
+html::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover,
+.morius-app-shell::-webkit-scrollbar-thumb:hover,
+.morius-scrollbar::-webkit-scrollbar-thumb:hover,
+.MuiDialogContent-root::-webkit-scrollbar-thumb:hover,
+.MuiMenu-paper::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--morius-accent) 64%, var(--morius-title-text));
 }
 
 .morius-scrollbar:hover,

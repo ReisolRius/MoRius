@@ -31,6 +31,7 @@ import landingControlsIcon from '../assets/icons/landing-controls.svg'
 import landingSendIcon from '../assets/icons/landing-send.svg'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import Footer from '../components/Footer'
+import ProgressiveImage from '../components/media/ProgressiveImage'
 import { listPublicCommunityWorlds } from '../services/storyApi'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import type { StoryCommunityWorldSummary } from '../types/story'
@@ -152,8 +153,8 @@ const tariffPlans: TariffPlan[] = [
   {
     id: 'pathfinder',
     title: 'Путник',
-    price: '490 ₽',
-    coins: '350 солов',
+    price: '399 ₽',
+    coins: '400 солов',
     details: [
       'Для старта, тестовых миров и коротких кампаний.',
       'Работает с новым лимитом контекста до 64k.',
@@ -165,7 +166,7 @@ const tariffPlans: TariffPlan[] = [
     id: 'seeker',
     title: 'Искатель',
     price: '1190 ₽',
-    coins: '1000 солов',
+    coins: '1450 солов',
     details: [
       'Оптимален для регулярной игры и длинных сцен.',
       'Лучший баланс между ценой и запасом солов.',
@@ -176,8 +177,8 @@ const tariffPlans: TariffPlan[] = [
   {
     id: 'chronicler',
     title: 'Архонт',
-    price: '3990 ₽',
-    coins: '3400 солов',
+    price: '4490 ₽',
+    coins: '6000 солов',
     details: [
       'Для больших кампаний и тяжёлых сцен с запасом.',
       'Удобен, если часто используете дорогие модели.',
@@ -458,7 +459,6 @@ export default function PublicLandingPage({
   const [currentSlide, setCurrentSlide] = useState(0)
   const [currentFeatureSlide, setCurrentFeatureSlide] = useState(0)
   const [currentPlanSlide, setCurrentPlanSlide] = useState(1)
-  const [isHeroBackgroundLoaded, setIsHeroBackgroundLoaded] = useState(false)
   const [publicWorlds, setPublicWorlds] = useState<StoryCommunityWorldSummary[]>([])
 
   /* Story typewriter */
@@ -484,33 +484,6 @@ export default function PublicLandingPage({
     }, delay)
     return () => window.clearTimeout(id)
   }, [animationStarted, typedText])
-
-  useEffect(() => {
-    const image = new window.Image()
-    let frameId = 0
-
-    const handleReady = () => {
-      frameId = window.requestAnimationFrame(() => {
-        setIsHeroBackgroundLoaded(true)
-      })
-    }
-
-    image.onload = handleReady
-    image.onerror = handleReady
-    image.src = heroNewBg
-
-    if (image.complete) {
-      handleReady()
-    }
-
-    return () => {
-      image.onload = null
-      image.onerror = null
-      if (frameId) {
-        window.cancelAnimationFrame(frameId)
-      }
-    }
-  }, [])
 
   useEffect(() => {
     let active = true
@@ -579,21 +552,23 @@ export default function PublicLandingPage({
           backgroundColor: '#111111',
         }}
       >
-        <Box
-          aria-hidden
-          sx={{
+        <ProgressiveImage
+          src={heroNewBg}
+          alt=""
+          loading="eager"
+          fetchPriority="high"
+          objectFit="cover"
+          objectPosition="center 54%"
+          loaderSize={34}
+          containerSx={{
             position: 'absolute',
             inset: 0,
-            backgroundImage: `url(${heroNewBg})`,
-            backgroundSize: 'cover',
-            backgroundPosition: { xs: '58% 54%', md: 'center 54%' },
-            backgroundRepeat: 'no-repeat',
-            opacity: isHeroBackgroundLoaded ? 1 : 0,
-            transform: isHeroBackgroundLoaded ? 'scale(1)' : 'scale(1.025)',
-            transition:
-              'opacity 900ms cubic-bezier(0.22,1,0.36,1), transform 1200ms cubic-bezier(0.22,1,0.36,1)',
-            willChange: 'opacity, transform',
             zIndex: 0,
+            backgroundColor: '#111111',
+          }}
+          imgSx={{
+            objectPosition: { xs: '58% 54%', md: 'center 54%' },
+            transform: 'scale(1.01)',
           }}
         />
         <Box
@@ -736,6 +711,8 @@ export default function PublicLandingPage({
                   component="img"
                   src={characterAboutImg}
                   alt="Morius character"
+                  loading="lazy"
+                  decoding="async"
                   sx={{
                     width: { xs: '90%', sm: '70%', md: '100%' },
                     maxWidth: { xs: 380, md: 620 },
@@ -1722,14 +1699,32 @@ export default function PublicLandingPage({
                         sx={{
                           position: 'relative',
                           height: 120,
-                          backgroundImage: `linear-gradient(180deg, rgba(17,17,17,0.05) 0%, rgba(17,17,17,0.45) 100%), url(${plan.image})`,
-                          backgroundSize: 'cover',
-                          backgroundPosition: 'center',
+                          overflow: 'hidden',
+                          backgroundColor: '#151515',
                         }}
                       >
+                        <ProgressiveImage
+                          src={plan.image}
+                          alt=""
+                          loading="lazy"
+                          objectFit="cover"
+                          objectPosition="center"
+                          loaderSize={22}
+                          containerSx={{ position: 'absolute', inset: 0 }}
+                        />
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            background: 'linear-gradient(180deg, rgba(17,17,17,0.05) 0%, rgba(17,17,17,0.45) 100%)',
+                            zIndex: 1,
+                          }}
+                        />
                         <Typography
                           sx={{
                             position: 'absolute',
+                            zIndex: 2,
                             bottom: 12,
                             left: 16,
                             fontFamily: '"Nunito Sans", sans-serif',
@@ -1875,14 +1870,32 @@ export default function PublicLandingPage({
                     sx={{
                       position: 'relative',
                       height: { xs: 120, md: 140 },
-                      backgroundImage: `linear-gradient(180deg, rgba(17,17,17,0.05) 0%, rgba(17,17,17,0.45) 100%), url(${plan.image})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
+                      overflow: 'hidden',
+                      backgroundColor: '#151515',
                     }}
                   >
+                    <ProgressiveImage
+                      src={plan.image}
+                      alt=""
+                      loading="lazy"
+                      objectFit="cover"
+                      objectPosition="center"
+                      loaderSize={22}
+                      containerSx={{ position: 'absolute', inset: 0 }}
+                    />
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        background: 'linear-gradient(180deg, rgba(17,17,17,0.05) 0%, rgba(17,17,17,0.45) 100%)',
+                        zIndex: 1,
+                      }}
+                    />
                     <Typography
                       sx={{
                         position: 'absolute',
+                        zIndex: 2,
                         bottom: 12,
                         left: 16,
                         fontFamily: '"Nunito Sans", sans-serif',

@@ -211,21 +211,22 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
           aspectRatio: '1 / 1',
           borderRadius: '99px !important',
           p: 0,
-          color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
-          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
+          color: 'color-mix(in srgb, var(--morius-title-text) 74%, transparent) !important',
+          backgroundColor: 'var(--morius-elevated-bg) !important',
           border: 'none',
           boxShadow: 'none !important',
           opacity: '1 !important',
           transition: 'background-color 160ms ease, color 160ms ease',
           position: 'relative',
-          overflow: 'hidden',
+          overflow: 'visible',
           '&:hover': {
             color: 'var(--morius-title-text) !important',
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+            backgroundColor: 'var(--morius-button-hover) !important',
             opacity: '1 !important',
+            boxShadow: '0 10px 24px rgba(0,0,0,0.22) !important',
           },
           '&:active': {
-            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+            backgroundColor: 'var(--morius-button-active) !important',
           },
         }}
       >
@@ -242,10 +243,10 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
             aria-hidden="true"
             sx={{
               position: 'absolute',
-              top: 4,
-              right: 3,
-              width: 9,
-              height: 9,
+              top: 2,
+              right: 2,
+              width: 10,
+              height: 10,
               borderRadius: '50%',
               backgroundColor: 'var(--morius-accent)',
               boxShadow: '0 0 0 2px var(--morius-app-bg)',

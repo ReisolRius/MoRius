@@ -31,23 +31,29 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
       h1: {
         fontSize: `${moriusThemeTokens.typography.headingSize}px`,
         fontWeight: 700,
+        lineHeight: 1.18,
         color: colors.titleText,
       },
       h2: {
         fontSize: `${moriusThemeTokens.typography.subheadingSize}px`,
         fontWeight: 700,
+        lineHeight: 1.25,
         color: colors.titleText,
       },
       body1: {
         fontSize: `${moriusThemeTokens.typography.bodySize}px`,
+        lineHeight: 1.5,
         color: colors.textSecondary,
       },
       body2: {
-        fontSize: `${moriusThemeTokens.typography.bodySize}px`,
+        fontSize: '14px',
+        lineHeight: 1.45,
         color: colors.textSecondary,
       },
       button: {
         textTransform: 'none',
+        fontSize: '15px',
+        lineHeight: 1.35,
         fontWeight: 700,
         color: colors.accent,
       },
@@ -82,12 +88,12 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             color: colors.textSecondary,
             backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : colors.appElevated,
             '&:hover': {
-              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
-              color: colors.accent,
+              backgroundColor: colors.buttonHover,
+              color: colors.titleText,
             },
             '&:active': {
-              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
-              color: colors.accent,
+              backgroundColor: colors.buttonActive,
+              color: colors.titleText,
             },
           },
         },
@@ -105,13 +111,13 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             backgroundColor: colors.appElevated,
             color: colors.accent,
             '&:hover': {
-              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
-              color: colors.accent,
+              backgroundColor: colors.buttonHover,
+              color: colors.titleText,
               borderColor: colors.appBorder,
             },
             '&:active': {
-              backgroundColor: colors.appBorder === 'transparent' ? colors.appElevated : 'transparent',
-              color: colors.accent,
+              backgroundColor: colors.buttonActive,
+              color: colors.titleText,
               borderColor: colors.appBorder,
             },
           },
@@ -166,6 +172,22 @@ export function createMoriusMuiTheme(colors: MoriusThemeColors = moriusThemeToke
             paddingTop: 0,
             paddingBottom: 'var(--morius-content-gap)',
             gap: 'var(--morius-content-gap)',
+          },
+        },
+      },
+      MuiTooltip: {
+        styleOverrides: {
+          tooltip: {
+            borderRadius: moriusThemeTokens.radii.app,
+            border: colors.appBorder === 'transparent' ? 'none' : `${moriusThemeTokens.borders.width}px solid ${colors.appBorder}`,
+            backgroundColor: colors.appSurface,
+            color: colors.textPrimary,
+            fontSize: '13px',
+            lineHeight: 1.4,
+            boxShadow: '0 16px 38px rgba(0, 0, 0, 0.44)',
+          },
+          arrow: {
+            color: colors.appSurface,
           },
         },
       },

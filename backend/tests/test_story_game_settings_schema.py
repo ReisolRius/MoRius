@@ -38,6 +38,12 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         self.assertIn("canonical_state_pipeline_enabled", payload.model_fields_set)
         self.assertIn("canonical_state_safe_fallback_enabled", payload.model_fields_set)
 
+    def test_response_token_limit_allows_new_ceiling(self) -> None:
+        payload = StoryGameSettingsUpdateRequest(response_max_tokens=4_500)
+
+        self.assertEqual(payload.response_max_tokens, 4_500)
+        self.assertIn("response_max_tokens", payload.model_fields_set)
+
     def test_extended_context_models_allow_128k_and_other_models_cap_at_64k(self) -> None:
         self.assertEqual(
             normalize_story_context_limit_chars(128_000, model_name="z-ai/glm-5.1"),
@@ -57,27 +63,29 @@ class StoryGameSettingsSchemaTests(unittest.TestCase):
         )
 
     def test_extended_context_models_have_128k_cost_tier(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 18)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 35)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 16)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 30)
-        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 16)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-5.1"), 55)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5.1"), 105)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "aion-labs/aion-2.0"), 34)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "aion-labs/aion-2.0"), 65)
+        self.assertEqual(get_story_turn_cost_tokens(64_001, "z-ai/glm-5"), 45)
 
     def test_new_polza_models_have_planned_turn_costs(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-2.5-pro"), 16)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "qwen/qwen3.5-122b-a10b"), 16)
-        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 18)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 30)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-2.5-pro"), 45)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "qwen/qwen3.5-122b-a10b"), 34)
+        self.assertEqual(get_story_turn_cost_tokens(16_001, "anthropic/claude-sonnet-4.6"), 45)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "anthropic/claude-sonnet-4.6"), 85)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "google/gemini-3.1-pro-preview"), 65)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7"), 25)
 
-    def test_standard_models_have_six_sol_64k_tier(self) -> None:
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-chat-v3-0324"), 6)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 6)
-        self.assertEqual(get_story_turn_cost_tokens(32_001, "xiaomi/mimo-v2-flash"), 6)
+    def test_standard_models_have_eighteen_sol_64k_tier(self) -> None:
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-chat-v3-0324"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "deepseek/deepseek-v3.2"), 18)
+        self.assertEqual(get_story_turn_cost_tokens(32_001, "z-ai/glm-4.7-flash"), 18)
 
-    def test_seedream_image_model_legacy_id_maps_to_polza_id(self) -> None:
+    def test_seedream_image_model_legacy_id_maps_to_current_id(self) -> None:
         self.assertEqual(
             coerce_story_image_model("bytedance-seed/seedream-4.5"),
-            "bytedance/seedream-4.5",
+            "seedream-4.5",
         )
 
     def test_appearance_fields_are_tracked_when_sent(self) -> None:

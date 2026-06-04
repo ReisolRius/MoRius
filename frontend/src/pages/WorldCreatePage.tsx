@@ -16,6 +16,7 @@ import FormDialog from '../components/dialogs/FormDialog'
 import ImageCropper from '../components/ImageCropper'
 import TextLimitIndicator from '../components/TextLimitIndicator'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
+import ProgressiveImage from '../components/media/ProgressiveImage'
 import { QUICK_START_WORLD_STORAGE_KEY } from '../constants/storageKeys'
 import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 import { buildUnifiedMobileQuickActions } from '../utils/mobileQuickActions'
@@ -2313,13 +2314,28 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     }}
                   >
                     {coverImageUrl ? (
-                      <Box
-                        sx={{
+                      <ProgressiveImage
+                        src={coverImageUrl}
+                        alt=""
+                        loading="lazy"
+                        loaderSize={28}
+                        objectFit="cover"
+                        containerSx={{
                           position: 'absolute',
                           inset: 0,
-                          backgroundImage: `url(${coverImageUrl})`,
-                          backgroundSize: `${coverScale * 100}%`,
-                          backgroundPosition: `${coverPositionX}% ${coverPositionY}%`,
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, #000 12%)',
+                        }}
+                        imgSx={{
+                          position: 'absolute',
+                          left: `${coverPositionX}%`,
+                          top: `${coverPositionY}%`,
+                          width: `${Math.max(100, coverScale * 100)}%`,
+                          height: `${Math.max(100, coverScale * 100)}%`,
+                          minWidth: '100%',
+                          minHeight: '100%',
+                          maxWidth: 'none',
+                          maxHeight: 'none',
+                          transform: 'translate(-50%, -50%)',
                         }}
                       />
                     ) : null}

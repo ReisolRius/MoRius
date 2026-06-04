@@ -133,7 +133,7 @@ STORY_MEMORY_OPTIMIZATION_MODE_VALUES = {
     STORY_MEMORY_OPTIMIZATION_MODE_MAXIMUM,
 }
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
-STORY_RESPONSE_MAX_TOKENS_MAX = 800
+STORY_RESPONSE_MAX_TOKENS_MAX = 4_500
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_REPETITION_PENALTY_MIN = 1.0
 STORY_REPETITION_PENALTY_MAX = 2.0
@@ -143,17 +143,22 @@ STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
-STORY_TURN_COST_STANDARD_TIERS = (1, 2, 4, 6, 6)
-STORY_TURN_COST_PREMIUM_TIERS = (2, 4, 8, 16, 16)
-STORY_TURN_COST_AION_TIERS = (2, 4, 8, 16, 30)
-STORY_TURN_COST_GLM51_TIERS = (3, 6, 12, 18, 35)
-STORY_TURN_COST_CLAUDE_SONNET_TIERS = (5, 10, 18, 30, 30)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (4, 7, 10, 17, 17)
+STORY_TURN_COST_DEEPSEEK_TIERS = (1, 4, 9, 18, 18)
+STORY_TURN_COST_GLM47_FLASH_TIERS = (1, 4, 9, 18, 18)
+STORY_TURN_COST_GLM47_TIERS = (2, 5, 12, 25, 25)
+STORY_TURN_COST_AION_TIERS = (3, 7, 16, 34, 65)
+STORY_TURN_COST_QWEN_TIERS = (3, 7, 16, 34, 34)
+STORY_TURN_COST_GLM5_GEMINI25_TIERS = (4, 10, 22, 45, 45)
+STORY_TURN_COST_GLM51_TIERS = (5, 12, 26, 55, 105)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (8, 20, 35, 65, 65)
+STORY_TURN_COST_CLAUDE_SONNET_TIERS = (10, 24, 45, 85, 85)
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
 STORY_LLM_MODEL_GLM5 = "z-ai/glm-5"
 STORY_LLM_MODEL_GLM51 = "z-ai/glm-5.1"
+STORY_LLM_MODEL_GLM47_FLASH = "z-ai/glm-4.7-flash"
 STORY_LLM_MODEL_GLM47 = "z-ai/glm-4.7"
+STORY_LLM_MODEL_DEEPSEEK_V32 = "deepseek/deepseek-v3.2"
 STORY_LLM_MODEL_DEEPSEEK_V3 = "deepseek/deepseek-chat-v3-0324"
 STORY_LLM_MODEL_MISTRAL_NEMO = "mistralai/mistral-nemo"
 STORY_LLM_MODEL_AION_2 = "aion-labs/aion-2.0"
@@ -166,7 +171,9 @@ STORY_LLM_MODEL_LEGACY_ALIASES: dict[str, str] = {}
 STORY_SUPPORTED_LLM_MODELS = {
     STORY_LLM_MODEL_GLM5,
     STORY_LLM_MODEL_GLM51,
+    STORY_LLM_MODEL_GLM47_FLASH,
     STORY_LLM_MODEL_GLM47,
+    STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V3,
     STORY_LLM_MODEL_MISTRAL_NEMO,
     STORY_LLM_MODEL_AION_2,
@@ -180,14 +187,10 @@ STORY_EXTENDED_CONTEXT_LLM_MODELS = {
     STORY_LLM_MODEL_AION_2,
 }
 STORY_TURN_COST_STANDARD_LLM_MODELS = {
+    STORY_LLM_MODEL_GLM47_FLASH,
+    STORY_LLM_MODEL_DEEPSEEK_V32,
     STORY_LLM_MODEL_DEEPSEEK_V3,
-    STORY_LLM_MODEL_GLM47,
     STORY_LLM_MODEL_MISTRAL_NEMO,
-}
-STORY_TURN_COST_PREMIUM_LLM_MODELS = {
-    STORY_LLM_MODEL_GLM5,
-    STORY_LLM_MODEL_GEMINI_25_PRO,
-    STORY_LLM_MODEL_QWEN35_122B_A10B,
 }
 STORY_IMAGE_MODEL_FLUX = "flux.2-pro"
 STORY_IMAGE_MODEL_FLUX_LEGACY = "black-forest-labs/flux.2-pro"
@@ -486,19 +489,27 @@ def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
 
 def get_story_model_turn_cost_tiers(model_name: str | None) -> tuple[int, int, int, int, int]:
     normalized_model_name = coerce_story_llm_model(model_name)
+    if normalized_model_name == STORY_LLM_MODEL_GLM47:
+        return STORY_TURN_COST_GLM47_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GLM51:
         return STORY_TURN_COST_GLM51_TIERS
     if normalized_model_name == STORY_LLM_MODEL_AION_2:
         return STORY_TURN_COST_AION_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_QWEN35_122B_A10B:
+        return STORY_TURN_COST_QWEN_TIERS
+    if normalized_model_name in {STORY_LLM_MODEL_GLM5, STORY_LLM_MODEL_GEMINI_25_PRO}:
+        return STORY_TURN_COST_GLM5_GEMINI25_TIERS
     if normalized_model_name == STORY_LLM_MODEL_CLAUDE_SONNET_46:
         return STORY_TURN_COST_CLAUDE_SONNET_TIERS
     if normalized_model_name == STORY_LLM_MODEL_GEMINI_31_PRO:
         return STORY_TURN_COST_GEMINI_31_PRO_TIERS
-    if normalized_model_name in STORY_TURN_COST_PREMIUM_LLM_MODELS:
-        return STORY_TURN_COST_PREMIUM_TIERS
+    if normalized_model_name in {STORY_LLM_MODEL_DEEPSEEK_V32, STORY_LLM_MODEL_DEEPSEEK_V3}:
+        return STORY_TURN_COST_DEEPSEEK_TIERS
+    if normalized_model_name == STORY_LLM_MODEL_GLM47_FLASH:
+        return STORY_TURN_COST_GLM47_FLASH_TIERS
     if normalized_model_name in STORY_TURN_COST_STANDARD_LLM_MODELS:
-        return STORY_TURN_COST_STANDARD_TIERS
-    return STORY_TURN_COST_STANDARD_TIERS
+        return STORY_TURN_COST_DEEPSEEK_TIERS
+    return STORY_TURN_COST_DEEPSEEK_TIERS
 
 
 def get_story_turn_cost_tokens(context_usage_tokens: int | None, model_name: str | None = None) -> int:
@@ -531,8 +542,8 @@ def normalize_story_llm_model(value: str | None) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 "Unsupported story model. "
-                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7, "
-                "deepseek/deepseek-chat-v3-0324, mistralai/mistral-nemo, "
+                "Use one of: z-ai/glm-5, z-ai/glm-5.1, z-ai/glm-4.7-flash, z-ai/glm-4.7, "
+                "deepseek/deepseek-v3.2, deepseek/deepseek-chat-v3-0324, mistralai/mistral-nemo, "
                 "aion-labs/aion-2.0, "
                 "anthropic/claude-sonnet-4.6, google/gemini-2.5-pro, google/gemini-3.1-pro-preview, "
                 "qwen/qwen3.5-122b-a10b"

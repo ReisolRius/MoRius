@@ -4466,6 +4466,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           aria-label="Уведомления"
                           sx={{
                             position: 'relative',
+                            overflow: 'visible',
                             flex: `0 0 ${HEADER_AVATAR_SIZE}px`,
                             alignSelf: 'center',
                             width: `${HEADER_AVATAR_SIZE}px !important`,
@@ -4477,18 +4478,19 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             borderRadius: '50% !important',
                             border: 'none',
                             boxSizing: 'border-box',
-                            backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, #000 38%) !important',
-                            color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+                            backgroundColor: 'var(--morius-elevated-bg) !important',
+                            color: 'color-mix(in srgb, var(--morius-title-text) 74%, transparent) !important',
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
                             p: '0 !important',
                             '&:hover': {
-                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 52%, #000 48%) !important',
+                              backgroundColor: 'var(--morius-button-hover) !important',
                               color: 'var(--morius-title-text) !important',
+                              boxShadow: '0 10px 24px rgba(0, 0, 0, 0.24) !important',
                             },
                             '&:active': {
-                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 44%, #000 56%) !important',
+                              backgroundColor: 'var(--morius-button-active) !important',
                             },
                           }}
                         >
@@ -4499,8 +4501,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             <Box
                               sx={{
                                 position: 'absolute',
-                                top: -5,
-                                right: -2,
+                                top: -3,
+                                right: -4,
                                 minWidth: 24,
                                 height: 16,
                                 px: 0.45,
@@ -4524,15 +4526,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           sx={{
                             minHeight: 40,
                             px: 1.6,
-                            borderRadius: '16px',
+                            borderRadius: '999px',
                             border: 'none',
-                            backgroundColor: 'transparent',
-                            color: 'var(--morius-text-secondary)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            color: 'var(--morius-title-text)',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'transparent',
+                              backgroundColor: 'var(--morius-button-hover)',
                               color: 'var(--morius-title-text)',
+                              boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
                           }}
                         >
@@ -4544,15 +4547,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           sx={{
                             minHeight: 40,
                             px: 1.75,
-                            borderRadius: '16px',
+                            borderRadius: '999px',
                             border: 'none',
                             backgroundColor: 'var(--morius-elevated-bg)',
                             color: 'var(--morius-title-text)',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                              backgroundColor: 'var(--morius-button-hover)',
                               color: 'var(--morius-title-text)',
+                              boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
                           }}
                         >
@@ -4566,15 +4570,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           sx={{
                             minHeight: 40,
                             px: 1.75,
-                            borderRadius: '16px',
+                            borderRadius: '999px',
                             border: 'none',
                             backgroundColor: 'var(--morius-elevated-bg)',
                             color: 'var(--morius-title-text)',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                              backgroundColor: 'var(--morius-button-hover)',
                               color: 'var(--morius-title-text)',
+                              boxShadow: '0 10px 24px rgba(0, 0, 0, 0.2)',
                             },
                           }}
                         >
@@ -4588,15 +4593,15 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                           sx={{
                             minHeight: 40,
                             px: 1.75,
-                            borderRadius: '16px',
+                            borderRadius: '999px',
                             border: 'none',
-                            backgroundColor: 'transparent',
-                            color: 'var(--morius-title-text)',
+                            backgroundColor: 'rgba(175, 72, 72, 0.2)',
+                            color: 'color-mix(in srgb, #ffd0d0 88%, var(--morius-title-text))',
                             textTransform: 'none',
                             fontWeight: 700,
                             '&:hover': {
-                              backgroundColor: 'transparent',
-                              color: 'var(--morius-title-text)',
+                              backgroundColor: 'rgba(175, 72, 72, 0.34)',
+                              color: '#ffe1e1',
                             },
                           }}
                         >

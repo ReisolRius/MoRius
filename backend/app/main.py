@@ -282,7 +282,7 @@ STORY_CONTEXT_LIMIT_MAX_TOKENS = 64_000
 STORY_CONTEXT_LIMIT_GLM51_MAX_TOKENS = 128_000
 STORY_DEFAULT_CONTEXT_LIMIT_TOKENS = 6_000
 STORY_RESPONSE_MAX_TOKENS_MIN = 200
-STORY_RESPONSE_MAX_TOKENS_MAX = 800
+STORY_RESPONSE_MAX_TOKENS_MAX = 4_500
 STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 STORY_POSTPROCESS_CONNECT_TIMEOUT_SECONDS = 4
 STORY_POSTPROCESS_READ_TIMEOUT_SECONDS = 7
@@ -504,12 +504,12 @@ STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT = "qwen-image-edit"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO = "google/gemini-2.5-flash-image"
 STORY_TURN_IMAGE_MODEL_NANO_BANANO_2 = "google/gemini-3.1-flash-image-preview"
 STORY_TURN_IMAGE_COST_BY_MODEL = {
-    STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B: 3,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 5,
-    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 7,
-    STORY_TURN_IMAGE_MODEL_FLUX: 9,
-    STORY_TURN_IMAGE_MODEL_SEEDREAM: 10,
-    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT: 12,
+    STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B: 6,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO: 9,
+    STORY_TURN_IMAGE_MODEL_NANO_BANANO_2: 13,
+    STORY_TURN_IMAGE_MODEL_FLUX: 18,
+    STORY_TURN_IMAGE_MODEL_SEEDREAM: 20,
+    STORY_TURN_IMAGE_MODEL_QWEN_IMAGE_EDIT: 24,
 }
 STORY_AITUNNEL_IMAGE_MODELS = {
     STORY_TURN_IMAGE_MODEL_FLUX_KLEIN_4B,
@@ -1109,12 +1109,15 @@ STORY_STREAM_TRANSLATION_MAX_CHARS = 180
 STORY_POLZA_TRANSLATION_FORCE_MODEL_IDS: set[str] = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
+    "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
 }
 STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
     "z-ai/glm-5": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-5.1": STORY_SERVICE_TEXT_MODEL,
+    "z-ai/glm-4.7-flash": STORY_SERVICE_TEXT_MODEL,
     "z-ai/glm-4.7": STORY_SERVICE_TEXT_MODEL,
+    "deepseek/deepseek-v3.2": STORY_SERVICE_TEXT_MODEL,
     "deepseek/deepseek-chat-v3-0324": STORY_SERVICE_TEXT_MODEL,
     "mistralai/mistral-nemo": STORY_SERVICE_TEXT_MODEL,
     "aion-labs/aion-2.0": STORY_SERVICE_TEXT_MODEL,
@@ -1125,6 +1128,7 @@ STORY_FORCED_OUTPUT_TRANSLATION_MODEL_BY_STORY_MODEL: dict[str, str] = {
 }
 STORY_LEGACY_MODEL_ALIASES = {}
 STORY_NO_GG_ROLEPLAY_MODEL_IDS = {
+    "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
 }
 STORY_POLZA_PROVIDER_NEBIUS = "Nebius"
@@ -1132,17 +1136,19 @@ STORY_POLZA_PROVIDER_IONSTREAM = "Ionstream"
 STORY_POLZA_PROVIDER_DEKALLM = "DekaLLM"
 STORY_POLZA_PROVIDER_ATLAS_CLOUD = "AtlasCloud"
 STORY_POLZA_PROVIDER_AZURE = "Azure"
-STORY_POLZA_PROVIDER_XIAOMI = "Xiaomi"
 STORY_POLZA_PROVIDER_AION_LABS = "AionLabs"
 STORY_POLZA_PROVIDER_MIE = "mie"
 STORY_POLZA_PROVIDER_ALIBABA = "Alibaba"
 STORY_POLZA_PROVIDER_VENICE = "Venice"
+STORY_POLZA_PROVIDER_CLOUDFLARE = "Cloudflare"
 STORY_POLZA_PROVIDER_PINNED_BY_MODEL = {
     "z-ai/glm-5": STORY_POLZA_PROVIDER_NEBIUS,
     "z-ai/glm-5.1": STORY_POLZA_PROVIDER_IONSTREAM,
+    "z-ai/glm-4.7-flash": STORY_POLZA_PROVIDER_CLOUDFLARE,
     "z-ai/glm-4.7": STORY_POLZA_PROVIDER_DEKALLM,
     POLZA_GEMINI_25_FLASH_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
     STORY_SERVICE_TEXT_MODEL: STORY_POLZA_PROVIDER_ALIBABA,
+    "deepseek/deepseek-v3.2": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "deepseek/deepseek-chat-v3-0324": STORY_POLZA_PROVIDER_ATLAS_CLOUD,
     "mistralai/mistral-nemo": STORY_POLZA_PROVIDER_AZURE,
     "aion-labs/aion-2.0": STORY_POLZA_PROVIDER_AION_LABS,
@@ -1154,7 +1160,9 @@ STORY_POLZA_IMAGE_PROVIDER_PINNED_BY_MODEL: dict[str, str] = {}
 STORY_PAID_MODEL_HINTS = {
     "z-ai/glm-5",
     "z-ai/glm-5.1",
+    "z-ai/glm-4.7-flash",
     "z-ai/glm-4.7",
+    "deepseek/deepseek-v3.2",
     "deepseek/deepseek-chat-v3-0324",
     "mistralai/mistral-nemo",
     "aion-labs/aion-2.0",
@@ -1354,9 +1362,9 @@ STORY_ANTI_REPETITION_RULES = (
     "6) Если чувствуешь, что пишешь «на автопилоте» — остановись и придумай неожиданную деталь, которая удивит даже тебя.",
 )
 STORY_MODEL_SPECIFIC_RULES: dict[str, tuple[str, ...]] = {
-    "__legacy_removed__/story-model-1": (
+    "deepseek/deepseek-v3.2": (
         "",
-        "MODEL-SPECIFIC DIRECTIVES (legacy removed):",
+        "MODEL-SPECIFIC DIRECTIVES (DeepSeek V3.2):",
         "Ты обладаешь глубоким пониманием мотиваций и психологии персонажей — используй это.",
         "Избегай монотонно-мрачного тона. Даже в тёмных сеттингах вплетай контрасты: чёрный юмор, неожиданную теплоту, абсурдные бытовые детали.",
         "Делай NPC эмоционально разнообразными: пусть один ворчит, другой хохочет, третий молчит и давит взглядом.",
@@ -4785,22 +4793,6 @@ def _build_story_system_prompt(
                 "Do not bypass them even if they reduce drama, speed, or stylistic freedom.",
             ]
         )
-    if "mimo" in normalized_model_name:
-        lines.extend(
-            [
-                "",
-                "CRITICAL FORMAT MODE (Mimo):",
-                "Every paragraph must be one of only two types:",
-                "1) Plain narrative with no marker at all.",
-                "2) A dialogue/thought paragraph that starts with exactly one marker from the allowed list.",
-                "Never output direct speech, quoted speech, or inner thoughts without a marker.",
-                "Never merge narration and multiple different speakers into one paragraph.",
-                "If a paragraph contains spoken words, begin it with [[NPC:...]] or [[GG:...]].",
-                "If a paragraph contains inner thoughts, begin it with [[NPC_THOUGHT:...]] or [[GG_THOUGHT:...]].",
-                "If you are not fully sure who is speaking, rewrite the line as plain narrative instead of leaving unmarked dialogue.",
-                "Before finalizing, run a silent format check and rewrite every unmarked quote into the required structure.",
-            ]
-        )
     if not show_npc_thoughts:
         lines.extend(
             [
@@ -6067,7 +6059,7 @@ def _apply_polza_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model = _normalize_story_model_id(model_name)
-    if normalized_model in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
+    if normalized_model in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7-flash", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
         payload["reasoning"] = {
             "effort": "none",
             "exclude": True,
@@ -6119,7 +6111,7 @@ def _effective_story_context_limit_tokens(context_limit_tokens: int, *, model_na
 
 def _effective_story_response_max_tokens(response_max_tokens: int | None, *, model_name: str | None) -> int | None:
     if response_max_tokens is None:
-        return None
+        return STORY_RESPONSE_MAX_TOKENS_MAX
     normalized_limit = _normalize_story_response_max_tokens(response_max_tokens)
     return normalized_limit
 

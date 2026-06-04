@@ -149,8 +149,8 @@ function TopUpDialog({
       }}
     >
       <DialogTitle sx={{ pb: 1, pr: 7, position: 'relative' }}>
-        <Typography sx={{ fontWeight: 900, fontSize: '2rem' }}>Пакеты солов</Typography>
-        <Typography sx={{ color: 'var(--morius-text-secondary)', mt: 0.4 }}>
+        <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.6rem', sm: '1.9rem' }, lineHeight: 1.12 }}>Пакеты солов</Typography>
+        <Typography sx={{ color: 'var(--morius-text-secondary)', mt: 0.45, fontSize: '0.98rem', lineHeight: 1.35 }}>
           Выберите пакет и перейдите к оплате.
         </Typography>
         <IconButton
@@ -162,11 +162,11 @@ function TopUpDialog({
             right: 14,
             width: 42,
             height: 42,
-            color: 'rgba(255,255,255,0.82)',
-            backgroundColor: 'transparent',
+            color: 'var(--morius-text-secondary)',
+            backgroundColor: 'var(--morius-elevated-bg)',
             '&:hover': {
-              backgroundColor: 'transparent',
-              color: '#FFFFFF',
+              backgroundColor: 'var(--morius-button-hover)',
+              color: 'var(--morius-title-text)',
             },
           }}
         >
@@ -177,6 +177,7 @@ function TopUpDialog({
         </IconButton>
       </DialogTitle>
       <DialogContent
+        className="morius-scrollbar"
         sx={{
           pt: 1.2,
           overflowY: 'auto',
@@ -326,7 +327,7 @@ function TopUpDialog({
                         {plan.price_rub} ₽
                       </Typography>
                       <Typography sx={{ color: card.accent, fontSize: '1.08rem', fontWeight: 800 }}>
-                        {plan.description}
+                        {plan.coins.toLocaleString('ru-RU')} солов
                       </Typography>
                       {card.lines.map((line) => (
                         <Typography key={`${plan.id}-${line}`} sx={{ color: 'rgba(255,255,255,0.78)', fontSize: '1.02rem' }}>
@@ -351,8 +352,9 @@ function TopUpDialog({
                           fontSize: '1.02rem',
                           boxShadow: isPopular ? `0 12px 24px color-mix(in srgb, ${card.accent} 24%, transparent)` : 'none',
                           '&:hover': {
-                            backgroundColor: 'transparent',
-                            color: card.accent,
+                            backgroundColor: `color-mix(in srgb, ${card.accent} 86%, #ffffff 14%)`,
+                            color: '#FFFFFF',
+                            boxShadow: `0 16px 30px color-mix(in srgb, ${card.accent} 30%, transparent)`,
                           },
                         }}
                       >

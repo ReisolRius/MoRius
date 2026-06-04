@@ -1,5 +1,6 @@
 ﻿import {
   forwardRef,
+  Fragment,
   useCallback,
   useEffect,
   useMemo,
@@ -587,31 +588,30 @@ const STORY_KEY_MEMORY_BUDGET_SHARE = 0.1
 const STORY_KEY_MEMORY_MIN_BUDGET_TOKENS = 500
 const STORY_PLOT_CONTEXT_MAX_SHARE = 0.35
 const STORY_RESPONSE_MAX_TOKENS_MIN = 200
-const STORY_RESPONSE_MAX_TOKENS_MAX = 800
+const STORY_RESPONSE_MAX_TOKENS_MAX = 4500
 const STORY_DEFAULT_RESPONSE_MAX_TOKENS = 400
 const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
-const STORY_TURN_COST_STANDARD_TIERS: readonly [number, number, number, number, number] = [1, 2, 4, 6, 6]
-const STORY_TURN_COST_PREMIUM_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 16]
-const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [2, 4, 8, 16, 30]
-const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [3, 6, 12, 18, 35]
-const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [5, 10, 18, 30, 30]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [4, 7, 10, 17, 17]
+const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 18]
+const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 18]
+const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 25]
+const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
+const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 34]
+const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 45]
+const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [5, 12, 26, 55, 105]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 65]
+const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [10, 24, 45, 85, 85]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
   'aion-labs/aion-2.0',
 ])
 const STORY_TURN_COST_STANDARD_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
+  'z-ai/glm-4.7-flash',
+  'deepseek/deepseek-v3.2',
   'deepseek/deepseek-chat-v3-0324',
-  'z-ai/glm-4.7',
   'mistralai/mistral-nemo',
-])
-const STORY_TURN_COST_PREMIUM_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
-  'z-ai/glm-5',
-  'google/gemini-2.5-pro',
-  'qwen/qwen3.5-122b-a10b',
 ])
 const STORY_TOP_K_MIN = 0
 const STORY_TOP_K_MAX = 200
@@ -660,26 +660,26 @@ const STORY_APPEARANCE_UI_STYLE_OPTIONS: Array<{
   {
     id: 'cyberpunk',
     label: 'Киберпанк',
-    description: 'Неон, стекло, резкие контуры',
-    accent: '#00E5FF',
-    previewBackground: 'linear-gradient(135deg, #041a24 0%, #130629 100%)',
-    previewSwatches: ['#05000D', '#D80A78', '#19DED3'],
+    description: 'Графит, циан и холодная маджента',
+    accent: '#38D9FF',
+    previewBackground: 'linear-gradient(135deg, #07111D 0%, #151021 58%, #220D1B 100%)',
+    previewSwatches: ['#07111D', '#38D9FF', '#FF3D9A'],
   },
   {
     id: 'fantasy',
     label: 'Фэнтези',
-    description: 'Теплый металл и темная магия',
-    accent: '#F4B968',
-    previewBackground: 'linear-gradient(135deg, #21150b 0%, #10161d 100%)',
-    previewSwatches: ['#2F170A', '#9B2456', '#E5AA14'],
+    description: 'Лесная тень, сливовый шелк и старое золото',
+    accent: '#E7B75F',
+    previewBackground: 'linear-gradient(135deg, #111A13 0%, #21162B 56%, #3A2412 100%)',
+    previewSwatches: ['#111A13', '#7C4EA3', '#E7B75F'],
   },
   {
     id: 'modern',
     label: 'Современность',
-    description: 'Чистые панели и мягкий контраст',
-    accent: '#7DD3FC',
-    previewBackground: 'linear-gradient(135deg, #0f172a 0%, #111827 100%)',
-    previewSwatches: ['#101128', '#5A5CFF', '#D8D8F0'],
+    description: 'Графит, ясный синий и свежая мята',
+    accent: '#6EA8FF',
+    previewBackground: 'linear-gradient(135deg, #101418 0%, #1B2430 56%, #0B2A2A 100%)',
+    previewSwatches: ['#101418', '#6EA8FF', '#44D7B6'],
   },
 ]
 const STORY_APPEARANCE_TEXT_STYLE_OPTIONS: Array<{
@@ -842,7 +842,19 @@ const STORY_NARRATOR_SAMPLING_DEFAULTS: Record<StoryNarratorModelId, StoryNarrat
     storyTopK: STORY_DEFAULT_TOP_K,
     storyTopR: STORY_DEFAULT_TOP_R,
   },
+  'z-ai/glm-4.7-flash': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
   'z-ai/glm-4.7': {
+    storyTemperature: STORY_DEFAULT_TEMPERATURE,
+    storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
+    storyTopK: STORY_DEFAULT_TOP_K,
+    storyTopR: STORY_DEFAULT_TOP_R,
+  },
+  'deepseek/deepseek-v3.2': {
     storyTemperature: STORY_DEFAULT_TEMPERATURE,
     storyRepetitionPenalty: STORY_DEFAULT_REPETITION_PENALTY,
     storyTopK: STORY_DEFAULT_TOP_K,
@@ -920,6 +932,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     ],
   },
   {
+    id: 'z-ai/glm-4.7-flash',
+    title: 'GLM 4.7 Flash',
+    description:
+      'Быстрая экономичная версия GLM 4.7 для коротких ходов от 1 сола. Подходит для динамичных сцен, когда важны темп и цена.',
+    portraitSrc: narratorFreyaPortrait,
+    portraitAlt: 'GLM 4.7 Flash',
+    stats: [
+      { label: 'Интеллект', value: 3 },
+      { label: 'Скорость', value: 5 },
+      { label: 'Глубина', value: 2 },
+    ],
+  },
+  {
     id: 'z-ai/glm-4.7',
     title: 'GLM 4.7',
     description:
@@ -929,6 +954,19 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     stats: [
       { label: 'Интеллект', value: 3 },
       { label: 'Скорость', value: 2 },
+      { label: 'Глубина', value: 3 },
+    ],
+  },
+  {
+    id: 'deepseek/deepseek-v3.2',
+    title: 'DeepSeek V3.2',
+    description:
+      'Экономичный быстрый рассказчик для коротких ходов и динамичного темпа. Хорош, когда нужен ход от 1 сола.',
+    portraitSrc: narratorVelesPortrait,
+    portraitAlt: 'DeepSeek V3.2',
+    stats: [
+      { label: 'Интеллект', value: 4 },
+      { label: 'Скорость', value: 5 },
       { label: 'Глубина', value: 3 },
     ],
   },
@@ -1036,43 +1074,43 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
-    description: 'AITunnel. 3 сола за генерацию кадра.',
-    priceLabel: '3 \u0441\u043e\u043b\u0430',
+    description: 'AITunnel. 6 солов за генерацию кадра.',
+    priceLabel: '6 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
-    description: '5 солов за генерацию кадра.',
-    priceLabel: '5 \u0441\u043e\u043b\u043e\u0432',
+    description: '9 солов за генерацию кадра.',
+    priceLabel: '9 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
-    description: '7 солов за генерацию кадра.',
-    priceLabel: '7 \u0441\u043e\u043b\u043e\u0432',
+    description: '13 солов за генерацию кадра.',
+    priceLabel: '13 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
     title: 'Flux 2 Pro',
-    description: 'AITunnel. 9 солов за генерацию кадра.',
-    priceLabel: '9 \u0441\u043e\u043b\u043e\u0432',
+    description: 'AITunnel. 18 солов за генерацию кадра.',
+    priceLabel: '18 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream 4.5',
-    description: 'AITunnel. 10 солов за генерацию кадра.',
-    priceLabel: '10 \u0441\u043e\u043b\u043e\u0432',
+    description: 'AITunnel. 20 солов за генерацию кадра.',
+    priceLabel: '20 \u0441\u043e\u043b\u043e\u0432',
   },
   {
     id: STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
     title: 'Qwen Image Edit',
     description: 'AITunnel. Художник-редактор для аккуратной стилизации и правки кадра.',
-    priceLabel: '12 \u0441\u043e\u043b\u043e\u0432',
+    priceLabel: '24 \u0441\u043e\u043b\u0430',
   },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3 быстрее двигает сюжет, GLM 4.7 пишет мягче, GLM 5.0 стабильнее держит инструкции, а Gemini, Qwen, AionLabs и Claude лучше раскрываются в сложных сценах.',
+    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 сола; обычный GLM 4.7 дороже, но стабильнее; старшие модели стоят по новой таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
@@ -1502,13 +1540,14 @@ const DIALOGUE_DASH_AFTER_PUNCT_CUE_PATTERN = /[.!?\u2026]\s*(?:\u2014|-)\s*\S/u
 const LOOSE_DIALOGUE_DASH_LINE_PATTERN = /^\s*(?:\u2014|-)\s+([\s\S]+?)\s*$/u
 const LOOSE_DIALOGUE_QUOTE_LINE_PATTERN = /^\s*["\u00ab\u201e\u201c]([\s\S]+?)["\u00bb\u201d]*\s*$/u
 const LOOSE_THOUGHT_LINE_PATTERN =
-  /^\s*(?:\(|\[)?(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\)?\s*[:\-]\s*([\s\S]+?)\s*$/iu
+  /^\s*(?:\(|\[)?(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\)?\s*[:-]\s*([\s\S]+?)\s*$/iu
 const LOOSE_ASSISTANT_CUE_BREAK_PATTERN =
-  /([.!?\u2026])\s+(?=(?:["\u00ab\u201e\u201c]|(?:\u2014|-)\s*\S|(?:\(?\s*(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\s*[:\-])))/giu
+  /([.!?\u2026])\s+(?=(?:["\u00ab\u201e\u201c]|(?:\u2014|-)\s*\S|(?:\(?\s*(?:мысл(?:ь|и)|в голове|мысленно|про себя|дум(?:аю|ает|ал(?:а|о|и)?)|thinking|thoughts?)\s*[:-])))/giu
 const FIRST_OR_SECOND_PERSON_PRONOUN_PATTERN =
   /\b(?:\u044f|\u043c\u0435\u043d\u044f|\u043c\u043d\u0435|\u043c\u043d\u043e\u0439|\u043c\u044b|\u043d\u0430\u0441|\u043d\u0430\u043c|\u043d\u0430\u0448|\u043d\u0430\u0448\u0430|\u043d\u0430\u0448\u0435|\u043d\u0430\u0448\u0438|\u0442\u044b|\u0442\u0435\u0431\u044f|\u0442\u0435\u0431\u0435|\u0442\u043e\u0431\u043e\u0439|\u0432\u044b|\u0432\u0430\u0441|\u0432\u0430\u043c|\u0432\u0430\u043c\u0438|\u0432\u0430\u0448|\u0432\u0430\u0448\u0430|\u0432\u0430\u0448\u0435|\u0432\u0430\u0448\u0438|i|me|my|mine|we|us|our|ours|you|your|yours)\b/iu
 const THIRD_PERSON_NARRATIVE_START_PATTERN =
   /^(?:\u043e\u043d|\u043e\u043d\u0430|\u043e\u043d\u0438|\u0435\u0433\u043e|\u0435\u0451|\u0435\u0435|\u0438\u0445|\u043a\u0442\u043e-\u0442\u043e|\u043a\u0442\u043e \u0442\u043e|he|she|they|his|her|their)\b/iu
+const STORY_ENABLE_LEGACY_WORLD_EDITOR: boolean = false
 
 const STORY_LATIN_TO_CYRILLIC_LOOKALIKE_MAP: Record<string, string> = {
   a: 'а',
@@ -3421,11 +3460,20 @@ function parseStorySceneEmotionPayload(rawValue: string | null | undefined): Sto
 }
 
 function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly [number, number, number, number, number] {
+  if (modelId === 'z-ai/glm-4.7') {
+    return STORY_TURN_COST_GLM47_TIERS
+  }
   if (modelId === 'z-ai/glm-5.1') {
     return STORY_TURN_COST_GLM51_TIERS
   }
   if (modelId === 'aion-labs/aion-2.0') {
     return STORY_TURN_COST_AION_TIERS
+  }
+  if (modelId === 'qwen/qwen3.5-122b-a10b') {
+    return STORY_TURN_COST_QWEN_TIERS
+  }
+  if (modelId === 'z-ai/glm-5' || modelId === 'google/gemini-2.5-pro') {
+    return STORY_TURN_COST_GLM5_GEMINI25_TIERS
   }
   if (modelId === 'anthropic/claude-sonnet-4.6') {
     return STORY_TURN_COST_CLAUDE_SONNET_TIERS
@@ -3433,60 +3481,176 @@ function getStoryNarratorTurnCostTiers(modelId: StoryNarratorModelId): readonly 
   if (modelId === 'google/gemini-3.1-pro-preview') {
     return STORY_TURN_COST_GEMINI_31_PRO_TIERS
   }
-  if (STORY_TURN_COST_PREMIUM_NARRATOR_MODELS.has(modelId)) {
-    return STORY_TURN_COST_PREMIUM_TIERS
+  if (modelId === 'deepseek/deepseek-v3.2' || modelId === 'deepseek/deepseek-chat-v3-0324') {
+    return STORY_TURN_COST_DEEPSEEK_TIERS
+  }
+  if (modelId === 'z-ai/glm-4.7-flash') {
+    return STORY_TURN_COST_GLM47_FLASH_TIERS
   }
   if (STORY_TURN_COST_STANDARD_NARRATOR_MODELS.has(modelId)) {
-    return STORY_TURN_COST_STANDARD_TIERS
+    return STORY_TURN_COST_DEEPSEEK_TIERS
   }
-  return STORY_TURN_COST_STANDARD_TIERS
+  return STORY_TURN_COST_DEEPSEEK_TIERS
 }
 
 function getStoryTurnCostTooltipText(): string {
   return [
     'Стоимость хода зависит от рассказчика и использованного контекста:',
     '',
-    'DeepSeek V3, GLM 4.7:',
+    'DeepSeek V3/V3.2:',
     'до 6000 — 1 сол',
-    '6001–16000 — 2 сола',
-    '16001–32000 — 4 сола',
-    '32001–64000 — 6 солов',
-    '',
-    'GLM 5.0, Gemini 2.5 Pro, Qwen 3.5 122B:',
-    'до 6000 — 2 сола',
     '6001–16000 — 4 сола',
-    '16001–32000 — 8 солов',
-    '32001–64000 — 16 солов',
+    '16001–32000 — 9 солов',
+    '32001–64000 — 18 солов',
     '',
-    'AionLabs:',
-    'до 6000 — 2 сола',
+    'GLM 4.7 Flash:',
+    'до 6000 — 1 сол',
     '6001–16000 — 4 сола',
-    '16001–32000 — 8 солов',
-    '32001–64000 — 16 солов',
-    '64001–128000 — 30 солов',
+    '16001–32000 — 9 солов',
+    '32001–64000 — 18 солов',
+    '',
+    'GLM 4.7:',
+    'до 6000 — 2 сола',
+    '6001–16000 — 5 солов',
+    '16001–32000 — 12 солов',
+    '32001–64000 — 25 солов',
+    '',
+    'AionLabs, Qwen 3.5 122B:',
+    'до 6000 — 3 сола',
+    '6001–16000 — 7 солов',
+    '16001–32000 — 16 солов',
+    '32001–64000 — 34 сола',
+    '',
+    'GLM 5.0, Gemini 2.5 Pro:',
+    'до 6000 — 4 сола',
+    '6001–16000 — 10 солов',
+    '16001–32000 — 22 сола',
+    '32001–64000 — 45 солов',
     '',
     'GLM 5.1:',
-    'до 6000 — 3 сола',
-    '6001–16000 — 6 солов',
-    '16001–32000 — 12 солов',
-    '32001–64000 — 18 солов',
-    '64001–128000 — 35 солов',
-    '',
-    'Claude Sonnet 4.6:',
     'до 6000 — 5 солов',
-    '6001–16000 — 10 солов',
-    '16001–32000 — 18 солов',
-    '32001–64000 — 30 солов',
+    '6001–16000 — 12 солов',
+    '16001–32000 — 26 солов',
+    '32001–64000 — 55 солов',
     '',
     'Gemini 3.1 Pro:',
-    'до 6000 — 4 сола',
-    '6001–16000 — 7 солов',
-    '16001–32000 — 10 солов',
-    '32001–64000 — 17 солов',
+    'до 6000 — 8 солов',
+    '6001–16000 — 20 солов',
+    '16001–32000 — 35 солов',
+    '32001–64000 — 65 солов',
+    '',
+    'Claude Sonnet 4.6:',
+    'до 6000 — 10 солов',
+    '6001–16000 — 24 сола',
+    '16001–32000 — 45 солов',
+    '32001–64000 — 85 солов',
     '',
   ].join('\n')
 }
 
+function StoryTurnCostTooltipContent() {
+  const rows = [
+    { title: 'DeepSeek V3/V3.2', values: ['1', '4', '9', '18', '—'] },
+    { title: 'GLM 4.7 Flash', values: ['1', '4', '9', '18', '—'] },
+    { title: 'GLM 4.7', values: ['2', '5', '12', '25', '—'] },
+    { title: 'AionLabs', values: ['3', '7', '16', '34', '65'] },
+    { title: 'Qwen 3.5 122B', values: ['3', '7', '16', '34', '—'] },
+    { title: 'GLM 5.0', values: ['4', '10', '22', '45', '—'] },
+    { title: 'Gemini 2.5 Pro', values: ['4', '10', '22', '45', '—'] },
+    { title: 'GLM 5.1', values: ['5', '12', '26', '55', '105'] },
+    { title: 'Gemini 3.1 Pro', values: ['8', '20', '35', '65', '—'] },
+    { title: 'Claude 4.6', values: ['10', '24', '45', '85', '—'] },
+  ]
+  const columns = ['6k', '16k', '32k', '64k', '128k']
+
+  return (
+    <Box sx={{ width: 500, maxWidth: 'calc(100vw - 28px)' }}>
+      <Stack spacing={0.85}>
+        <Stack spacing={0.16}>
+          <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.96rem', fontWeight: 900, lineHeight: 1.16 }}>
+            Стоимость хода
+          </Typography>
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.32 }}>
+            Солы за один ответ. 128k показан только там, где сейчас доступен.
+          </Typography>
+        </Stack>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(158px, 1fr) repeat(5, minmax(42px, 50px))',
+            alignItems: 'center',
+            columnGap: 0.5,
+            rowGap: 0.32,
+            borderRadius: '12px',
+            border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 82%, transparent)',
+            background: 'color-mix(in srgb, var(--morius-elevated-bg) 62%, transparent)',
+            p: 0.65,
+            overflow: 'hidden',
+          }}
+        >
+          <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.68rem', fontWeight: 900, lineHeight: 1 }}>
+            модель
+          </Typography>
+          {columns.map((column) => (
+            <Typography
+              key={column}
+              sx={{
+                color: 'var(--morius-text-secondary)',
+                fontSize: '0.68rem',
+                fontWeight: 900,
+                lineHeight: 1,
+                textAlign: 'center',
+              }}
+            >
+              {column}
+            </Typography>
+          ))}
+          {rows.map((row) => (
+            <Fragment key={row.title}>
+              <Typography
+                sx={{
+                  color: 'var(--morius-title-text)',
+                  fontSize: '0.75rem',
+                  fontWeight: 850,
+                  lineHeight: 1.12,
+                  minWidth: 0,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {row.title}
+              </Typography>
+              {row.values.map((value, index) => (
+                <Box
+                  key={`${row.title}-${columns[index]}`}
+                  component="span"
+                  sx={{
+                    minHeight: 24,
+                    borderRadius: '7px',
+                    display: 'grid',
+                    placeItems: 'center',
+                    backgroundColor:
+                      value === '—'
+                        ? 'color-mix(in srgb, var(--morius-card-bg) 52%, transparent)'
+                        : 'color-mix(in srgb, var(--morius-card-bg) 82%, #000 18%)',
+                    color: value === '—' ? 'var(--morius-text-secondary)' : 'var(--morius-text-primary)',
+                    fontSize: '0.74rem',
+                    fontWeight: 900,
+                    lineHeight: 1,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                >
+                  {value}
+                </Box>
+              ))}
+            </Fragment>
+          ))}
+        </Box>
+      </Stack>
+    </Box>
+  )
+}
 function getStoryTurnCostTokens(
   contextUsageTokens: number,
   narratorModelId: StoryNarratorModelId,
@@ -5631,47 +5795,53 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const palette =
       appearanceUiStyle === 'cyberpunk'
         ? {
-            '--morius-accent': '#00E5FF',
-            '--morius-card-bg': '#071018',
-            '--morius-elevated-bg': '#0B1721',
-            '--morius-button-bg': '#0D2330',
-            '--morius-button-hover': '#112C3A',
-            '--morius-button-active': '#123746',
-            '--morius-card-border': 'rgba(0, 229, 255, 0.34)',
-            '--morius-title-text': '#E7FBFF',
-            '--morius-text-primary': '#D6F6FF',
-            '--morius-text-secondary': '#85AFC0',
+            '--morius-accent': '#38D9FF',
+            '--morius-card-bg': '#07111D',
+            '--morius-elevated-bg': '#101927',
+            '--morius-button-bg': '#131E2E',
+            '--morius-button-hover': '#1A2A3D',
+            '--morius-button-active': '#23364D',
+            '--morius-card-border': 'rgba(56, 217, 255, 0.28)',
+            '--morius-title-text': '#EAFBFF',
+            '--morius-text-primary': '#D9F3FA',
+            '--morius-text-secondary': '#94B5C7',
           }
         : appearanceUiStyle === 'fantasy'
           ? {
-              '--morius-accent': '#F4B968',
-              '--morius-card-bg': '#18100B',
-              '--morius-elevated-bg': '#22160D',
-              '--morius-button-bg': '#2B1A0E',
-              '--morius-button-hover': '#342011',
-              '--morius-button-active': '#3F2714',
-              '--morius-card-border': 'rgba(244, 185, 104, 0.26)',
-              '--morius-title-text': '#FFF0D6',
-              '--morius-text-primary': '#EBD8BA',
-              '--morius-text-secondary': '#B89A73',
+              '--morius-accent': '#E7B75F',
+              '--morius-card-bg': '#111A13',
+              '--morius-elevated-bg': '#1C2418',
+              '--morius-button-bg': '#232818',
+              '--morius-button-hover': '#2E2D1D',
+              '--morius-button-active': '#382F21',
+              '--morius-card-border': 'rgba(231, 183, 95, 0.28)',
+              '--morius-title-text': '#F7ECD7',
+              '--morius-text-primary': '#E8DBC8',
+              '--morius-text-secondary': '#B9A890',
             }
           : appearanceUiStyle === 'modern'
             ? {
-                '--morius-accent': '#7DD3FC',
-                '--morius-card-bg': '#101722',
-                '--morius-elevated-bg': '#151F2D',
-                '--morius-button-bg': '#172334',
-                '--morius-button-hover': '#1D2B3E',
-                '--morius-button-active': '#23344A',
-                '--morius-card-border': 'rgba(148, 163, 184, 0.26)',
-                '--morius-title-text': '#F8FAFC',
-                '--morius-text-primary': '#DDE7F3',
-                '--morius-text-secondary': '#94A3B8',
+                '--morius-accent': '#6EA8FF',
+                '--morius-card-bg': '#101418',
+                '--morius-elevated-bg': '#1B222A',
+                '--morius-button-bg': '#202A34',
+                '--morius-button-hover': '#263544',
+                '--morius-button-active': '#2E4153',
+                '--morius-card-border': 'rgba(110, 168, 255, 0.24)',
+                '--morius-title-text': '#F4F7FB',
+                '--morius-text-primary': '#DDE6EF',
+                '--morius-text-secondary': '#9BAAB7',
               }
             : {}
 
     const styledDefaultBackground =
-      appearanceUiStyle === 'default' ? null : `linear-gradient(135deg, var(--morius-card-bg) 0%, #050607 100%)`
+      appearanceUiStyle === 'cyberpunk'
+        ? 'linear-gradient(115deg, rgba(56, 217, 255, 0.12) 0%, transparent 34%), linear-gradient(245deg, rgba(255, 61, 154, 0.12) 0%, transparent 38%), linear-gradient(135deg, #07111D 0%, #151021 58%, #220D1B 100%)'
+        : appearanceUiStyle === 'fantasy'
+          ? 'linear-gradient(115deg, rgba(124, 78, 163, 0.12) 0%, transparent 36%), linear-gradient(245deg, rgba(231, 183, 95, 0.12) 0%, transparent 38%), linear-gradient(135deg, #111A13 0%, #21162B 56%, #3A2412 100%)'
+          : appearanceUiStyle === 'modern'
+            ? 'linear-gradient(115deg, rgba(110, 168, 255, 0.12) 0%, transparent 35%), linear-gradient(245deg, rgba(68, 215, 182, 0.1) 0%, transparent 38%), linear-gradient(135deg, #101418 0%, #1B2430 56%, #0B2A2A 100%)'
+            : null
     const customGradientBackground =
       appearanceBackgroundMode === 'custom' && appearanceGradientEnabled ? storyAppearanceBackground : null
     const effectiveBackground = customGradientBackground ?? styledDefaultBackground
@@ -6967,6 +7137,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [resolveDirectWorldCardPreviewAvatar, resolveLinkedCharacterPreviewAvatar],
   )
   const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
+  const mainHeroComposerAvatarUrl = useMemo(() => {
+    const linkedCharacter = resolveLinkedCharacterForWorldCard(mainHeroCard)
+    return linkedCharacter?.avatar_url ?? mainHeroAvatarUrl
+  }, [mainHeroAvatarUrl, mainHeroCard, resolveLinkedCharacterForWorldCard])
   const editingWorldCardAvatarUrl = useMemo(
     () => worldCardAvatarDraft ?? resolveWorldCardAvatar(editingWorldCard),
     [editingWorldCard, resolveWorldCardAvatar, worldCardAvatarDraft],
@@ -10445,7 +10619,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (isGenerating || isSavingWorldCard || isCreatingGame) {
       return
     }
-    if (false && (card.kind === 'main_hero' || card.kind === 'npc')) {
+    if (STORY_ENABLE_LEGACY_WORLD_EDITOR && (card.kind === 'main_hero' || card.kind === 'npc')) {
       const resolvedLinkedCharacter = resolveLinkedCharacterForWorldCard(card)
       const rawCharacterId = card.character_id
       const numericCharacterId = Number(rawCharacterId)
@@ -17309,9 +17483,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <Typography
                             sx={{
                               color: 'var(--morius-title-text)',
-                              fontSize: '2.2rem',
+                              fontSize: '1.45rem',
                               fontWeight: 800,
-                              letterSpacing: '-0.03em',
+                              letterSpacing: 0,
                               lineHeight: 1,
                             }}
                           >
@@ -17612,6 +17786,182 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             {isSavingImageStylePrompt ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
                           </Stack>
                         </Stack>
+                        <Box
+                          sx={{
+                            mt: 1.05,
+                            pt: 1,
+                            borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                          }}
+                        >
+                          <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center" sx={{ minWidth: 0 }}>
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.25 }}>
+                                Лимит контекста
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={getStoryTurnCostTooltipText()} />
+                            </Stack>
+                            <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.84rem', fontWeight: 700 }}>
+                              {formatContextChars(contextLimitChars)}
+                            </Typography>
+                          </Stack>
+
+                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.8 }}>
+                            <Box
+                              component="input"
+                              value={contextLimitDraft}
+                              maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
+                              onChange={(event: ChangeEvent<HTMLInputElement>) => handleContextLimitDraftChange(event.target.value)}
+                              onBlur={() => {
+                                void handleContextLimitDraftCommit()
+                              }}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  void handleContextLimitDraftCommit()
+                                }
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              inputMode="numeric"
+                              sx={{
+                                width: 98,
+                                minHeight: 34,
+                                borderRadius: '999px',
+                                border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                                backgroundColor: 'var(--morius-elevated-bg)',
+                                color: 'var(--morius-text-primary)',
+                                px: 1,
+                                outline: 'none',
+                                fontSize: '0.88rem',
+                                fontWeight: 700,
+                              }}
+                            />
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.8rem' }}>токенов</Typography>
+                            {isSavingContextLimit ? <CircularProgress size={13} sx={{ color: 'var(--morius-accent)' }} /> : null}
+                          </Stack>
+                          <TextLimitIndicator
+                            currentLength={contextLimitDraft.length}
+                            maxLength={STORY_CONTEXT_LIMIT_INPUT_MAX_LENGTH}
+                            sx={{ mt: 0.45 }}
+                          />
+
+                          <Box sx={{ overflow: 'visible', px: 1.15, pt: 0.6 }}>
+                            <Slider
+                              value={contextLimitChars}
+                              min={STORY_CONTEXT_LIMIT_MIN}
+                              max={currentStoryContextLimitMax}
+                              step={1}
+                              onChange={handleContextLimitSliderChange}
+                              onChangeCommitted={(event, value) => {
+                                void handleContextLimitSliderCommit(event, value)
+                              }}
+                              disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                py: 1.15,
+                                color: 'var(--morius-accent)',
+                                overflow: 'visible',
+                                '& .MuiSlider-thumb': {
+                                  width: 18,
+                                  height: 18,
+                                  backgroundColor: sliderThumbColor,
+                                  border: `2px solid ${sliderThumbBorderColor}`,
+                                  boxShadow: '0 0 0 4px color-mix(in srgb, var(--morius-accent) 12%, transparent)',
+                                },
+                                '& .MuiSlider-rail': {
+                                  opacity: 1,
+                                  backgroundColor: sliderRailColor,
+                                },
+                              }}
+                            />
+                          </Box>
+
+                          <Stack direction="row" justifyContent="space-between" sx={{ mt: -0.15 }}>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {STORY_CONTEXT_LIMIT_MIN}
+                            </Typography>
+                            <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.74rem' }}>
+                              {currentStoryContextLimitMax}
+                            </Typography>
+                          </Stack>
+
+                          <Box
+                            sx={{
+                              mt: 0.85,
+                              borderRadius: '12px',
+                              border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
+                              backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 76%, transparent)',
+                              p: 0.85,
+                            }}
+                          >
+                            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                              <Stack direction="row" spacing={0.42} alignItems="center">
+                                <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.8rem', fontWeight: 800 }}>
+                                  Использование
+                                </Typography>
+                                <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.contextUsage} />
+                              </Stack>
+                              <Typography
+                                sx={{
+                                  color: cardsContextOverflowChars > 0 ? 'error.main' : 'var(--morius-text-primary)',
+                                  fontSize: '0.78rem',
+                                  fontWeight: 800,
+                                }}
+                              >
+                                {formatContextChars(cardsContextCharsUsed)} / {formatContextChars(contextLimitChars)}
+                              </Typography>
+                            </Stack>
+                            <Box
+                              sx={{
+                                mt: 0.64,
+                                height: 7,
+                                borderRadius: '999px',
+                                backgroundColor: switchTrackColor,
+                                overflow: 'hidden',
+                              }}
+                            >
+                              <Box
+                                sx={{
+                                  width: `${cardsContextUsagePercent}%`,
+                                  height: '100%',
+                                  borderRadius: '999px',
+                                  backgroundColor: 'var(--morius-accent)',
+                                  transition: 'width 180ms ease',
+                                }}
+                              />
+                            </Box>
+                            <Stack spacing={0.48} sx={{ mt: 0.72 }}>
+                              {[
+                                ['Инструкции', formatContextChars(instructionContextTokensUsed)],
+                                [storyMemoryLabel, formatContextChars(storyMemoryTokensUsed)],
+                                ['Карточки мира', formatContextChars(worldContextTokensUsed)],
+                              ].map(([label, value]) => (
+                                <Stack key={label} direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.76rem' }}>{label}</Typography>
+                                  <Typography sx={{ color: 'var(--morius-text-primary)', fontSize: '0.78rem', fontWeight: 700 }}>{value}</Typography>
+                                </Stack>
+                              ))}
+                            </Stack>
+                            {cardsContextOverflowChars > 0 ? (
+                              <Alert
+                                severity="warning"
+                                sx={{
+                                  mt: 0.78,
+                                  py: 0.2,
+                                  borderRadius: 'var(--morius-radius)',
+                                  backgroundColor: 'rgba(171, 57, 26, 0.16)',
+                                  color: 'var(--morius-text-primary)',
+                                  border: 'var(--morius-border-width) solid rgba(214, 116, 82, 0.32)',
+                                  '& .MuiAlert-icon': {
+                                    color: 'error.main',
+                                    alignItems: 'center',
+                                    py: 0.1,
+                                  },
+                                }}
+                              >
+                                Карточки превышают лимит на {formatContextChars(cardsContextOverflowChars)} токенов.
+                              </Alert>
+                            ) : null}
+                          </Box>
+                        </Box>
                       </Box>
                     </Collapse>
                   </Box>
@@ -17980,7 +18330,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Button>
                     <Collapse in={isFineTuneSettingsExpanded} timeout={200} unmountOnExit>
                       <Box data-tour-id="story-settings-finetune-panel" sx={{ pb: 0.9, pt: 0.08 }}>
-                        <Box sx={{ mt: 0.12 }}>
+                        <Box sx={{ mt: 0.12, display: 'none' }}>
                           <Stack direction="row" justifyContent="space-between" alignItems="baseline">
                             <Stack direction="row" spacing={0.45} alignItems="center">
                               <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.98rem', fontWeight: 700 }}>
@@ -18070,6 +18420,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             mt: 0.98,
                             pt: 0.9,
                             borderTop: 'var(--morius-border-width) solid var(--morius-card-border)',
+                            display: 'none',
                           }}
                         >
                           <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
@@ -19068,7 +19419,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {false && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
+          {STORY_ENABLE_LEGACY_WORLD_EDITOR && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'story' ? (
             <Box data-tour-id="story-world-plot-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               {plotCards.length === 0 ? (
                 <>
@@ -19248,7 +19599,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             </Box>
           ) : null}
 
-          {false && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
+          {STORY_ENABLE_LEGACY_WORLD_EDITOR && !shouldShowRightPanelLoadingSkeleton && rightPanelMode === 'world' && activeWorldPanelTab === 'world' ? (
             <Box data-tour-id="story-world-world-panel" sx={{ display: 'flex', flexDirection: 'column', gap: 1.1, minHeight: 0, flex: 1 }}>
               <Stack direction="column" spacing={0.7}>
                 {!mainHeroCard ? (
@@ -20863,7 +21214,23 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 <Tooltip
                   arrow
                   placement="top"
-                  title={<Box sx={{ whiteSpace: 'pre-line' }}>{getStoryTurnCostTooltipText()}</Box>}
+                  title={<StoryTurnCostTooltipContent />}
+                  componentsProps={{
+                    tooltip: {
+                      sx: {
+                        p: 0.9,
+                        maxWidth: 'none',
+                        borderRadius: '14px',
+                        border: 'var(--morius-border-width) solid var(--morius-card-border)',
+                        background:
+                          'linear-gradient(180deg, color-mix(in srgb, var(--morius-card-bg) 96%, #000 4%) 0%, var(--morius-card-bg) 100%)',
+                        boxShadow: '0 20px 48px rgba(0, 0, 0, 0.48)',
+                      },
+                    },
+                    arrow: {
+                      sx: { color: 'var(--morius-card-bg)' },
+                    },
+                  }}
                 >
                   <Box
                     sx={{
@@ -20889,7 +21256,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         lineHeight: 1,
                         fontWeight: 700,
                         fontVariantNumeric: 'tabular-nums',
-                        letterSpacing: '-0.01em',
+                        letterSpacing: 0,
                       }}
                     >
                       {currentTurnCostTokens}
@@ -21060,16 +21427,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   onClick={handleOpenMainHeroSelectorMenu}
                   sx={{
                     position: 'absolute',
-                    left: { xs: 8, sm: 10 },
+                    left: { xs: 12, sm: 14 },
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    width: 36,
-                    height: 36,
-                    minWidth: 36,
-                    minHeight: 36,
+                    width: 38,
+                    height: 38,
+                    minWidth: 38,
+                    minHeight: 38,
                     p: 0,
                     zIndex: 2,
-                    borderRadius: '999px',
+                    borderRadius: '50%',
+                    overflow: 'hidden',
                     border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
                     backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
                     boxShadow: '0 4px 14px rgba(0, 0, 0, 0.24)',
@@ -21079,11 +21447,44 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     },
                   }}
                 >
-                  <CharacterAvatar
-                    avatarUrl={mainHeroAvatarUrl}
-                    avatarScale={mainHeroCard?.avatar_scale ?? 1}
-                    fallbackLabel={mainHeroCard?.title ?? '+'}
-                    size={30}
+                  <ProgressiveImage
+                    src={mainHeroComposerAvatarUrl}
+                    alt={mainHeroCard?.title ?? ''}
+                    loading="eager"
+                    fetchPriority="high"
+                    objectFit="cover"
+                    loaderSize={16}
+                    containerSx={{
+                      width: '100%',
+                      height: '100%',
+                      minWidth: '100%',
+                      minHeight: '100%',
+                      borderRadius: 'inherit',
+                      backgroundColor: 'transparent',
+                      overflow: 'hidden',
+                    }}
+                    imgSx={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      objectPosition: 'center',
+                    }}
+                    fallback={
+                      <Box
+                        sx={{
+                          width: '100%',
+                          height: '100%',
+                          display: 'grid',
+                          placeItems: 'center',
+                          color: 'var(--morius-title-text)',
+                          fontSize: '1.25rem',
+                          fontWeight: 900,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {'+'}
+                      </Box>
+                    }
                   />
                 </IconButton>
               </span>
@@ -21124,7 +21525,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
                 boxSizing: 'border-box',
                 px: { xs: 1.95, sm: 2.15 },
-                pl: { xs: 6.1, sm: 6.35 },
+                pl: { xs: 7.2, sm: 7.55 },
                 py: { xs: '8px', sm: '9px' },
                 pr: { xs: 5.6, sm: 6 },
                 overflowY: 'hidden',
@@ -21680,6 +22081,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             boxShadow: '0 16px 38px rgba(0, 0, 0, 0.42)',
             color: 'var(--morius-text-primary)',
             overflow: 'hidden',
+            '& .MuiMenuItem-root': {
+              color: 'var(--morius-text-primary) !important',
+            },
+            '& .MuiMenuItem-root:hover, & .MuiMenuItem-root.Mui-focusVisible': {
+              backgroundColor: 'var(--morius-button-hover) !important',
+              color: 'var(--morius-title-text) !important',
+            },
+            '& .MuiMenuItem-root.Mui-selected': {
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg)) !important',
+              color: 'var(--morius-title-text) !important',
+            },
+            '& .MuiMenuItem-root.Mui-selected:hover': {
+              backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-elevated-bg)) !important',
+              color: 'var(--morius-title-text) !important',
+            },
           },
         }}
       >
@@ -21695,9 +22111,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   minHeight: 46,
                   gap: 0.85,
                   color: 'var(--morius-text-primary)',
-                  backgroundColor: isActiveHero ? 'var(--morius-button-active)' : 'transparent',
+                  '&.Mui-selected': {
+                    backgroundColor: 'color-mix(in srgb, var(--morius-accent) 18%, var(--morius-elevated-bg)) !important',
+                    color: 'var(--morius-title-text) !important',
+                    '& .morius-main-hero-menu-subtitle': {
+                      color: 'color-mix(in srgb, var(--morius-title-text) 72%, transparent) !important',
+                    },
+                  },
                   '&:hover': {
-                    backgroundColor: isActiveHero ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                    backgroundColor: isActiveHero
+                      ? 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-elevated-bg))'
+                      : 'var(--morius-button-hover)',
+                    color: 'var(--morius-title-text) !important',
+                    '& .morius-main-hero-menu-subtitle': {
+                      color: 'color-mix(in srgb, var(--morius-title-text) 76%, transparent) !important',
+                    },
                   },
                 }}
               >
@@ -21708,10 +22136,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   size={30}
                 />
                 <Stack spacing={0.05} sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontWeight: 800, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <Typography sx={{ color: 'inherit', fontWeight: 800, fontSize: '0.9rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {card.title}
                   </Typography>
-                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.72rem', lineHeight: 1.1 }}>
+                  <Typography
+                    className="morius-main-hero-menu-subtitle"
+                    sx={{
+                      color: isActiveHero
+                        ? 'color-mix(in srgb, var(--morius-title-text) 72%, transparent)'
+                        : 'var(--morius-text-secondary)',
+                      fontSize: '0.72rem',
+                      lineHeight: 1.1,
+                    }}
+                  >
                     {isActiveHero ? 'Активный ГГ' : 'Переключиться'}
                   </Typography>
                 </Stack>
@@ -21730,7 +22167,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             gap: 0.85,
             borderTop: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 72%, transparent)',
             color: 'var(--morius-text-primary)',
-            '&:hover': { backgroundColor: 'var(--morius-button-hover)' },
+            '&:hover': {
+              backgroundColor: 'var(--morius-button-hover) !important',
+              color: 'var(--morius-title-text) !important',
+            },
           }}
         >
           <Box
@@ -21739,16 +22179,19 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               height: 30,
               borderRadius: '50%',
               border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
-              display: 'grid',
-              placeItems: 'center',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               fontWeight: 900,
-              fontSize: '1.2rem',
-              lineHeight: 1,
+              fontSize: '1.15rem',
+              lineHeight: '30px',
+              fontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
+              color: 'inherit',
             }}
           >
             +
           </Box>
-          <Typography sx={{ fontWeight: 800, fontSize: '0.9rem' }}>Добавить нового ГГ</Typography>
+          <Typography sx={{ color: 'inherit', fontWeight: 800, fontSize: '0.9rem' }}>Добавить нового ГГ</Typography>
         </MenuItem>
       </Menu>
 
@@ -21776,7 +22219,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         }}
         header={
           <Stack spacing={0.35}>
-            <Typography sx={{ fontSize: '1.2rem', fontWeight: 800 }}>Главный герой</Typography>
+            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.25rem', lineHeight: 1.25, fontWeight: 900 }}>
+              Главный герой
+            </Typography>
           </Stack>
         }
         actions={
@@ -21798,6 +22243,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 color: 'var(--morius-text-primary)',
                 '&:hover': {
                   backgroundColor: 'var(--morius-button-hover)',
+                  color: 'var(--morius-title-text)',
                 },
               }}
             >
@@ -21811,7 +22257,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             onClick={handleStartCreateCharacterFromMainHeroSelector}
             disabled={isSelectingCharacter || isSavingCharacter}
             sx={{
-              minHeight: 74,
+              minHeight: 72,
+              width: '100%',
               borderRadius: '12px',
               border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 76%, transparent)',
               backgroundColor: 'color-mix(in srgb, var(--morius-accent) 12%, transparent)',
@@ -21826,20 +22273,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             <Stack direction="row" spacing={0.85} alignItems="center">
               <Box
                 sx={{
-                  width: 36,
-                  height: 36,
+                  width: 40,
+                  height: 40,
                   borderRadius: '50%',
                   border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
-                  display: 'grid',
-                  placeItems: 'center',
-                  fontSize: '1.5rem',
-                  fontWeight: 800,
-                  lineHeight: 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.35rem',
+                  fontWeight: 900,
+                  lineHeight: '40px',
+                  flexShrink: 0,
                 }}
               >
                 +
               </Box>
-              <Typography sx={{ fontWeight: 800, fontSize: '0.96rem' }}>Создать нового ГГ</Typography>
+              <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 900, fontSize: '0.98rem', lineHeight: 1.25 }}>
+                Создать нового ГГ
+              </Typography>
             </Stack>
           </Button>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.94rem', lineHeight: 1.55 }}>
@@ -21851,7 +22302,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               <CircularProgress size={22} sx={{ color: 'var(--morius-accent)' }} />
             </Stack>
           ) : ownCharacterOptions.length > 0 ? (
-            <Stack spacing={0.7} className="morius-scrollbar" sx={{ maxHeight: 330, overflowY: 'auto', pr: 0.2 }}>
+            <Stack spacing={0.75} className="morius-scrollbar" sx={{ maxHeight: 'min(42svh, 360px)', overflowY: 'auto', pr: 0.35 }}>
               {ownCharacterOptions.map((character) => {
                 const disabledReason = getCharacterSelectionDisabledReason(character, 'select-main-hero')
                 return (
@@ -21867,25 +22318,31 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       textTransform: 'none',
                       justifyContent: 'flex-start',
                       textAlign: 'left',
-                      px: 0.9,
-                      py: 0.75,
+                      minHeight: 78,
+                      px: 1,
+                      py: 0.9,
                       opacity: disabledReason ? 0.64 : 1,
+                      '&:hover': {
+                        backgroundColor: 'var(--morius-button-hover)',
+                        color: 'var(--morius-title-text)',
+                        borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                      },
                     }}
                   >
-                    <Stack direction="row" spacing={0.8} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
+                    <Stack direction="row" spacing={0.95} alignItems="center" sx={{ width: '100%', minWidth: 0 }}>
                       {renderPreviewableCharacterAvatar({
                         avatarUrl: character.avatar_url,
                         previewUrl: character.avatar_original_url ?? character.avatar_url,
                         avatarScale: character.avatar_scale,
                         fallbackLabel: character.name,
-                        size: 36,
+                        size: 42,
                         profileCharacter: character,
                       })}
                       <Stack spacing={0.18} sx={{ minWidth: 0, alignItems: 'flex-start', flex: 1 }}>
-                        <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 800, fontSize: '0.95rem', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
+                        <Typography sx={{ color: 'var(--morius-title-text)', fontWeight: 900, fontSize: '0.95rem', lineHeight: 1.22, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>
                           {character.name}
                         </Typography>
-                        <Typography sx={{ color: 'rgba(207, 217, 232, 0.78)', fontSize: '0.82rem', lineHeight: 1.28, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                        <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.84rem', lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           {character.description}
                         </Typography>
                         {disabledReason ? (
@@ -21974,7 +22431,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Typography>
         </DialogTitle>
         <DialogContent className="morius-scrollbar" sx={{ pt: 0.3, overflowY: 'auto' }}>
-          {false ? (
+          {STORY_ENABLE_LEGACY_WORLD_EDITOR ? (
             <Stack spacing={0.95}>
               <Stack spacing={0.7} alignItems="center">
                 <Box
@@ -22264,7 +22721,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.3 }}>
-          {false ? (
+          {STORY_ENABLE_LEGACY_WORLD_EDITOR ? (
             <Stack spacing={0.95}>
               <Stack spacing={0.7} alignItems="center">
                 <Box
@@ -23918,7 +24375,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       characterSelectionTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-elevated-bg)',
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
+                    '&:hover': {
+                      backgroundColor: characterSelectionTab === 'my' ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                      color: 'var(--morius-title-text)',
+                    },
                   }}
                 >
                   Мои персонажи
@@ -23936,7 +24396,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         : 'var(--morius-elevated-bg)',
                     color: 'var(--morius-text-primary)',
                     textTransform: 'none',
-                    '&:hover': { backgroundColor: 'transparent' },
+                    '&:hover': {
+                      backgroundColor:
+                        characterSelectionTab === 'community' ? 'var(--morius-button-active)' : 'var(--morius-button-hover)',
+                      color: 'var(--morius-title-text)',
+                    },
                   }}
                 >
                   Сообщество
@@ -24031,7 +24495,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           alignItems: 'center',
                           justifyContent: 'center',
                           '&:hover': {
-                            backgroundColor: 'transparent',
+                            backgroundColor: 'color-mix(in srgb, var(--morius-accent) 16%, transparent)',
                             borderColor: 'color-mix(in srgb, var(--morius-accent) 66%, transparent)',
                           },
                         }}
@@ -24042,11 +24506,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             height: 34,
                             borderRadius: '50%',
                             border: 'var(--morius-border-width) solid rgba(214, 226, 241, 0.62)',
-                            display: 'grid',
-                            placeItems: 'center',
-                            fontSize: '1.45rem',
-                            fontWeight: 700,
-                            lineHeight: 1,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '1.25rem',
+                            fontWeight: 900,
+                            lineHeight: '34px',
                           }}
                         >
                           +
@@ -24073,6 +24538,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             py: 0.7,
                             justifyContent: 'flex-start',
                             opacity: isCharacterDisabled ? 0.64 : 1,
+                            '&:hover': {
+                              backgroundColor: 'var(--morius-button-hover)',
+                              color: 'var(--morius-title-text)',
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                            },
                           }}
                         >
                           <Stack direction="row" spacing={0.7} alignItems="center" sx={{ width: '100%' }}>
@@ -24154,6 +24624,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             px: 0.9,
                             py: 0.75,
                             cursor: 'pointer',
+                            transition: 'background-color 160ms ease, border-color 160ms ease',
+                            '&:hover': {
+                              backgroundColor: 'var(--morius-button-hover)',
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                            },
                           }}
                         >
                           <Stack spacing={0.35}>

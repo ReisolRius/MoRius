@@ -153,7 +153,7 @@ def _apply_polza_story_reasoning_preferences(
     model_name: str | None,
 ) -> None:
     normalized_model_name = _normalize_story_model_id(model_name)
-    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
+    if normalized_model_name in {"z-ai/glm-5", "z-ai/glm-5.1", "z-ai/glm-4.7-flash", "z-ai/glm-4.7", STORY_SERVICE_TEXT_MODEL}:
         payload["reasoning"] = {
             "effort": "none",
             "exclude": True,
@@ -314,7 +314,7 @@ def _build_polza_story_candidate_models(
     normalized_primary_model = _normalize_story_model_id(primary_model)
 
     if normalized_primary_model == "aion-labs/aion-2.0":
-        for fallback_model in ("z-ai/glm-5", "z-ai/glm-4.7"):
+        for fallback_model in ("z-ai/glm-5", "z-ai/glm-4.7-flash", "z-ai/glm-4.7", "deepseek/deepseek-v3.2"):
             if fallback_model not in candidate_models:
                 candidate_models.append(fallback_model)
 

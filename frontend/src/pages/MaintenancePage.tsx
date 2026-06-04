@@ -1,5 +1,6 @@
 import { Box, Stack, Typography } from '@mui/material'
-import { brandLogo, heroBackground } from '../assets'
+import { brandLogo } from '../assets'
+import heroBackground from '../assets/images/tavern-bg.png'
 import type { MaintenanceSettings } from '../services/authApi'
 
 type MaintenancePageProps = {
@@ -28,6 +29,8 @@ function MaintenancePage({ settings }: MaintenancePageProps) {
         src={heroBackground}
         alt=""
         aria-hidden
+        loading="lazy"
+        decoding="async"
         sx={{
           position: 'absolute',
           inset: 0,

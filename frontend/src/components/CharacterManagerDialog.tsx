@@ -107,37 +107,37 @@ const CHARACTER_AI_AVATAR_IMAGE_MODEL_OPTIONS: Array<{
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
     description: 'AITunnel. Fast economical image generation.',
-    cost: 3,
+    cost: 6,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
     description: 'High-detail character rendering.',
-    cost: 5,
+    cost: 9,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
     description: 'Maximum detail and depth rendering.',
-    cost: 7,
+    cost: 13,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_FLUX_ID,
     title: 'Flux 2 Pro',
     description: 'Быстрая и сбалансированная генерация.',
-    cost: 9,
+    cost: 18,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream 4.5',
     description: 'Более художественная и мягкая подача.',
-    cost: 10,
+    cost: 20,
   },
   {
     id: CHARACTER_AI_AVATAR_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
     title: 'Qwen Image Edit',
     description: 'AITunnel-редактор для аккуратных правок и стилизации персонажа.',
-    cost: 12,
+    cost: 24,
   },
 ]
 const CHARACTER_EMOTION_IDS: StoryCharacterEmotionId[] = [

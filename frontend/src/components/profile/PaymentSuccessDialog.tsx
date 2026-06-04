@@ -62,7 +62,8 @@ function PaymentSuccessDialog({ open, coins, referralBonusCoins = 0, onClose, tr
             color: 'var(--morius-text-primary)',
             fontWeight: 700,
             '&:hover': {
-              backgroundColor: 'transparent',
+              backgroundColor: 'var(--morius-button-hover)',
+              color: 'var(--morius-title-text)',
             },
           }}
         >

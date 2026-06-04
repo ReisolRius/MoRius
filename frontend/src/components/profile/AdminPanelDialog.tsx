@@ -1329,9 +1329,9 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               width: 34,
               height: 34,
               color: 'var(--morius-text-secondary)',
-              backgroundColor: 'transparent',
+              backgroundColor: 'var(--morius-elevated-bg)',
               '&:hover': {
-                backgroundColor: 'transparent',
+                backgroundColor: 'var(--morius-button-hover)',
                 color: 'var(--morius-title-text)',
               },
             }}
@@ -2438,11 +2438,6 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
             )}
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.3, pt: 0.5, flexShrink: 0 }}>
-          <Button onClick={onClose} sx={{ color: 'text.secondary' }}>
-            Закрыть
-          </Button>
-        </DialogActions>
       </Dialog>
 
       <Dialog
@@ -2508,7 +2503,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-button-active)',
               '&:hover': {
-                backgroundColor: 'transparent',
+                backgroundColor: 'var(--morius-button-hover)',
               },
             }}
           >
@@ -2657,7 +2652,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
-                backgroundColor: 'transparent',
+                backgroundColor: 'var(--morius-button-hover)',
               },
             }}
           >
@@ -2763,7 +2758,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
               color: 'var(--morius-text-primary)',
               backgroundColor: 'var(--morius-card-bg)',
               '&:hover': {
-                backgroundColor: 'transparent',
+                backgroundColor: 'var(--morius-button-hover)',
               },
             }}
           >

@@ -29,6 +29,7 @@ from app.models import (
 )
 from app.schemas import StoryGenerateRequest, StoryInstructionCardInput, UserOut
 from app.services.story_games import (
+    STORY_RESPONSE_MAX_TOKENS_MAX,
     coerce_story_llm_model,
     normalize_story_repetition_penalty,
     normalize_story_response_max_tokens,
@@ -1231,7 +1232,7 @@ def _generate_story_response_locked(
         story_response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
         story_response_max_tokens_enabled = True
     if not story_response_max_tokens_enabled:
-        story_response_max_tokens = None
+        story_response_max_tokens = STORY_RESPONSE_MAX_TOKENS_MAX
     context_limit_chars = deps.normalize_context_limit_chars(
         game.context_limit_chars,
         model_name=story_model_name,

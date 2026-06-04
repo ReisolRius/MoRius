@@ -25,7 +25,9 @@ export type StoryPublicationState = {
 export type StoryNarratorModelId =
   | 'z-ai/glm-5'
   | 'z-ai/glm-5.1'
+  | 'z-ai/glm-4.7-flash'
   | 'z-ai/glm-4.7'
+  | 'deepseek/deepseek-v3.2'
   | 'deepseek/deepseek-chat-v3-0324'
   | 'mistralai/mistral-nemo'
   | 'aion-labs/aion-2.0'

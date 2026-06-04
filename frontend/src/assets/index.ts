@@ -45,12 +45,10 @@ import sidebarSettingsIcon from './icons/custom/settings.svg'
 import sidebarShopIcon from './icons/custom/shop.svg'
 import sidebarVectorIcon from './icons/custom/vector.svg'
 import sidebarVectorAltIcon from './icons/custom/vector-1.svg'
-import tavernBackground from './images/tavern-bg.png'
 import heroCloudsImage from './images/hero-clouds.svg'
 
 export const brandLogo = logo
 
-export const heroBackground = tavernBackground
 export const heroClouds = heroCloudsImage
 
 export const icons = {
