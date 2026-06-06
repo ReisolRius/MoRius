@@ -4,6 +4,7 @@ import type { SxProps } from '@mui/system'
 import type { Theme } from '@mui/material/styles'
 import { resolveApiResourceUrl } from '../../services/httpClient'
 import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
+import AvatarFrame from '../profile/AvatarFrame'
 
 const AVATAR_LOAD_TIMEOUT_MS = 8000
 type ImageLoadStatus = 'idle' | 'loading' | 'loaded' | 'failed'
@@ -15,6 +16,8 @@ type ProgressiveAvatarProps = {
   size?: number
   scale?: number
   priority?: boolean
+  frameId?: string | null
+  frameImageUrl?: string | null
   sx?: SxProps<Theme>
   imgSx?: SxProps<Theme>
 }
@@ -30,6 +33,8 @@ function ProgressiveAvatar({
   size = 44,
   scale = 1,
   priority = false,
+  frameId,
+  frameImageUrl,
   sx,
   imgSx,
 }: ProgressiveAvatarProps) {
@@ -45,7 +50,8 @@ function ProgressiveAvatar({
   const shouldLoadImage = shouldAttemptImage && (priority || isVisible)
   const isImageLoaded = loadStatus === 'loaded'
   const isImageLoading = loadStatus === 'loading'
-  const shouldShowFallbackSymbol = !shouldAttemptImage || loadStatus === 'failed'
+  const shouldRevealImage = isImageLoaded || (shouldLoadImage && loadStatus === 'idle')
+  const shouldShowFallbackSymbol = !shouldAttemptImage || loadStatus !== 'loaded'
 
   useEffect(() => {
     if (!resolvedSrc) {
@@ -63,7 +69,7 @@ function ProgressiveAvatar({
       if (isCancelled) {
         return
       }
-      setLoadStatus('failed')
+      setLoadStatus((currentStatus) => (currentStatus === 'loading' ? 'idle' : currentStatus))
     }, AVATAR_LOAD_TIMEOUT_MS)
 
     setLoadStatus('loading')
@@ -121,13 +127,13 @@ function ProgressiveAvatar({
       objectFit: 'cover',
       transform: `scale(${normalizedScale})`,
       transformOrigin: 'center center',
-      opacity: isImageLoaded ? 1 : 0,
+      opacity: shouldRevealImage ? 1 : 0,
       transition: 'opacity 180ms ease',
     },
     ...(Array.isArray(imgSx) ? imgSx : imgSx ? [imgSx] : []),
   ] as SxProps<Theme>
 
-  return (
+  const avatarNode = (
     <Box ref={ref} title={fallbackLabel} aria-label={fallbackLabel} sx={rootSx}>
       <Box
         component="span"
@@ -141,7 +147,7 @@ function ProgressiveAvatar({
       >
         {fallbackSymbol}
       </Box>
-      {shouldLoadImage && isImageLoaded ? (
+      {shouldLoadImage && loadStatus !== 'failed' ? (
         <Box
           component="img"
           src={resolvedSrc ?? undefined}
@@ -178,6 +184,12 @@ function ProgressiveAvatar({
         </>
       ) : null}
     </Box>
+  )
+
+  return (
+    <AvatarFrame frameId={frameId} frameImageUrl={frameImageUrl} size={size}>
+      {avatarNode}
+    </AvatarFrame>
   )
 }
 

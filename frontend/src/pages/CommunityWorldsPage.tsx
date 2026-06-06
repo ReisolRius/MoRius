@@ -15,6 +15,7 @@ import {
   Select,
   Stack,
   SvgIcon,
+  TextField,
   Typography,
   useMediaQuery,
   type SelectChangeEvent,
@@ -51,6 +52,7 @@ import { WORLD_GENRE_OPTIONS } from '../constants/worldGenres'
 
 import {
   createCoinTopUpPayment,
+  createPublicationEncouragement,
   getCoinTopUpPlans,
   returnCharacterToModerationAsAdmin,
   returnInstructionTemplateToModerationAsAdmin,
@@ -167,6 +169,12 @@ function mergeCommunityItemsById<T extends { id: number }>(previous: T[], nextIt
   return Array.from(mergedById.values())
 }
 
+type EncouragementTarget = {
+  target_type: 'character' | 'instruction_template'
+  target_id: number
+  title: string
+}
+
 type CommunitySection = 'worlds' | 'characters' | 'rules'
 type CommunityWorldSortMode = 'updated_desc' | 'rating_desc' | 'launches_desc' | 'views_desc'
 type CommunityCardSortMode = 'updated_desc' | 'rating_desc' | 'additions_desc'
@@ -277,6 +285,8 @@ function CommunityCharacterCard({ item, currentUserId, disabled = false, onClick
             src={item.author_avatar_url}
             fallbackLabel={authorName}
             size={36}
+            frameId={item.author_avatar_frame_id}
+            frameImageUrl={item.author_avatar_frame_image_url}
             sx={{
               border: 'var(--morius-border-width) solid rgba(214, 225, 239, 0.34)',
               backgroundColor: 'rgba(6, 10, 16, 0.76)',
@@ -382,6 +392,8 @@ function CommunityInstructionCard({ item, currentUserId, disabled = false, onCli
               src={item.author_avatar_url}
               fallbackLabel={authorName}
               size={36}
+              frameId={item.author_avatar_frame_id}
+              frameImageUrl={item.author_avatar_frame_image_url}
               sx={{
                 border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.34)',
                 backgroundColor: 'rgba(6, 10, 16, 0.72)',
@@ -512,6 +524,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const [isCommunityCharacterRatingSaving, setIsCommunityCharacterRatingSaving] = useState(false)
   const [isCommunityCharacterAddSaving, setIsCommunityCharacterAddSaving] = useState(false)
   const [selectedCommunityInstructionTemplate, setSelectedCommunityInstructionTemplate] = useState<StoryCommunityInstructionTemplateSummary | null>(null)
+  const [encouragementTarget, setEncouragementTarget] = useState<EncouragementTarget | null>(null)
+  const [encouragementAmount, setEncouragementAmount] = useState('5')
+  const [encouragementMessage, setEncouragementMessage] = useState('')
+  const [encouragementError, setEncouragementError] = useState('')
+  const [isEncouragementSubmitting, setIsEncouragementSubmitting] = useState(false)
   const [isCommunityInstructionTemplateLoading, setIsCommunityInstructionTemplateLoading] = useState(false)
   const [communityInstructionRatingDraft, setCommunityInstructionRatingDraft] = useState(0)
   const [isCommunityInstructionRatingSaving, setIsCommunityInstructionRatingSaving] = useState(false)
@@ -1901,7 +1918,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
+    onNavigate('/shop')
   }
 
   const handleChooseAvatar = () => {
@@ -2058,6 +2075,57 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
   const isSelectedCommunityCharacterOwnedByUser = selectedCommunityCharacter?.author_id === user.id
   const selectedCommunityCharacterNote = selectedCommunityCharacter?.note.trim() ?? ''
   const isSelectedCommunityInstructionOwnedByUser = selectedCommunityInstructionTemplate?.author_id === user.id
+
+  const handleOpenEncouragementDialog = useCallback((target: EncouragementTarget) => {
+    setEncouragementTarget(target)
+    setEncouragementAmount('5')
+    setEncouragementMessage('')
+    setEncouragementError('')
+  }, [])
+
+  const handleSubmitEncouragement = useCallback(async () => {
+    if (!encouragementTarget || isEncouragementSubmitting) {
+      return
+    }
+    const amount = Number.parseInt(encouragementAmount, 10)
+    if (!Number.isFinite(amount) || amount < 5) {
+      setEncouragementError('Минимум 5 солов.')
+      return
+    }
+    setIsEncouragementSubmitting(true)
+    setEncouragementError('')
+    try {
+      const response = await createPublicationEncouragement({
+        token: authToken,
+        target_type: encouragementTarget.target_type,
+        target_id: encouragementTarget.target_id,
+        amount_coins: amount,
+        message: encouragementMessage.trim(),
+      })
+      onUserUpdate(response.user)
+      setEncouragementTarget(null)
+      setEncouragementMessage('')
+      setEncouragementAmount('5')
+    } catch (requestError) {
+      setEncouragementError(requestError instanceof Error ? requestError.message : 'Не удалось отправить поддержку')
+    } finally {
+      setIsEncouragementSubmitting(false)
+    }
+  }, [authToken, encouragementAmount, encouragementMessage, encouragementTarget, isEncouragementSubmitting, onUserUpdate])
+
+  const handleEncourageCommunityWorld = useCallback(async (amountCoins: number, message: string) => {
+    if (!selectedCommunityWorld) {
+      return
+    }
+    const response = await createPublicationEncouragement({
+      token: authToken,
+      target_type: 'world',
+      target_id: selectedCommunityWorld.world.id,
+      amount_coins: amountCoins,
+      message,
+    })
+    onUserUpdate(response.user)
+  }, [authToken, onUserUpdate, selectedCommunityWorld])
 
 
   return (
@@ -2610,6 +2678,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                         description={world.description}
                         authorName={world.author_name.trim() || 'Неизвестный автор'}
                         authorAvatarUrl={world.author_avatar_url}
+                        authorAvatarFrameId={world.author_avatar_frame_id}
+                        authorAvatarFrameImageUrl={world.author_avatar_frame_image_url}
                         stat1={`${world.community_launches} ▶`}
                         stat2={`${world.community_rating_avg.toFixed(1)} ★`}
                         onMenuClick={
@@ -2704,6 +2774,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                       description={item.description}
                       authorName={item.author_name.trim() || 'Неизвестный автор'}
                       authorAvatarUrl={item.author_avatar_url}
+                      authorAvatarFrameId={item.author_avatar_frame_id}
+                      authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                       showPlayButton={false}
@@ -2805,6 +2877,8 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
                     description={item.content}
                     authorName={item.author_name.trim() || 'Неизвестный автор'}
                     authorAvatarUrl={item.author_avatar_url}
+                    authorAvatarFrameId={item.author_avatar_frame_id}
+                    authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                     stat1={`+${item.community_additions_count}`}
                     stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                     showPlayButton={false}
@@ -2861,6 +2935,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         onPlay={() => void handleLaunchCommunityWorld()}
         onRate={(value) => void handleRateCommunityWorld(value)}
         onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
+        onEncourage={handleEncourageCommunityWorld}
         onAuthorClick={(authorId) => {
           setSelectedCommunityWorld(null)
           onNavigate(`/profile/${authorId}`)
@@ -3051,6 +3126,33 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             Закрыть
           </Button>
           <Button
+            onClick={() => {
+              if (!selectedCommunityCharacter) {
+                return
+              }
+              handleOpenEncouragementDialog({
+                target_type: 'character',
+                target_id: selectedCommunityCharacter.id,
+                title: selectedCommunityCharacter.name,
+              })
+            }}
+            disabled={!selectedCommunityCharacter || isSelectedCommunityCharacterOwnedByUser}
+            sx={{
+              minHeight: 38,
+              px: 1.35,
+              borderRadius: 'var(--morius-radius)',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              textTransform: 'none',
+              color: APP_TEXT_PRIMARY,
+              backgroundColor: APP_CARD_BACKGROUND,
+              '&:hover': {
+                backgroundColor: APP_BUTTON_HOVER,
+              },
+            }}
+          >
+            Поддержать
+          </Button>
+          <Button
             onClick={handleOpenCharacterReportDialog}
             disabled={
               !selectedCommunityCharacter ||
@@ -3225,6 +3327,33 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
             Закрыть
           </Button>
           <Button
+            onClick={() => {
+              if (!selectedCommunityInstructionTemplate) {
+                return
+              }
+              handleOpenEncouragementDialog({
+                target_type: 'instruction_template',
+                target_id: selectedCommunityInstructionTemplate.id,
+                title: selectedCommunityInstructionTemplate.title,
+              })
+            }}
+            disabled={!selectedCommunityInstructionTemplate || isSelectedCommunityInstructionOwnedByUser}
+            sx={{
+              minHeight: 38,
+              px: 1.35,
+              borderRadius: 'var(--morius-radius)',
+              border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+              textTransform: 'none',
+              color: APP_TEXT_PRIMARY,
+              backgroundColor: APP_CARD_BACKGROUND,
+              '&:hover': {
+                backgroundColor: APP_BUTTON_HOVER,
+              },
+            }}
+          >
+            Поддержать
+          </Button>
+          <Button
             onClick={handleOpenInstructionTemplateReportDialog}
             disabled={
               !selectedCommunityInstructionTemplate ||
@@ -3276,6 +3405,61 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
               : selectedCommunityInstructionTemplate?.is_added_by_user
                 ? 'Добавлено'
                 : 'Добавить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={Boolean(encouragementTarget)}
+        onClose={() => {
+          if (!isEncouragementSubmitting) {
+            setEncouragementTarget(null)
+          }
+        }}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            backgroundColor: 'var(--morius-dialog-bg)',
+            color: APP_TEXT_PRIMARY,
+            boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+          },
+        }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}
+      >
+        <DialogTitle sx={{ color: APP_TEXT_PRIMARY, fontWeight: 900 }}>Поддержать автора</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.1} sx={{ pt: 0.45 }}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
+              Переведите автору публикации солы со своего баланса. Минимум 5 солов.
+            </Typography>
+            <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800 }}>
+              {encouragementTarget?.title ?? ''}
+            </Typography>
+            <TextField
+              label="Сумма"
+              value={encouragementAmount}
+              onChange={(event) => setEncouragementAmount(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              fullWidth
+            />
+            <TextField
+              label="Сообщение"
+              value={encouragementMessage}
+              onChange={(event) => setEncouragementMessage(event.target.value.slice(0, 240))}
+              fullWidth
+              multiline
+              minRows={2}
+            />
+            {encouragementError ? <Alert severity="error">{encouragementError}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setEncouragementTarget(null)} disabled={isEncouragementSubmitting} sx={{ color: APP_TEXT_SECONDARY }}>
+            Отмена
+          </Button>
+          <Button onClick={() => void handleSubmitEncouragement()} disabled={isEncouragementSubmitting} sx={{ color: APP_TEXT_PRIMARY, backgroundColor: 'var(--morius-button-active)' }}>
+            {isEncouragementSubmitting ? 'Отправляем...' : 'Поддержать'}
           </Button>
         </DialogActions>
       </Dialog>

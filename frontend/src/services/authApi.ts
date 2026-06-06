@@ -1,5 +1,6 @@
 import type { AuthResponse, AuthUser } from '../types/auth'
 import { normalizeProfileBannerId } from '../constants/profileBanners'
+import { normalizeAvatarFrameId } from '../constants/avatarFrames'
 import type {
   StoryCharacter,
   StoryCommunityCharacterSummary,
@@ -134,6 +135,8 @@ export type ProfileSubscriptionUser = {
   display_name: string
   avatar_url: string | null
   avatar_scale: number
+  avatar_frame_id: string
+  avatar_frame_image_url?: string | null
 }
 
 export type ProfileUserView = {
@@ -141,6 +144,9 @@ export type ProfileUserView = {
   display_name: string
   profile_description: string
   profile_banner_id: string
+  profile_banner_image_url?: string | null
+  avatar_frame_id: string
+  avatar_frame_image_url?: string | null
   avatar_url: string | null
   avatar_scale: number
   created_at: string
@@ -233,6 +239,85 @@ export type CoinTopUpSyncResponse = {
   referral_bonus_granted?: boolean
   referral_bonus_amount?: number
   user: AuthUser
+}
+
+export type CosmeticItemKind = 'avatar_frame' | 'profile_banner'
+
+export type CosmeticItem = {
+  id: number
+  kind: CosmeticItemKind
+  selection_id: string
+  title: string
+  description: string
+  image_url: string
+  price_coins: number
+  is_active: boolean
+  is_owned: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ShopCatalog = {
+  plans: CoinTopUpPlan[]
+  avatar_frames: CosmeticItem[]
+  profile_banners: CosmeticItem[]
+  owned_selection_ids: string[]
+}
+
+export type CosmeticPurchaseResponse = {
+  item: CosmeticItem
+  coins: number
+  user: AuthUser
+}
+
+export type EncouragementResponse = {
+  id: number
+  sender_user_id: number
+  recipient_user_id: number
+  target_type: 'world' | 'character' | 'instruction_template'
+  target_id: number
+  amount_coins: number
+  message: string
+  created_at: string
+  user: AuthUser
+}
+
+export type CreatorStats = {
+  worlds_count: number
+  characters_count: number
+  instruction_templates_count: number
+  publications_count: number
+  average_rating: number
+  rating_count: number
+}
+
+export type CreatorMonthSlot = {
+  slot: number
+  user: ProfileUserView | null
+  stats: CreatorStats
+  period_start: string | null
+  period_end: string | null
+}
+
+export type CreatorMonthList = {
+  slots: CreatorMonthSlot[]
+  period_start: string
+  period_end: string
+}
+
+export type CreatorCandidate = {
+  user: ProfileUserView
+  stats: CreatorStats
+}
+
+export type CreatorCandidateList = {
+  items: CreatorCandidate[]
+  period_start: string
+  period_end: string
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
 }
 
 export type ReferralSummary = {
@@ -477,6 +562,8 @@ function normalizeProfileSubscriptionUsers(
         typeof item.avatar_scale === 'number' && Number.isFinite(item.avatar_scale)
           ? Math.max(1, Math.min(3, item.avatar_scale))
           : 1,
+      avatar_frame_id: normalizeAvatarFrameId(item.avatar_frame_id),
+      avatar_frame_image_url: typeof item.avatar_frame_image_url === 'string' ? item.avatar_frame_image_url : null,
     }))
     .filter((item) => item.id > 0)
 }
@@ -488,6 +575,9 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
       display_name: '',
       profile_description: '',
       profile_banner_id: normalizeProfileBannerId(null),
+      profile_banner_image_url: null,
+      avatar_frame_id: normalizeAvatarFrameId(null),
+      avatar_frame_image_url: null,
       avatar_url: null,
       avatar_scale: 1,
       created_at: new Date(0).toISOString(),
@@ -498,6 +588,9 @@ function normalizeProfileUserView(value: ProfileView['user'] | null | undefined)
     display_name: typeof value.display_name === 'string' ? value.display_name : '',
     profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
     profile_banner_id: normalizeProfileBannerId(value.profile_banner_id),
+    profile_banner_image_url: typeof value.profile_banner_image_url === 'string' ? value.profile_banner_image_url : null,
+    avatar_frame_id: normalizeAvatarFrameId(value.avatar_frame_id),
+    avatar_frame_image_url: typeof value.avatar_frame_image_url === 'string' ? value.avatar_frame_image_url : null,
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
     avatar_scale:
       typeof value.avatar_scale === 'number' && Number.isFinite(value.avatar_scale)
@@ -622,6 +715,7 @@ export async function registerWithEmail(payload: {
   display_name?: string
   password: string
   accepted_terms?: boolean
+  accepted_age?: boolean
 }): Promise<MessageResponse> {
   return requestJson<MessageResponse>(
     '/api/auth/register',
@@ -785,6 +879,7 @@ export async function updateCurrentUserProfile(payload: {
   display_name?: string
   profile_description?: string
   profile_banner_id?: string
+  avatar_frame_id?: string
   notifications_enabled?: boolean
   notify_comment_reply?: boolean
   notify_world_comment?: boolean
@@ -804,6 +899,9 @@ export async function updateCurrentUserProfile(payload: {
   }
   if (typeof payload.profile_banner_id === 'string') {
     requestBody.profile_banner_id = normalizeProfileBannerId(payload.profile_banner_id)
+  }
+  if (typeof payload.avatar_frame_id === 'string') {
+    requestBody.avatar_frame_id = normalizeAvatarFrameId(payload.avatar_frame_id)
   }
   if (typeof payload.notifications_enabled === 'boolean') {
     requestBody.notifications_enabled = payload.notifications_enabled
@@ -1385,6 +1483,201 @@ export async function removeInstructionTemplateFromCommunityAsAdmin(payload: {
 export async function getCoinTopUpPlans(): Promise<CoinTopUpPlan[]> {
   const response = await requestJson<CoinPlanListResponse>('/api/payments/plans', { method: 'GET' })
   return response.plans
+}
+
+export async function getShopCatalog(payload: { token: string }): Promise<ShopCatalog> {
+  return requestJson<ShopCatalog>(
+    '/api/shop/catalog',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function createShopCosmeticItem(payload: {
+  token: string
+  kind: CosmeticItemKind
+  title: string
+  description?: string
+  image_url: string
+  price_coins: number
+}): Promise<CosmeticItem> {
+  return requestJson<CosmeticItem>(
+    '/api/shop/cosmetics',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        kind: payload.kind,
+        title: payload.title,
+        description: payload.description ?? '',
+        image_url: payload.image_url,
+        price_coins: payload.price_coins,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateShopCosmeticItem(payload: {
+  token: string
+  item_id: number
+  title?: string
+  description?: string
+  image_url?: string
+  price_coins?: number
+  is_active?: boolean
+}): Promise<CosmeticItem> {
+  return requestJson<CosmeticItem>(
+    `/api/shop/cosmetics/${payload.item_id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        title: payload.title,
+        description: payload.description,
+        image_url: payload.image_url,
+        price_coins: payload.price_coins,
+        is_active: payload.is_active,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function purchaseShopCosmeticItem(payload: {
+  token: string
+  item_id: number
+}): Promise<CosmeticPurchaseResponse> {
+  return requestJson<CosmeticPurchaseResponse>(
+    `/api/shop/cosmetics/${payload.item_id}/purchase`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function createPublicationEncouragement(payload: {
+  token: string
+  target_type: 'world' | 'character' | 'instruction_template'
+  target_id: number
+  amount_coins: number
+  message?: string
+}): Promise<EncouragementResponse> {
+  return requestJson<EncouragementResponse>(
+    '/api/shop/encouragements',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        target_type: payload.target_type,
+        target_id: payload.target_id,
+        amount_coins: payload.amount_coins,
+        message: payload.message ?? '',
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function getCreatorMonthSlots(payload: { token: string }): Promise<CreatorMonthList> {
+  return requestJson<CreatorMonthList>(
+    '/api/shop/creators/month',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function updateCreatorMonthSlot(payload: {
+  token: string
+  slot: number
+  user_id: number | null
+  period_start?: string | null
+  period_end?: string | null
+}): Promise<CreatorMonthSlot> {
+  return requestJson<CreatorMonthSlot>(
+    `/api/shop/creators/month/${payload.slot}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+      body: JSON.stringify({
+        user_id: payload.user_id,
+        period_start: payload.period_start ?? null,
+        period_end: payload.period_end ?? null,
+      }),
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
+export async function listCreatorCandidates(payload: {
+  token: string
+  query?: string
+  period_start?: string | null
+  period_end?: string | null
+  sort?: string
+  offset?: number
+  limit?: number
+  has_publications?: boolean
+  has_ratings?: boolean
+}): Promise<CreatorCandidateList> {
+  const params = new URLSearchParams()
+  if (payload.query?.trim()) {
+    params.set('query', payload.query.trim())
+  }
+  if (payload.period_start) {
+    params.set('period_start', payload.period_start)
+  }
+  if (payload.period_end) {
+    params.set('period_end', payload.period_end)
+  }
+  if (payload.sort) {
+    params.set('sort', payload.sort)
+  }
+  if (typeof payload.offset === 'number' && payload.offset > 0) {
+    params.set('offset', String(Math.trunc(payload.offset)))
+  }
+  if (typeof payload.limit === 'number' && payload.limit > 0) {
+    params.set('limit', String(Math.trunc(payload.limit)))
+  }
+  if (payload.has_publications) {
+    params.set('has_publications', 'true')
+  }
+  if (payload.has_ratings) {
+    params.set('has_ratings', 'true')
+  }
+  const query = params.toString()
+  return requestJson<CreatorCandidateList>(
+    query ? `/api/shop/creators/candidates?${query}` : '/api/shop/creators/candidates',
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
 }
 
 export async function createCoinTopUpPayment(payload: {

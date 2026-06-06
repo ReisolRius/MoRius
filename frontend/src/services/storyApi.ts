@@ -1243,9 +1243,28 @@ export async function addCommunityInstructionTemplate(payload: {
   })
 }
 
-export async function listStoryCharacters(token: string): Promise<StoryCharacter[]> {
-  const response = await request<StoryCharacter[]>('/api/story/characters', {
+export async function listStoryCharacters(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+    query?: string
+  } = {},
+): Promise<StoryCharacter[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  const query = params.toString()
+  const response = await request<StoryCharacter[]>(query ? `/api/story/characters?${query}` : '/api/story/characters', {
     method: 'GET',
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
     },

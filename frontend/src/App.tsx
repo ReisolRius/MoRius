@@ -7,7 +7,7 @@ import {
   type CurrentUserThemeSettings,
   type MaintenanceSettings,
 } from './services/authApi'
-import { PRIVACY_POLICY_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
+import { PRIVACY_POLICY_TEXT, PUBLICATION_RULES_TEXT, TERMS_OF_SERVICE_TEXT } from './constants/legalDocuments'
 import type { ReactNode } from 'react'
 import type { AuthResponse, AuthUser } from './types/auth'
 import FantasyRouteTransition from './components/navigation/FantasyRouteTransition'
@@ -22,6 +22,7 @@ import {
   savePendingReferralCode,
 } from './utils/referrals'
 import { normalizeProfileBannerId } from './constants/profileBanners'
+import { normalizeAvatarFrameId } from './constants/avatarFrames'
 
 const TOKEN_STORAGE_KEY = 'morius.auth.token'
 const USER_STORAGE_KEY = 'morius.auth.user'
@@ -77,6 +78,7 @@ function isAuthenticatedPath(pathname: string): boolean {
     pathname === '/games' ||
     pathname === '/games/publications' ||
     pathname.startsWith('/games/') ||
+    pathname === '/shop' ||
     pathname === '/profile' ||
     /^\/profile\/\d+$/.test(pathname) ||
     pathname === '/worlds/new' ||
@@ -85,7 +87,7 @@ function isAuthenticatedPath(pathname: string): boolean {
 }
 
 function isLegalPath(pathname: string): boolean {
-  return pathname === '/privacy-policy' || pathname === '/terms-of-service'
+  return pathname === '/privacy-policy' || pathname === '/terms-of-service' || pathname === '/publication-rules'
 }
 
 function isStaticPublicPath(pathname: string): boolean {
@@ -191,6 +193,8 @@ function normalizeStoredAuthUser(rawValue: unknown): AuthUser | null {
     display_name: typeof value.display_name === 'string' ? value.display_name : null,
     profile_description: typeof value.profile_description === 'string' ? value.profile_description : '',
     profile_banner_id: normalizeProfileBannerId(value.profile_banner_id),
+    avatar_frame_id: normalizeAvatarFrameId(value.avatar_frame_id),
+    avatar_frame_image_url: typeof value.avatar_frame_image_url === 'string' ? value.avatar_frame_image_url : null,
     avatar_url: typeof value.avatar_url === 'string' ? value.avatar_url : null,
     avatar_scale: typeof value.avatar_scale === 'number' ? value.avatar_scale : 1,
     auth_provider: typeof value.auth_provider === 'string' ? value.auth_provider : 'email',
@@ -254,6 +258,7 @@ const loadCommunityWorldsPage = () => import('./pages/CommunityWorldsPage')
 const loadWorldCreatePage = () => import('./pages/WorldCreatePage')
 const loadLegalDocumentPage = () => import('./pages/LegalDocumentPage')
 const loadProfilePage = () => import('./pages/ProfilePage')
+const loadShopPage = () => import('./pages/ShopPage')
 const loadMaintenancePage = () => import('./pages/MaintenancePage')
 
 const PublicLandingPage = lazy(loadPublicLandingPage)
@@ -267,6 +272,7 @@ const CommunityWorldsPage = lazy(loadCommunityWorldsPage)
 const WorldCreatePage = lazy(loadWorldCreatePage)
 const LegalDocumentPage = lazy(loadLegalDocumentPage)
 const ProfilePage = lazy(loadProfilePage)
+const ShopPage = lazy(loadShopPage)
 const MaintenancePage = lazy(loadMaintenancePage)
 
 function warmPageLoaders(loaders: PageLoader[]): () => void {
@@ -313,7 +319,8 @@ function App() {
   const hasTrackedInitialRouteRef = useRef(false)
   const routeTransitionTimerRef = useRef<number | null>(null)
   const isAuthenticated = Boolean(authToken && authUser)
-  const isCurrentUserAdministrator = authUser?.role.trim().toLowerCase() === 'administrator'
+  const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
+  const canCurrentUserBypassMaintenance = currentUserRole === 'administrator' || currentUserRole === 'moderator'
 
   const triggerRouteTransition = useCallback(() => {
     if (routeTransitionTimerRef.current !== null) {
@@ -385,6 +392,7 @@ function App() {
     const loaders = isAuthenticated
       ? [
           loadProfilePage,
+          loadShopPage,
           loadCommunityWorldsPage,
           loadStoryGamePage,
           loadMyGamesPage,
@@ -669,14 +677,16 @@ function App() {
   const shouldShowMyGamesPage = false
   const shouldShowMyPublicationsPage = isAuthenticated && path === '/games/publications'
   const shouldShowCommunityWorldsPage = isAuthenticated && path === '/games/all'
+  const shouldShowShopPage = isAuthenticated && path === '/shop'
   const shouldShowWorldCreatePage = isAuthenticated && (path === '/worlds/new' || worldEditGameId !== null)
   const shouldShowProfilePage = isAuthenticated && (path === '/profile' || path === '/games' || profileUserId !== null)
   const shouldShowPrivacyPolicyPage = path === '/privacy-policy'
   const shouldShowTermsPage = path === '/terms-of-service'
+  const shouldShowPublicationRulesPage = path === '/publication-rules'
   const shouldShowAuthPage = !isAuthenticated && path === '/auth'
   const shouldAllowMaintenanceAuthBypass = !isAuthenticated && path === '/auth'
   const shouldShowMaintenancePage = Boolean(
-    maintenanceSettings?.enabled && !isCurrentUserAdministrator && !shouldAllowMaintenanceAuthBypass,
+    maintenanceSettings?.enabled && !canCurrentUserBypassMaintenance && !shouldAllowMaintenanceAuthBypass,
   )
   const shouldShowRouteTransition = isRouteTransitionVisible && !isStaticPublicPath(path) && !shouldShowMaintenancePage
 
@@ -704,6 +714,16 @@ function App() {
         <LegalDocumentPage
           title="Пользовательское соглашение"
           content={TERMS_OF_SERVICE_TEXT}
+          onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowPublicationRulesPage) {
+    pageContent = (
+      <Suspense fallback={null}>
+        <LegalDocumentPage
+          title="Правила публикаций"
+          content={PUBLICATION_RULES_TEXT}
           onNavigate={navigate}
         />
       </Suspense>
@@ -777,6 +797,18 @@ function App() {
           editingGameId={worldEditGameId}
           editSource={worldEditSource}
           onNavigate={navigate}
+        />
+      </Suspense>
+    )
+  } else if (shouldShowShopPage && authUser) {
+    pageContent = (
+      <Suspense fallback={null}>
+        <ShopPage
+          user={authUser}
+          authToken={authToken!}
+          onNavigate={navigate}
+          onUserUpdate={handleUserUpdate}
+          onLogout={handleLogout}
         />
       </Suspense>
     )

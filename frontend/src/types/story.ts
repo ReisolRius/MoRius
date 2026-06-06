@@ -338,6 +338,8 @@ export type StoryCommunityCharacterSummary = {
   author_id: number
   author_name: string
   author_avatar_url: string | null
+  author_avatar_frame_id?: string
+  author_avatar_frame_image_url?: string | null
   community_rating_avg: number
   community_rating_count: number
   community_additions_count: number
@@ -388,6 +390,8 @@ export type StoryCommunityInstructionTemplateSummary = {
   author_id: number
   author_name: string
   author_avatar_url: string | null
+  author_avatar_frame_id?: string
+  author_avatar_frame_image_url?: string | null
   community_rating_avg: number
   community_rating_count: number
   community_additions_count: number
@@ -419,6 +423,8 @@ export type StoryCommunityWorldSummary = {
   author_id: number
   author_name: string
   author_avatar_url: string | null
+  author_avatar_frame_id?: string
+  author_avatar_frame_image_url?: string | null
   age_rating: '6+' | '16+' | '18+'
   genres: string[]
   cover_image_url: string | null
@@ -444,6 +450,8 @@ export type StoryCommunityWorldComment = {
   user_display_name: string
   user_avatar_url: string | null
   user_avatar_scale: number
+  user_avatar_frame_id?: string
+  user_avatar_frame_image_url?: string | null
   content: string
   created_at: string
   updated_at: string

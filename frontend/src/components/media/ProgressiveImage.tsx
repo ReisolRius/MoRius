@@ -34,7 +34,7 @@ export default function ProgressiveImage({
 }: ProgressiveImageProps) {
   const resolvedSrc = resolveApiResourceUrl(src)
   const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>(resolvedSrc ? 'loading' : 'idle')
-  const isImageLoaded = loadStatus === 'loaded'
+  const shouldRevealImage = loadStatus === 'loaded' || loadStatus === 'idle'
   const isImageLoading = loadStatus === 'loading'
   const hasFailed = loadStatus === 'failed'
 
@@ -46,7 +46,7 @@ export default function ProgressiveImage({
 
     setLoadStatus('loading')
     const timeoutId = window.setTimeout(() => {
-      setLoadStatus((currentStatus) => (currentStatus === 'loaded' ? currentStatus : 'failed'))
+      setLoadStatus((currentStatus) => (currentStatus === 'loading' ? 'idle' : currentStatus))
     }, IMAGE_LOAD_TIMEOUT_MS)
 
     return () => {
@@ -87,7 +87,7 @@ export default function ProgressiveImage({
                 display: 'block',
                 objectFit,
                 objectPosition,
-                opacity: isImageLoaded ? 1 : 0,
+                opacity: shouldRevealImage ? 1 : 0,
                 transition: 'opacity 180ms ease',
               },
               ...(Array.isArray(imgSx) ? imgSx : imgSx ? [imgSx] : []),

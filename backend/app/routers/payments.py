@@ -18,7 +18,7 @@ from app.schemas import (
     MessageResponse,
     UserOut,
 )
-from app.services.auth_identity import get_current_user
+from app.services.auth_identity import get_current_user, serialize_user_out
 from app.services.payments import (
     COIN_TOP_UP_PLANS,
     FINAL_PAYMENT_STATUSES,
@@ -169,7 +169,7 @@ def sync_coin_top_up_payment(
         coins=purchase.coins,
         referral_bonus_granted=referral_bonus_granted,
         referral_bonus_amount=referral_bonus_amount,
-        user=UserOut.model_validate(user),
+        user=serialize_user_out(user, db=db),
     )
 
 

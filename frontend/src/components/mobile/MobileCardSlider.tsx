@@ -52,6 +52,10 @@ export type MobileCardItemProps = {
   authorName?: string
   /** Author avatar URL for the small avatar on top */
   authorAvatarUrl?: string | null
+  /** Author avatar frame selection id */
+  authorAvatarFrameId?: string | null
+  /** Author avatar frame image for paid/custom frames */
+  authorAvatarFrameImageUrl?: string | null
   /** Left stat label e.g. "40 ▶" or "+12" */
   stat1?: string
   /** Right stat label e.g. "5.0 ★" */
@@ -87,6 +91,8 @@ export function MobileCardItem({
   description,
   authorName,
   authorAvatarUrl,
+  authorAvatarFrameId,
+  authorAvatarFrameImageUrl,
   stat1,
   stat2,
   isActive = false,
@@ -178,6 +184,8 @@ export function MobileCardItem({
                   src={authorAvatarUrl ?? null}
                   fallbackLabel={authorName}
                   size={20}
+                  frameId={authorAvatarFrameId}
+                  frameImageUrl={authorAvatarFrameImageUrl}
                   sx={{ flexShrink: 0, border: 'none' }}
                 />
                 <Typography

@@ -17,7 +17,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     profile_description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
-    profile_banner_id: Mapped[str] = mapped_column(String(16), nullable=False, default="2", server_default="2")
+    profile_banner_id: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
+    avatar_frame_id: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")
     avatar_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
     show_subscriptions: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
@@ -152,6 +153,70 @@ class CoinPurchase(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     confirmation_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     coins_granted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class CosmeticItem(Base):
+    __tablename__ = "cosmetic_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    image_url: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    price_coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
+    created_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class UserCosmeticPurchase(Base):
+    __tablename__ = "user_cosmetic_purchases"
+    __table_args__ = (
+        UniqueConstraint("user_id", "item_id", name="uq_user_cosmetic_purchases_user_item"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("cosmetic_items.id"), nullable=False, index=True)
+    price_coins: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserEncouragement(Base):
+    __tablename__ = "user_encouragements"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    sender_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    amount_coins: Mapped[int] = mapped_column(Integer, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CreatorMonthSlot(Base):
+    __tablename__ = "creator_month_slots"
+    __table_args__ = (
+        UniqueConstraint("slot", name="uq_creator_month_slots_slot"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    slot: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

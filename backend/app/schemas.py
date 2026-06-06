@@ -15,7 +15,10 @@ class UserOut(BaseModel):
     email: EmailStr
     display_name: str | None
     profile_description: str
-    profile_banner_id: str = "2"
+    profile_banner_id: str = "none"
+    profile_banner_image_url: str | None = None
+    avatar_frame_id: str = "none"
+    avatar_frame_image_url: str | None = None
     avatar_url: str | None
     avatar_scale: float
     auth_provider: str
@@ -140,13 +143,18 @@ class ProfileSubscriptionUserOut(BaseModel):
     display_name: str
     avatar_url: str | None
     avatar_scale: float
+    avatar_frame_id: str = "none"
+    avatar_frame_image_url: str | None = None
 
 
 class ProfileUserOut(BaseModel):
     id: int
     display_name: str
     profile_description: str
-    profile_banner_id: str = "2"
+    profile_banner_id: str = "none"
+    profile_banner_image_url: str | None = None
+    avatar_frame_id: str = "none"
+    avatar_frame_image_url: str | None = None
     avatar_url: str | None
     avatar_scale: float
     created_at: datetime
@@ -183,6 +191,7 @@ class RegisterRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)
     password: str = Field(min_length=8, max_length=128)
     accepted_terms: bool = False
+    accepted_age: bool = False
 
 
 class RegisterVerifyRequest(BaseModel):
@@ -225,6 +234,7 @@ class ProfileUpdateRequest(BaseModel):
     display_name: str | None = Field(default=None, max_length=120)
     profile_description: str | None = Field(default=None, max_length=2_000)
     profile_banner_id: str | None = Field(default=None, max_length=16)
+    avatar_frame_id: str | None = Field(default=None, max_length=16)
     notifications_enabled: bool | None = None
     notify_comment_reply: bool | None = None
     notify_world_comment: bool | None = None
@@ -452,6 +462,112 @@ class CoinTopUpSyncResponse(BaseModel):
     referral_bonus_granted: bool = False
     referral_bonus_amount: int = 0
     user: UserOut
+
+
+class CosmeticItemOut(BaseModel):
+    id: int
+    kind: Literal["avatar_frame", "profile_banner"]
+    selection_id: str
+    title: str
+    description: str = ""
+    image_url: str
+    price_coins: int = Field(ge=0)
+    is_active: bool = True
+    is_owned: bool = False
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ShopCatalogOut(BaseModel):
+    plans: list[CoinPlanOut] = Field(default_factory=list)
+    avatar_frames: list[CosmeticItemOut] = Field(default_factory=list)
+    profile_banners: list[CosmeticItemOut] = Field(default_factory=list)
+    owned_selection_ids: list[str] = Field(default_factory=list)
+
+
+class CosmeticItemCreateRequest(BaseModel):
+    kind: Literal["avatar_frame", "profile_banner"]
+    title: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2_000)
+    image_url: str = Field(min_length=1, max_length=4_000_000)
+    price_coins: int = Field(default=1, ge=1, le=1_000_000)
+
+
+class CosmeticItemUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=2_000)
+    image_url: str | None = Field(default=None, min_length=1, max_length=4_000_000)
+    price_coins: int | None = Field(default=None, ge=1, le=1_000_000)
+    is_active: bool | None = None
+
+
+class CosmeticPurchaseOut(BaseModel):
+    item: CosmeticItemOut
+    coins: int = Field(ge=0)
+    user: UserOut
+
+
+class EncouragementCreateRequest(BaseModel):
+    target_type: Literal["world", "character", "instruction_template"]
+    target_id: int = Field(ge=1)
+    amount_coins: int = Field(ge=5, le=1_000_000)
+    message: str = Field(default="", max_length=500)
+
+
+class EncouragementOut(BaseModel):
+    id: int
+    sender_user_id: int
+    recipient_user_id: int
+    target_type: Literal["world", "character", "instruction_template"]
+    target_id: int
+    amount_coins: int
+    message: str
+    created_at: datetime
+    user: UserOut
+
+
+class CreatorStatsOut(BaseModel):
+    worlds_count: int = Field(default=0, ge=0)
+    characters_count: int = Field(default=0, ge=0)
+    instruction_templates_count: int = Field(default=0, ge=0)
+    publications_count: int = Field(default=0, ge=0)
+    average_rating: float = 0.0
+    rating_count: int = Field(default=0, ge=0)
+
+
+class CreatorMonthSlotOut(BaseModel):
+    slot: int
+    user: ProfileUserOut | None = None
+    stats: CreatorStatsOut
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+
+
+class CreatorMonthListOut(BaseModel):
+    slots: list[CreatorMonthSlotOut]
+    period_start: datetime
+    period_end: datetime
+
+
+class CreatorMonthSlotUpdateRequest(BaseModel):
+    user_id: int | None = Field(default=None, ge=1)
+    period_start: datetime | None = None
+    period_end: datetime | None = None
+
+
+class CreatorCandidateOut(BaseModel):
+    user: ProfileUserOut
+    stats: CreatorStatsOut
+
+
+class CreatorCandidateListOut(BaseModel):
+    items: list[CreatorCandidateOut]
+    period_start: datetime
+    period_end: datetime
+    total: int = Field(default=0, ge=0)
+    offset: int = Field(default=0, ge=0)
+    limit: int = Field(default=40, ge=1)
+    has_more: bool = False
 
 
 class ReferralApplyRequest(BaseModel):
@@ -1374,6 +1490,8 @@ class StoryCommunityWorldSummaryOut(BaseModel):
     author_id: int
     author_name: str
     author_avatar_url: str | None
+    author_avatar_frame_id: str = "none"
+    author_avatar_frame_image_url: str | None = None
     age_rating: str
     genres: list[str]
     cover_image_url: str | None
@@ -1398,6 +1516,8 @@ class StoryCommunityWorldCommentOut(BaseModel):
     user_display_name: str
     user_avatar_url: str | None
     user_avatar_scale: float
+    user_avatar_frame_id: str = "none"
+    user_avatar_frame_image_url: str | None = None
     content: str
     created_at: datetime
     updated_at: datetime
@@ -1432,6 +1552,8 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     author_id: int
     author_name: str
     author_avatar_url: str | None
+    author_avatar_frame_id: str = "none"
+    author_avatar_frame_image_url: str | None = None
     community_rating_avg: float
     community_rating_count: int
     community_additions_count: int
@@ -1450,6 +1572,8 @@ class StoryCommunityInstructionTemplateSummaryOut(BaseModel):
     author_id: int
     author_name: str
     author_avatar_url: str | None
+    author_avatar_frame_id: str = "none"
+    author_avatar_frame_image_url: str | None = None
     community_rating_avg: float
     community_rating_count: int
     community_additions_count: int

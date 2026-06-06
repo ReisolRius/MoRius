@@ -36,7 +36,12 @@ from app.services.story_cards import (
     story_instruction_template_rating_average,
     story_instruction_template_to_out,
 )
-from app.services.story_games import story_author_avatar_url, story_author_name
+from app.services.story_games import (
+    story_author_avatar_frame_id,
+    story_author_avatar_frame_image_url,
+    story_author_avatar_url,
+    story_author_name,
+)
 try:
     from app.services.story_publication_moderation import clear_story_publication_state, mark_story_publication_pending
 except Exception:  # pragma: no cover - compatibility fallback for partial deploys
@@ -216,6 +221,8 @@ def _build_story_community_instruction_template_summary(
         author_id=template.user_id,
         author_name=story_author_name(author),
         author_avatar_url=story_author_avatar_url(author),
+        author_avatar_frame_id=story_author_avatar_frame_id(author),
+        author_avatar_frame_image_url=story_author_avatar_frame_image_url(db, author),
         community_rating_avg=story_instruction_template_rating_average(template),
         community_rating_count=max(int(getattr(template, "community_rating_count", 0) or 0), 0),
         community_additions_count=max(int(getattr(template, "community_additions_count", 0) or 0), 0),
@@ -382,6 +389,7 @@ def list_story_community_instruction_templates(
                 User.email,
                 User.display_name,
                 User.avatar_url,
+                User.avatar_frame_id,
                 User.updated_at,
             )
         )
@@ -389,6 +397,8 @@ def list_story_community_instruction_templates(
     ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
+    author_avatar_frame_by_id = {author.id: story_author_avatar_frame_id(author) for author in authors}
+    author_avatar_frame_image_by_id = {author.id: story_author_avatar_frame_image_url(db, author) for author in authors}
 
     user_rating_rows = db.scalars(
         select(StoryCommunityInstructionTemplateRating).where(
@@ -427,6 +437,8 @@ def list_story_community_instruction_templates(
             author_id=template.user_id,
             author_name=author_name_by_id.get(template.user_id, "Unknown"),
             author_avatar_url=author_avatar_by_id.get(template.user_id),
+            author_avatar_frame_id=author_avatar_frame_by_id.get(template.user_id, "none"),
+            author_avatar_frame_image_url=author_avatar_frame_image_by_id.get(template.user_id),
             community_rating_avg=story_instruction_template_rating_average(template),
             community_rating_count=max(int(getattr(template, "community_rating_count", 0) or 0), 0),
             community_additions_count=max(int(getattr(template, "community_additions_count", 0) or 0), 0),

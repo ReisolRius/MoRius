@@ -7,7 +7,7 @@ type FantasyRouteTransitionProps = {
 
 function isStaticPublicPathname(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, '').toLowerCase() || '/'
-  return normalized === '/' || normalized === '/auth' || normalized === '/privacy-policy' || normalized === '/terms-of-service'
+  return normalized === '/' || normalized === '/auth' || normalized === '/privacy-policy' || normalized === '/terms-of-service' || normalized === '/publication-rules'
 }
 
 const overlayFade = keyframes`

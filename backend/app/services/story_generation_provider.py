@@ -92,7 +92,9 @@ def _should_lock_polza_story_request_to_selected_model(model_name: str | None) -
 def _apply_polza_story_response_limit(payload: dict[str, Any], max_tokens: int | None) -> None:
     if max_tokens is None:
         return
-    payload["max_tokens"] = int(max_tokens)
+    normalized_limit = int(max_tokens)
+    payload["max_tokens"] = normalized_limit
+    payload["max_completion_tokens"] = normalized_limit
 
 
 def _should_translate_story_input_for_model(model_name: str | None) -> bool:

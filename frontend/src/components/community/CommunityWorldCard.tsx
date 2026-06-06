@@ -317,6 +317,8 @@ function CommunityWorldCard({
             alt={authorName}
             fallbackLabel={authorInitials}
             size={40}
+            frameId={world.author_avatar_frame_id}
+            frameImageUrl={world.author_avatar_frame_image_url}
             sx={{
               border: 'var(--morius-border-width) solid rgba(205, 220, 242, 0.32)',
               background: 'linear-gradient(180deg, rgba(47, 62, 86, 0.78), rgba(22, 31, 44, 0.9))',

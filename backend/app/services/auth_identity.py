@@ -14,8 +14,10 @@ from app.security import create_access_token, safe_decode_access_token
 DISPLAY_NAME_MAX_LENGTH = 25
 DISPLAY_NAME_FALLBACK = "Player"
 PROFILE_DESCRIPTION_MAX_LENGTH = 2_000
-PROFILE_BANNER_DEFAULT_ID = "2"
-PROFILE_BANNER_IDS = {"1", "2", "3", "4", "5"}
+PROFILE_BANNER_DEFAULT_ID = "none"
+PROFILE_BANNER_IDS = {"none", "1", "2", "3", "4", "5"}
+AVATAR_FRAME_DEFAULT_ID = "none"
+AVATAR_FRAME_IDS = {"none", "p2", "p3", "p4", "p5"}
 ROLE_USER = "user"
 ROLE_ADMINISTRATOR = "administrator"
 ROLE_MODERATOR = "moderator"
@@ -112,6 +114,11 @@ def normalize_profile_banner_id(value: str | None) -> str:
     return normalized if normalized in PROFILE_BANNER_IDS else PROFILE_BANNER_DEFAULT_ID
 
 
+def normalize_avatar_frame_id(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    return normalized if normalized in AVATAR_FRAME_IDS else AVATAR_FRAME_DEFAULT_ID
+
+
 def parse_google_client_ids(raw_value: str) -> set[str]:
     return {item.strip() for item in raw_value.split(",") if item.strip()}
 
@@ -130,9 +137,41 @@ def is_allowed_google_audience(claim_aud: Any, claim_azp: Any, allowed_client_id
     return False
 
 
-def issue_auth_response(user: User, *, is_new_user: bool = False) -> AuthResponse:
+def serialize_user_out(user: User, *, db: Session | None = None) -> UserOut:
+    payload = UserOut.model_validate(user)
+    if db is None:
+        return payload
+    try:
+        from app.services.cosmetics import (
+            COSMETIC_KIND_AVATAR_FRAME,
+            COSMETIC_KIND_PROFILE_BANNER,
+            resolve_cosmetic_image_url_by_selection_id,
+        )
+
+        avatar_frame_image_url = resolve_cosmetic_image_url_by_selection_id(
+            db,
+            value=getattr(user, "avatar_frame_id", None),
+            kind=COSMETIC_KIND_AVATAR_FRAME,
+        )
+        profile_banner_image_url = resolve_cosmetic_image_url_by_selection_id(
+            db,
+            value=getattr(user, "profile_banner_id", None),
+            kind=COSMETIC_KIND_PROFILE_BANNER,
+        )
+    except Exception:
+        avatar_frame_image_url = None
+        profile_banner_image_url = None
+    return payload.model_copy(
+        update={
+            "avatar_frame_image_url": avatar_frame_image_url,
+            "profile_banner_image_url": profile_banner_image_url,
+        }
+    )
+
+
+def issue_auth_response(user: User, *, is_new_user: bool = False, db: Session | None = None) -> AuthResponse:
     token = create_access_token(subject=str(user.id), claims={"email": user.email})
-    return AuthResponse(access_token=token, user=UserOut.model_validate(user), is_new_user=is_new_user)
+    return AuthResponse(access_token=token, user=serialize_user_out(user, db=db), is_new_user=is_new_user)
 
 
 def _extract_bearer_token(authorization: str | None) -> str | None:

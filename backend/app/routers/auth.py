@@ -88,12 +88,12 @@ from app.services.auth_identity import (
     get_current_user,
     is_allowed_google_audience,
     issue_auth_response,
-    normalize_profile_banner_id,
     normalize_profile_description,
     normalize_profile_display_name,
     normalize_email,
     parse_google_client_ids,
     provider_union,
+    serialize_user_out,
     sync_user_access_state,
 )
 from app.services.media import normalize_avatar_value, normalize_media_scale, validate_avatar_url
@@ -198,6 +198,10 @@ from app.services.auth_verification import (
     mark_verification_code_sent,
     send_password_reset_code,
     send_email_verification_code,
+)
+from app.services.cosmetics import (
+    normalize_avatar_frame_selection_for_user,
+    normalize_profile_banner_selection_for_user,
 )
 
 GOOGLE_ISSUERS = {"accounts.google.com", "https://accounts.google.com"}
@@ -554,6 +558,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Message
     normalized_email = normalize_email(payload.email)
     if not payload.accepted_terms:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Terms should be accepted")
+    if not payload.accepted_age:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Age confirmation should be accepted")
     display_name = coerce_display_name(payload.display_name, fallback_email=normalized_email)
     existing_user = db.scalar(select(User).where(User.email == normalized_email))
     now = _utcnow()
@@ -674,7 +680,7 @@ def verify_registration(payload: RegisterVerifyRequest, db: Session = Depends(ge
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(normalized_email)
-    return issue_auth_response(user, is_new_user=is_new_user)
+    return issue_auth_response(user, is_new_user=is_new_user, db=db)
 
 
 @router.post("/api/auth/password-reset", response_model=MessageResponse)
@@ -783,7 +789,7 @@ def verify_password_reset(payload: PasswordResetVerifyRequest, db: Session = Dep
     db.commit()
     db.refresh(user)
     clear_verification_code_cooldown(cooldown_key)
-    return issue_auth_response(user)
+    return issue_auth_response(user, db=db)
 
 
 @router.post("/api/auth/login", response_model=AuthResponse)
@@ -805,7 +811,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
         db.commit()
         db.refresh(user)
 
-    return issue_auth_response(user)
+    return issue_auth_response(user, db=db)
 
 
 @router.post("/api/auth/google", response_model=AuthResponse)
@@ -982,7 +988,7 @@ def login_with_google(payload: GoogleAuthRequest, db: Session = Depends(get_db))
             detail = f"{detail}: {exc}"
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail) from exc
 
-    return issue_auth_response(user, is_new_user=is_new_user)
+    return issue_auth_response(user, is_new_user=is_new_user, db=db)
 
 
 @router.post("/api/auth/logout", response_model=MessageResponse)
@@ -1002,7 +1008,7 @@ def me(
     if display_name_changed:
         db.commit()
     db.refresh(user)
-    return UserOut.model_validate(user)
+    return serialize_user_out(user, db=db)
 
 
 @router.get("/api/auth/me/onboarding-guide", response_model=OnboardingGuideStateOut)
@@ -1061,7 +1067,7 @@ def update_avatar(
 
     db.commit()
     db.refresh(user)
-    return UserOut.model_validate(user)
+    return serialize_user_out(user, db=db)
 
 
 @router.patch("/api/auth/me/profile", response_model=UserOut)
@@ -1082,7 +1088,17 @@ def update_profile(
     if "profile_description" in payload.model_fields_set:
         user.profile_description = normalize_profile_description(payload.profile_description)
     if "profile_banner_id" in payload.model_fields_set:
-        user.profile_banner_id = normalize_profile_banner_id(payload.profile_banner_id)
+        user.profile_banner_id = normalize_profile_banner_selection_for_user(
+            db,
+            user_id=int(user.id),
+            value=payload.profile_banner_id,
+        )
+    if "avatar_frame_id" in payload.model_fields_set:
+        user.avatar_frame_id = normalize_avatar_frame_selection_for_user(
+            db,
+            user_id=int(user.id),
+            value=payload.avatar_frame_id,
+        )
     if "notifications_enabled" in payload.model_fields_set:
         user.notifications_enabled = bool(payload.notifications_enabled)
     if "notify_comment_reply" in payload.model_fields_set:
@@ -1104,7 +1120,7 @@ def update_profile(
 
     db.commit()
     db.refresh(user)
-    return UserOut.model_validate(user)
+    return serialize_user_out(user, db=db)
 
 
 @router.get("/api/auth/me/notifications", response_model=UserNotificationListResponseOut)

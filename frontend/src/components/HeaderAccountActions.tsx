@@ -114,7 +114,7 @@ function HeaderAccountActions({
               height: avatarSize,
               p: 0,
               borderRadius: '50%',
-              overflow: 'hidden',
+              overflow: 'visible',
               backgroundColor: 'transparent',
               position: 'absolute',
               top: 0,

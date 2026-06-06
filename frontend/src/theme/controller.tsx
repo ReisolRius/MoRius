@@ -37,16 +37,6 @@ const STORY_HISTORY_FONT_FAMILY_OPTIONS: readonly StoryHistoryFontFamilyOption[]
     title: 'Nunito Sans',
     cssFontFamily: '"Nunito Sans", "Segoe UI", sans-serif',
   },
-  {
-    id: 'inter',
-    title: 'Inter',
-    cssFontFamily: '"Inter", "Segoe UI", sans-serif',
-  },
-  {
-    id: 'verdana',
-    title: 'Verdana',
-    cssFontFamily: 'Verdana, "Segoe UI", sans-serif',
-  },
 ]
 
 const STORY_HISTORY_FONT_WEIGHT_OPTIONS: readonly StoryHistoryFontWeightOption[] = [

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -257,12 +257,37 @@ def list_story_world_cards(db: Session, game_id: int) -> list[StoryWorldCard]:
     ).all()
 
 
-def list_story_characters(db: Session, user_id: int) -> list[StoryCharacter]:
-    return db.scalars(
-        select(StoryCharacter)
-        .where(StoryCharacter.user_id == user_id)
-        .order_by(StoryCharacter.id.asc())
-    ).all()
+def list_story_characters(
+    db: Session,
+    user_id: int,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+    query: str = "",
+) -> list[StoryCharacter]:
+    statement = select(StoryCharacter).where(StoryCharacter.user_id == user_id)
+    normalized_query = " ".join(str(query or "").split()).strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryCharacter.name.ilike(pattern),
+                StoryCharacter.race.ilike(pattern),
+                StoryCharacter.description.ilike(pattern),
+                StoryCharacter.clothing.ilike(pattern),
+                StoryCharacter.inventory.ilike(pattern),
+                StoryCharacter.health_status.ilike(pattern),
+                StoryCharacter.note.ilike(pattern),
+                StoryCharacter.triggers.ilike(pattern),
+            )
+        )
+    is_paginated_lookup = limit is not None or offset > 0 or bool(normalized_query)
+    statement = statement.order_by(StoryCharacter.id.desc() if is_paginated_lookup else StoryCharacter.id.asc())
+    if offset > 0:
+        statement = statement.offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    return db.scalars(statement).all()
 
 
 def list_story_instruction_templates(db: Session, user_id: int) -> list[StoryInstructionTemplate]:

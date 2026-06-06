@@ -4,6 +4,9 @@ export type AuthUser = {
   display_name: string | null
   profile_description: string
   profile_banner_id: string
+  profile_banner_image_url?: string | null
+  avatar_frame_id: string
+  avatar_frame_image_url?: string | null
   avatar_url: string | null
   avatar_scale: number
   auth_provider: string

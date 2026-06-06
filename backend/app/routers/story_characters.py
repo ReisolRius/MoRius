@@ -63,7 +63,12 @@ from app.services.story_characters import (
     unlink_story_character_from_world_cards,
     upsert_story_character_race,
 )
-from app.services.story_games import story_author_avatar_url, story_author_name
+from app.services.story_games import (
+    story_author_avatar_frame_id,
+    story_author_avatar_frame_image_url,
+    story_author_avatar_url,
+    story_author_name,
+)
 from app.services.story_emotions import (
     deserialize_story_character_emotion_assets,
     normalize_story_character_emotion_assets,
@@ -335,6 +340,8 @@ def _build_story_community_character_summary(
         author_id=character.user_id,
         author_name=story_author_name(author),
         author_avatar_url=story_author_avatar_url(author),
+        author_avatar_frame_id=story_author_avatar_frame_id(author),
+        author_avatar_frame_image_url=story_author_avatar_frame_image_url(db, author),
         community_rating_avg=story_character_rating_average(character),
         community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),
         community_additions_count=max(int(getattr(character, "community_additions_count", 0) or 0), 0),
@@ -428,10 +435,13 @@ def _story_character_race_to_out(race: StoryCharacterRace) -> StoryCharacterRace
 @router.get("/api/story/characters", response_model=list[StoryCharacterOut])
 def list_story_characters_route(
     authorization: str | None = Header(default=None),
+    limit: int | None = Query(default=None, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    query: str = Query(default="", max_length=200),
     db: Session = Depends(get_db),
 ) -> list[StoryCharacterOut]:
     user = get_current_user(db, authorization)
-    characters = list_story_characters(db, user.id)
+    characters = list_story_characters(db, user.id, limit=limit, offset=offset, query=query)
     return [story_character_to_out(character) for character in characters]
 
 
@@ -572,6 +582,7 @@ def list_story_community_characters(
                 User.email,
                 User.display_name,
                 User.avatar_url,
+                User.avatar_frame_id,
                 User.updated_at,
             )
         )
@@ -579,6 +590,8 @@ def list_story_community_characters(
     ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
+    author_avatar_frame_by_id = {author.id: story_author_avatar_frame_id(author) for author in authors}
+    author_avatar_frame_image_by_id = {author.id: story_author_avatar_frame_image_url(db, author) for author in authors}
 
     user_rating_rows = db.scalars(
         select(StoryCommunityCharacterRating).where(
@@ -632,6 +645,8 @@ def list_story_community_characters(
                 author_id=character.user_id,
                 author_name=author_name_by_id.get(character.user_id, "Unknown"),
                 author_avatar_url=author_avatar_by_id.get(character.user_id),
+                author_avatar_frame_id=author_avatar_frame_by_id.get(character.user_id, "none"),
+                author_avatar_frame_image_url=author_avatar_frame_image_by_id.get(character.user_id),
                 community_rating_avg=story_character_rating_average(character),
                 community_rating_count=max(int(getattr(character, "community_rating_count", 0) or 0), 0),
                 community_additions_count=max(int(getattr(character, "community_additions_count", 0) or 0), 0),

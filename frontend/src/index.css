@@ -33,6 +33,9 @@ body {
   font-size: var(--morius-body-size);
   line-height: 1.5;
   font-family: "Nunito Sans", "Segoe UI", sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  font-variation-settings: "wdth" 100, "wght" 400, "opsz" 14;
 }
 
 @keyframes morius-ai-orb-pulse {
@@ -107,7 +110,8 @@ select {
   color: var(--morius-text-primary);
   font-size: var(--morius-body-size);
   line-height: 1.5;
-  letter-spacing: 0;
+  letter-spacing: 0.01em;
+  font-variation-settings: "wdth" 100, "wght" 400, "opsz" 14;
 }
 
 .morius-app-shell .MuiTypography-root,
@@ -115,7 +119,28 @@ select {
 .morius-app-shell .MuiInputBase-root,
 .morius-app-shell .MuiMenuItem-root,
 .morius-app-shell .MuiTooltip-tooltip {
-  letter-spacing: 0 !important;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
+.morius-app-shell h1,
+.morius-app-shell .MuiTypography-h1 {
+  font-size: var(--morius-heading-size);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+  font-weight: 900;
+  font-stretch: 125%;
+  font-variation-settings: "wdth" 125, "wght" 900, "opsz" 6;
+}
+
+.morius-app-shell h2,
+.morius-app-shell h3,
+.morius-app-shell .MuiTypography-h2,
+.morius-app-shell .MuiTypography-h3,
+.morius-app-shell .MuiDialogTitle-root {
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 700;
 }
 
 .morius-skeleton-card {
@@ -228,6 +253,18 @@ select {
 .morius-app-shell .MuiIconButton-root.morius-composer-send-button .morius-stop-indicator {
   width: 12px !important;
   height: 12px !important;
+}
+
+.morius-app-shell .MuiIconButton-root.morius-main-hero-avatar-button {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  max-width: 38px !important;
+  max-height: 38px !important;
+  padding: 0 !important;
+  border-radius: 9999px !important;
+  border: none !important;
 }
 
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button {

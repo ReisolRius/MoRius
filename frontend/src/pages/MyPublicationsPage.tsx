@@ -20,8 +20,10 @@ import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import {
   createCoinTopUpPayment,
   getCoinTopUpPlans,
+  getShopCatalog,
   syncCoinTopUpPayment,
   type CoinTopUpPlan,
+  type CosmeticItem,
 } from '../services/authApi'
 import {
   listStoryCharacters,
@@ -323,6 +325,8 @@ type PublicationEntityCardProps = {
   note?: string
   authorName: string
   authorAvatarUrl: string | null
+  authorAvatarFrameId?: string | null
+  authorAvatarFrameImageUrl?: string | null
   statusLabel: string
   statusTone: PublicationChipTone
   additionsCount: number
@@ -341,6 +345,8 @@ export function PublicationEntityCard(props: PublicationEntityCardProps) {
     note = '',
     authorName,
     authorAvatarUrl,
+    authorAvatarFrameId,
+    authorAvatarFrameImageUrl,
     statusLabel,
     statusTone,
     additionsCount,
@@ -413,6 +419,8 @@ export function PublicationEntityCard(props: PublicationEntityCardProps) {
               src={authorAvatarUrl}
               alt={normalizedAuthorName}
               fallbackLabel={authorInitials}
+              frameId={authorAvatarFrameId}
+              frameImageUrl={authorAvatarFrameImageUrl}
               size={36}
               priority
               sx={{
@@ -560,6 +568,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
   const [activePlanPurchaseId, setActivePlanPurchaseId] = useState<string | null>(null)
   const [paymentSuccessCoins, setPaymentSuccessCoins] = useState<number | null>(null)
   const [paymentReferralBonusCoins, setPaymentReferralBonusCoins] = useState(0)
+  const [shopAvatarFrames, setShopAvatarFrames] = useState<CosmeticItem[]>([])
   const [section, setSection] = useState<PublicationSection>('worlds')
   const [errorMessage, setErrorMessage] = useState('')
   const [publicationGames, setPublicationGames] = useState<StoryGameSummary[]>([])
@@ -950,8 +959,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
     setSettingsDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
-  }, [])
+    onNavigate('/shop')
+  }, [onNavigate])
 
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
@@ -974,6 +983,24 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
     }
     void loadTopUpPlans()
   }, [hasTopUpPlansLoaded, isTopUpPlansLoading, loadTopUpPlans, topUpDialogOpen])
+
+  useEffect(() => {
+    let ignore = false
+    void getShopCatalog({ token: authToken })
+      .then((response) => {
+        if (!ignore) {
+          setShopAvatarFrames(response.avatar_frames)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setShopAvatarFrames([])
+        }
+      })
+    return () => {
+      ignore = true
+    }
+  }, [authToken])
 
   const syncPendingPayment = useCallback(
     async (paymentId: string) => {
@@ -1041,6 +1068,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
 
   const authorName = user.display_name?.trim() || 'Игрок'
   const authorAvatarUrl = user.avatar_url ?? null
+  const authorAvatarFrameId = user.avatar_frame_id ?? 'none'
+  const authorAvatarFrameImageUrl = shopAvatarFrames.find((item) => item.selection_id === authorAvatarFrameId)?.image_url ?? null
 
   return (
     <Box className="morius-app-shell" sx={{ minHeight: '100svh', color: APP_TEXT_PRIMARY, background: APP_PAGE_BACKGROUND, overflowX: 'hidden' }}>
@@ -1173,6 +1202,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                       note={publicationMeta.note || game.genres[0] || ''}
                       authorName={authorName}
                       authorAvatarUrl={authorAvatarUrl}
+                      authorAvatarFrameId={authorAvatarFrameId}
+                      authorAvatarFrameImageUrl={authorAvatarFrameImageUrl}
                       statusLabel={publicationMeta.statusLabel}
                       statusTone={publicationMeta.statusTone}
                       additionsCount={game.community_launches}
@@ -1210,6 +1241,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                       note={publicationMeta.note || character.note}
                       authorName={authorName}
                       authorAvatarUrl={authorAvatarUrl}
+                      authorAvatarFrameId={authorAvatarFrameId}
+                      authorAvatarFrameImageUrl={authorAvatarFrameImageUrl}
                       statusLabel={publicationMeta.statusLabel}
                       statusTone={publicationMeta.statusTone}
                       additionsCount={character.community_additions_count}
@@ -1247,6 +1280,8 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
                       note={publicationMeta.note}
                       authorName={authorName}
                       authorAvatarUrl={authorAvatarUrl}
+                      authorAvatarFrameId={authorAvatarFrameId}
+                      authorAvatarFrameImageUrl={authorAvatarFrameImageUrl}
                       statusLabel={publicationMeta.statusLabel}
                       statusTone={publicationMeta.statusTone}
                       additionsCount={template.community_additions_count}

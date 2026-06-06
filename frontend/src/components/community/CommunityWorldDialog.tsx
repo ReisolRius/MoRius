@@ -88,6 +88,7 @@ type CommunityWorldDialogProps = {
   onCreateComment?: (content: string) => Promise<void> | void
   onUpdateComment?: (commentId: number, content: string) => Promise<void> | void
   onDeleteComment?: (commentId: number) => Promise<void> | void
+  onEncourage?: (amountCoins: number, message: string) => Promise<void> | void
   isReportSubmitting?: boolean
   showGameplayActions?: boolean
   moderationControls?: CommunityWorldModerationControls | null
@@ -478,6 +479,7 @@ function CommunityWorldDialog({
   onCreateComment,
   onUpdateComment,
   onDeleteComment,
+  onEncourage,
   isReportSubmitting = false,
   showGameplayActions = true,
   moderationControls = null,
@@ -491,6 +493,11 @@ function CommunityWorldDialog({
   const [isReportNoticeOpen, setIsReportNoticeOpen] = useState(false)
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false)
   const [isReportCloseConfirmOpen, setIsReportCloseConfirmOpen] = useState(false)
+  const [isEncourageDialogOpen, setIsEncourageDialogOpen] = useState(false)
+  const [encourageAmount, setEncourageAmount] = useState('5')
+  const [encourageMessage, setEncourageMessage] = useState('')
+  const [encourageError, setEncourageError] = useState('')
+  const [isEncourageSubmitting, setIsEncourageSubmitting] = useState(false)
   const [reportReasonDraft, setReportReasonDraft] = useState<string>('')
   const [reportDescriptionDraft, setReportDescriptionDraft] = useState('')
   const [reportValidationError, setReportValidationError] = useState('')
@@ -514,10 +521,13 @@ function CommunityWorldDialog({
 
   const authorName = world?.author_name.trim() || 'Unknown author'
   const authorAvatarUrl = world?.author_avatar_url ?? null
+  const authorAvatarFrameId = world?.author_avatar_frame_id ?? 'none'
+  const authorAvatarFrameImageUrl = world?.author_avatar_frame_image_url ?? null
   const hasWorldBeenReportedByUser = Boolean(world?.is_reported_by_user)
   const isActionLocked =
     isLaunching || isRatingSaving || isMyGamesToggleSaving || isReportSubmitting || Boolean(moderationControls?.isApplying)
   const canReportWorld = Boolean(world) && showGameplayActions && Boolean(onSubmitReport) && !hasWorldBeenReportedByUser
+  const canEncourageWorld = Boolean(world) && showGameplayActions && Boolean(onEncourage) && currentUserId !== world?.author_id
   const comments = worldPayload?.comments ?? []
   const isCommentActionLocked = isActionLocked || isCommentSubmitting || commentActionId !== null
 
@@ -643,6 +653,29 @@ function CommunityWorldDialog({
     setReportValidationError('')
     setIsReportDialogOpen(true)
   }, [canReportWorld, isActionLocked])
+
+  const handleSubmitEncouragement = useCallback(async () => {
+    if (!onEncourage || !canEncourageWorld || isActionLocked || isEncourageSubmitting) {
+      return
+    }
+    const amount = Number.parseInt(encourageAmount, 10)
+    if (!Number.isFinite(amount) || amount < 5) {
+      setEncourageError('Минимум 5 солов.')
+      return
+    }
+    setEncourageError('')
+    setIsEncourageSubmitting(true)
+    try {
+      await onEncourage(amount, encourageMessage.trim())
+      setEncourageAmount('5')
+      setEncourageMessage('')
+      setIsEncourageDialogOpen(false)
+    } catch (error) {
+      setEncourageError(error instanceof Error ? error.message : 'Не удалось отправить поддержку')
+    } finally {
+      setIsEncourageSubmitting(false)
+    }
+  }, [canEncourageWorld, encourageAmount, encourageMessage, isActionLocked, isEncourageSubmitting, onEncourage])
 
   const hasReportDialogUnsavedChanges = Boolean(reportReasonDraft.trim() || reportDescriptionDraft.trim())
 
@@ -994,6 +1027,21 @@ function CommunityWorldDialog({
                         </Box>
                       </ActionPill>
 
+                      <ActionPill
+                        onClick={() => {
+                          setEncourageError('')
+                          setIsEncourageDialogOpen(true)
+                        }}
+                        disabled={isActionLocked || !canEncourageWorld}
+                      >
+                        <SvgIcon viewBox="0 0 24 24" sx={{ width: 15, height: 15, color: 'inherit' }}>
+                          <path d="M12 3 14.7 8.8 21 9.6l-4.6 4.4 1.1 6.2L12 17.2 6.5 20.2 7.6 14 3 9.6l6.3-.8L12 3Z" fill="currentColor" />
+                        </SvgIcon>
+                        <Box component="span" sx={{ display: { xs: 'none', sm: 'inline' } }}>
+                          Поддержать
+                        </Box>
+                      </ActionPill>
+
                       {/* Report */}
                       <ActionPill
                         onClick={handleOpenReportDialog}
@@ -1098,6 +1146,8 @@ function CommunityWorldDialog({
                       alt={authorName}
                       fallbackLabel={authorName}
                       size={32}
+                      frameId={authorAvatarFrameId}
+                      frameImageUrl={authorAvatarFrameImageUrl}
                     />
                     <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 700 }}>
                       {authorName}
@@ -1328,6 +1378,8 @@ function CommunityWorldDialog({
                                   fallbackLabel={commentAuthorName}
                                   size={30}
                                   scale={authorScale}
+                                  frameId={comment.user_avatar_frame_id}
+                                  frameImageUrl={comment.user_avatar_frame_image_url}
                                 />
                                 <Stack sx={{ minWidth: 0, flex: 1 }} spacing={0.1}>
                                   <Typography
@@ -1553,6 +1605,55 @@ function CommunityWorldDialog({
       </Snackbar>
 
       {/* ── Report sub-dialog ── */}
+      <Dialog
+        open={isEncourageDialogOpen}
+        onClose={() => (isEncourageSubmitting ? undefined : setIsEncourageDialogOpen(false))}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: '18px',
+            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            backgroundColor: 'var(--morius-dialog-bg)',
+            color: APP_TEXT_PRIMARY,
+            boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+          },
+        }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}
+      >
+        <DialogTitle sx={{ color: APP_TEXT_PRIMARY, fontWeight: 900 }}>Поддержать автора</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.1} sx={{ pt: 0.4 }}>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
+              Переведите автору публикации солы со своего баланса. Минимум 5 солов.
+            </Typography>
+            <TextField
+              label="Сумма"
+              value={encourageAmount}
+              onChange={(event) => setEncourageAmount(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              fullWidth
+            />
+            <TextField
+              label="Сообщение"
+              value={encourageMessage}
+              onChange={(event) => setEncourageMessage(event.target.value.slice(0, 240))}
+              fullWidth
+              multiline
+              minRows={2}
+            />
+            {encourageError ? <Alert severity="error">{encourageError}</Alert> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.2 }}>
+          <Button onClick={() => setIsEncourageDialogOpen(false)} disabled={isEncourageSubmitting} sx={{ color: APP_TEXT_SECONDARY }}>
+            Отмена
+          </Button>
+          <Button onClick={() => void handleSubmitEncouragement()} disabled={isEncourageSubmitting} sx={{ color: APP_TEXT_PRIMARY, backgroundColor: 'var(--morius-button-active)' }}>
+            {isEncourageSubmitting ? 'Отправляем...' : 'Поддержать'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog
         open={isReportDialogOpen}
         onClose={(_event, reason) => {

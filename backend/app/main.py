@@ -263,6 +263,8 @@ try:
 except Exception:  # pragma: no cover - optional router should not break API startup
     ai_assistant_router = None
 
+from app.routers.shop import router as shop_router
+
 try:
     import pymorphy3
 except Exception:  # pragma: no cover - optional dependency in runtime
@@ -1599,8 +1601,8 @@ if admin_moderation_router is not None:
 
 if ai_assistant_router is not None:
     app.include_router(ai_assistant_router)
-else:
-    logger.warning("Admin moderation router is unavailable and will be skipped")
+
+app.include_router(shop_router)
 
 
 def _fail_abandoned_story_character_emotion_jobs() -> None:
@@ -10741,7 +10743,9 @@ def _iter_polza_story_stream_chunks(
         if top_p is not None:
             payload["top_p"] = top_p
         if max_tokens is not None:
-            payload["max_tokens"] = int(max_tokens)
+            normalized_limit = int(max_tokens)
+            payload["max_tokens"] = normalized_limit
+            payload["max_completion_tokens"] = normalized_limit
         _apply_polza_story_reasoning_preferences(payload, model_name=model_name)
 
         for attempt_index in range(2):
@@ -11075,7 +11079,9 @@ def _request_polza_story_text(
         if top_p is not None:
             payload["top_p"] = top_p
         if max_tokens is not None:
-            payload["max_tokens"] = int(max_tokens)
+            normalized_limit = int(max_tokens)
+            payload["max_tokens"] = normalized_limit
+            payload["max_completion_tokens"] = normalized_limit
         _apply_polza_story_reasoning_preferences(payload, model_name=candidate_model)
         attempts_per_model = 2 if retry_on_rate_limit else 1
         for attempt_index in range(attempts_per_model):

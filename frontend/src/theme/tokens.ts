@@ -31,9 +31,9 @@ export const moriusThemeTokens = {
     width: 0.5,
   },
   typography: {
-    headingSize: 32,
-    subheadingSize: 20,
-    bodySize: 16,
+    headingSize: 40,
+    subheadingSize: 24,
+    bodySize: 14,
   },
   layout: {
     headerHeight: 40,

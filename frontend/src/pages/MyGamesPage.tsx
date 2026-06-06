@@ -538,7 +538,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
+    onNavigate('/shop')
   }
 
   const handleConfirmLogout = () => {

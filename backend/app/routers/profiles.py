@@ -31,12 +31,18 @@ from app.schemas import (
     StoryCommunityCharacterSummaryOut,
     StoryCommunityInstructionTemplateSummaryOut,
 )
-from app.services.auth_identity import get_current_user, normalize_profile_banner_id
+from app.services.auth_identity import get_current_user
 from app.services.media import normalize_media_scale, resolve_media_display_url
+from app.services.cosmetics import (
+    COSMETIC_KIND_PROFILE_BANNER,
+    resolve_cosmetic_image_url_by_selection_id,
+)
 from app.services.story_cards import STORY_TEMPLATE_VISIBILITY_PUBLIC, story_instruction_template_to_out
 from app.services.story_characters import STORY_CHARACTER_VISIBILITY_PUBLIC, story_character_to_out
 from app.services.story_games import (
     STORY_GAME_VISIBILITY_PUBLIC,
+    story_author_avatar_frame_id,
+    story_author_avatar_frame_image_url,
     story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
@@ -139,12 +145,26 @@ def _normalize_user_avatar_scale(user: User) -> float:
     )
 
 
-def _build_profile_user(user: User) -> ProfileUserOut:
+def _normalize_profile_cosmetic_id(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    return normalized or "none"
+
+
+def _build_profile_user(db: Session, user: User) -> ProfileUserOut:
+    avatar_frame_id = _normalize_profile_cosmetic_id(getattr(user, "avatar_frame_id", None))
+    profile_banner_id = _normalize_profile_cosmetic_id(getattr(user, "profile_banner_id", None))
     return ProfileUserOut(
         id=user.id,
         display_name=story_author_name(user),
         profile_description=(user.profile_description or "").strip(),
-        profile_banner_id=normalize_profile_banner_id(getattr(user, "profile_banner_id", None)),
+        profile_banner_id=profile_banner_id,
+        profile_banner_image_url=resolve_cosmetic_image_url_by_selection_id(
+            db,
+            value=profile_banner_id,
+            kind=COSMETIC_KIND_PROFILE_BANNER,
+        ),
+        avatar_frame_id=avatar_frame_id,
+        avatar_frame_image_url=story_author_avatar_frame_image_url(db, user),
         avatar_url=resolve_media_display_url(
             getattr(user, "avatar_url", None),
             kind="user-avatar",
@@ -178,6 +198,8 @@ def _list_subscriptions(db: Session, *, user_id: int) -> list[ProfileSubscriptio
                 version=getattr(followed_user, "updated_at", None),
             ),
             avatar_scale=_normalize_user_avatar_scale(followed_user),
+            avatar_frame_id=_normalize_profile_cosmetic_id(getattr(followed_user, "avatar_frame_id", None)),
+            avatar_frame_image_url=story_author_avatar_frame_image_url(db, followed_user),
         )
         for _, followed_user in rows
     ]
@@ -304,6 +326,8 @@ def _list_published_worlds(
     reported_world_ids = _load_reported_world_ids(db, viewer_user_id=viewer_user_id, world_ids=world_ids)
     favorited_world_ids = _load_favorited_world_ids(db, viewer_user_id=viewer_user_id, world_ids=world_ids)
     author_name = story_author_name(owner_user)
+    author_avatar_frame_id = story_author_avatar_frame_id(owner_user)
+    author_avatar_frame_image_url = story_author_avatar_frame_image_url(db, owner_user)
     author_avatar_url = resolve_media_display_url(
         getattr(owner_user, "avatar_url", None),
         kind="user-avatar",
@@ -317,6 +341,8 @@ def _list_published_worlds(
             author_id=owner_user.id,
             author_name=author_name,
             author_avatar_url=author_avatar_url,
+            author_avatar_frame_id=author_avatar_frame_id,
+            author_avatar_frame_image_url=author_avatar_frame_image_url,
             user_rating=user_rating_by_world_id.get(world.id),
             is_reported_by_user=world.id in reported_world_ids,
             is_favorited_by_user=world.id in favorited_world_ids,
@@ -361,6 +387,8 @@ def _list_published_characters(
     )
     author_name = story_author_name(owner_user)
     author_avatar_url = story_author_avatar_url(owner_user)
+    author_avatar_frame_id = story_author_avatar_frame_id(owner_user)
+    author_avatar_frame_image_url = story_author_avatar_frame_image_url(db, owner_user)
 
     summaries: list[StoryCommunityCharacterSummaryOut] = []
     for character in characters:
@@ -386,6 +414,8 @@ def _list_published_characters(
                 author_id=owner_user.id,
                 author_name=author_name,
                 author_avatar_url=author_avatar_url,
+                author_avatar_frame_id=author_avatar_frame_id,
+                author_avatar_frame_image_url=author_avatar_frame_image_url,
                 community_rating_avg=character_out.community_rating_avg,
                 community_rating_count=character_out.community_rating_count,
                 community_additions_count=character_out.community_additions_count,
@@ -435,6 +465,8 @@ def _list_published_instruction_templates(
     )
     author_name = story_author_name(owner_user)
     author_avatar_url = story_author_avatar_url(owner_user)
+    author_avatar_frame_id = story_author_avatar_frame_id(owner_user)
+    author_avatar_frame_image_url = story_author_avatar_frame_image_url(db, owner_user)
 
     summaries: list[StoryCommunityInstructionTemplateSummaryOut] = []
     for template in templates:
@@ -448,6 +480,8 @@ def _list_published_instruction_templates(
                 author_id=owner_user.id,
                 author_name=author_name,
                 author_avatar_url=author_avatar_url,
+                author_avatar_frame_id=author_avatar_frame_id,
+                author_avatar_frame_image_url=author_avatar_frame_image_url,
                 community_rating_avg=template_out.community_rating_avg,
                 community_rating_count=template_out.community_rating_count,
                 community_additions_count=template_out.community_additions_count,
@@ -512,7 +546,7 @@ def _build_profile_view(db: Session, *, viewer_user: User, target_user: User) ->
     unpublished_worlds = _list_unpublished_worlds(db, owner_user_id=target_user.id) if can_view_private_worlds else []
 
     return ProfileViewOut(
-        user=_build_profile_user(target_user),
+        user=_build_profile_user(db, target_user),
         is_self=is_self,
         is_following=is_following,
         followers_count=followers_count,

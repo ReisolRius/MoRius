@@ -44,6 +44,10 @@ from app.services.media import (
     resolve_media_storage_value,
     validate_avatar_url,
 )
+from app.services.cosmetics import (
+    COSMETIC_KIND_AVATAR_FRAME,
+    resolve_cosmetic_image_url_by_selection_id,
+)
 from app.services.story_characters import (
     normalize_story_avatar_scale,
     normalize_story_character_avatar_original_url,
@@ -143,14 +147,14 @@ STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16_000
 STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32_000
 STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64_000
 STORY_TURN_COST_TIER_5_CONTEXT_LIMIT_MAX = 128_000
-STORY_TURN_COST_DEEPSEEK_TIERS = (1, 4, 9, 18, 18)
-STORY_TURN_COST_GLM47_FLASH_TIERS = (1, 4, 9, 18, 18)
-STORY_TURN_COST_GLM47_TIERS = (2, 5, 12, 25, 25)
+STORY_TURN_COST_DEEPSEEK_TIERS = (1, 4, 9, 18, 35)
+STORY_TURN_COST_GLM47_FLASH_TIERS = (1, 4, 9, 18, 35)
+STORY_TURN_COST_GLM47_TIERS = (2, 5, 12, 25, 48)
 STORY_TURN_COST_AION_TIERS = (3, 7, 16, 34, 65)
-STORY_TURN_COST_QWEN_TIERS = (3, 7, 16, 34, 34)
-STORY_TURN_COST_GLM5_GEMINI25_TIERS = (4, 10, 22, 45, 45)
+STORY_TURN_COST_QWEN_TIERS = (3, 7, 16, 34, 65)
+STORY_TURN_COST_GLM5_GEMINI25_TIERS = (4, 10, 22, 45, 85)
 STORY_TURN_COST_GLM51_TIERS = (5, 12, 26, 55, 105)
-STORY_TURN_COST_GEMINI_31_PRO_TIERS = (8, 20, 35, 65, 65)
+STORY_TURN_COST_GEMINI_31_PRO_TIERS = (8, 20, 35, 65, 125)
 STORY_TURN_COST_CLAUDE_SONNET_TIERS = (10, 24, 45, 85, 85)
 STORY_ENVIRONMENT_TIME_MODE_SERVICE = "service"
 STORY_ENVIRONMENT_TURN_STEP_MINUTES_DEFAULT = 3
@@ -1366,13 +1370,32 @@ def story_author_avatar_url(user: User | None) -> str | None:
     )
 
 
+def story_author_avatar_frame_id(user: User | None) -> str:
+    if user is None:
+        return "none"
+    normalized = str(getattr(user, "avatar_frame_id", "") or "").strip()
+    return normalized or "none"
+
+
+def story_author_avatar_frame_image_url(db: Session, user: User | None) -> str | None:
+    if user is None:
+        return None
+    return resolve_cosmetic_image_url_by_selection_id(
+        db,
+        value=story_author_avatar_frame_id(user),
+        kind=COSMETIC_KIND_AVATAR_FRAME,
+    )
+
+
 def story_community_world_summary_to_out(
     world: StoryGame,
     *,
     author_id: int,
     author_name: str,
     author_avatar_url: str | None,
-    user_rating: int | None,
+    user_rating: int | None = None,
+    author_avatar_frame_id: str = "none",
+    author_avatar_frame_image_url: str | None = None,
     is_reported_by_user: bool = False,
     is_favorited_by_user: bool = False,
 ) -> StoryCommunityWorldSummaryOut:
@@ -1383,6 +1406,8 @@ def story_community_world_summary_to_out(
         author_id=author_id,
         author_name=sanitize_likely_utf8_mojibake(author_name).strip(),
         author_avatar_url=author_avatar_url,
+        author_avatar_frame_id=str(author_avatar_frame_id or "none").strip() or "none",
+        author_avatar_frame_image_url=author_avatar_frame_image_url,
         age_rating=coerce_story_game_age_rating(getattr(world, "age_rating", None)),
         genres=deserialize_story_game_genres(getattr(world, "genres", None)),
         cover_image_url=resolve_media_display_url(

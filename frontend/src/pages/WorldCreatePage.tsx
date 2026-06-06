@@ -65,6 +65,7 @@ import {
   prepareAvatarPayloadForRequest,
 } from '../utils/avatar'
 import { resolvePublicationDraftVisibility } from '../utils/publication'
+import { PUBLICATION_RULES_SHORT_ITEMS, PUBLICATION_RULES_SHORT_SUMMARY } from '../constants/legalDocuments'
 
 type WorldCreatePageProps = {
   user: AuthUser
@@ -158,6 +159,7 @@ const OPENING_SCENE_NPC_FALLBACK_NAME = 'NPC'
 const OPENING_SCENE_GG_FALLBACK_NAME = 'Главный Герой'
 const STORY_TRIGGER_INPUT_MAX_LENGTH = 600
 const COMMUNITY_FEED_CACHE_KEY_PREFIX = 'morius.community.feed.cache.v1'
+const PUBLICATION_RULES_ACCEPTED_STORAGE_KEY = 'morius.publication.rules.accepted.v1'
 const PLOT_GG_INLINE_TAG_PATTERN = /\[\[\s*GG(?:\s*:\s*([^\]]+?))?\s*\]\]/giu
 const CHARACTER_NOTE_MAX_LENGTH = 20
 type StoryAgeRating = (typeof AGE_RATING_OPTIONS)[number]
@@ -579,106 +581,6 @@ function EmptyAddCard({ onClick, label, actions = [] }: { onClick: () => void; l
   )
 }
 
-function TemplateButtonsCard({
-  title,
-  subtitle,
-  onCreate,
-  onTemplate,
-}: {
-  title: string
-  subtitle?: string
-  onCreate: () => void
-  onTemplate: () => void
-}) {
-  return (
-    <Box
-      sx={{
-        width: { xs: '100%', sm: 380 },
-        borderRadius: '12px',
-        border: 'var(--morius-border-width) dashed color-mix(in srgb, var(--morius-card-border) 78%, rgba(174, 201, 231, 0.34))',
-        background:
-          'linear-gradient(120deg, color-mix(in srgb, var(--morius-elevated-bg) 84%, #1a2634) 0%, color-mix(in srgb, var(--morius-card-bg) 82%, #2c3646) 100%)',
-        color: APP_TEXT_PRIMARY,
-        px: 1.15,
-        py: 1.05,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 0.85,
-      }}
-    >
-      <Stack spacing={0.35}>
-        <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 700, lineHeight: 1.2 }}>{title}</Typography>
-        {subtitle ? <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.78rem', lineHeight: 1.35 }}>{subtitle}</Typography> : null}
-      </Stack>
-      <Stack direction="row" spacing={0.7} sx={{ width: '100%' }}>
-        <Button
-          onClick={onCreate}
-          sx={{
-            minHeight: 34,
-            flex: 1,
-            borderRadius: '10px',
-            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-            textTransform: 'none',
-            fontSize: '0.84rem',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
-          }}
-        >
-          Новая
-        </Button>
-        <Button
-          onClick={onTemplate}
-          sx={{
-            minHeight: 34,
-            flex: 1,
-            borderRadius: '10px',
-            border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-            textTransform: 'none',
-            fontSize: '0.84rem',
-            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
-          }}
-        >
-          Из шаблона
-        </Button>
-      </Stack>
-    </Box>
-  )
-}
-
-function StandardCreateButtonsRow({ onCreate, onTemplate }: { onCreate: () => void; onTemplate: () => void }) {
-  return (
-    <Stack direction="row" spacing={0.7} sx={{ width: { xs: '100%', sm: 380 } }}>
-      <Button
-        onClick={onCreate}
-        sx={{
-          minHeight: 34,
-          flex: 1,
-          borderRadius: '10px',
-          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          textTransform: 'none',
-          fontSize: '0.84rem',
-          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
-        }}
-      >
-        Новая
-      </Button>
-      <Button
-        onClick={onTemplate}
-        sx={{
-          minHeight: 34,
-          flex: 1,
-          borderRadius: '10px',
-          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-          textTransform: 'none',
-          fontSize: '0.84rem',
-          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 88%, transparent)',
-        }}
-      >
-        Из шаблона
-      </Button>
-    </Stack>
-  )
-}
-
 function WorldCreatePage({ user, authToken, editingGameId = null, editSource = null, onNavigate }: WorldCreatePageProps) {
   const isEditMode = editingGameId !== null
   const isMyGamesEdit = isEditMode && editSource === 'my-games'
@@ -702,6 +604,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const [openingScene, setOpeningScene] = useState('')
   const [openingSceneNpcName, setOpeningSceneNpcName] = useState('')
   const [visibility, setVisibility] = useState<StoryGameVisibility>('private')
+  const [isOpeningSceneExpanded, setIsOpeningSceneExpanded] = useState(false)
+  const [isPublicationRulesDialogOpen, setIsPublicationRulesDialogOpen] = useState(false)
   const [ageRating, setAgeRating] = useState<StoryAgeRating>('16+')
   const [genres, setGenres] = useState<string[]>([])
   const [genreSearch, setGenreSearch] = useState('')
@@ -757,6 +661,30 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
   const coverInputRef = useRef<HTMLInputElement | null>(null)
   const worldProfileBannerInputRef = useRef<HTMLInputElement | null>(null)
   const openingSceneInputRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const handleSelectVisibility = useCallback((nextVisibility: StoryGameVisibility) => {
+    setVisibility(nextVisibility)
+    if (nextVisibility !== 'public') {
+      return
+    }
+    try {
+      if (localStorage.getItem(PUBLICATION_RULES_ACCEPTED_STORAGE_KEY) === '1') {
+        return
+      }
+    } catch {
+      // If storage is unavailable, still show the rules dialog for the current session.
+    }
+    setIsPublicationRulesDialogOpen(true)
+  }, [])
+
+  const handleAcceptPublicationRules = useCallback(() => {
+    try {
+      localStorage.setItem(PUBLICATION_RULES_ACCEPTED_STORAGE_KEY, '1')
+    } catch {
+      // Non-critical: the user can still continue in this session.
+    }
+    setIsPublicationRulesDialogOpen(false)
+  }, [])
   const loadedCommunityCharacterDetailsRef = useRef<Set<number>>(new Set())
   const publishWithoutMainHeroConfirmedRef = useRef(false)
   const isSaveInFlightRef = useRef(false)
@@ -2173,8 +2101,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
   const handleOpenTopUpDialog = useCallback(() => {
     setTopUpError('')
-    setTopUpDialogOpen(true)
-  }, [])
+    onNavigate('/shop')
+  }, [onNavigate])
 
   const loadTopUpPlans = useCallback(async () => {
     setIsTopUpPlansLoading(true)
@@ -2418,6 +2346,59 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               </Typography>
             </Stack>
 
+            <Stack data-tour-id="world-create-visibility-top" spacing={0.9} sx={{ scrollMarginTop: '120px' }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={0.8}>
+                <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
+                {visibility === 'public' ? (
+                  <Button
+                    onClick={() => onNavigate('/publication-rules')}
+                    sx={{ minHeight: 34, borderRadius: '10px', textTransform: 'none', color: 'var(--morius-accent)' }}
+                  >
+                    Правила публикаций
+                  </Button>
+                ) : null}
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
+                <Button
+                  onClick={() => handleSelectVisibility('private')}
+                  sx={{
+                    minHeight: 48,
+                    flex: 1,
+                    borderRadius: '14px',
+                    border: visibility === 'private' ? 'var(--morius-border-width) solid var(--morius-accent)' : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: visibility === 'private' ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                    color: visibility === 'private' ? APP_TEXT_PRIMARY : APP_TEXT_SECONDARY,
+                    fontWeight: 850,
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  Частный
+                </Button>
+                <Button
+                  onClick={() => handleSelectVisibility('public')}
+                  sx={{
+                    minHeight: 48,
+                    flex: 1,
+                    borderRadius: '14px',
+                    border: visibility === 'public' ? 'var(--morius-border-width) solid var(--morius-accent)' : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                    backgroundColor: visibility === 'public' ? 'color-mix(in srgb, var(--morius-accent) 14%, var(--morius-card-bg))' : APP_CARD_BACKGROUND,
+                    color: visibility === 'public' ? APP_TEXT_PRIMARY : APP_TEXT_SECONDARY,
+                    fontWeight: 850,
+                    textTransform: 'none',
+                    '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                  }}
+                >
+                  Публичный
+                </Button>
+              </Stack>
+              {visibility === 'public' ? (
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', lineHeight: 1.45 }}>
+                  Публичная игра станет отдельной публикацией без истории прохождения. Главный герой не нужен и не показывается в форме.
+                </Typography>
+              ) : null}
+            </Stack>
+
             <Stack data-tour-id="world-create-main-info" spacing={1.05} sx={{ scrollMarginTop: '120px' }}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>О мире</Typography>
               <TextField
@@ -2443,6 +2424,32 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
               />
               {
                 <Stack data-tour-id="world-create-opening-scene" spacing={0.75} sx={{ scrollMarginTop: '120px' }}>
+                  <Button
+                    onClick={() => setIsOpeningSceneExpanded((previous) => !previous)}
+                    sx={{
+                      minHeight: 46,
+                      justifyContent: 'space-between',
+                      borderRadius: '14px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: APP_CARD_BACKGROUND,
+                      color: APP_TEXT_PRIMARY,
+                      textTransform: 'none',
+                      px: 1.2,
+                      '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+                    }}
+                  >
+                    <Stack spacing={0.25} sx={{ textAlign: 'left', minWidth: 0 }}>
+                      <Typography sx={{ fontWeight: 850, lineHeight: 1.15 }}>Вступительная сцена</Typography>
+                      <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.82rem', lineHeight: 1.25 }}>
+                        Необязательный текст до первого хода игрока; если заполнить, он учитывается сразу в первом ответе рассказчика.
+                      </Typography>
+                    </Stack>
+                    <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '1.2rem', lineHeight: 1 }}>
+                      {isOpeningSceneExpanded ? '−' : '+'}
+                    </Typography>
+                  </Button>
+                  {isOpeningSceneExpanded ? (
+                    <>
                   <TextField
                     label="Вступительная сцена"
                     value={openingScene}
@@ -2522,6 +2529,8 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       </Typography>
                     </Stack>
                   </Box>
+                    </>
+                  ) : null}
                 </Stack>
               }
             </Stack>
@@ -2608,11 +2617,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                     ))}
                   </Box>
                 ) : null}
-                <TemplateButtonsCard
-                  title="Карточки инструкций"
-                  subtitle="Слева — новая карточка, справа — выбор из шаблонов."
-                  onCreate={() => openCardDialog('instruction')}
-                  onTemplate={() => setInstructionTemplateDialogOpen(true)}
+                <EmptyAddCard
+                  onClick={() => openCardDialog('instruction')}
+                  label="Добавить карточку инструкций"
+                  actions={[
+                    { label: 'Новая', onClick: () => openCardDialog('instruction') },
+                    { label: 'Из шаблона', onClick: () => setInstructionTemplateDialogOpen(true) },
+                  ]}
                 />
               </Stack>
 
@@ -2683,7 +2694,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
 
               <Stack spacing={0.9} sx={{ mt: 2.2 }}>
                 <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Персонажи</Typography>
-                {!isMyGamesEdit && !isMyPublicationsEdit ? (
+                {!isMyGamesEdit && !isMyPublicationsEdit && visibility !== 'public' ? (
                   <Stack spacing={0.7}>
                     <Typography sx={{ color: APP_TEXT_SECONDARY, fontWeight: 700, fontSize: '0.95rem' }}>Главный герой</Typography>
                     {mainHero ? (
@@ -2702,9 +2713,13 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       />
                     ) : null}
                     {!mainHero ? (
-                      <StandardCreateButtonsRow
-                        onCreate={() => openCharacterManagerForCreate('main_hero')}
-                        onTemplate={() => setCharacterPickerTarget('main_hero')}
+                      <EmptyAddCard
+                        onClick={() => openCharacterManagerForCreate('main_hero')}
+                        label="Добавить Главного Героя"
+                        actions={[
+                          { label: 'Новая', onClick: () => openCharacterManagerForCreate('main_hero') },
+                          { label: 'Из шаблона', onClick: () => setCharacterPickerTarget('main_hero') },
+                        ]}
                       />
                     ) : null}
                   </Stack>
@@ -2732,19 +2747,23 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                       ))}
                     </Box>
                   ) : null}
-                  <StandardCreateButtonsRow
-                    onCreate={() => openCharacterManagerForCreate('npc')}
-                    onTemplate={() => setCharacterPickerTarget('npc')}
+                  <EmptyAddCard
+                    onClick={() => openCharacterManagerForCreate('npc')}
+                    label="Добавить NPC"
+                    actions={[
+                      { label: 'Новая', onClick: () => openCharacterManagerForCreate('npc') },
+                      { label: 'Из шаблона', onClick: () => setCharacterPickerTarget('npc') },
+                    ]}
                   />
                 </Stack>
               </Stack>
             </Box>
 
-            <Stack data-tour-id="world-create-visibility" spacing={0.9} sx={{ scrollMarginTop: '120px' }}>
+            <Stack data-tour-id="world-create-visibility" spacing={0.9} sx={{ display: 'none', scrollMarginTop: '120px' }}>
               <Typography sx={{ fontSize: '1.45rem', fontWeight: 800 }}>Параметры доступа</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8}>
                 <Button
-                  onClick={() => setVisibility('private')}
+                  onClick={() => handleSelectVisibility('private')}
                   sx={{
                     minHeight: 44,
                     flex: 1,
@@ -2759,7 +2778,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
                   Частный
                 </Button>
                 <Button
-                  onClick={() => setVisibility('public')}
+                  onClick={() => handleSelectVisibility('public')}
                   sx={{
                     minHeight: 44,
                     flex: 1,
@@ -2795,6 +2814,50 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
           </Stack>}
         </Box>
       </Box>
+
+      <BaseDialog
+        open={isPublicationRulesDialogOpen}
+        onClose={() => setIsPublicationRulesDialogOpen(false)}
+        maxWidth="sm"
+        paperSx={dialogPaperSx}
+        header={
+          <Stack spacing={0.5}>
+            <Typography sx={{ fontWeight: 850, fontSize: '1.35rem' }}>Правила публикаций</Typography>
+            <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
+              {PUBLICATION_RULES_SHORT_SUMMARY}
+            </Typography>
+          </Stack>
+        }
+        actions={
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="flex-end" sx={{ width: '100%' }}>
+            <Button onClick={() => onNavigate('/publication-rules')} sx={{ color: APP_TEXT_SECONDARY, textTransform: 'none' }}>
+              Подробнее
+            </Button>
+            <Button
+              onClick={handleAcceptPublicationRules}
+              sx={{
+                minHeight: 40,
+                px: 1.4,
+                borderRadius: '12px',
+                color: APP_TEXT_PRIMARY,
+                textTransform: 'none',
+                backgroundColor: APP_BUTTON_ACTIVE,
+                '&:hover': { backgroundColor: APP_BUTTON_HOVER },
+              }}
+            >
+              Принимаю
+            </Button>
+          </Stack>
+        }
+      >
+        <Stack spacing={0.8}>
+          {PUBLICATION_RULES_SHORT_ITEMS.map((item) => (
+            <Typography key={item} sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.94rem', lineHeight: 1.45 }}>
+              • {item}
+            </Typography>
+          ))}
+        </Stack>
+      </BaseDialog>
 
       <BaseDialog
         open={isPublishWithoutMainHeroDialogOpen}

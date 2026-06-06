@@ -4,19 +4,20 @@ import profileBanner3 from '../assets/images/profile-banners/profile-banner-3.we
 import profileBanner4 from '../assets/images/profile-banners/profile-banner-4.webp'
 import profileBanner5 from '../assets/images/profile-banners/profile-banner-5.webp'
 
-export const DEFAULT_PROFILE_BANNER_ID = '2'
-export const PROFILE_BANNER_IDS = ['1', '2', '3', '4', '5'] as const
+export const DEFAULT_PROFILE_BANNER_ID = 'none'
+export const PROFILE_BANNER_IDS = ['none', '1', '2', '3', '4', '5'] as const
 
 export type ProfileBannerId = typeof PROFILE_BANNER_IDS[number]
 
 export type ProfileBannerPreset = {
-  id: ProfileBannerId
+  id: string
   label: string
-  src: string
+  src: string | null
   objectPosition: string
 }
 
 export const PROFILE_BANNER_PRESETS: ProfileBannerPreset[] = [
+  { id: 'none', label: 'Без баннера', src: null, objectPosition: 'center center' },
   { id: '1', label: 'Вариант 1', src: profileBanner1, objectPosition: 'center center' },
   { id: '2', label: 'Вариант 2', src: profileBanner2, objectPosition: 'center center' },
   { id: '3', label: 'Вариант 3', src: profileBanner3, objectPosition: 'center center' },
@@ -24,11 +25,17 @@ export const PROFILE_BANNER_PRESETS: ProfileBannerPreset[] = [
   { id: '5', label: 'Вариант 5', src: profileBanner5, objectPosition: 'center center' },
 ]
 
-export function normalizeProfileBannerId(value: unknown): ProfileBannerId {
-  return PROFILE_BANNER_IDS.includes(value as ProfileBannerId) ? (value as ProfileBannerId) : DEFAULT_PROFILE_BANNER_ID
+export function normalizeProfileBannerId(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_PROFILE_BANNER_ID
+  }
+  const normalized = value.trim()
+  return PROFILE_BANNER_IDS.includes(normalized as ProfileBannerId) || /^b[1-9]\d*$/.test(normalized)
+    ? normalized
+    : DEFAULT_PROFILE_BANNER_ID
 }
 
 export function getProfileBannerPreset(value: unknown): ProfileBannerPreset {
   const normalizedId = normalizeProfileBannerId(value)
-  return PROFILE_BANNER_PRESETS.find((preset) => preset.id === normalizedId) ?? PROFILE_BANNER_PRESETS[1]
+  return PROFILE_BANNER_PRESETS.find((preset) => preset.id === normalizedId) ?? PROFILE_BANNER_PRESETS[0]
 }

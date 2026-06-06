@@ -15,6 +15,7 @@
   type ReactElement,
   type ReactNode,
   type Ref,
+  type UIEvent as ReactUIEvent,
 } from 'react'
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete'
 import {
@@ -297,6 +298,7 @@ type CharacterAvatarPreviewState = {
   character?: StoryCharacter | null
 }
 
+const CHARACTER_SELECTION_BATCH_SIZE = 10
 const ENVIRONMENT_MODULE_CARD_IDS: readonly EnvironmentModuleCardId[] = ['place', 'time', 'weather']
 const ENVIRONMENT_MODULE_CARD_BOUNDS_MARGIN = 8
 const DEFAULT_ENVIRONMENT_MODULE_CARD_POSITIONS: Record<EnvironmentModuleCardId, EnvironmentModuleCardPosition> = {
@@ -594,14 +596,14 @@ const STORY_TURN_COST_TIER_1_CONTEXT_LIMIT_MAX = 6000
 const STORY_TURN_COST_TIER_2_CONTEXT_LIMIT_MAX = 16000
 const STORY_TURN_COST_TIER_3_CONTEXT_LIMIT_MAX = 32000
 const STORY_TURN_COST_TIER_4_CONTEXT_LIMIT_MAX = 64000
-const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 18]
-const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 18]
-const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 25]
+const STORY_TURN_COST_DEEPSEEK_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
+const STORY_TURN_COST_GLM47_FLASH_TIERS: readonly [number, number, number, number, number] = [1, 4, 9, 18, 35]
+const STORY_TURN_COST_GLM47_TIERS: readonly [number, number, number, number, number] = [2, 5, 12, 25, 48]
 const STORY_TURN_COST_AION_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
-const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 34]
-const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 45]
+const STORY_TURN_COST_QWEN_TIERS: readonly [number, number, number, number, number] = [3, 7, 16, 34, 65]
+const STORY_TURN_COST_GLM5_GEMINI25_TIERS: readonly [number, number, number, number, number] = [4, 10, 22, 45, 85]
 const STORY_TURN_COST_GLM51_TIERS: readonly [number, number, number, number, number] = [5, 12, 26, 55, 105]
-const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 65]
+const STORY_TURN_COST_GEMINI_31_PRO_TIERS: readonly [number, number, number, number, number] = [8, 20, 35, 65, 125]
 const STORY_TURN_COST_CLAUDE_SONNET_TIERS: readonly [number, number, number, number, number] = [10, 24, 45, 85, 85]
 const STORY_EXTENDED_CONTEXT_NARRATOR_MODELS = new Set<StoryNarratorModelId>([
   'z-ai/glm-5.1',
@@ -5313,13 +5315,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterSelectionSearchQuery, setCharacterSelectionSearchQuery] = useState('')
   const [characterSelectionAddedFilter, setCharacterSelectionAddedFilter] = useState<CommunityAddedFilter>('all')
   const [characterSelectionSortMode, setCharacterSelectionSortMode] = useState<CommunitySortMode>('updated_desc')
+  const [visibleOwnCharacterCount, setVisibleOwnCharacterCount] = useState(CHARACTER_SELECTION_BATCH_SIZE)
+  const [visibleCommunityCharacterCount, setVisibleCommunityCharacterCount] = useState(CHARACTER_SELECTION_BATCH_SIZE)
+  const [ownCharacterSelectionOptions, setOwnCharacterSelectionOptions] = useState<StoryCharacter[]>([])
   const [communityCharacterOptions, setCommunityCharacterOptions] = useState<StoryCommunityCharacterSummary[]>([])
   const [characterRaceOptions, setCharacterRaceOptions] = useState<StoryCharacterRace[]>([])
   const [hasLoadedCharacterRaces, setHasLoadedCharacterRaces] = useState(false)
   const [isLoadingCharacterRaces, setIsLoadingCharacterRaces] = useState(false)
   const [isSavingCharacterRace, setIsSavingCharacterRace] = useState(false)
+  const [isLoadingOwnCharacterSelectionOptions, setIsLoadingOwnCharacterSelectionOptions] = useState(false)
+  const [hasLoadedOwnCharacterSelectionOptions, setHasLoadedOwnCharacterSelectionOptions] = useState(false)
+  const [hasMoreOwnCharacterSelectionOptionsFromApi, setHasMoreOwnCharacterSelectionOptionsFromApi] = useState(false)
   const [isLoadingCommunityCharacterOptions, setIsLoadingCommunityCharacterOptions] = useState(false)
   const [hasLoadedCommunityCharacterOptions, setHasLoadedCommunityCharacterOptions] = useState(false)
+  const [hasMoreCommunityCharacterOptionsFromApi, setHasMoreCommunityCharacterOptionsFromApi] = useState(false)
+  const ownCharacterSelectionRequestIdRef = useRef(0)
   const [expandedCommunityCharacterId, setExpandedCommunityCharacterId] = useState<number | null>(null)
   const [loadingCommunityCharacterId, setLoadingCommunityCharacterId] = useState<number | null>(null)
   const [savingCommunityCharacterId, setSavingCommunityCharacterId] = useState<number | null>(null)
@@ -7262,12 +7272,24 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     () => [...characters].sort((left, right) => right.id - left.id),
     [characters],
   )
+  const shouldUseOwnCharacterSelectionOptions =
+    characterDialogOpen &&
+    characterDialogMode !== 'manage' &&
+    (hasLoadedOwnCharacterSelectionOptions ||
+      isLoadingOwnCharacterSelectionOptions ||
+      ownCharacterSelectionOptions.length > 0)
+  const ownCharacterSelectionBaseOptions = shouldUseOwnCharacterSelectionOptions
+    ? ownCharacterSelectionOptions
+    : ownCharacterOptions
   const filteredOwnCharacterOptions = useMemo(() => {
+    if (shouldUseOwnCharacterSelectionOptions) {
+      return ownCharacterSelectionBaseOptions
+    }
     const normalizedQuery = normalizeCharacterIdentity(characterSelectionSearchQuery)
     if (!normalizedQuery) {
-      return ownCharacterOptions
+      return ownCharacterSelectionBaseOptions
     }
-    return ownCharacterOptions.filter((character) => {
+    return ownCharacterSelectionBaseOptions.filter((character) => {
       const searchValues = [
         character.name,
         character.race,
@@ -7280,7 +7302,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       ]
       return searchValues.some((value) => normalizeCharacterIdentity(value).includes(normalizedQuery))
     })
-  }, [characterSelectionSearchQuery, ownCharacterOptions])
+  }, [
+    characterSelectionSearchQuery,
+    ownCharacterSelectionBaseOptions,
+    shouldUseOwnCharacterSelectionOptions,
+  ])
   const filteredCommunityCharacterOptions = useMemo(() => {
     const normalizedQuery = normalizeCharacterIdentity(characterSelectionSearchQuery)
     let nextItems = [...communityCharacterOptions]
@@ -7331,6 +7357,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterSelectionSortMode,
     communityCharacterOptions,
   ])
+  const visibleOwnCharacterOptions = useMemo(
+    () => filteredOwnCharacterOptions.slice(0, visibleOwnCharacterCount),
+    [filteredOwnCharacterOptions, visibleOwnCharacterCount],
+  )
+  const visibleCommunityCharacterOptions = useMemo(
+    () => filteredCommunityCharacterOptions.slice(0, visibleCommunityCharacterCount),
+    [filteredCommunityCharacterOptions, visibleCommunityCharacterCount],
+  )
+  const hasMoreOwnCharacterOptions =
+    visibleOwnCharacterOptions.length < filteredOwnCharacterOptions.length ||
+    hasMoreOwnCharacterSelectionOptionsFromApi
+  const hasMoreCommunityCharacterOptions = visibleCommunityCharacterOptions.length < filteredCommunityCharacterOptions.length
   const getCommunityCharacterSelectionDisabledReason = useCallback(
     (character: StoryCommunityCharacterSummary, mode: CharacterDialogMode): string | null => {
       if (mode === 'select-main-hero') {
@@ -8139,7 +8177,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setCharacterDialogReturnMode(null)
       setCharacterDialogOpen(true)
       setCharacterAvatarError('')
-      if (!hasLoadedCharacters && !isLoadingCharacters) {
+      if (mode === 'manage' && !hasLoadedCharacters && !isLoadingCharacters) {
         await loadCharacters()
       }
     },
@@ -8369,12 +8407,77 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterAvatarError('')
   }, [isSavingCharacter, isSelectingCharacter])
 
-  const loadCommunityCharacterOptions = useCallback(async () => {
+  const loadOwnCharacterSelectionOptions = useCallback(async (offset = 0) => {
+    const requestId = ownCharacterSelectionRequestIdRef.current + 1
+    ownCharacterSelectionRequestIdRef.current = requestId
+    setIsLoadingOwnCharacterSelectionOptions(true)
+    setErrorMessage('')
+    try {
+      const items = await listStoryCharacters(authToken, {
+        limit: CHARACTER_SELECTION_BATCH_SIZE + 1,
+        offset,
+        query: characterSelectionSearchQuery,
+      })
+      const normalizedItems = items
+        .slice(0, CHARACTER_SELECTION_BATCH_SIZE)
+        .map((item) => ({ ...item, note: normalizeCharacterNoteValue(item.note) }))
+      if (ownCharacterSelectionRequestIdRef.current !== requestId) {
+        return
+      }
+      setHasMoreOwnCharacterSelectionOptionsFromApi(items.length > CHARACTER_SELECTION_BATCH_SIZE)
+      setOwnCharacterSelectionOptions((previous) => {
+        if (offset <= 0) {
+          return normalizedItems
+        }
+        const seenIds = new Set(previous.map((item) => item.id))
+        return [...previous, ...normalizedItems.filter((item) => !seenIds.has(item.id))]
+      })
+      if (offset > 0) {
+        setVisibleOwnCharacterCount((previous) =>
+          Math.max(previous, offset + normalizedItems.length),
+        )
+      }
+      setHasLoadedOwnCharacterSelectionOptions(true)
+    } catch (error) {
+      if (ownCharacterSelectionRequestIdRef.current !== requestId) {
+        return
+      }
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей'
+      setErrorMessage(detail)
+    } finally {
+      if (ownCharacterSelectionRequestIdRef.current === requestId) {
+        setIsLoadingOwnCharacterSelectionOptions(false)
+      }
+    }
+  }, [authToken, characterSelectionSearchQuery])
+
+  const loadCommunityCharacterOptions = useCallback(async (offset = 0) => {
     setIsLoadingCommunityCharacterOptions(true)
     setErrorMessage('')
     try {
-      const items = await listCommunityCharacters(authToken)
-      setCommunityCharacterOptions(items.map((item) => ({ ...item, note: normalizeCharacterNoteValue(item.note) })))
+      const items = await listCommunityCharacters(authToken, {
+        limit: CHARACTER_SELECTION_BATCH_SIZE + 1,
+        offset,
+        sort: characterSelectionSortMode,
+        query: characterSelectionSearchQuery,
+        addedFilter: characterSelectionAddedFilter,
+      })
+      const normalizedItems = items
+        .slice(0, CHARACTER_SELECTION_BATCH_SIZE)
+        .map((item) => ({ ...item, note: normalizeCharacterNoteValue(item.note) }))
+      setHasMoreCommunityCharacterOptionsFromApi(items.length > CHARACTER_SELECTION_BATCH_SIZE)
+      setCommunityCharacterOptions((previous) => {
+        if (offset <= 0) {
+          return normalizedItems
+        }
+        const seenIds = new Set(previous.map((item) => item.id))
+        return [...previous, ...normalizedItems.filter((item) => !seenIds.has(item.id))]
+      })
+      if (offset > 0) {
+        setVisibleCommunityCharacterCount((previous) =>
+          Math.max(previous, offset + normalizedItems.length),
+        )
+      }
       setHasLoadedCommunityCharacterOptions(true)
     } catch (error) {
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить персонажей сообщества'
@@ -8382,7 +8485,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     } finally {
       setIsLoadingCommunityCharacterOptions(false)
     }
-  }, [authToken])
+  }, [authToken, characterSelectionAddedFilter, characterSelectionSearchQuery, characterSelectionSortMode])
 
   useEffect(() => {
     if (!characterDialogOpen) {
@@ -8390,6 +8493,16 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setCharacterSelectionSearchQuery('')
       setCharacterSelectionAddedFilter('all')
       setCharacterSelectionSortMode('updated_desc')
+      setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+      setVisibleCommunityCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+      ownCharacterSelectionRequestIdRef.current += 1
+      setOwnCharacterSelectionOptions([])
+      setIsLoadingOwnCharacterSelectionOptions(false)
+      setHasLoadedOwnCharacterSelectionOptions(false)
+      setHasMoreOwnCharacterSelectionOptionsFromApi(false)
+      setCommunityCharacterOptions([])
+      setHasLoadedCommunityCharacterOptions(false)
+      setHasMoreCommunityCharacterOptionsFromApi(false)
       setExpandedCommunityCharacterId(null)
       setLoadingCommunityCharacterId(null)
       setSavingCommunityCharacterId(null)
@@ -8402,10 +8515,56 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterSelectionSearchQuery('')
     setCharacterSelectionAddedFilter('all')
     setCharacterSelectionSortMode('updated_desc')
+    setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+    setVisibleCommunityCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+    ownCharacterSelectionRequestIdRef.current += 1
+    setOwnCharacterSelectionOptions([])
+    setIsLoadingOwnCharacterSelectionOptions(false)
+    setHasLoadedOwnCharacterSelectionOptions(false)
+    setHasMoreOwnCharacterSelectionOptionsFromApi(false)
+    setCommunityCharacterOptions([])
+    setHasLoadedCommunityCharacterOptions(false)
+    setHasMoreCommunityCharacterOptionsFromApi(false)
     setExpandedCommunityCharacterId(null)
     setLoadingCommunityCharacterId(null)
     setSavingCommunityCharacterId(null)
   }, [characterDialogMode, characterDialogOpen])
+
+  useEffect(() => {
+    if (
+      !characterDialogOpen ||
+      characterDialogMode === 'manage' ||
+      characterSelectionTab !== 'my' ||
+      hasLoadedOwnCharacterSelectionOptions ||
+      isLoadingOwnCharacterSelectionOptions
+    ) {
+      return
+    }
+    void loadOwnCharacterSelectionOptions()
+  }, [
+    characterDialogMode,
+    characterDialogOpen,
+    characterSelectionTab,
+    hasLoadedOwnCharacterSelectionOptions,
+    isLoadingOwnCharacterSelectionOptions,
+    loadOwnCharacterSelectionOptions,
+  ])
+
+  useEffect(() => {
+    if (!characterDialogOpen || characterDialogMode === 'manage' || characterSelectionTab !== 'my') {
+      return
+    }
+    ownCharacterSelectionRequestIdRef.current += 1
+    setOwnCharacterSelectionOptions([])
+    setIsLoadingOwnCharacterSelectionOptions(false)
+    setHasLoadedOwnCharacterSelectionOptions(false)
+    setHasMoreOwnCharacterSelectionOptionsFromApi(false)
+  }, [
+    characterDialogMode,
+    characterDialogOpen,
+    characterSelectionSearchQuery,
+    characterSelectionTab,
+  ])
 
   useEffect(() => {
     if (
@@ -8426,6 +8585,82 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isLoadingCommunityCharacterOptions,
     loadCommunityCharacterOptions,
   ])
+
+  useEffect(() => {
+    if (!characterDialogOpen || characterDialogMode === 'manage' || characterSelectionTab !== 'community') {
+      return
+    }
+    setCommunityCharacterOptions([])
+    setHasLoadedCommunityCharacterOptions(false)
+    setHasMoreCommunityCharacterOptionsFromApi(false)
+    setExpandedCommunityCharacterId(null)
+    setLoadingCommunityCharacterId(null)
+  }, [
+    characterDialogMode,
+    characterDialogOpen,
+    characterSelectionAddedFilter,
+    characterSelectionSearchQuery,
+    characterSelectionSortMode,
+    characterSelectionTab,
+  ])
+
+  useEffect(() => {
+    if (!characterDialogOpen || characterDialogMode === 'manage') {
+      return
+    }
+    setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+    setVisibleCommunityCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+  }, [
+    characterDialogMode,
+    characterDialogOpen,
+    characterSelectionAddedFilter,
+    characterSelectionSearchQuery,
+    characterSelectionSortMode,
+    characterSelectionTab,
+  ])
+
+  const handleCharacterSelectionScroll = useCallback(
+    (event: ReactUIEvent<HTMLDivElement>) => {
+      const target = event.currentTarget
+      const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight
+      if (distanceToBottom > 88) {
+        return
+      }
+      if (characterSelectionTab === 'my') {
+        const hasMoreLoadedOwnCharacters = visibleOwnCharacterOptions.length < filteredOwnCharacterOptions.length
+        if (hasMoreLoadedOwnCharacters) {
+          setVisibleOwnCharacterCount((previous) => previous + CHARACTER_SELECTION_BATCH_SIZE)
+          return
+        }
+        if (hasMoreOwnCharacterSelectionOptionsFromApi && !isLoadingOwnCharacterSelectionOptions) {
+          void loadOwnCharacterSelectionOptions(ownCharacterSelectionOptions.length)
+        }
+        return
+      }
+      if (hasMoreCommunityCharacterOptions) {
+        setVisibleCommunityCharacterCount((previous) => previous + CHARACTER_SELECTION_BATCH_SIZE)
+        return
+      }
+      if (hasMoreCommunityCharacterOptionsFromApi && !isLoadingCommunityCharacterOptions) {
+        void loadCommunityCharacterOptions(communityCharacterOptions.length)
+      }
+    },
+    [
+      characterSelectionTab,
+      communityCharacterOptions.length,
+      hasMoreCommunityCharacterOptions,
+      hasMoreCommunityCharacterOptionsFromApi,
+      hasMoreOwnCharacterSelectionOptionsFromApi,
+      hasMoreOwnCharacterOptions,
+      isLoadingCommunityCharacterOptions,
+      isLoadingOwnCharacterSelectionOptions,
+      loadCommunityCharacterOptions,
+      loadOwnCharacterSelectionOptions,
+      ownCharacterSelectionOptions.length,
+      filteredOwnCharacterOptions.length,
+      visibleOwnCharacterOptions.length,
+    ],
+  )
 
   useEffect(() => {
     if (
@@ -8635,6 +8870,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           },
         })
         setCharacters((previous) => [...previous, createdCharacter])
+        setOwnCharacterSelectionOptions((previous) => [
+          createdCharacter,
+          ...previous.filter((item) => item.id !== createdCharacter.id),
+        ])
         if (characterDialogReturnMode) {
           setCharacterDialogMode(characterDialogReturnMode)
           setCharacterDialogReturnMode(null)
@@ -8657,6 +8896,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           },
         })
         setCharacters((previous) => previous.map((item) => (item.id === updatedCharacter.id ? updatedCharacter : item)))
+        setOwnCharacterSelectionOptions((previous) =>
+          previous.map((item) => (item.id === updatedCharacter.id ? updatedCharacter : item)),
+        )
       }
       resetCharacterDraft()
     } catch (error) {
@@ -8694,6 +8936,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           characterId,
         })
         setCharacters((previous) => previous.filter((character) => character.id !== characterId))
+        setOwnCharacterSelectionOptions((previous) => previous.filter((character) => character.id !== characterId))
         if (editingCharacterId === characterId) {
           resetCharacterDraft()
         }
@@ -8897,6 +9140,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             throw new Error('Не удалось найти сохраненного персонажа в профиле')
           }
           gameCharacterId = linkedCharacter.id
+          setOwnCharacterSelectionOptions((previous) => [
+            linkedCharacter,
+            ...previous.filter((item) => item.id !== linkedCharacter.id),
+          ])
           setCommunityCharacterOptions((previous) =>
             previous.map((item) =>
               item.id === character.id ? { ...item, is_added_by_user: true } : item,
@@ -8930,6 +9177,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             },
           })
           setCharacters((previous) => [...previous.filter((item) => item.id !== temporaryCharacter.id), temporaryCharacter])
+          setOwnCharacterSelectionOptions((previous) => [
+            temporaryCharacter,
+            ...previous.filter((item) => item.id !== temporaryCharacter.id),
+          ])
           gameCharacterId = temporaryCharacter.id
         }
 
@@ -14159,9 +14410,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           }
           if (/недостаточно (?:токенов|солов)/i.test(detail)) {
             setTopUpError('')
-            setTopUpDialogOpen(true)
             setProfileDialogOpen(false)
             setConfirmLogoutOpen(false)
+            onNavigate('/shop')
           } else if (generationInterrupted) {
             setErrorMessage('')
           } else {
@@ -14478,9 +14729,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       if (hasInsufficientTokensForTurn) {
         setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
         setTopUpError('')
-        setTopUpDialogOpen(true)
         setProfileDialogOpen(false)
         setConfirmLogoutOpen(false)
+        onNavigate('/shop')
         return null
       }
 
@@ -14590,9 +14841,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (hasInsufficientTokensForTurn) {
       setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
-      setTopUpDialogOpen(true)
       setProfileDialogOpen(false)
       setConfirmLogoutOpen(false)
+      onNavigate('/shop')
       return
     }
 
@@ -14946,9 +15197,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     if (hasInsufficientTokensForTurn) {
       setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
-      setTopUpDialogOpen(true)
       setProfileDialogOpen(false)
       setConfirmLogoutOpen(false)
+      onNavigate('/shop')
       return
     }
 
@@ -15054,7 +15305,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
+    onNavigate('/shop')
   }
 
   const handleOpenInstructionTemplateManager = () => {
@@ -21423,6 +21674,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             >
               <span>
                 <IconButton
+                  className="morius-main-hero-avatar-button"
                   aria-label={mainHeroCard ? `Вы играете за ${mainHeroCard.title}` : 'Выбрать главного героя'}
                   onClick={handleOpenMainHeroSelectorMenu}
                   sx={{
@@ -21438,54 +21690,39 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     zIndex: 2,
                     borderRadius: '50%',
                     overflow: 'hidden',
-                    border: 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 86%, transparent)',
-                    backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
-                    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.24)',
+                    border: 'none',
+                    backgroundColor: mainHeroCard ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                    boxShadow: 'none',
                     '&:hover': {
-                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
-                      borderColor: 'color-mix(in srgb, var(--morius-accent) 52%, var(--morius-card-border))',
+                      backgroundColor: mainHeroCard ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 72%, #000 28%)',
                     },
                   }}
                 >
-                  <ProgressiveImage
-                    src={mainHeroComposerAvatarUrl}
-                    alt={mainHeroCard?.title ?? ''}
-                    loading="eager"
-                    fetchPriority="high"
-                    objectFit="cover"
-                    loaderSize={16}
-                    containerSx={{
-                      width: '100%',
-                      height: '100%',
-                      minWidth: '100%',
-                      minHeight: '100%',
-                      borderRadius: 'inherit',
-                      backgroundColor: 'transparent',
-                      overflow: 'hidden',
-                    }}
-                    imgSx={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                      objectPosition: 'center',
-                    }}
-                    fallback={
-                      <Box
-                        sx={{
-                          width: '100%',
-                          height: '100%',
-                          display: 'grid',
-                          placeItems: 'center',
-                          color: 'var(--morius-title-text)',
-                          fontSize: '1.25rem',
-                          fontWeight: 900,
-                          lineHeight: 1,
-                        }}
-                      >
-                        {'+'}
-                      </Box>
-                    }
-                  />
+                  {mainHeroCard ? (
+                    <CharacterAvatar
+                      avatarUrl={mainHeroComposerAvatarUrl}
+                      avatarScale={mainHeroCard.avatar_scale}
+                      fallbackLabel={mainHeroCard.title}
+                      size={38}
+                    />
+                  ) : (
+                    <Box
+                      component="span"
+                      sx={{
+                        width: 38,
+                        height: 38,
+                        borderRadius: '50%',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: 'var(--morius-text-primary)',
+                        fontSize: '1.35rem',
+                        fontWeight: 900,
+                        lineHeight: 1,
+                      }}
+                    >
+                      +
+                    </Box>
+                  )}
                 </IconButton>
               </span>
             </Tooltip>
@@ -24082,12 +24319,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 0.4 }}>
-          {isLoadingCharacters && characters.length === 0 ? (
-            <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-              <CircularProgress size={26} />
-            </Stack>
-          ) : null}
-
           {characterDialogMode === 'manage' ? (
             <Stack spacing={1.1}>
               <Stack
@@ -24473,7 +24704,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   </Box>
                 </Stack>
               ) : null}
-              <Box className="morius-scrollbar" sx={{ maxHeight: 390, overflowY: 'auto', pr: 0.2 }}>
+              <Box className="morius-scrollbar" onScroll={handleCharacterSelectionScroll} sx={{ maxHeight: 390, overflowY: 'auto', pr: 0.2 }}>
                 {characterSelectionTab === 'my' ? (
                   <Stack spacing={0.75}>
                     {characterDialogMode === 'select-npc' || characterDialogMode === 'select-main-hero' ? (
@@ -24518,7 +24749,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Box>
                       </Button>
                     ) : null}
-                    {filteredOwnCharacterOptions.map((character) => {
+                    {isLoadingOwnCharacterSelectionOptions && ownCharacterSelectionOptions.length === 0 ? (
+                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
+                        Загружаем персонажей...
+                      </Typography>
+                    ) : null}
+                    {visibleOwnCharacterOptions.map((character) => {
                       const disabledReason = getCharacterSelectionDisabledReason(character, characterDialogMode)
                       const isCharacterDisabled = Boolean(disabledReason)
                       return (
@@ -24584,23 +24820,28 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Button>
                       )
                     })}
-                    {filteredOwnCharacterOptions.length === 0 ? (
+                    {hasMoreOwnCharacterOptions ? (
+                      <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.82rem', textAlign: 'center', py: 0.6 }}>
+                        {isLoadingOwnCharacterSelectionOptions ? 'Загружаем еще...' : 'Прокрутите ниже, чтобы показать еще'}
+                      </Typography>
+                    ) : null}
+                    {!isLoadingOwnCharacterSelectionOptions && hasLoadedOwnCharacterSelectionOptions && filteredOwnCharacterOptions.length === 0 ? (
                       <Typography sx={{ color: 'color-mix(in srgb, var(--morius-text-secondary) 72%, transparent)', fontSize: '0.9rem' }}>
                         Персонажи не найдены.
                       </Typography>
                     ) : null}
                   </Stack>
-                ) : isLoadingCommunityCharacterOptions ? (
-                  <Stack alignItems="center" justifyContent="center" sx={{ py: 3 }}>
-                    <CircularProgress size={24} />
-                  </Stack>
+                ) : isLoadingCommunityCharacterOptions && communityCharacterOptions.length === 0 ? (
+                  <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem' }}>
+                    Загружаем персонажей сообщества...
+                  </Typography>
                 ) : filteredCommunityCharacterOptions.length === 0 ? (
                   <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.88rem' }}>
                     Персонажи сообщества не найдены.
                   </Typography>
                 ) : (
                   <Stack spacing={0.75}>
-                    {filteredCommunityCharacterOptions.map((character) => {
+                    {visibleCommunityCharacterOptions.map((character) => {
                       const disabledReason = getCommunityCharacterSelectionDisabledReason(character, characterDialogMode)
                       const isExpanded = expandedCommunityCharacterId === character.id
                       const isLoadingDetails = loadingCommunityCharacterId === character.id
@@ -24759,21 +25000,17 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                         </Box>
                       )
                     })}
+                    {hasMoreCommunityCharacterOptions || hasMoreCommunityCharacterOptionsFromApi ? (
+                      <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.82rem', textAlign: 'center', py: 0.6 }}>
+                        {isLoadingCommunityCharacterOptions ? 'Загружаем еще...' : 'Прокрутите ниже, чтобы показать еще'}
+                      </Typography>
+                    ) : null}
                   </Stack>
                 )}
               </Box>
             </Stack>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.2, pt: 0.4 }}>
-          <Button
-            onClick={handleCloseCharacterDialog}
-            disabled={isSavingCharacter || isSelectingCharacter}
-            sx={{ color: 'text.secondary' }}
-          >
-            Закрыть
-          </Button>
-        </DialogActions>
       </BaseDialog>
 
       <BaseDialog

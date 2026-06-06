@@ -284,6 +284,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
   const [confirmPassword, setConfirmPassword] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [acceptedTerms, setAcceptedTerms] = useState(false)
+  const [acceptedAge, setAcceptedAge] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [infoMessage, setInfoMessage] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -305,6 +306,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
     password.length > 0 &&
     confirmPassword.length > 0 &&
     password !== confirmPassword
+  const isRegisterSubmitBlocked = isRegisterMode && registerStep === 'credentials' && (!acceptedTerms || !acceptedAge)
 
   useEffect(() => {
     const rootElement = document.getElementById('root')
@@ -413,6 +415,10 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
       setErrorMessage('Примите пользовательское соглашение и политику конфиденциальности.')
       return
     }
+    if (!acceptedAge) {
+      setErrorMessage('Подтвердите, что вам есть 18 лет.')
+      return
+    }
 
     setIsSubmitting(true)
     try {
@@ -421,6 +427,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
         display_name: normalizedNickname,
         password,
         accepted_terms: true,
+        accepted_age: true,
       })
       setRegisterStep('verify')
       startCooldown()
@@ -781,6 +788,21 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
                       <TextButton onClick={() => onNavigate('/privacy-policy')}>Политики конфиденциальности</TextButton>.
                     </Typography>
                   </Stack>
+                  <Stack direction="row" spacing={1.1} alignItems="flex-start">
+                    <Checkbox
+                      checked={acceptedAge}
+                      onChange={(event) => setAcceptedAge(event.target.checked)}
+                      sx={{
+                        p: 0.15,
+                        mt: 0.1,
+                        color: '#6f7881',
+                        '&.Mui-checked': { color: LOGIN_BUTTON_COLOR },
+                      }}
+                    />
+                    <Typography sx={{ color: '#d7d7d7', fontSize: '0.88rem', lineHeight: 1.45, fontWeight: 400 }}>
+                      Подтверждаю, что мне есть 18 лет.
+                    </Typography>
+                  </Stack>
                 </>
               ) : null}
 
@@ -858,7 +880,7 @@ export default function AuthPage({ initialMode, onNavigate, onAuthSuccess }: Aut
               <Button
                 type="submit"
                 fullWidth
-                disabled={isSubmitting || isGoogleSubmitting}
+                disabled={isSubmitting || isGoogleSubmitting || isRegisterSubmitBlocked}
                 sx={{
                   mt: { xs: 0.7, md: 1.2 },
                   minHeight: 57,

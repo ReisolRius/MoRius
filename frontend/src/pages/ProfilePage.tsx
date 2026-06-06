@@ -55,6 +55,7 @@ import {
   followUserProfile,
   getCurrentUserNotificationSummary,
   getCurrentUserReferralSummary,
+  getShopCatalog,
   listCurrentUserNotifications,
   markAllCurrentUserNotificationsRead,
   getProfileView,
@@ -65,6 +66,7 @@ import {
   updateCurrentUserProfilePrivacy,
   updateCurrentUserProfile,
   type CoinTopUpPlan,
+  type CosmeticItem,
   type ProfileFollowState,
   type ProfileView,
   type ReferralSummary,
@@ -96,6 +98,7 @@ import type {
 } from '../types/story'
 import { moriusThemeTokens } from '../theme'
 import { getProfileBannerPreset, normalizeProfileBannerId } from '../constants/profileBanners'
+import { normalizeAvatarFrameId } from '../constants/avatarFrames'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { dispatchNotificationsChanged } from '../utils/notifications'
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
@@ -419,6 +422,8 @@ function toPublicationWorld(
     authorId: number
     authorName: string
     authorAvatarUrl: string | null
+    authorAvatarFrameId?: string | null
+    authorAvatarFrameImageUrl?: string | null
   },
 ): StoryCommunityWorldSummary {
   return {
@@ -428,6 +433,8 @@ function toPublicationWorld(
     author_id: payload.authorId,
     author_name: payload.authorName,
     author_avatar_url: payload.authorAvatarUrl,
+    author_avatar_frame_id: normalizeAvatarFrameId(payload.authorAvatarFrameId),
+    author_avatar_frame_image_url: payload.authorAvatarFrameImageUrl ?? null,
     age_rating: game.age_rating,
     genres: game.genres,
     cover_image_url: game.cover_image_url,
@@ -526,6 +533,8 @@ function toAvatarUser(profileUser: ProfileView['user']): AuthUser {
     display_name: profileUser.display_name,
     profile_description: profileUser.profile_description,
     profile_banner_id: normalizeProfileBannerId(profileUser.profile_banner_id),
+    profile_banner_image_url: profileUser.profile_banner_image_url ?? null,
+    avatar_frame_id: normalizeAvatarFrameId(profileUser.avatar_frame_id),
     avatar_url: profileUser.avatar_url,
     avatar_scale: profileUser.avatar_scale,
     auth_provider: 'email',
@@ -627,6 +636,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [referralError, setReferralError] = useState('')
   const [isReferralCopied, setIsReferralCopied] = useState(false)
   const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const [shopProfileBanners, setShopProfileBanners] = useState<CosmeticItem[]>([])
 
   const [error, setError] = useState('')
   const [avatarError, setAvatarError] = useState('')
@@ -648,6 +658,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     display_name: profileName,
     profile_description: profileDescription,
     profile_banner_id: normalizeProfileBannerId(user.profile_banner_id),
+    profile_banner_image_url: user.profile_banner_image_url ?? null,
+    avatar_frame_id: normalizeAvatarFrameId(user.avatar_frame_id),
+    avatar_frame_image_url: user.avatar_frame_image_url ?? null,
     avatar_url: user.avatar_url,
     avatar_scale: user.avatar_scale ?? 1,
     created_at: user.created_at,
@@ -657,6 +670,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     display_name: '',
     profile_description: '',
     profile_banner_id: normalizeProfileBannerId(null),
+    profile_banner_image_url: null,
+    avatar_frame_id: normalizeAvatarFrameId(null),
+    avatar_frame_image_url: null,
     avatar_url: null,
     avatar_scale: 1,
     created_at: user.created_at,
@@ -665,6 +681,9 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const resolvedProfileName = resolvedProfileUser.display_name?.trim() || (isOwnProfile ? profileName : 'Игрок')
   const resolvedProfileDescription = resolvedProfileUser.profile_description || ''
   const resolvedProfileBanner = getProfileBannerPreset(resolvedProfileUser.profile_banner_id)
+  const resolvedPaidProfileBanner = shopProfileBanners.find((item) => item.selection_id === resolvedProfileUser.profile_banner_id) ?? null
+  const resolvedProfileBannerSrc = resolvedProfileUser.profile_banner_image_url ?? resolvedPaidProfileBanner?.image_url ?? resolvedProfileBanner.src
+  const resolvedProfileBannerObjectPosition = resolvedProfileUser.profile_banner_image_url || resolvedPaidProfileBanner ? 'center center' : resolvedProfileBanner.objectPosition
   const resolvedAvatarUser = isOwnProfile ? user : toAvatarUser(resolvedProfileUser)
   const resolvedCanOpenAdmin = isOwnProfile && canOpenAdmin
   const followersCount = Math.max(0, profileView?.followers_count ?? 0)
@@ -684,10 +703,30 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
           authorId: resolvedProfileUser.id,
           authorName: resolvedProfileName,
           authorAvatarUrl: resolvedProfileUser.avatar_url,
+          authorAvatarFrameId: resolvedProfileUser.avatar_frame_id,
+          authorAvatarFrameImageUrl: resolvedProfileUser.avatar_frame_image_url,
         }),
       ),
-    [profileView, resolvedProfileName, resolvedProfileUser.avatar_url, resolvedProfileUser.id],
+    [profileView, resolvedProfileName, resolvedProfileUser.avatar_frame_id, resolvedProfileUser.avatar_frame_image_url, resolvedProfileUser.avatar_url, resolvedProfileUser.id],
   )
+
+  useEffect(() => {
+    let ignore = false
+    void getShopCatalog({ token: authToken })
+      .then((response) => {
+        if (!ignore) {
+          setShopProfileBanners(response.profile_banners)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setShopProfileBanners([])
+        }
+      })
+    return () => {
+      ignore = true
+    }
+  }, [authToken])
   const visibleSubscriptions = profileView?.subscriptions ?? []
   const referralLink = useMemo(
     () => buildReferralLink(referralSummary?.referral_code ?? user.referral_code ?? ''),
@@ -1828,6 +1867,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             display_name: nextUser.display_name?.trim() || previous.user.display_name,
             profile_description: nextUser.profile_description ?? '',
             profile_banner_id: normalizeProfileBannerId(nextUser.profile_banner_id),
+            profile_banner_image_url: nextUser.profile_banner_image_url ?? null,
             avatar_url: nextUser.avatar_url,
             avatar_scale: nextUser.avatar_scale ?? 1,
           },
@@ -1842,8 +1882,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setProfileDialogOpen(false)
     setLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
-  }, [])
+    onNavigate('/shop')
+  }, [onNavigate])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2506,6 +2546,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   authorId: resolvedProfileUser.id,
                   authorName: resolvedProfileName,
                   authorAvatarUrl: resolvedProfileUser.avatar_url,
+                  authorAvatarFrameId: resolvedProfileUser.avatar_frame_id,
+                  authorAvatarFrameImageUrl: resolvedProfileUser.avatar_frame_image_url,
                 })}
                 onClick={() => onNavigate(`/home/${game.id}`)}
               />
@@ -2549,6 +2591,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               description={resolveProfileGameCardDescription(game)}
               authorName={resolvedProfileName}
               authorAvatarUrl={resolvedProfileUser.avatar_url}
+              authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
+              authorAvatarFrameImageUrl={resolvedProfileUser.avatar_frame_image_url}
               stat1={formatProfileGameTurnCount(game.turn_count)}
               stat2={formatProfileGameCardDate(game.last_activity_at || game.updated_at || game.created_at)}
               onMenuClick={(event) => handleOpenGameCardMenu(event, game.id)}
@@ -2705,7 +2749,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                       sx={{
                         fontWeight: 700,
                         fontSize: '0.95rem',
-                        overflow: 'hidden',
+                        overflow: 'visible',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         minWidth: 0,
@@ -3064,6 +3108,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   size={40}
                   priority
                   scale={clampAvatarScale(subscription.avatar_scale)}
+                  frameId={subscription.avatar_frame_id}
+                  frameImageUrl={subscription.avatar_frame_image_url}
                   sx={{
                     width: '100%',
                     height: '100%',
@@ -3374,6 +3420,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   note={publicationMeta.note || game.genres[0] || ''}
                   authorName={resolvedProfileName}
                   authorAvatarUrl={resolvedProfileUser.avatar_url}
+                  authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
+                  authorAvatarFrameImageUrl={resolvedProfileUser.avatar_frame_image_url}
                   statusLabel={publicationMeta.statusLabel}
                   statusTone={publicationMeta.statusTone}
                   additionsCount={game.community_launches}
@@ -3419,6 +3467,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                   note={publicationMeta.note || character.note}
                   authorName={resolvedProfileName}
                   authorAvatarUrl={resolvedProfileUser.avatar_url}
+                  authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
+                  authorAvatarFrameImageUrl={resolvedProfileUser.avatar_frame_image_url}
                   statusLabel={publicationMeta.statusLabel}
                   statusTone={publicationMeta.statusTone}
                   additionsCount={character.community_additions_count}
@@ -3463,6 +3513,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 note={publicationMeta.note}
                 authorName={resolvedProfileName}
                 authorAvatarUrl={resolvedProfileUser.avatar_url}
+                authorAvatarFrameId={resolvedProfileUser.avatar_frame_id}
+                authorAvatarFrameImageUrl={resolvedProfileUser.avatar_frame_image_url}
                 statusLabel={publicationMeta.statusLabel}
                 statusTone={publicationMeta.statusTone}
                 additionsCount={template.community_additions_count}
@@ -3852,7 +3904,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     },
                   }}
                 >
-                  <UserAvatar user={resolvedAvatarUser} size={PROFILE_AVATAR_SIZE} />
+                  <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={PROFILE_AVATAR_SIZE} />
                   <Box
                     className="morius-profile-avatar-overlay"
                     sx={{
@@ -4087,11 +4139,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               }}
             >
               <ProgressiveImage
-                src={resolvedProfileBanner.src}
+                src={resolvedProfileBannerSrc}
                 alt=""
                 loading="lazy"
                 objectFit="cover"
-                objectPosition={resolvedProfileBanner.objectPosition}
+                objectPosition={resolvedProfileBannerObjectPosition}
                 loaderSize={30}
                 fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
                 containerSx={{
@@ -4161,7 +4213,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         },
                       }}
                     >
-                      <UserAvatar user={resolvedAvatarUser} size={112} />
+                      <UserAvatar user={resolvedAvatarUser} frameImageUrl={resolvedProfileUser.avatar_frame_image_url} size={112} />
                       <Box
                         className="morius-profile-avatar-overlay"
                         sx={{
@@ -5205,6 +5257,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             fallbackLabel={subscription.display_name}
                             size={34}
                             priority
+                            frameId={subscription.avatar_frame_id}
+                            frameImageUrl={subscription.avatar_frame_image_url}
                           />
                           <Typography sx={{ fontSize: '0.88rem', textAlign: 'left', lineHeight: 1.2 }}>
                             {subscription.display_name}

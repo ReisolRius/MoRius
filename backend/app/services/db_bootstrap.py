@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
-from sqlalchemy import inspect, or_, text
+from sqlalchemy import inspect, or_, select, text
 
 from app.database import Base, SessionLocal, engine
 from app.models import (
@@ -14,6 +14,8 @@ from app.models import (
     AiAssistantMessage,
     AiAssistantUsage,
     CoinPurchase,
+    CosmeticItem,
+    CreatorMonthSlot,
     DashboardNewsCard,
     EmailVerification,
     PasswordResetVerification,
@@ -46,6 +48,8 @@ from app.models import (
     StoryWorldCard,
     StoryWorldCardChangeEvent,
     User,
+    UserCosmeticPurchase,
+    UserEncouragement,
     UserFollow,
 )
 from app.services.media import MEDIA_URL_PREFIX, parse_media_token
@@ -69,6 +73,22 @@ PRIVILEGED_ROLE_BY_EMAIL = {
     "alexunderstood8@gmail.com": "administrator",
     "borisow.n2011@gmail.com": "moderator",
 }
+SHOP_SYSTEM_COSMETICS = (
+    {
+        "kind": "avatar_frame",
+        "title": "Сакура",
+        "description": "Платная рамка аватарки с лепестками сакуры.",
+        "image_url": "/shop-assets/frame-sakura.png",
+        "price_coins": 50,
+    },
+    {
+        "kind": "profile_banner",
+        "title": "Замок под сакурой",
+        "description": "Профильный баннер с закатным замком и цветущей сакурой.",
+        "image_url": "/shop-assets/profile-banner-sakura-castle.png",
+        "price_coins": 50,
+    },
+)
 BOOLEAN_COLUMN_ADD_STATEMENT_PATTERN = re.compile(
     r"ALTER TABLE (?P<table>[A-Za-z_][A-Za-z0-9_]*) "
     r"ADD COLUMN (?P<column>[A-Za-z_][A-Za-z0-9_]*) "
@@ -91,6 +111,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (User.__tablename__, "notify_moderation_report"): True,
     (User.__tablename__, "notify_moderation_queue"): True,
     (User.__tablename__, "ai_assistant_visible"): True,
+    (CosmeticItem.__tablename__, "is_active"): True,
     (StoryGame.__tablename__, "response_max_tokens_enabled"): False,
     (StoryGame.__tablename__, "memory_optimization_enabled"): True,
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
@@ -174,7 +195,9 @@ def _ensure_user_account_columns_exist() -> None:
     if "profile_description" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN profile_description TEXT NOT NULL DEFAULT ''")
     if "profile_banner_id" not in user_columns:
-        alter_statements.append("ALTER TABLE users ADD COLUMN profile_banner_id VARCHAR(16) NOT NULL DEFAULT '2'")
+        alter_statements.append("ALTER TABLE users ADD COLUMN profile_banner_id VARCHAR(16) NOT NULL DEFAULT 'none'")
+    if "avatar_frame_id" not in user_columns:
+        alter_statements.append("ALTER TABLE users ADD COLUMN avatar_frame_id VARCHAR(16) NOT NULL DEFAULT 'none'")
     if "avatar_scale" not in user_columns:
         alter_statements.append("ALTER TABLE users ADD COLUMN avatar_scale FLOAT NOT NULL DEFAULT 1.0")
     if "show_subscriptions" not in user_columns:
@@ -293,10 +316,11 @@ def _enforce_privileged_roles() -> None:
                     f"UPDATE {User.__tablename__} "
                     "SET role = :user_role "
                     f"WHERE lower(email) NOT IN ({placeholders}) "
-                    "AND role != :user_role"
+                    "AND lower(role) NOT IN (:user_role, :moderator_role)"
                 ),
                 {
                     "user_role": DEFAULT_USER_ROLE,
+                    "moderator_role": "moderator",
                     **email_params,
                 },
             )
@@ -1027,6 +1051,92 @@ def _ensure_story_instruction_template_community_columns_exist(private_visibilit
             _execute_schema_statement(connection, statement)
 
 
+def _ensure_community_rating_timestamp_columns_exist() -> None:
+    inspector = inspect(engine)
+    rating_models = (
+        StoryCommunityWorldRating,
+        StoryCommunityCharacterRating,
+        StoryCommunityInstructionTemplateRating,
+    )
+    alter_statements: list[tuple[str, str]] = []
+    for model in rating_models:
+        table_name = model.__tablename__
+        if not inspector.has_table(table_name):
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if "updated_at" not in existing_columns:
+            alter_statements.append(
+                (
+                    table_name,
+                    f"ALTER TABLE {table_name} ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE",
+                )
+            )
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for table_name, statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+            connection.execute(text(f"UPDATE {table_name} SET updated_at = created_at WHERE updated_at IS NULL"))
+
+
+def _ensure_shop_schema_columns_exist() -> None:
+    inspector = inspect(engine)
+    table_column_specs: dict[str, tuple[tuple[str, str], ...]] = {
+        CosmeticItem.__tablename__: (
+            ("kind", "kind VARCHAR(32) NOT NULL DEFAULT 'avatar_frame'"),
+            ("title", "title VARCHAR(120) NOT NULL DEFAULT ''"),
+            ("description", "description TEXT NOT NULL DEFAULT ''"),
+            ("image_url", "image_url TEXT NOT NULL DEFAULT ''"),
+            ("price_coins", "price_coins INTEGER NOT NULL DEFAULT 0"),
+            ("is_active", "is_active INTEGER NOT NULL DEFAULT 1"),
+            ("created_by_user_id", "created_by_user_id INTEGER"),
+            ("created_at", "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+            ("updated_at", "updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        ),
+        UserCosmeticPurchase.__tablename__: (
+            ("user_id", "user_id INTEGER NOT NULL DEFAULT 0"),
+            ("item_id", "item_id INTEGER NOT NULL DEFAULT 0"),
+            ("price_coins", "price_coins INTEGER NOT NULL DEFAULT 0"),
+            ("created_at", "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        ),
+        UserEncouragement.__tablename__: (
+            ("sender_user_id", "sender_user_id INTEGER NOT NULL DEFAULT 0"),
+            ("recipient_user_id", "recipient_user_id INTEGER NOT NULL DEFAULT 0"),
+            ("target_type", "target_type VARCHAR(32) NOT NULL DEFAULT 'world'"),
+            ("target_id", "target_id INTEGER NOT NULL DEFAULT 0"),
+            ("amount_coins", "amount_coins INTEGER NOT NULL DEFAULT 0"),
+            ("message", "message TEXT NOT NULL DEFAULT ''"),
+            ("created_at", "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        ),
+        CreatorMonthSlot.__tablename__: (
+            ("slot", "slot INTEGER NOT NULL DEFAULT 1"),
+            ("user_id", "user_id INTEGER"),
+            ("period_start", "period_start TIMESTAMP WITH TIME ZONE"),
+            ("period_end", "period_end TIMESTAMP WITH TIME ZONE"),
+            ("created_at", "created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+            ("updated_at", "updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"),
+        ),
+    }
+
+    alter_statements: list[str] = []
+    for table_name, column_specs in table_column_specs.items():
+        if not inspector.has_table(table_name):
+            continue
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        for column_name, column_sql in column_specs:
+            if column_name not in existing_columns:
+                alter_statements.append(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
+
+    if not alter_statements:
+        return
+
+    with engine.begin() as connection:
+        for statement in alter_statements:
+            _execute_schema_statement(connection, statement)
+
+
 def _ensure_story_turn_image_history_schema() -> None:
     inspector = inspect(engine)
     if not inspector.has_table(StoryTurnImage.__tablename__):
@@ -1178,6 +1288,40 @@ def _ensure_dashboard_news_schema() -> None:
         )
 
 
+def _ensure_shop_system_cosmetics() -> None:
+    inspector = inspect(engine)
+    if not inspector.has_table(CosmeticItem.__tablename__):
+        return
+
+    db = SessionLocal()
+    try:
+        changed = False
+        for payload in SHOP_SYSTEM_COSMETICS:
+            item = db.scalar(
+                select(CosmeticItem).where(
+                    CosmeticItem.kind == payload["kind"],
+                    CosmeticItem.image_url == payload["image_url"],
+                )
+            )
+            if item is None:
+                db.add(CosmeticItem(**payload, is_active=True, created_by_user_id=None))
+                changed = True
+                continue
+
+            for key, value in payload.items():
+                if getattr(item, key) != value:
+                    setattr(item, key, value)
+                    changed = True
+            if not item.is_active:
+                item.is_active = True
+                changed = True
+
+        if changed:
+            db.commit()
+    finally:
+        db.close()
+
+
 def _ensure_performance_indexes_exist() -> None:
     index_statements = (
         "CREATE INDEX IF NOT EXISTS ix_story_games_user_activity_id "
@@ -1313,6 +1457,16 @@ def _ensure_performance_indexes_exist() -> None:
         f"ON {UserFollow.__tablename__} (follower_user_id, following_user_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_user_follows_following_follower_id "
         f"ON {UserFollow.__tablename__} (following_user_id, follower_user_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_cosmetic_items_kind_active_id "
+        f"ON {CosmeticItem.__tablename__} (kind, is_active, id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_cosmetic_purchases_user_item_id "
+        f"ON {UserCosmeticPurchase.__tablename__} (user_id, item_id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_encouragements_recipient_created_id "
+        f"ON {UserEncouragement.__tablename__} (recipient_user_id, created_at, id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_encouragements_target_id "
+        f"ON {UserEncouragement.__tablename__} (target_type, target_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_creator_month_slots_slot_id "
+        f"ON {CreatorMonthSlot.__tablename__} (slot, id)",
     )
     with engine.begin() as connection:
         for statement in index_statements:
@@ -1522,8 +1676,11 @@ def bootstrap_database(*, database_url: str, defaults: StoryBootstrapDefaults) -
     _ensure_story_character_community_columns_exist(defaults.private_visibility)
     _ensure_story_character_races_schema()
     _ensure_story_instruction_template_community_columns_exist(defaults.private_visibility)
+    _ensure_community_rating_timestamp_columns_exist()
     _ensure_story_turn_image_history_schema()
     _ensure_dashboard_news_schema()
+    _ensure_shop_schema_columns_exist()
+    _ensure_shop_system_cosmetics()
     _ensure_story_soft_undo_columns_exist()
     _repair_legacy_story_avatar_media_tokens()
     _ensure_performance_indexes_exist()

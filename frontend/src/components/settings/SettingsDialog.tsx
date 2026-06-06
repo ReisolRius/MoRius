@@ -25,12 +25,14 @@ import editIconMarkup from '../../assets/icons/community-edit.svg?raw'
 import {
   createCurrentUserCustomTheme,
   deleteCurrentUserCustomTheme,
+  getShopCatalog,
   getCurrentUserThemeSettings,
   updateCurrentUserCustomTheme,
   updateCurrentUserProfile,
   updateCurrentUserProfilePrivacy,
   updateCurrentUserThemeSelection,
   CURRENT_USER_CUSTOM_THEME_LIMIT,
+  type CosmeticItem,
   type CurrentUserThemeSettings,
   type UserCustomTheme,
 } from '../../services/authApi'
@@ -38,9 +40,11 @@ import type { AuthUser } from '../../types/auth'
 import { getMoriusThemeById, moriusThemePresets, useMoriusThemeController, type MoriusThemePreset } from '../../theme'
 import { buildPresetFromCustomTheme } from '../../theme/customTheme'
 import { getProfileBannerPreset, normalizeProfileBannerId, PROFILE_BANNER_PRESETS } from '../../constants/profileBanners'
+import { AVATAR_FRAME_PRESETS, normalizeAvatarFrameId } from '../../constants/avatarFrames'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
 import ProgressiveImage from '../media/ProgressiveImage'
+import AvatarFrame from '../profile/AvatarFrame'
 import UserAvatar from '../profile/UserAvatar'
 
 type SettingsDialogProps = {
@@ -212,6 +216,11 @@ function SettingsDialog({
   const [displayName, setDisplayName] = useState(user.display_name ?? '')
   const [profileDescription, setProfileDescription] = useState(user.profile_description ?? '')
   const [profileBannerId, setProfileBannerId] = useState(() => normalizeProfileBannerId(user.profile_banner_id))
+  const [avatarFrameId, setAvatarFrameId] = useState(() => normalizeAvatarFrameId(user.avatar_frame_id))
+  const [ownedShopCosmetics, setOwnedShopCosmetics] = useState<{ avatar_frames: CosmeticItem[]; profile_banners: CosmeticItem[] }>({
+    avatar_frames: [],
+    profile_banners: [],
+  })
   const [notifications, setNotifications] = useState({
     notifications_enabled: user.notifications_enabled ?? true,
     notify_comment_reply: user.notify_comment_reply ?? true,
@@ -275,6 +284,7 @@ function SettingsDialog({
     setDisplayName(user.display_name ?? '')
     setProfileDescription(user.profile_description ?? '')
     setProfileBannerId(normalizeProfileBannerId(user.profile_banner_id))
+    setAvatarFrameId(normalizeAvatarFrameId(user.avatar_frame_id))
     setNotifications({
       notifications_enabled: user.notifications_enabled ?? true,
       notify_comment_reply: user.notify_comment_reply ?? true,
@@ -330,10 +340,36 @@ function SettingsDialog({
     }
   }, [applyResolvedTheme, authToken, open])
 
+  useEffect(() => {
+    if (!open) {
+      return
+    }
+    let ignore = false
+    void getShopCatalog({ token: authToken })
+      .then((response) => {
+        if (ignore) {
+          return
+        }
+        setOwnedShopCosmetics({
+          avatar_frames: response.avatar_frames.filter((item) => item.is_owned),
+          profile_banners: response.profile_banners.filter((item) => item.is_owned),
+        })
+      })
+      .catch(() => {
+        if (!ignore) {
+          setOwnedShopCosmetics({ avatar_frames: [], profile_banners: [] })
+        }
+      })
+    return () => {
+      ignore = true
+    }
+  }, [authToken, open])
+
   const hasProfileUnsavedChanges = useMemo(() => (
     displayName !== (user.display_name ?? '') ||
     profileDescription !== (user.profile_description ?? '') ||
     profileBannerId !== normalizeProfileBannerId(user.profile_banner_id) ||
+    avatarFrameId !== normalizeAvatarFrameId(user.avatar_frame_id) ||
     notifications.notifications_enabled !== (user.notifications_enabled ?? true) ||
     notifications.notify_comment_reply !== (user.notify_comment_reply ?? true) ||
     notifications.notify_world_comment !== (user.notify_world_comment ?? true) ||
@@ -348,7 +384,7 @@ function SettingsDialog({
     privacy.show_private_worlds !== (user.show_private_worlds ?? false) ||
     privacy.show_public_characters !== (user.show_public_characters ?? false) ||
     privacy.show_public_instruction_templates !== (user.show_public_instruction_templates ?? false)
-  ), [aiAssistantVisible, displayName, notifications, privacy, profileBannerId, profileDescription, user])
+  ), [aiAssistantVisible, avatarFrameId, displayName, notifications, privacy, profileBannerId, profileDescription, user])
 
   const hasThemeDraftUnsavedChanges = useMemo(() => {
     if (!editingThemeId) {
@@ -518,6 +554,7 @@ function SettingsDialog({
         display_name: nextDisplayName,
         profile_description: nextDescription,
         profile_banner_id: profileBannerId,
+        avatar_frame_id: avatarFrameId,
         notifications_enabled: notifications.notifications_enabled,
         notify_comment_reply: notifications.notify_comment_reply,
         notify_world_comment: notifications.notify_world_comment,
@@ -654,6 +691,17 @@ function SettingsDialog({
   const pickerColorValue = normalizeHexColor(activeColorInputValue, activeFieldColor).toLowerCase()
   const previewDescription = profileDescription.trim() || 'Краткое описание профиля'
   const selectedProfileBanner = useMemo(() => getProfileBannerPreset(profileBannerId), [profileBannerId])
+  const selectedOwnedProfileBanner = useMemo(
+    () => ownedShopCosmetics.profile_banners.find((item) => item.selection_id === profileBannerId) ?? null,
+    [ownedShopCosmetics.profile_banners, profileBannerId],
+  )
+  const selectedOwnedAvatarFrame = useMemo(
+    () => ownedShopCosmetics.avatar_frames.find((item) => item.selection_id === avatarFrameId) ?? null,
+    [avatarFrameId, ownedShopCosmetics.avatar_frames],
+  )
+  const selectedProfileBannerSrc = selectedOwnedProfileBanner?.image_url ?? selectedProfileBanner.src
+  const selectedProfileBannerObjectPosition = selectedOwnedProfileBanner ? 'center center' : selectedProfileBanner.objectPosition
+  const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
   useEffect(() => {
     syncColorPickerInputValue(pickerColorValue)
@@ -818,10 +866,10 @@ function SettingsDialog({
                   }}
                 >
                   <ProgressiveImage
-                    src={selectedProfileBanner.src}
+                    src={selectedProfileBannerSrc}
                     alt=""
                     objectFit="cover"
-                    objectPosition={selectedProfileBanner.objectPosition}
+                    objectPosition={selectedProfileBannerObjectPosition}
                     loaderSize={24}
                     fallback={<Box sx={{ position: 'absolute', inset: 0, backgroundColor: 'var(--morius-card-bg)' }} />}
                     containerSx={{
@@ -869,7 +917,7 @@ function SettingsDialog({
                             height: { xs: 76, sm: 88 },
                             p: 0,
                             borderRadius: '50%',
-                            overflow: 'hidden',
+                            overflow: 'visible',
                             position: 'relative',
                             backgroundColor: 'transparent',
                             '&:hover': {
@@ -883,7 +931,9 @@ function SettingsDialog({
                             },
                           }}
                         >
-                          <UserAvatar user={user} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                          <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
+                            <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                          </AvatarFrame>
                           <Box
                             className="morius-settings-avatar-overlay"
                             sx={{
@@ -902,7 +952,9 @@ function SettingsDialog({
                           </Box>
                         </Button>
                       ) : (
-                        <UserAvatar user={user} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                        <AvatarFrame frameId={avatarFrameId} frameImageUrl={selectedOwnedAvatarFrame?.image_url ?? null} size={mobileSheet.isMobileSheet ? 76 : 88}>
+                          <UserAvatar user={previewAvatarUser} size={mobileSheet.isMobileSheet ? 76 : 88} />
+                        </AvatarFrame>
                       )}
                       {avatarInputRef && onAvatarChange ? <Box component="input" ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} sx={{ display: 'none' }} /> : null}
                     </Box>
@@ -919,6 +971,76 @@ function SettingsDialog({
                 </Box>
 
                 <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.35 } }}>
+                  <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Рамка аватарки</Typography>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gap: 0.85,
+                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' },
+                    }}
+                  >
+                    {ownedShopCosmetics.avatar_frames.map((item) => {
+                      const isActive = avatarFrameId === item.selection_id
+                      return (
+                        <ButtonBase
+                          key={item.selection_id}
+                          onClick={() => setAvatarFrameId(item.selection_id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            minHeight: 118,
+                            borderRadius: '14px',
+                            border: isActive ? '2px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            p: 1,
+                            overflow: 'visible',
+                          }}
+                        >
+                          <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
+                            <AvatarFrame frameId={item.selection_id} frameImageUrl={item.image_url} size={58}>
+                              <UserAvatar user={previewAvatarUser} size={58} />
+                            </AvatarFrame>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {item.title}
+                            </Typography>
+                          </Stack>
+                        </ButtonBase>
+                      )
+                    })}
+                    {AVATAR_FRAME_PRESETS.map((preset) => {
+                      const isActive = avatarFrameId === preset.id
+                      return (
+                        <ButtonBase
+                          key={preset.id}
+                          onClick={() => setAvatarFrameId(preset.id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            minHeight: 118,
+                            borderRadius: '14px',
+                            border: isActive ? '2px solid var(--morius-accent)' : 'var(--morius-border-width) solid var(--morius-card-border)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            display: 'grid',
+                            placeItems: 'center',
+                            p: 1,
+                            overflow: 'visible',
+                          }}
+                        >
+                          <Stack spacing={0.7} alignItems="center" sx={{ minWidth: 0 }}>
+                            <AvatarFrame frameId={preset.id} size={58}>
+                              <UserAvatar user={previewAvatarUser} size={58} />
+                            </AvatarFrame>
+                            <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.78rem', fontWeight: 900, lineHeight: 1.1, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {preset.label}
+                            </Typography>
+                          </Stack>
+                        </ButtonBase>
+                      )
+                    })}
+                  </Box>
+                </Box>
+
+                <Box sx={{ borderRadius: '18px', border: 'var(--morius-border-width) solid var(--morius-card-border)', backgroundColor: 'var(--morius-card-bg)', p: { xs: 1.1, md: 1.35 } }}>
                   <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.05rem', fontWeight: 800, mb: 1 }}>Фон профиля</Typography>
                   <Box
                     sx={{
@@ -927,6 +1049,68 @@ function SettingsDialog({
                       gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(3, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
                     }}
                   >
+                    {ownedShopCosmetics.profile_banners.map((item) => {
+                      const isActive = profileBannerId === item.selection_id
+                      return (
+                        <ButtonBase
+                          key={item.selection_id}
+                          onClick={() => setProfileBannerId(item.selection_id)}
+                          aria-pressed={isActive}
+                          sx={{
+                            position: 'relative',
+                            overflow: 'hidden',
+                            aspectRatio: '16 / 9',
+                            borderRadius: '12px',
+                            border: isActive
+                              ? '2px solid var(--morius-accent)'
+                              : 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-card-border) 84%, transparent)',
+                            backgroundColor: 'var(--morius-elevated-bg)',
+                            boxShadow: isActive ? '0 0 0 2px color-mix(in srgb, var(--morius-accent) 20%, transparent)' : 'none',
+                            transition: 'border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease',
+                            '&:hover': {
+                              borderColor: 'color-mix(in srgb, var(--morius-accent) 74%, var(--morius-card-border))',
+                              transform: 'translateY(-1px)',
+                            },
+                          }}
+                        >
+                          <ProgressiveImage
+                            src={item.image_url}
+                            alt=""
+                            objectFit="cover"
+                            loaderSize={18}
+                            containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+                          />
+                          <Box
+                            aria-hidden
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              background: 'linear-gradient(0deg, rgba(3, 5, 8, 0.62) 0%, rgba(3, 5, 8, 0.05) 65%)',
+                              zIndex: 1,
+                            }}
+                          />
+                          <Typography
+                            component="span"
+                            sx={{
+                              position: 'absolute',
+                              left: 10,
+                              bottom: 8,
+                              zIndex: 2,
+                              color: '#fff',
+                              fontSize: '0.78rem',
+                              fontWeight: 900,
+                              lineHeight: 1,
+                              maxWidth: 'calc(100% - 20px)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {item.title}
+                          </Typography>
+                        </ButtonBase>
+                      )
+                    })}
                     {PROFILE_BANNER_PRESETS.map((preset) => {
                       const isActive = profileBannerId === preset.id
                       return (

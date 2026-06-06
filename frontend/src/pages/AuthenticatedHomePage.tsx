@@ -9,14 +9,22 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
   type Ref,
+  type UIEvent,
 } from 'react'
 import {
   Alert,
   Box,
   Button,
   ButtonBase,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  FormControlLabel,
   Grow,
   IconButton,
+  MenuItem,
   Stack,
   SvgIcon,
   TextField,
@@ -33,14 +41,15 @@ import ImageCropper from '../components/ImageCropper'
 import quickStartDashboardImage from '../assets/images/dashboard/quick-start.png'
 import newWorldDashboardImage from '../assets/images/dashboard/new-world.png'
 import shopDashboardImage from '../assets/images/dashboard/shop.png'
-import cardsWorldIconMarkup from '../assets/icons/cards-world.svg?raw'
 import cardsCharactersIconMarkup from '../assets/icons/cards-characters.svg?raw'
 import cardsRulesIconMarkup from '../assets/icons/cards-rules.svg?raw'
+import communityPlayIconMarkup from '../assets/icons/community-play.svg?raw'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
+import ProgressiveImage from '../components/media/ProgressiveImage'
 import CommunityWorldDialog from '../components/community/CommunityWorldDialog'
 import {
   CommunityModerationCardFrame,
@@ -62,7 +71,11 @@ import Footer from '../components/Footer'
 import { rememberLastPlayedGameCard } from '../utils/mobileQuickActions'
 import {
   createCoinTopUpPayment,
+  createPublicationEncouragement,
   getCoinTopUpPlans,
+  getCreatorMonthSlots,
+  getShopCatalog,
+  listCreatorCandidates,
   listDashboardNews,
   returnCharacterToModerationAsAdmin,
   returnInstructionTemplateToModerationAsAdmin,
@@ -71,10 +84,17 @@ import {
   updateCurrentUserAvatar,
   updateCurrentUserProfile,
   updateDashboardNews,
+  updateCreatorMonthSlot,
   type CoinTopUpPlan,
+  type CosmeticItem,
+  type CreatorCandidate,
+  type CreatorMonthList,
+  type CreatorMonthSlot,
   type DashboardNewsCard,
 } from '../services/authApi'
 import {
+  addCommunityCharacter,
+  addCommunityInstructionTemplate,
   createCommunityWorldComment,
   deleteCommunityWorldComment,
   deleteStoryGame,
@@ -98,6 +118,7 @@ import type { StoryCommunityCharacterSummary, StoryCommunityInstructionTemplateS
 import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { MobileCardItem, MobileCardSlider } from '../components/mobile/MobileCardSlider'
+import { getProfileBannerPreset } from '../constants/profileBanners'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -127,6 +148,18 @@ type DashboardQuickAction = {
   onClick: () => void
   disabled?: boolean
 }
+
+type CreatorCandidateSort = 'rating_desc' | 'publications_desc' | 'worlds_desc' | 'characters_desc' | 'instructions_desc' | 'newest'
+
+const CREATOR_CANDIDATE_PAGE_SIZE = 30
+const CREATOR_CANDIDATE_SORT_OPTIONS: Array<{ value: CreatorCandidateSort; label: string }> = [
+  { value: 'rating_desc', label: 'Рейтинг' },
+  { value: 'publications_desc', label: 'Публикации' },
+  { value: 'worlds_desc', label: 'Игры' },
+  { value: 'characters_desc', label: 'Персонажи' },
+  { value: 'instructions_desc', label: 'Инструкции' },
+  { value: 'newest', label: 'Новые' },
+]
 
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const APP_PAGE_BACKGROUND = 'var(--morius-app-bg)'
@@ -239,6 +272,35 @@ const APP_TEXT_PRIMARY = 'var(--morius-text-primary)'
 const APP_TEXT_SECONDARY = 'var(--morius-text-secondary)'
 const APP_BUTTON_HOVER = 'var(--morius-button-hover)'
 const APP_BUTTON_ACTIVE = 'var(--morius-button-active)'
+const HOME_ENTITY_DIALOG_PAPER_SX = {
+  borderRadius: 'var(--morius-radius)',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+  background: APP_CARD_BACKGROUND,
+  color: APP_TEXT_PRIMARY,
+  boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+}
+const HOME_ENTITY_DIALOG_BUTTON_SX = {
+  minHeight: 40,
+  borderRadius: '12px',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+  textTransform: 'none',
+  fontWeight: 800,
+}
+const CREATOR_DIALOG_PAPER_SX = {
+  borderRadius: '18px',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+  background: 'color-mix(in srgb, var(--morius-card-bg) 94%, #101821)',
+  color: APP_TEXT_PRIMARY,
+  boxShadow: '0 30px 76px rgba(0,0,0,0.62)',
+}
+const CREATOR_DIALOG_BUTTON_SX = {
+  minHeight: 40,
+  borderRadius: '12px',
+  border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+  textTransform: 'none',
+  fontWeight: 850,
+  px: 2.2,
+}
 const HOME_NEWS_SKELETON_KEYS = Array.from({ length: 3 }, (_, index) => `home-news-skeleton-${index}`)
 const HOME_COMMUNITY_SKELETON_CARD_KEYS = Array.from({ length: 4 }, (_, index) => `home-community-skeleton-${index}`)
 const HOME_COMMUNITY_WORLD_LIMIT = 12
@@ -449,6 +511,8 @@ function HomeCharacterCard({ item, onClick }: { item: StoryCommunityCharacterSum
             src={item.author_avatar_url}
             fallbackLabel={authorName}
             size={34}
+            frameId={item.author_avatar_frame_id}
+            frameImageUrl={item.author_avatar_frame_image_url}
             sx={{ border: 'var(--morius-border-width) solid rgba(214,225,239,0.3)', backgroundColor: 'rgba(6,10,16,0.76)' }}
           />
           <Typography
@@ -501,6 +565,8 @@ function HomeRuleCard({ item, onClick }: { item: StoryCommunityInstructionTempla
             src={item.author_avatar_url}
             fallbackLabel={authorName}
             size={34}
+            frameId={item.author_avatar_frame_id}
+            frameImageUrl={item.author_avatar_frame_image_url}
             sx={{ border: 'var(--morius-border-width) solid rgba(205,220,242,0.3)', backgroundColor: 'rgba(6,10,16,0.72)' }}
           />
           <Typography sx={{ color: 'rgba(233,241,252,0.97)', fontSize: '0.88rem', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
@@ -580,6 +646,20 @@ function getDashboardNewsFallbackImage(slot: number): string {
   return quickStartDashboardImage
 }
 
+function formatCreatorRating(value: number, count: number): string {
+  if (!Number.isFinite(value) || count <= 0) {
+    return 'нет оценок'
+  }
+  return `${value.toFixed(1)} (${count})`
+}
+
+function normalizeCreatorDateInput(value: string | null | undefined): string {
+  if (!value) {
+    return ''
+  }
+  return value.slice(0, 10)
+}
+
 function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLogout }: AuthenticatedHomePageProps) {
   const [isPageMenuOpen, setIsPageMenuOpen] = usePersistentPageMenuState()
   const [isHeaderActionsOpen, setIsHeaderActionsOpen] = useState(true)
@@ -609,6 +689,22 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [dashboardNewsDraft, setDashboardNewsDraft] = useState<DashboardNewsDraft>(createDashboardNewsDraft(null))
   const [dashboardNewsEditingId, setDashboardNewsEditingId] = useState<number | null>(null)
   const [dashboardNewsImageCropSource, setDashboardNewsImageCropSource] = useState<string | null>(null)
+  const [creatorMonth, setCreatorMonth] = useState<CreatorMonthList | null>(null)
+  const [isCreatorMonthLoading, setIsCreatorMonthLoading] = useState(false)
+  const [creatorMonthError, setCreatorMonthError] = useState('')
+  const [creatorDialogSlot, setCreatorDialogSlot] = useState<CreatorMonthSlot | null>(null)
+  const [creatorCandidates, setCreatorCandidates] = useState<CreatorCandidate[]>([])
+  const [creatorQuery, setCreatorQuery] = useState('')
+  const [creatorPeriodStart, setCreatorPeriodStart] = useState('')
+  const [creatorPeriodEnd, setCreatorPeriodEnd] = useState('')
+  const [creatorCandidateSort, setCreatorCandidateSort] = useState<CreatorCandidateSort>('rating_desc')
+  const [creatorOnlyWithPublications, setCreatorOnlyWithPublications] = useState(false)
+  const [creatorOnlyWithRatings, setCreatorOnlyWithRatings] = useState(false)
+  const [creatorCandidateTotal, setCreatorCandidateTotal] = useState(0)
+  const [creatorCandidateHasMore, setCreatorCandidateHasMore] = useState(false)
+  const [isCreatorCandidatesLoading, setIsCreatorCandidatesLoading] = useState(false)
+  const [isCreatorSlotSaving, setIsCreatorSlotSaving] = useState(false)
+  const [shopProfileBanners, setShopProfileBanners] = useState<CosmeticItem[]>([])
   const [isQuickStartDialogOpen, setIsQuickStartDialogOpen] = useState(false)
   const [communityWorlds, setCommunityWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [isCommunityWorldsLoading, setIsCommunityWorldsLoading] = useState(false)
@@ -623,9 +719,14 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const [communityCharacters, setCommunityCharacters] = useState<StoryCommunityCharacterSummary[]>([])
   const [isCommunityCharactersLoading, setIsCommunityCharactersLoading] = useState(false)
   const [communityCharactersError, setCommunityCharactersError] = useState('')
+  const [selectedHomeCommunityCharacter, setSelectedHomeCommunityCharacter] = useState<StoryCommunityCharacterSummary | null>(null)
+  const [isHomeCommunityCharacterAddSaving, setIsHomeCommunityCharacterAddSaving] = useState(false)
   const [communityRules, setCommunityRules] = useState<StoryCommunityInstructionTemplateSummary[]>([])
   const [isCommunityRulesLoading, setIsCommunityRulesLoading] = useState(false)
   const [communityRulesError, setCommunityRulesError] = useState('')
+  const [selectedHomeCommunityRule, setSelectedHomeCommunityRule] = useState<StoryCommunityInstructionTemplateSummary | null>(null)
+  const [isHomeCommunityRuleAddSaving, setIsHomeCommunityRuleAddSaving] = useState(false)
+  const [homeCommunityActionError, setHomeCommunityActionError] = useState('')
   const [communityModerationAnchorEl, setCommunityModerationAnchorEl] = useState<HTMLElement | null>(null)
   const [communityModerationTarget, setCommunityModerationTarget] = useState<CommunityModerationTarget | null>(null)
   const [isCommunityModerationSaving, setIsCommunityModerationSaving] = useState(false)
@@ -640,6 +741,43 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const hasLoadedCommunityWorldGameIdsRef = useRef(false)
   const handledMobileActionRef = useRef<string | null>(null)
   const newsAutoAdvanceTimerRef = useRef<number | null>(null)
+  const creatorCandidatesScrollRef = useRef<HTMLDivElement | null>(null)
+  const isCreatorCandidatesLoadingRef = useRef(false)
+  const creatorCandidatesRequestIdRef = useRef(0)
+  const isCreatorMonthEditor = user.role === 'administrator' || user.role === 'moderator'
+
+  const loadCreatorMonth = useCallback(() => {
+    setIsCreatorMonthLoading(true)
+    setCreatorMonthError('')
+    void getCreatorMonthSlots({ token: authToken })
+      .then((response) => setCreatorMonth(response))
+      .catch((requestError) => {
+        setCreatorMonthError(requestError instanceof Error ? requestError.message : 'Не удалось загрузить креаторов месяца')
+      })
+      .finally(() => setIsCreatorMonthLoading(false))
+  }, [authToken])
+
+  useEffect(() => {
+    loadCreatorMonth()
+  }, [loadCreatorMonth])
+
+  useEffect(() => {
+    let ignore = false
+    void getShopCatalog({ token: authToken })
+      .then((response) => {
+        if (!ignore) {
+          setShopProfileBanners(response.profile_banners)
+        }
+      })
+      .catch(() => {
+        if (!ignore) {
+          setShopProfileBanners([])
+        }
+      })
+    return () => {
+      ignore = true
+    }
+  }, [authToken])
 
   const handleCloseProfileDialog = () => {
     setProfileDialogOpen(false)
@@ -658,7 +796,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     setProfileDialogOpen(false)
     setConfirmLogoutOpen(false)
     setTopUpError('')
-    setTopUpDialogOpen(true)
+    onNavigate('/shop')
   }
 
   const handleConfirmLogout = () => {
@@ -906,6 +1044,23 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   }, [loadDashboardNewsSnapshot])
 
   const isDashboardNewsEditor = user.role === 'administrator' || user.role === 'moderator'
+  const creatorMonthSlots = useMemo(() => {
+    const bySlot = new Map((creatorMonth?.slots ?? []).map((item) => [item.slot, item]))
+    return [1, 2, 3].map((slot) => bySlot.get(slot) ?? {
+      slot,
+      user: null,
+      stats: {
+        worlds_count: 0,
+        characters_count: 0,
+        instruction_templates_count: 0,
+        publications_count: 0,
+        average_rating: 0,
+        rating_count: 0,
+      },
+      period_start: creatorMonth?.period_start ?? null,
+      period_end: creatorMonth?.period_end ?? null,
+    })
+  }, [creatorMonth])
   const selectedDashboardNews = useMemo(
     () => dashboardNews.find((item) => item.id === selectedDashboardNewsId) ?? dashboardNews[0] ?? null,
     [dashboardNews, selectedDashboardNewsId],
@@ -927,6 +1082,200 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
   const dashboardNewsEditorPreviewImage =
     dashboardNewsDraft.image_url.trim() ||
     getDashboardNewsFallbackImage(dashboardNewsEditingItem?.slot ?? selectedDashboardNews?.slot ?? 1)
+
+  const loadCreatorCandidates = useCallback((nextOffset = 0) => {
+    const isReset = nextOffset <= 0
+    if (isCreatorCandidatesLoadingRef.current && !isReset) {
+      return
+    }
+    const requestId = creatorCandidatesRequestIdRef.current + 1
+    creatorCandidatesRequestIdRef.current = requestId
+    isCreatorCandidatesLoadingRef.current = true
+    setIsCreatorCandidatesLoading(true)
+    setCreatorMonthError('')
+    void listCreatorCandidates({
+      token: authToken,
+      query: creatorQuery,
+      period_start: creatorPeriodStart || null,
+      period_end: creatorPeriodEnd || null,
+      sort: creatorCandidateSort,
+      offset: nextOffset,
+      limit: CREATOR_CANDIDATE_PAGE_SIZE,
+      has_publications: creatorOnlyWithPublications,
+      has_ratings: creatorOnlyWithRatings,
+    })
+      .then((response) => {
+        if (creatorCandidatesRequestIdRef.current !== requestId) {
+          return
+        }
+        setCreatorCandidateTotal(response.total)
+        setCreatorCandidateHasMore(response.has_more)
+        setCreatorCandidates((previous) => {
+          if (isReset) {
+            return response.items
+          }
+          const byUserId = new Map(previous.map((item) => [item.user.id, item]))
+          response.items.forEach((item) => byUserId.set(item.user.id, item))
+          return Array.from(byUserId.values())
+        })
+      })
+      .catch((requestError) => {
+        if (creatorCandidatesRequestIdRef.current !== requestId) {
+          return
+        }
+        setCreatorMonthError(requestError instanceof Error ? requestError.message : 'Не удалось загрузить кандидатов')
+        if (isReset) {
+          setCreatorCandidates([])
+          setCreatorCandidateTotal(0)
+          setCreatorCandidateHasMore(false)
+        }
+      })
+      .finally(() => {
+        if (creatorCandidatesRequestIdRef.current === requestId) {
+          isCreatorCandidatesLoadingRef.current = false
+          setIsCreatorCandidatesLoading(false)
+        }
+      })
+  }, [
+    authToken,
+    creatorCandidateSort,
+    creatorOnlyWithPublications,
+    creatorOnlyWithRatings,
+    creatorPeriodEnd,
+    creatorPeriodStart,
+    creatorQuery,
+  ])
+
+  const handleOpenCreatorDialog = useCallback((slot: CreatorMonthSlot) => {
+    if (!isCreatorMonthEditor) {
+      if (slot.user) {
+        onNavigate(`/profile/${slot.user.id}`)
+      }
+      return
+    }
+    setCreatorDialogSlot(slot)
+    setCreatorQuery('')
+    setCreatorPeriodStart(normalizeCreatorDateInput(slot.period_start ?? creatorMonth?.period_start))
+    setCreatorPeriodEnd(normalizeCreatorDateInput(slot.period_end ?? creatorMonth?.period_end))
+    setCreatorCandidateSort('rating_desc')
+    setCreatorOnlyWithPublications(false)
+    setCreatorOnlyWithRatings(false)
+    setCreatorCandidateTotal(0)
+    setCreatorCandidateHasMore(false)
+    setCreatorCandidates([])
+    window.setTimeout(() => {
+      creatorCandidatesScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }, 0)
+  }, [creatorMonth?.period_end, creatorMonth?.period_start, isCreatorMonthEditor, onNavigate])
+
+  useEffect(() => {
+    if (!creatorDialogSlot) {
+      return
+    }
+    const timerId = window.setTimeout(() => {
+      setCreatorCandidates([])
+      setCreatorCandidateTotal(0)
+      setCreatorCandidateHasMore(false)
+      creatorCandidatesScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+      loadCreatorCandidates(0)
+    }, 220)
+    return () => window.clearTimeout(timerId)
+  }, [creatorDialogSlot, loadCreatorCandidates])
+
+  const handleCreatorCandidatesScroll = useCallback((event: UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget
+    if (!creatorCandidateHasMore || isCreatorCandidatesLoading) {
+      return
+    }
+    const remaining = target.scrollHeight - target.scrollTop - target.clientHeight
+    if (remaining <= 140) {
+      loadCreatorCandidates(creatorCandidates.length)
+    }
+  }, [creatorCandidateHasMore, creatorCandidates.length, isCreatorCandidatesLoading, loadCreatorCandidates])
+
+  const handleAssignCreatorSlot = useCallback(async (candidate: CreatorCandidate | null) => {
+    if (!creatorDialogSlot || isCreatorSlotSaving) {
+      return
+    }
+    setIsCreatorSlotSaving(true)
+    setCreatorMonthError('')
+    try {
+      const updatedSlot = await updateCreatorMonthSlot({
+        token: authToken,
+        slot: creatorDialogSlot.slot,
+        user_id: candidate?.user.id ?? null,
+        period_start: creatorPeriodStart || null,
+        period_end: creatorPeriodEnd || null,
+      })
+      setCreatorMonth((previous) => {
+        const current = previous ?? {
+          slots: [],
+          period_start: creatorPeriodStart,
+          period_end: creatorPeriodEnd,
+        }
+        const nextSlots = [1, 2, 3].map((slot) => {
+          const existing = current.slots.find((item) => item.slot === slot)
+          return slot === updatedSlot.slot ? updatedSlot : existing
+        }).filter((item): item is CreatorMonthSlot => Boolean(item))
+        return { ...current, slots: nextSlots }
+      })
+      setCreatorDialogSlot(null)
+    } catch (requestError) {
+      setCreatorMonthError(requestError instanceof Error ? requestError.message : 'Не удалось назначить креатора')
+    } finally {
+      setIsCreatorSlotSaving(false)
+    }
+  }, [authToken, creatorDialogSlot, creatorPeriodEnd, creatorPeriodStart, isCreatorSlotSaving])
+
+  const handleAddHomeCommunityCharacter = useCallback(async () => {
+    if (
+      !selectedHomeCommunityCharacter ||
+      isHomeCommunityCharacterAddSaving ||
+      selectedHomeCommunityCharacter.is_added_by_user ||
+      selectedHomeCommunityCharacter.author_id === user.id
+    ) {
+      return
+    }
+    setHomeCommunityActionError('')
+    setIsHomeCommunityCharacterAddSaving(true)
+    try {
+      const updatedCharacter = await addCommunityCharacter({
+        token: authToken,
+        characterId: selectedHomeCommunityCharacter.id,
+      })
+      setSelectedHomeCommunityCharacter(updatedCharacter)
+      setCommunityCharacters((previous) => previous.map((item) => (item.id === updatedCharacter.id ? updatedCharacter : item)))
+    } catch (requestError) {
+      setHomeCommunityActionError(requestError instanceof Error ? requestError.message : 'Не удалось добавить персонажа')
+    } finally {
+      setIsHomeCommunityCharacterAddSaving(false)
+    }
+  }, [authToken, isHomeCommunityCharacterAddSaving, selectedHomeCommunityCharacter, user.id])
+
+  const handleAddHomeCommunityRule = useCallback(async () => {
+    if (
+      !selectedHomeCommunityRule ||
+      isHomeCommunityRuleAddSaving ||
+      selectedHomeCommunityRule.is_added_by_user ||
+      selectedHomeCommunityRule.author_id === user.id
+    ) {
+      return
+    }
+    setHomeCommunityActionError('')
+    setIsHomeCommunityRuleAddSaving(true)
+    try {
+      const updatedRule = await addCommunityInstructionTemplate({
+        token: authToken,
+        templateId: selectedHomeCommunityRule.id,
+      })
+      setSelectedHomeCommunityRule(updatedRule)
+      setCommunityRules((previous) => previous.map((item) => (item.id === updatedRule.id ? updatedRule : item)))
+    } catch (requestError) {
+      setHomeCommunityActionError(requestError instanceof Error ? requestError.message : 'Не удалось добавить инструкцию')
+    } finally {
+      setIsHomeCommunityRuleAddSaving(false)
+    }
+  }, [authToken, isHomeCommunityRuleAddSaving, selectedHomeCommunityRule, user.id])
 
   const handleOpenCommunityWorld = useCallback(
     async (worldId: number) => {
@@ -1086,6 +1435,20 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     },
     [authToken, isCommunityReportSubmitting, selectedCommunityWorld],
   )
+
+  const handleEncourageCommunityWorld = useCallback(async (amountCoins: number, message: string) => {
+    if (!selectedCommunityWorld) {
+      return
+    }
+    const response = await createPublicationEncouragement({
+      token: authToken,
+      target_type: 'world',
+      target_id: selectedCommunityWorld.world.id,
+      amount_coins: amountCoins,
+      message,
+    })
+    onUserUpdate(response.user)
+  }, [authToken, onUserUpdate, selectedCommunityWorld])
 
   const handleCreateCommunityWorldComment = useCallback(
     async (content: string) => {
@@ -1518,6 +1881,94 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 50
   const selectedDashboardNewsImage =
     selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
+  const renderCreatorMonthCard = (slot: CreatorMonthSlot) => {
+    const creator = slot.user
+    const place = slot.slot
+    const fallbackBanner = getProfileBannerPreset(creator?.profile_banner_id ?? 'none')
+    const paidBanner = creator ? shopProfileBanners.find((item) => item.selection_id === creator.profile_banner_id) ?? null : null
+    const bannerSrc = creator?.profile_banner_image_url ?? paidBanner?.image_url ?? fallbackBanner.src
+    const isFirstPlace = place === 1
+    return (
+      <ButtonBase
+        key={`creator-month-${place}`}
+        onClick={() => handleOpenCreatorDialog(slot)}
+        sx={{
+          width: '100%',
+          alignSelf: isFirstPlace ? 'start' : 'end',
+          transform: { xs: 'none', md: isFirstPlace ? 'translateY(-18px)' : 'translateY(12px)' },
+          borderRadius: '20px',
+          overflow: 'hidden',
+          textAlign: 'left',
+          border: isFirstPlace
+            ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 48%, var(--morius-card-border))'
+            : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          backgroundColor: APP_CARD_BACKGROUND,
+          boxShadow: isFirstPlace ? '0 26px 58px rgba(0,0,0,0.34)' : '0 18px 38px rgba(0,0,0,0.24)',
+          transition: 'transform 180ms ease, border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
+          '&:hover': {
+            borderColor: 'color-mix(in srgb, var(--morius-accent) 58%, var(--morius-card-border))',
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 94%, #ffffff 6%)',
+            boxShadow: isFirstPlace ? '0 28px 62px rgba(0,0,0,0.38)' : '0 20px 42px rgba(0,0,0,0.3)',
+          },
+        }}
+      >
+        <Box sx={{ width: '100%' }}>
+          <Box sx={{ position: 'relative', height: { xs: 112, md: isFirstPlace ? 138 : 118 }, background: 'linear-gradient(135deg, var(--morius-elevated-bg), var(--morius-card-bg))' }}>
+            {bannerSrc ? (
+              <ProgressiveImage
+                src={bannerSrc}
+                alt=""
+                objectFit="cover"
+                objectPosition={paidBanner ? 'center center' : fallbackBanner.objectPosition}
+                loaderSize={22}
+                containerSx={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}
+              />
+            ) : null}
+            <Box aria-hidden sx={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(3,6,10,0.05), rgba(3,6,10,0.82))' }} />
+            <Typography sx={{ position: 'absolute', top: 12, left: 12, color: '#fff', fontSize: '0.84rem', fontWeight: 950, px: 1, py: 0.35, borderRadius: '999px', backgroundColor: 'rgba(5,8,13,0.62)' }}>
+              #{place}
+            </Typography>
+          </Box>
+          <Stack spacing={1.1} sx={{ p: { xs: 1.35, md: 1.55 }, alignItems: 'center', textAlign: 'center', mt: -5 }}>
+            <ProgressiveAvatar
+              src={creator?.avatar_url ?? null}
+              alt={creator?.display_name ?? `Место ${place}`}
+              fallbackLabel={creator?.display_name ?? `${place}`}
+              size={isFirstPlace ? 86 : 74}
+              scale={creator?.avatar_scale ?? 1}
+              frameId={creator?.avatar_frame_id ?? 'none'}
+              frameImageUrl={creator?.avatar_frame_image_url ?? null}
+              sx={{
+                border: 'var(--morius-border-width) solid rgba(221,232,246,0.3)',
+                backgroundColor: 'rgba(8,13,20,0.88)',
+              }}
+            />
+            <Stack spacing={0.25} sx={{ width: '100%', minWidth: 0 }}>
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: isFirstPlace ? '1.18rem' : '1.04rem', fontWeight: 950, lineHeight: 1.1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {creator?.display_name || (isCreatorMonthEditor ? 'Назначить креатора' : 'Место свободно')}
+              </Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem', lineHeight: 1.3 }}>
+                {isCreatorMonthEditor ? 'Нажмите, чтобы изменить слот' : 'Креатор месяца'}
+              </Typography>
+            </Stack>
+            <Box sx={{ display: 'grid', gap: 0.55, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', width: '100%' }}>
+              {[
+                ['Игры', slot.stats.worlds_count],
+                ['Персонажи', slot.stats.characters_count],
+                ['Инструкции', slot.stats.instruction_templates_count],
+                ['Рейтинг', formatCreatorRating(slot.stats.average_rating, slot.stats.rating_count)],
+              ].map(([label, value]) => (
+                <Box key={`${place}-${label}`} sx={{ borderRadius: '12px', backgroundColor: 'rgba(255,255,255,0.045)', p: 0.8, minWidth: 0 }}>
+                  <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.74rem', lineHeight: 1 }}>{label}</Typography>
+                  <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '0.92rem', fontWeight: 900, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{String(value)}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Stack>
+        </Box>
+      </ButtonBase>
+    )
+  }
 
   const handleOpenCommunityModerationMenu = useCallback(
     (event: ReactMouseEvent<HTMLElement>, target: CommunityModerationTarget) => {
@@ -2316,12 +2767,42 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
             ) : null}
           </Box>
 
-          {/* ── Миры (worlds slider) ────────────────────────────────────── */}
+          <Box sx={{ display: 'grid', gap: 1.4 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+              <Box>
+                <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: { xs: '1.45rem', md: '1.72rem' }, fontWeight: 950, lineHeight: 1.05 }}>
+                  Креаторы месяца
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.96rem', lineHeight: 1.45 }}>
+                  Три автора, которые сильнее всего оживили сообщество за выбранный период.
+                </Typography>
+              </Box>
+              {isCreatorMonthLoading ? (
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.9rem', fontWeight: 700 }}>Загружаем...</Typography>
+              ) : null}
+            </Stack>
+            {creatorMonthError ? (
+              <Alert severity="error" sx={{ borderRadius: '14px' }}>{creatorMonthError}</Alert>
+            ) : null}
+            <Box
+              sx={{
+                display: 'grid',
+                gap: { xs: 1.1, md: 1.25 },
+                alignItems: 'end',
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' },
+                pt: { xs: 0, md: 2.2 },
+              }}
+            >
+              {[creatorMonthSlots[1], creatorMonthSlots[0], creatorMonthSlots[2]].map((slot) => renderCreatorMonthCard(slot))}
+            </Box>
+          </Box>
+
+          {/* ── Игры (worlds slider) ────────────────────────────────────── */}
           <Box data-tour-id="home-community-section" sx={{ scrollMarginTop: '120px' }}>
             <HomeSliderHeader
-              title="Миры"
-              subtitle="Публичные миры игроков. Откройте карточку мира, оцените и запускайте в свои игры."
-              iconMarkup={cardsWorldIconMarkup}
+              title="Игры"
+              subtitle="Публичные игры игроков. Откройте карточку, оцените и запускайте в свои игры."
+              iconMarkup={communityPlayIconMarkup}
               onShowAll={() => onNavigate('/games/all?tab=worlds')}
             />
             {communityWorldsError ? (
@@ -2373,6 +2854,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       description={world.description}
                       authorName={world.author_name.trim() || 'Неизвестный автор'}
                       authorAvatarUrl={world.author_avatar_url}
+                      authorAvatarFrameId={world.author_avatar_frame_id}
+                      authorAvatarFrameImageUrl={world.author_avatar_frame_image_url}
                       stat1={`${world.community_launches} ▶`}
                       stat2={`${world.community_rating_avg.toFixed(1)} ★`}
                       onMenuClick={
@@ -2420,7 +2903,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             handleOpenCommunityModerationMenu(event, { kind: 'character', id: item.id, title: item.name })
                           }
                         >
-                          <HomeCharacterCard item={item} onClick={() => onNavigate('/games/all?tab=characters')} />
+                          <HomeCharacterCard item={item} onClick={() => setSelectedHomeCommunityCharacter(item)} />
                         </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
@@ -2440,6 +2923,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       description={item.description}
                       authorName={item.author_name.trim() || 'Неизвестный автор'}
                       authorAvatarUrl={item.author_avatar_url}
+                      authorAvatarFrameId={item.author_avatar_frame_id}
+                      authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                       onMenuClick={
@@ -2452,7 +2937,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               })
                           : undefined
                       }
-                      onClick={() => onNavigate('/games/all?tab=characters')}
+                      onClick={() => setSelectedHomeCommunityCharacter(item)}
                     />
                   ))}
             </MobileCardSlider>
@@ -2487,7 +2972,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                             handleOpenCommunityModerationMenu(event, { kind: 'instruction_template', id: item.id, title: item.title })
                           }
                         >
-                          <HomeRuleCard item={item} onClick={() => onNavigate('/games/all?tab=rules')} />
+                          <HomeRuleCard item={item} onClick={() => setSelectedHomeCommunityRule(item)} />
                         </CommunityModerationCardFrame>
                       </SliderCard>
                     ))}
@@ -2507,6 +2992,8 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                       description={item.content}
                       authorName={item.author_name.trim() || 'Неизвестный автор'}
                       authorAvatarUrl={item.author_avatar_url}
+                      authorAvatarFrameId={item.author_avatar_frame_id}
+                      authorAvatarFrameImageUrl={item.author_avatar_frame_image_url}
                       stat1={`+${item.community_additions_count}`}
                       stat2={`${item.community_rating_avg.toFixed(1)} ★`}
                       onMenuClick={
@@ -2519,7 +3006,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                               })
                           : undefined
                       }
-                      onClick={() => onNavigate('/games/all?tab=rules')}
+                      onClick={() => setSelectedHomeCommunityRule(item)}
                     />
                   ))}
             </MobileCardSlider>
@@ -2545,6 +3032,385 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onClose={() => setIsQuickStartDialogOpen(false)}
         onStarted={handleQuickStartStarted}
       />
+
+      <Dialog
+        open={Boolean(creatorDialogSlot)}
+        onClose={() => {
+          if (!isCreatorSlotSaving) {
+            setCreatorDialogSlot(null)
+          }
+        }}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: CREATOR_DIALOG_PAPER_SX }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(2, 5, 10, 0.76)' } }}
+      >
+        <DialogTitle sx={{ pb: 1.1 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Box>
+              <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.3rem', fontWeight: 950 }}>
+                Креатор месяца #{creatorDialogSlot?.slot ?? ''}
+              </Typography>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
+                Выберите автора и период, статистика считается автоматически.
+              </Typography>
+            </Box>
+            <IconButton
+              onClick={() => setCreatorDialogSlot(null)}
+              disabled={isCreatorSlotSaving}
+              sx={{
+                color: APP_TEXT_SECONDARY,
+                backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 88%, #0d131a)',
+                '&:hover': { color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_HOVER },
+              }}
+            >
+              ×
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent className="morius-scrollbar" sx={{ pt: 0, overflow: 'hidden' }}>
+          {creatorMonthError ? <Alert severity="error" sx={{ mb: 1.2, borderRadius: '12px' }}>{creatorMonthError}</Alert> : null}
+          <Stack spacing={1.2}>
+            <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.4fr) 180px 150px 150px' } }}>
+              <TextField label="Поиск пользователя" value={creatorQuery} onChange={(event) => setCreatorQuery(event.target.value.slice(0, 120))} />
+              <TextField
+                select
+                label="Сортировка"
+                value={creatorCandidateSort}
+                onChange={(event) => setCreatorCandidateSort(event.target.value as CreatorCandidateSort)}
+              >
+                {CREATOR_CANDIDATE_SORT_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <TextField label="Начало" type="date" value={creatorPeriodStart} onChange={(event) => setCreatorPeriodStart(event.target.value)} InputLabelProps={{ shrink: true }} />
+              <TextField label="Конец" type="date" value={creatorPeriodEnd} onChange={(event) => setCreatorPeriodEnd(event.target.value)} InputLabelProps={{ shrink: true }} />
+            </Box>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.8} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between">
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.4}>
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={creatorOnlyWithPublications}
+                      onChange={(event) => setCreatorOnlyWithPublications(event.target.checked)}
+                      sx={{ color: APP_TEXT_SECONDARY, '&.Mui-checked': { color: 'var(--morius-accent)' } }}
+                    />
+                  }
+                  label="С публикациями"
+                  sx={{ color: APP_TEXT_SECONDARY, mr: 1.2 }}
+                />
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={creatorOnlyWithRatings}
+                      onChange={(event) => setCreatorOnlyWithRatings(event.target.checked)}
+                      sx={{ color: APP_TEXT_SECONDARY, '&.Mui-checked': { color: 'var(--morius-accent)' } }}
+                    />
+                  }
+                  label="С оценками"
+                  sx={{ color: APP_TEXT_SECONDARY }}
+                />
+              </Stack>
+              <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem', fontWeight: 750 }}>
+                Показано {creatorCandidates.length} из {creatorCandidateTotal}
+              </Typography>
+            </Stack>
+            <Box
+              ref={creatorCandidatesScrollRef}
+              onScroll={handleCreatorCandidatesScroll}
+              className="morius-scrollbar"
+              sx={{
+                display: 'grid',
+                gap: 0.85,
+                maxHeight: 'min(52vh, 470px)',
+                overflowY: 'auto',
+                pr: 0.45,
+                scrollbarGutter: 'stable',
+              }}
+            >
+              {isCreatorCandidatesLoading && creatorCandidates.length === 0 ? (
+                [0, 1, 2, 3].map((key) => <Box key={`creator-candidate-skeleton-${key}`} className="morius-skeleton-card" sx={{ height: 72, borderRadius: '16px' }} />)
+              ) : creatorCandidates.length === 0 ? (
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.95rem' }}>Кандидаты не найдены.</Typography>
+              ) : (
+                creatorCandidates.map((candidate) => (
+                  <ButtonBase
+                    key={candidate.user.id}
+                    onClick={() => void handleAssignCreatorSlot(candidate)}
+                    disabled={isCreatorSlotSaving}
+                    sx={{
+                      width: '100%',
+                      borderRadius: '16px',
+                      border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                      backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 86%, #111922)',
+                      p: 1,
+                      textAlign: 'left',
+                      transition: 'background-color 160ms ease, border-color 160ms ease, transform 160ms ease',
+                      WebkitTapHighlightColor: 'transparent',
+                      '&:hover': {
+                        backgroundColor: APP_BUTTON_HOVER,
+                        borderColor: 'color-mix(in srgb, var(--morius-accent) 42%, var(--morius-card-border))',
+                      },
+                      '&.Mui-focusVisible': {
+                        backgroundColor: APP_BUTTON_HOVER,
+                        outline: '2px solid color-mix(in srgb, var(--morius-accent) 58%, transparent)',
+                        outlineOffset: 2,
+                      },
+                      '&:active': { transform: 'translateY(1px)' },
+                      '&.Mui-disabled': { opacity: 0.72 },
+                    }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }} sx={{ width: '100%' }}>
+                      <ProgressiveAvatar
+                        src={candidate.user.avatar_url}
+                        alt={candidate.user.display_name}
+                        fallbackLabel={candidate.user.display_name}
+                        frameId={candidate.user.avatar_frame_id}
+                        frameImageUrl={candidate.user.avatar_frame_image_url}
+                        scale={candidate.user.avatar_scale}
+                        size={52}
+                      />
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1rem', fontWeight: 900, lineHeight: 1.2 }}>
+                          {candidate.user.display_name}
+                        </Typography>
+                        <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem', lineHeight: 1.35 }}>
+                          Публикаций: {candidate.stats.publications_count} · Игры: {candidate.stats.worlds_count} · Персонажи: {candidate.stats.characters_count} · Инструкции: {candidate.stats.instruction_templates_count}
+                        </Typography>
+                      </Box>
+                      <Typography
+                        sx={{
+                          color: APP_TEXT_PRIMARY,
+                          fontSize: '0.92rem',
+                          fontWeight: 900,
+                          borderRadius: '999px',
+                          border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+                          backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 86%, transparent)',
+                          px: 1.1,
+                          py: 0.45,
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {formatCreatorRating(candidate.stats.average_rating, candidate.stats.rating_count)}
+                      </Typography>
+                    </Stack>
+                  </ButtonBase>
+                ))
+              )}
+              {isCreatorCandidatesLoading && creatorCandidates.length > 0 ? (
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem', fontWeight: 750, textAlign: 'center', py: 0.7 }}>
+                  Загружаем еще...
+                </Typography>
+              ) : null}
+            </Box>
+          </Stack>
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 3,
+            py: 2,
+            borderTop: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+            backgroundColor: 'color-mix(in srgb, var(--morius-card-bg) 90%, #0d131a)',
+          }}
+        >
+          <Button
+            onClick={() => void handleAssignCreatorSlot(null)}
+            disabled={isCreatorSlotSaving}
+            sx={{ ...CREATOR_DIALOG_BUTTON_SX, color: APP_TEXT_SECONDARY, backgroundColor: 'transparent', '&:hover': { color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_HOVER } }}
+          >
+            Очистить слот
+          </Button>
+          <Button
+            onClick={() => setCreatorDialogSlot(null)}
+            disabled={isCreatorSlotSaving}
+            sx={{ ...CREATOR_DIALOG_BUTTON_SX, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}
+          >
+            Закрыть
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedHomeCommunityCharacter)}
+        onClose={() => {
+          if (!isHomeCommunityCharacterAddSaving) {
+            setSelectedHomeCommunityCharacter(null)
+            setHomeCommunityActionError('')
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: HOME_ENTITY_DIALOG_PAPER_SX }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(2, 5, 10, 0.76)' } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 950 }}>
+              {selectedHomeCommunityCharacter?.name ?? ''}
+            </Typography>
+            <IconButton
+              onClick={() => {
+                setSelectedHomeCommunityCharacter(null)
+                setHomeCommunityActionError('')
+              }}
+              disabled={isHomeCommunityCharacterAddSaving}
+              sx={{ color: APP_TEXT_SECONDARY, backgroundColor: 'var(--morius-elevated-bg)' }}
+            >
+              ×
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent className="morius-scrollbar" sx={{ maxHeight: 'min(68vh, 620px)' }}>
+          <Stack spacing={1.2}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <ProgressiveAvatar
+                src={selectedHomeCommunityCharacter?.avatar_url}
+                alt={selectedHomeCommunityCharacter?.name ?? ''}
+                fallbackLabel={selectedHomeCommunityCharacter?.name ?? ''}
+                size={68}
+                scale={selectedHomeCommunityCharacter?.avatar_scale ?? 1}
+              />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
+                  Автор: {selectedHomeCommunityCharacter?.author_name || 'Неизвестный автор'}
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem' }}>
+                  Рейтинг: {selectedHomeCommunityCharacter?.community_rating_avg.toFixed(1) ?? '0.0'} · Добавлений: {selectedHomeCommunityCharacter?.community_additions_count ?? 0}
+                </Typography>
+              </Box>
+            </Stack>
+            {selectedHomeCommunityCharacter?.note ? (
+              <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.88rem', fontWeight: 800 }}>
+                {selectedHomeCommunityCharacter.note}
+              </Typography>
+            ) : null}
+            {homeCommunityActionError ? <Alert severity="error" sx={{ borderRadius: '12px' }}>{homeCommunityActionError}</Alert> : null}
+            <Typography sx={{ color: 'rgba(224, 235, 249, 0.92)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              {selectedHomeCommunityCharacter?.description ?? ''}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button
+            onClick={() => {
+              setSelectedHomeCommunityCharacter(null)
+              setHomeCommunityActionError('')
+            }}
+            disabled={isHomeCommunityCharacterAddSaving}
+            sx={{ ...HOME_ENTITY_DIALOG_BUTTON_SX, color: APP_TEXT_SECONDARY, backgroundColor: 'transparent' }}
+          >
+            Закрыть
+          </Button>
+          <Button
+            onClick={() => void handleAddHomeCommunityCharacter()}
+            disabled={
+              !selectedHomeCommunityCharacter ||
+              isHomeCommunityCharacterAddSaving ||
+              selectedHomeCommunityCharacter.is_added_by_user ||
+              selectedHomeCommunityCharacter.author_id === user.id
+            }
+            sx={{ ...HOME_ENTITY_DIALOG_BUTTON_SX, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}
+          >
+            {selectedHomeCommunityCharacter?.author_id === user.id
+              ? 'Ваша карточка'
+              : selectedHomeCommunityCharacter?.is_added_by_user
+                ? 'Добавлено'
+                : isHomeCommunityCharacterAddSaving
+                  ? 'Добавляем...'
+                  : 'Добавить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedHomeCommunityRule)}
+        onClose={() => {
+          if (!isHomeCommunityRuleAddSaving) {
+            setSelectedHomeCommunityRule(null)
+            setHomeCommunityActionError('')
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: HOME_ENTITY_DIALOG_PAPER_SX }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(2, 5, 10, 0.76)' } }}
+      >
+        <DialogTitle sx={{ pb: 1 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+            <Typography sx={{ color: APP_TEXT_PRIMARY, fontSize: '1.28rem', fontWeight: 950 }}>
+              {selectedHomeCommunityRule?.title ?? ''}
+            </Typography>
+            <IconButton
+              onClick={() => {
+                setSelectedHomeCommunityRule(null)
+                setHomeCommunityActionError('')
+              }}
+              disabled={isHomeCommunityRuleAddSaving}
+              sx={{ color: APP_TEXT_SECONDARY, backgroundColor: 'var(--morius-elevated-bg)' }}
+            >
+              ×
+            </IconButton>
+          </Stack>
+        </DialogTitle>
+        <DialogContent className="morius-scrollbar" sx={{ maxHeight: 'min(68vh, 620px)' }}>
+          <Stack spacing={1.2}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <ProgressiveAvatar
+                src={selectedHomeCommunityRule?.author_avatar_url}
+                alt={selectedHomeCommunityRule?.author_name ?? ''}
+                fallbackLabel={selectedHomeCommunityRule?.author_name ?? ''}
+                frameId={selectedHomeCommunityRule?.author_avatar_frame_id}
+                frameImageUrl={selectedHomeCommunityRule?.author_avatar_frame_image_url}
+                size={52}
+              />
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem' }}>
+                  Автор: {selectedHomeCommunityRule?.author_name || 'Неизвестный автор'}
+                </Typography>
+                <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.86rem' }}>
+                  Рейтинг: {selectedHomeCommunityRule?.community_rating_avg.toFixed(1) ?? '0.0'} · Добавлений: {selectedHomeCommunityRule?.community_additions_count ?? 0}
+                </Typography>
+              </Box>
+            </Stack>
+            {homeCommunityActionError ? <Alert severity="error" sx={{ borderRadius: '12px' }}>{homeCommunityActionError}</Alert> : null}
+            <Typography sx={{ color: 'rgba(224, 235, 249, 0.92)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+              {selectedHomeCommunityRule?.content ?? ''}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.4 }}>
+          <Button
+            onClick={() => {
+              setSelectedHomeCommunityRule(null)
+              setHomeCommunityActionError('')
+            }}
+            disabled={isHomeCommunityRuleAddSaving}
+            sx={{ ...HOME_ENTITY_DIALOG_BUTTON_SX, color: APP_TEXT_SECONDARY, backgroundColor: 'transparent' }}
+          >
+            Закрыть
+          </Button>
+          <Button
+            onClick={() => void handleAddHomeCommunityRule()}
+            disabled={
+              !selectedHomeCommunityRule ||
+              isHomeCommunityRuleAddSaving ||
+              selectedHomeCommunityRule.is_added_by_user ||
+              selectedHomeCommunityRule.author_id === user.id
+            }
+            sx={{ ...HOME_ENTITY_DIALOG_BUTTON_SX, color: APP_TEXT_PRIMARY, backgroundColor: APP_BUTTON_ACTIVE, '&:hover': { backgroundColor: APP_BUTTON_HOVER } }}
+          >
+            {selectedHomeCommunityRule?.author_id === user.id
+              ? 'Ваша инструкция'
+              : selectedHomeCommunityRule?.is_added_by_user
+                ? 'Добавлено'
+                : isHomeCommunityRuleAddSaving
+                  ? 'Добавляем...'
+                  : 'Добавить'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <BaseDialog
         open={isDashboardNewsEditorOpen}
@@ -2735,6 +3601,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
         onPlay={() => void handleLaunchCommunityWorld()}
         onRate={(value) => void handleRateCommunityWorld(value)}
         onToggleMyGames={() => void handleToggleCommunityWorldInMyGames()}
+        onEncourage={handleEncourageCommunityWorld}
         onAuthorClick={(authorId) => {
           setSelectedCommunityWorld(null)
           onNavigate(`/profile/${authorId}`)

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models import StoryCommunityWorldComment, User
 from app.schemas import StoryCommunityWorldCommentOut
+from app.services.cosmetics import COSMETIC_KIND_AVATAR_FRAME, resolve_cosmetic_image_url_by_selection_id
 from app.services.media import normalize_media_scale, resolve_media_display_url
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
@@ -47,7 +48,9 @@ def story_community_world_comment_to_out(
     comment: StoryCommunityWorldComment,
     *,
     author: User | None,
+    db: Session | None = None,
 ) -> StoryCommunityWorldCommentOut:
+    frame_id = str(getattr(author, "avatar_frame_id", "") or "").strip() or "none"
     return StoryCommunityWorldCommentOut(
         id=comment.id,
         world_id=comment.world_id,
@@ -64,6 +67,16 @@ def story_community_world_comment_to_out(
             else None
         ),
         user_avatar_scale=_resolve_author_avatar_scale(author),
+        user_avatar_frame_id=frame_id,
+        user_avatar_frame_image_url=(
+            resolve_cosmetic_image_url_by_selection_id(
+                db,
+                value=frame_id,
+                kind=COSMETIC_KIND_AVATAR_FRAME,
+            )
+            if author is not None and db is not None
+            else None
+        ),
         content=normalize_story_community_world_comment_content(comment.content),
         created_at=comment.created_at,
         updated_at=comment.updated_at,
@@ -85,6 +98,6 @@ def list_story_community_world_comments_out(
         .limit(normalized_limit)
     ).all()
     return [
-        story_community_world_comment_to_out(comment, author=author)
+        story_community_world_comment_to_out(comment, author=author, db=db)
         for comment, author in rows
     ]

@@ -3,6 +3,7 @@ import { Box, CircularProgress, Stack } from '@mui/material'
 import type { AuthUser } from '../../types/auth'
 import { resolveApiResourceUrl } from '../../services/httpClient'
 import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
+import AvatarFrame from './AvatarFrame'
 
 const AVATAR_LOAD_TIMEOUT_MS = 8000
 type ImageLoadStatus = 'idle' | 'loading' | 'loaded' | 'failed'
@@ -16,6 +17,7 @@ type UserAvatarProps = {
   user: AuthUser
   size?: number
   priority?: boolean
+  frameImageUrl?: string | null
 }
 
 export function AvatarPlaceholder({ fallbackLabel, size }: AvatarPlaceholderProps) {
@@ -57,7 +59,7 @@ export function AvatarPlaceholder({ fallbackLabel, size }: AvatarPlaceholderProp
   )
 }
 
-function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
+function UserAvatar({ user, size = 44, priority = true, frameImageUrl = null }: UserAvatarProps) {
   const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>('idle')
   const fallbackLabel = user.display_name || user.email
   const avatarScale = Math.max(1, Math.min(3, user.avatar_scale ?? 1))
@@ -69,6 +71,7 @@ function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
   const shouldLoadAvatar = Boolean(resolvedAvatarUrl) && (priority || isVisible)
   const isImageLoaded = loadStatus === 'loaded'
   const isImageLoading = loadStatus === 'loading'
+  const shouldRevealAvatar = isImageLoaded || (shouldLoadAvatar && loadStatus === 'idle')
 
   useEffect(() => {
     if (!resolvedAvatarUrl) {
@@ -86,7 +89,7 @@ function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
       if (isCancelled) {
         return
       }
-      setLoadStatus('failed')
+      setLoadStatus((currentStatus) => (currentStatus === 'loading' ? 'idle' : currentStatus))
     }, AVATAR_LOAD_TIMEOUT_MS)
 
     setLoadStatus('loading')
@@ -116,8 +119,7 @@ function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
     }
   }, [resolvedAvatarUrl, shouldLoadAvatar])
 
-  if (resolvedAvatarUrl && loadStatus !== 'failed') {
-    return (
+  const avatarNode = resolvedAvatarUrl && loadStatus !== 'failed' ? (
       <Box
         ref={ref}
         sx={{
@@ -153,7 +155,7 @@ function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
             <CircularProgress size={Math.max(16, Math.round(size * 0.34))} thickness={4} />
           </Box>
         ) : null}
-        {shouldLoadAvatar && isImageLoaded ? (
+        {shouldLoadAvatar ? (
           <Box
             component="img"
             src={resolvedAvatarUrl}
@@ -169,16 +171,21 @@ function UserAvatar({ user, size = 44, priority = true }: UserAvatarProps) {
               objectFit: 'cover',
               transform: `scale(${avatarScale})`,
               transformOrigin: 'center center',
-              opacity: 1,
+              opacity: shouldRevealAvatar ? 1 : 0,
               transition: 'opacity 180ms ease',
             }}
           />
         ) : null}
       </Box>
-    )
-  }
+  ) : (
+    <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
+  )
 
-  return <AvatarPlaceholder fallbackLabel={fallbackLabel} size={size} />
+  return (
+    <AvatarFrame frameId={user.avatar_frame_id} frameImageUrl={frameImageUrl ?? user.avatar_frame_image_url ?? null} size={size}>
+      {avatarNode}
+    </AvatarFrame>
+  )
 }
 
 export default UserAvatar

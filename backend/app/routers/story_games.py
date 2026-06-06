@@ -117,6 +117,8 @@ from app.services.story_games import (
     normalize_story_top_r,
     refresh_story_game_public_card_snapshots,
     serialize_story_game_genres,
+    story_author_avatar_frame_id,
+    story_author_avatar_frame_image_url,
     story_author_avatar_url,
     story_author_name,
     story_community_world_summary_to_out,
@@ -1620,6 +1622,8 @@ def _build_story_community_world_summary(
         author_id=world.user_id,
         author_name=story_author_name(author),
         author_avatar_url=story_author_avatar_url(author),
+        author_avatar_frame_id=story_author_avatar_frame_id(author),
+        author_avatar_frame_image_url=story_author_avatar_frame_image_url(db, author),
         user_rating=user_rating,
         is_reported_by_user=is_reported_by_user,
         is_favorited_by_user=is_favorited_by_user,
@@ -1956,6 +1960,7 @@ def list_story_community_worlds(
                 User.email,
                 User.display_name,
                 User.avatar_url,
+                User.avatar_frame_id,
                 User.updated_at,
             )
         )
@@ -1963,6 +1968,8 @@ def list_story_community_worlds(
     ).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
+    author_avatar_frame_by_id = {author.id: story_author_avatar_frame_id(author) for author in authors}
+    author_avatar_frame_image_by_id = {author.id: story_author_avatar_frame_image_url(db, author) for author in authors}
 
     if user is not None:
         user_rating_rows = db.scalars(
@@ -1997,6 +2004,8 @@ def list_story_community_worlds(
             author_id=world.user_id,
             author_name=author_name_by_id.get(world.user_id, "Unknown"),
             author_avatar_url=author_avatar_by_id.get(world.user_id),
+            author_avatar_frame_id=author_avatar_frame_by_id.get(world.user_id, "none"),
+            author_avatar_frame_image_url=author_avatar_frame_image_by_id.get(world.user_id),
             user_rating=user_rating_by_world_id.get(world.id),
             is_reported_by_user=world.id in reported_world_ids,
             is_favorited_by_user=world.id in favorited_world_ids,
@@ -2048,6 +2057,8 @@ def list_story_community_favorites(
     authors = db.scalars(select(User).where(User.id.in_(author_ids))).all()
     author_name_by_id = {author.id: story_author_name(author) for author in authors}
     author_avatar_by_id = {author.id: story_author_avatar_url(author) for author in authors}
+    author_avatar_frame_by_id = {author.id: story_author_avatar_frame_id(author) for author in authors}
+    author_avatar_frame_image_by_id = {author.id: story_author_avatar_frame_image_url(db, author) for author in authors}
 
     user_rating_rows = db.scalars(
         select(StoryCommunityWorldRating).where(
@@ -2071,6 +2082,8 @@ def list_story_community_favorites(
             author_id=world.user_id,
             author_name=author_name_by_id.get(world.user_id, "Unknown"),
             author_avatar_url=author_avatar_by_id.get(world.user_id),
+            author_avatar_frame_id=author_avatar_frame_by_id.get(world.user_id, "none"),
+            author_avatar_frame_image_url=author_avatar_frame_image_by_id.get(world.user_id),
             user_rating=user_rating_by_world_id.get(world.id),
             is_reported_by_user=world.id in reported_world_ids,
             is_favorited_by_user=True,
@@ -2399,7 +2412,7 @@ def create_story_community_world_comment(
     if owner_notification_drafts:
         _persist_notifications(db, owner_notification_drafts)
     db.refresh(comment)
-    return story_community_world_comment_to_out(comment, author=user)
+    return story_community_world_comment_to_out(comment, author=user, db=db)
 
 
 @router.patch("/api/story/community/worlds/{world_id}/comments/{comment_id}", response_model=StoryCommunityWorldCommentOut)
@@ -2433,7 +2446,7 @@ def update_story_community_world_comment(
     comment.content = content
     db.commit()
     db.refresh(comment)
-    return story_community_world_comment_to_out(comment, author=user)
+    return story_community_world_comment_to_out(comment, author=user, db=db)
 
 
 @router.delete("/api/story/community/worlds/{world_id}/comments/{comment_id}", response_model=MessageResponse)
@@ -4145,7 +4158,6 @@ def update_story_game_meta(
             mark_story_publication_pending(game)
             game.visibility = STORY_GAME_VISIBILITY_PRIVATE
             should_notify_publication_queue = previous_publication_status != "pending"
-            _delete_story_game_publication_copies_for_source(db, source_game=game)
         else:
             if requested_visibility == STORY_GAME_VISIBILITY_PRIVATE and game.source_world_id is None:
                 clear_story_publication_state(game)
@@ -4197,8 +4209,6 @@ def delete_story_game(
 ) -> MessageResponse:
     user = get_current_user(db, authorization)
     game = get_user_story_game_or_404(db, user.id, game_id)
-    if getattr(game, "source_world_id", None) is None:
-        _delete_story_game_publication_copies_for_source(db, source_game=game)
     _delete_story_game_with_relations(db, game_id=game.id)
     db.commit()
     return MessageResponse(message="Game deleted")
