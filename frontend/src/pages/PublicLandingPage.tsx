@@ -11,7 +11,7 @@ import {
 } from '@mui/material'
 import { brandLogo } from '../assets'
 import heroNewBg from '../assets/images/landing-hero-rebrand.webp'
-import characterAboutImg from '../assets/images/character-about.png'
+import characterAboutImg from '../assets/images/character-about.webp'
 import slideTemplatesPreview from '../assets/images/advantages/slide-templates.png'
 import advantageAvatarsPreview from '../assets/images/advantages/avatars-preview.png'
 import advantageStorytellersPreview from '../assets/images/advantages/storytellers-preview.png'
@@ -26,7 +26,7 @@ import landingGearIcon from '../assets/icons/landing-gear.svg'
 import landingPlayIcon from '../assets/icons/landing-play.svg'
 import arrowPrevIcon from '../assets/icons/landing-arrow-prev.svg'
 import arrowNextIcon from '../assets/icons/landing-arrow-next.svg'
-import landingCoinIcon from '../assets/icons/landing-coin.svg'
+import landingCoinIcon from '../assets/icons/soul-moirus.svg'
 import landingControlsIcon from '../assets/icons/landing-controls.svg'
 import landingSendIcon from '../assets/icons/landing-send.svg'
 import TextLimitIndicator from '../components/TextLimitIndicator'
@@ -154,7 +154,7 @@ const tariffPlans: TariffPlan[] = [
     id: 'pathfinder',
     title: 'Путник',
     price: '399 ₽',
-    coins: '400 солов',
+    coins: '400',
     details: [
       'Для старта, тестовых миров и коротких кампаний.',
       'Работает с новым лимитом контекста до 64k.',
@@ -166,10 +166,10 @@ const tariffPlans: TariffPlan[] = [
     id: 'seeker',
     title: 'Искатель',
     price: '1190 ₽',
-    coins: '1300 солов',
+    coins: '1300',
     details: [
       'Оптимален для регулярной игры и длинных сцен.',
-      'Лучший баланс между ценой и запасом солов.',
+      'Лучший баланс между ценой и запасом валюты.',
       'Один баланс на текст, изображения и эффекты.',
     ],
     image: pkgIskateltImg,
@@ -178,7 +178,7 @@ const tariffPlans: TariffPlan[] = [
     id: 'chronicler',
     title: 'Архонт',
     price: '4490 ₽',
-    coins: '5400 солов',
+    coins: '5400',
     details: [
       'Для больших кампаний и тяжёлых сцен с запасом.',
       'Удобен, если часто используете дорогие модели.',
@@ -1260,6 +1260,8 @@ export default function PublicLandingPage({
                         component="img"
                         src={item.preview}
                         alt={item.title}
+                        loading="lazy"
+                        decoding="async"
                         sx={{
                           width: '100%',
                           display: 'block',
@@ -1751,9 +1753,12 @@ export default function PublicLandingPage({
                         >
                           {plan.price}
                         </Typography>
-                        <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
-                          {plan.coins}
-                        </Typography>
+                        <Stack direction="row" spacing={0.45} alignItems="center">
+                          <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
+                            {plan.coins}
+                          </Typography>
+                          <Box component="img" src={landingCoinIcon} alt="" sx={{ width: 9, height: 14, opacity: 0.88 }} />
+                        </Stack>
                         <Stack spacing={0.5} sx={{ flex: 1 }}>
                           {plan.details.map((d, j) => (
                             <Typography key={j} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.82rem', lineHeight: 1.5 }}>
@@ -1923,9 +1928,12 @@ export default function PublicLandingPage({
                     >
                       {plan.price}
                     </Typography>
-                    <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
-                      {plan.coins}
-                    </Typography>
+                    <Stack direction="row" spacing={0.45} alignItems="center">
+                      <Typography sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.9rem' }}>
+                        {plan.coins}
+                      </Typography>
+                      <Box component="img" src={landingCoinIcon} alt="" sx={{ width: 9, height: 14, opacity: 0.88 }} />
+                    </Stack>
                     <Stack spacing={0.5} sx={{ flex: 1 }}>
                       {plan.details.map((d, j) => (
                         <Typography key={j} sx={{ color: TEXT_BODY, fontFamily: '"Nunito Sans", sans-serif', fontSize: '0.82rem', lineHeight: 1.5 }}>

@@ -1,6 +1,6 @@
 import { Box, Stack, Typography } from '@mui/material'
 import { brandLogo } from '../assets'
-import heroBackground from '../assets/images/tavern-bg.png'
+import heroBackground from '../assets/images/tavern-bg.webp'
 import type { MaintenanceSettings } from '../services/authApi'
 
 type MaintenancePageProps = {

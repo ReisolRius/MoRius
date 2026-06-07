@@ -121,7 +121,7 @@ type AdminPanelDialogProps = {
 
 function formatBanLabel(user: AdminManagedUser): string {
   if (!user.is_banned) {
-    return `${user.coins.toLocaleString('ru-RU')} солов`
+    return `${user.coins.toLocaleString('ru-RU')} валюты`
   }
   if (!user.ban_expires_at) {
     return 'В бане'
@@ -777,7 +777,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
       }
       const parsedAmount = Number.parseInt(tokenAmountDraft.trim(), 10)
       if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-        setErrorMessage('Укажите корректное количество солов')
+        setErrorMessage('Укажите корректное количество валюты')
         return
       }
 
@@ -792,7 +792,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
           amount: parsedAmount,
         })
         mergeUpdatedUser(updatedUser)
-        setSuccessMessage(operation === 'add' ? 'Солы начислены' : 'Солы списаны')
+        setSuccessMessage(operation === 'add' ? 'Валюта начислена' : 'Валюта списана')
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Не удалось изменить баланс'
         setErrorMessage(detail)
@@ -1442,8 +1442,8 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     sx={{ width: { xs: '100%', md: 260 }, flexShrink: 0 }}
                   >
                     <MenuItem value="created_desc">Новые сначала</MenuItem>
-                    <MenuItem value="coins_desc">По солам: сначала больше</MenuItem>
-                    <MenuItem value="coins_asc">По солам: сначала меньше</MenuItem>
+                    <MenuItem value="coins_desc">По валюте: сначала больше</MenuItem>
+                    <MenuItem value="coins_asc">По валюте: сначала меньше</MenuItem>
                   </TextField>
                 </Stack>
 
@@ -1522,7 +1522,7 @@ function AdminPanelDialog({ open, authToken, currentUserRole, onNavigate, onClos
                     onChange={(event) =>
                       setTokenAmountDraft(event.target.value.replace(/[^\d]/g, '').slice(0, ADMIN_TOKEN_AMOUNT_MAX_LENGTH))
                     }
-                    label="Сумма солов"
+                    label="Сумма валюты"
                     size="small"
                     disabled={!selectedUser || isApplyingUserAction || !canUseAdminPanel}
                     inputProps={{ inputMode: 'numeric', maxLength: ADMIN_TOKEN_AMOUNT_MAX_LENGTH }}

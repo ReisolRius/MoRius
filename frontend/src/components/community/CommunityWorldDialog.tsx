@@ -17,6 +17,7 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material'
+import SoulAmount from '../currency/SoulAmount'
 
 // Raw SVG imports for theme-adaptive icons via ThemedSvgIcon
 import communityPlayRaw from '../../assets/icons/community-play.svg?raw'
@@ -660,7 +661,7 @@ function CommunityWorldDialog({
     }
     const amount = Number.parseInt(encourageAmount, 10)
     if (!Number.isFinite(amount) || amount < 5) {
-      setEncourageError('Минимум 5 солов.')
+      setEncourageError('Минимальная сумма — 5.')
       return
     }
     setEncourageError('')
@@ -1614,18 +1615,29 @@ function CommunityWorldDialog({
           sx: {
             borderRadius: '18px',
             border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-            backgroundColor: 'var(--morius-dialog-bg)',
+            backgroundColor: '#11161d',
             color: APP_TEXT_PRIMARY,
-            boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+            boxShadow: '0 28px 70px rgba(0,0,0,0.72)',
+            '& .MuiInputBase-root': {
+              borderRadius: '12px',
+              backgroundColor: '#171d25',
+              color: APP_TEXT_PRIMARY,
+            },
+            '& .MuiInputLabel-root': {
+              color: APP_TEXT_SECONDARY,
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+            },
           },
         }}
-        BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}
       >
         <DialogTitle sx={{ color: APP_TEXT_PRIMARY, fontWeight: 900 }}>Поддержать автора</DialogTitle>
         <DialogContent>
           <Stack spacing={1.1} sx={{ pt: 0.4 }}>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
-              Переведите автору публикации солы со своего баланса. Минимум 5 солов.
+              Переведите автору публикации валюту со своего баланса. Минимум <SoulAmount amount={5} iconSize={13} color="inherit" fontSize="0.92rem" />.
             </Typography>
             <TextField
               label="Сумма"

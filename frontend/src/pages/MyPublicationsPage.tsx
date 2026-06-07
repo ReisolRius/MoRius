@@ -659,7 +659,7 @@ function MyPublicationsPage({ user, authToken, onNavigate, onUserUpdate, onLogou
     setErrorMessage('')
     setLoadingSections((previous) => ({ ...previous, characters: true }))
     try {
-      const characters = await listStoryCharacters(authToken)
+      const characters = await listStoryCharacters(authToken, { includeEmotionAssets: false })
       const { visibleItems, publicationCopySourceIds } = selectVisiblePublicationItems(
         characters,
         (item) => item.source_character_id,

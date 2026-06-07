@@ -289,11 +289,14 @@ def _get_story_instruction_template_publication_copy(
 
 @router.get("/api/story/instruction-templates", response_model=list[StoryInstructionTemplateOut])
 def list_story_instruction_templates_route(
+    limit: int | None = Query(default=None, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    query: str = Query(default="", max_length=120),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryInstructionTemplateOut]:
     user = get_current_user(db, authorization)
-    templates = list_story_instruction_templates(db, user.id)
+    templates = list_story_instruction_templates(db, user.id, limit=limit, offset=offset, query=query)
     return [story_instruction_template_to_out(template) for template in templates]
 
 

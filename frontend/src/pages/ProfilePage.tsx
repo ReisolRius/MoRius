@@ -27,6 +27,7 @@ import AppHeader from '../components/AppHeader'
 import HeaderAccountActions from '../components/HeaderAccountActions'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterManagerDialog from '../components/CharacterManagerDialog'
+import SoulAmount from '../components/currency/SoulAmount'
 import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from '../components/ai/aiAssistantEvents'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
 import ProgressiveAvatar from '../components/media/ProgressiveAvatar'
@@ -98,6 +99,7 @@ import type {
 } from '../types/story'
 import { moriusThemeTokens } from '../theme'
 import { getProfileBannerPreset, normalizeProfileBannerId } from '../constants/profileBanners'
+import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 import { normalizeAvatarFrameId } from '../constants/avatarFrames'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { dispatchNotificationsChanged } from '../utils/notifications'
@@ -127,11 +129,17 @@ type NotificationSortMode = 'newest' | 'oldest'
 type ProfileContentSortMode = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc' | 'popular_desc' | 'rating_desc'
 type CloneSectionKey = 'instructions' | 'plot' | 'world' | 'main_hero' | 'history'
 type CloneSelectionState = Record<CloneSectionKey, boolean>
+type ProfileServerPage<T> = {
+  items: T[]
+  hasMore: boolean
+}
 
 const PROFILE_NAME_MAX = 25
 const PROFILE_DESC_MAX = 2000
 const PROFILE_CONTENT_SEARCH_MAX = 120
+const PROFILE_CONTENT_SEARCH_DEBOUNCE_MS = 280
 const PROFILE_CARD_BATCH_SIZE = 12
+const PROFILE_SERVER_REQUEST_SIZE = PROFILE_CARD_BATCH_SIZE + 1
 const PROFILE_NOTIFICATION_PAGE_SIZE = 12
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
@@ -401,6 +409,44 @@ function sortProfileSubscriptions<T extends ProfileSortableSubscription>(
   })
 }
 
+function splitProfileServerPage<T>(items: T[]): ProfileServerPage<T> {
+  return {
+    items: items.slice(0, PROFILE_CARD_BATCH_SIZE),
+    hasMore: items.length > PROFILE_CARD_BATCH_SIZE,
+  }
+}
+
+function mergeProfileServerItems<T extends { id: number }>(currentItems: T[], nextItems: T[]): T[] {
+  const seenIds = new Set(currentItems.map((item) => item.id))
+  const mergedItems = [...currentItems]
+  nextItems.forEach((item) => {
+    if (seenIds.has(item.id)) {
+      return
+    }
+    seenIds.add(item.id)
+    mergedItems.push(item)
+  })
+  return mergedItems
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => setDebouncedValue(value), delayMs)
+    return () => window.clearTimeout(timerId)
+  }, [delayMs, value])
+
+  return debouncedValue
+}
+
+function toProfileGameApiSort(mode: ProfileContentSortMode): 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc' {
+  if (mode === 'updated_asc') {
+    return 'updated_asc'
+  }
+  return 'updated_desc'
+}
+
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -563,7 +609,8 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
   const [mobileProfileMenuAnchorEl, setMobileProfileMenuAnchorEl] = useState<HTMLElement | null>(null)
   const [isDescExpanded, setIsDescExpanded] = useState(false)
-  const deferredContentSearchQuery = useDeferredValue(contentSearchQuery)
+  const debouncedContentSearchQuery = useDebouncedValue(contentSearchQuery, PROFILE_CONTENT_SEARCH_DEBOUNCE_MS)
+  const deferredContentSearchQuery = useDeferredValue(debouncedContentSearchQuery)
 
   const [isEditing, setIsEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState(user.display_name || 'Игрок')
@@ -590,9 +637,17 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const [favoriteWorlds, setFavoriteWorlds] = useState<StoryCommunityWorldSummary[]>([])
   const [hasLoadedFavoriteWorlds, setHasLoadedFavoriteWorlds] = useState(false)
   const [isFavoriteWorldsLoading, setIsFavoriteWorldsLoading] = useState(false)
+  const [isFavoriteWorldsLoadingMore, setIsFavoriteWorldsLoadingMore] = useState(false)
+  const [hasMoreFavoriteWorldsServer, setHasMoreFavoriteWorldsServer] = useState(false)
   const [favoriteLoadingById, setFavoriteLoadingById] = useState<Record<number, boolean>>({})
   const [ownGames, setOwnGames] = useState<StoryGameSummary[]>([])
   const [isOwnGamesLoading, setIsOwnGamesLoading] = useState(false)
+  const [isOwnGamesLoadingMore, setIsOwnGamesLoadingMore] = useState(false)
+  const [hasMoreOwnGamesServer, setHasMoreOwnGamesServer] = useState(false)
+  const [isCharactersLoadingMore, setIsCharactersLoadingMore] = useState(false)
+  const [hasMoreCharactersServer, setHasMoreCharactersServer] = useState(false)
+  const [isTemplatesLoadingMore, setIsTemplatesLoadingMore] = useState(false)
+  const [hasMoreTemplatesServer, setHasMoreTemplatesServer] = useState(false)
   const [notifications, setNotifications] = useState<UserNotification[]>([])
   const [notificationPopoverAnchorEl, setNotificationPopoverAnchorEl] = useState<HTMLElement | null>(null)
   const [notificationCounts, setNotificationCounts] = useState<UserNotificationCounters>({ unread_count: 0, total_count: 0 })
@@ -682,8 +737,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const resolvedProfileDescription = resolvedProfileUser.profile_description || ''
   const resolvedProfileBanner = getProfileBannerPreset(resolvedProfileUser.profile_banner_id)
   const resolvedPaidProfileBanner = shopProfileBanners.find((item) => item.selection_id === resolvedProfileUser.profile_banner_id) ?? null
-  const resolvedProfileBannerSrc = resolvedProfileUser.profile_banner_image_url ?? resolvedPaidProfileBanner?.image_url ?? resolvedProfileBanner.src
-  const resolvedProfileBannerObjectPosition = resolvedProfileUser.profile_banner_image_url || resolvedPaidProfileBanner ? 'center center' : resolvedProfileBanner.objectPosition
+  const resolvedPaidProfileBannerSrc = resolvedPaidProfileBanner?.image_url ?? null
+  const resolvedProfileBannerSrc =
+    resolveProfileBannerImageUrl(
+      resolvedProfileUser.profile_banner_id,
+      resolvedProfileUser.profile_banner_image_url ?? resolvedPaidProfileBannerSrc,
+    ) ?? resolvedProfileBanner.src
+  const resolvedProfileBannerObjectPosition =
+    resolvedProfileUser.profile_banner_image_url || resolvedPaidProfileBanner ? 'center center' : resolvedProfileBanner.objectPosition
+  const shouldLoadPaidProfileBannerCatalog =
+    resolvedProfileUser.profile_banner_id.startsWith('b') && !resolvedProfileUser.profile_banner_image_url
   const resolvedAvatarUser = isOwnProfile ? user : toAvatarUser(resolvedProfileUser)
   const resolvedCanOpenAdmin = isOwnProfile && canOpenAdmin
   const followersCount = Math.max(0, profileView?.followers_count ?? 0)
@@ -711,11 +774,16 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   )
 
   useEffect(() => {
+    if (!shouldLoadPaidProfileBannerCatalog) {
+      setShopProfileBanners([])
+      return
+    }
+
     let ignore = false
     void getShopCatalog({ token: authToken })
       .then((response) => {
         if (!ignore) {
-          setShopProfileBanners(response.profile_banners)
+          setShopProfileBanners(response.profile_banners.map(withKnownCosmeticImageUrl))
         }
       })
       .catch(() => {
@@ -726,7 +794,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     return () => {
       ignore = true
     }
-  }, [authToken])
+  }, [authToken, shouldLoadPaidProfileBannerCatalog])
   const visibleSubscriptions = profileView?.subscriptions ?? []
   const referralLink = useMemo(
     () => buildReferralLink(referralSummary?.referral_code ?? user.referral_code ?? ''),
@@ -1014,6 +1082,129 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       ),
     [normalizedContentSearchQuery, profilePublicationTemplates],
   )
+  const loadMoreOwnGames = useCallback(async () => {
+    if (!isOwnProfile || isOwnGamesLoading || isOwnGamesLoadingMore || !hasMoreOwnGamesServer) {
+      return
+    }
+    setIsOwnGamesLoadingMore(true)
+    setError('')
+    try {
+      const loadedGames = await listStoryGames(authToken, {
+        compact: true,
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        offset: ownGames.length,
+        sort: toProfileGameApiSort(gameSortMode),
+        query: normalizedContentSearchQuery || undefined,
+      })
+      const page = splitProfileServerPage(loadedGames)
+      setOwnGames((previous) => mergeProfileServerItems(previous, page.items))
+      setHasMoreOwnGamesServer(page.hasMore)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще игры'
+      setError(detail)
+    } finally {
+      setIsOwnGamesLoadingMore(false)
+    }
+  }, [
+    authToken,
+    gameSortMode,
+    hasMoreOwnGamesServer,
+    isOwnGamesLoading,
+    isOwnGamesLoadingMore,
+    isOwnProfile,
+    normalizedContentSearchQuery,
+    ownGames.length,
+  ])
+  const loadMoreCharacters = useCallback(async () => {
+    if (!isOwnProfile || isLoadingContent || isCharactersLoadingMore || !hasMoreCharactersServer) {
+      return
+    }
+    setIsCharactersLoadingMore(true)
+    setError('')
+    try {
+      const loadedCharacters = await listStoryCharacters(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        offset: characters.length,
+        query: normalizedContentSearchQuery || undefined,
+        includeEmotionAssets: false,
+      })
+      const page = splitProfileServerPage(loadedCharacters)
+      setCharacters((previous) => mergeProfileServerItems(previous, page.items))
+      setHasMoreCharactersServer(page.hasMore)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще персонажей'
+      setError(detail)
+    } finally {
+      setIsCharactersLoadingMore(false)
+    }
+  }, [
+    authToken,
+    characters.length,
+    hasMoreCharactersServer,
+    isCharactersLoadingMore,
+    isLoadingContent,
+    isOwnProfile,
+    normalizedContentSearchQuery,
+  ])
+  const loadMoreTemplates = useCallback(async () => {
+    if (!isOwnProfile || isLoadingContent || isTemplatesLoadingMore || !hasMoreTemplatesServer) {
+      return
+    }
+    setIsTemplatesLoadingMore(true)
+    setError('')
+    try {
+      const loadedTemplates = await listStoryInstructionTemplates(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        offset: templates.length,
+        query: normalizedContentSearchQuery || undefined,
+      })
+      const page = splitProfileServerPage(loadedTemplates)
+      setTemplates((previous) => mergeProfileServerItems(previous, page.items))
+      setHasMoreTemplatesServer(page.hasMore)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще инструкции'
+      setError(detail)
+    } finally {
+      setIsTemplatesLoadingMore(false)
+    }
+  }, [
+    authToken,
+    hasMoreTemplatesServer,
+    isLoadingContent,
+    isOwnProfile,
+    isTemplatesLoadingMore,
+    normalizedContentSearchQuery,
+    templates.length,
+  ])
+  const loadMoreFavoriteWorlds = useCallback(async () => {
+    if (!isOwnProfile || isFavoriteWorldsLoading || isFavoriteWorldsLoadingMore || !hasMoreFavoriteWorldsServer) {
+      return
+    }
+    setIsFavoriteWorldsLoadingMore(true)
+    setError('')
+    try {
+      const loadedFavorites = await listFavoriteCommunityWorlds(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        offset: favoriteWorlds.length,
+      })
+      const page = splitProfileServerPage(loadedFavorites)
+      setFavoriteWorlds((previous) => mergeProfileServerItems(previous, page.items))
+      setHasMoreFavoriteWorldsServer(page.hasMore)
+      setHasLoadedFavoriteWorlds(true)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще любимые миры'
+      setError(detail)
+    } finally {
+      setIsFavoriteWorldsLoadingMore(false)
+    }
+  }, [
+    authToken,
+    favoriteWorlds.length,
+    hasMoreFavoriteWorldsServer,
+    isFavoriteWorldsLoading,
+    isFavoriteWorldsLoadingMore,
+    isOwnProfile,
+  ])
   const {
     visibleItems: visibleOwnGames,
     hasMore: hasMoreOwnGames,
@@ -1021,7 +1212,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredOwnGames, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|games|${filteredOwnGames.length}`,
+    resetKey: `${normalizedContentSearchQuery}|games|${gameSortMode}`,
+    hasMoreRemote: hasMoreOwnGamesServer,
+    isLoadingMore: isOwnGamesLoadingMore,
+    onLoadMore: loadMoreOwnGames,
   })
   const {
     visibleItems: visibleCharacters,
@@ -1030,7 +1224,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredCharacters, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|characters|${filteredCharacters.length}`,
+    resetKey: `${normalizedContentSearchQuery}|characters|${characterSortMode}`,
+    hasMoreRemote: hasMoreCharactersServer,
+    isLoadingMore: isCharactersLoadingMore,
+    onLoadMore: loadMoreCharacters,
   })
   const {
     visibleItems: visibleTemplates,
@@ -1039,7 +1236,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredTemplates, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|instructions|${filteredTemplates.length}`,
+    resetKey: `${normalizedContentSearchQuery}|instructions|${instructionSortMode}`,
+    hasMoreRemote: hasMoreTemplatesServer,
+    isLoadingMore: isTemplatesLoadingMore,
+    onLoadMore: loadMoreTemplates,
   })
   const {
     visibleItems: visibleFavoriteWorlds,
@@ -1048,7 +1248,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredFavoriteWorlds, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|favorites|${filteredFavoriteWorlds.length}`,
+    resetKey: `${normalizedContentSearchQuery}|favorites|${favoriteSortMode}`,
+    hasMoreRemote: hasMoreFavoriteWorldsServer,
+    isLoadingMore: isFavoriteWorldsLoadingMore,
+    onLoadMore: loadMoreFavoriteWorlds,
   })
   const {
     visibleItems: visibleSubscriptionsList,
@@ -1115,7 +1318,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredProfilePublicationGames, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|profile-publication-games|${filteredProfilePublicationGames.length}`,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-games|${gameSortMode}`,
+    hasMoreRemote: hasMoreOwnGamesServer,
+    isLoadingMore: isOwnGamesLoadingMore,
+    onLoadMore: loadMoreOwnGames,
   })
   const {
     visibleItems: visibleProfilePublicationCharacters,
@@ -1124,7 +1330,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredProfilePublicationCharacters, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|profile-publication-characters|${filteredProfilePublicationCharacters.length}`,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-characters|${characterSortMode}`,
+    hasMoreRemote: hasMoreCharactersServer,
+    isLoadingMore: isCharactersLoadingMore,
+    onLoadMore: loadMoreCharacters,
   })
   const {
     visibleItems: visibleProfilePublicationTemplates,
@@ -1133,7 +1342,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   } = useIncrementalList(filteredProfilePublicationTemplates, {
     initialCount: PROFILE_CARD_BATCH_SIZE,
     step: PROFILE_CARD_BATCH_SIZE,
-    resetKey: `${normalizedContentSearchQuery}|profile-publication-instructions|${filteredProfilePublicationTemplates.length}`,
+    resetKey: `${normalizedContentSearchQuery}|profile-publication-instructions|${instructionSortMode}`,
+    hasMoreRemote: hasMoreTemplatesServer,
+    isLoadingMore: isTemplatesLoadingMore,
+    onLoadMore: loadMoreTemplates,
   })
   const activeContentHeading = tab === 'notifications' ? PROFILE_NOTIFICATIONS_LABEL : PROFILE_TAB_LABELS[tab]
   void activeContentHeading
@@ -1223,40 +1435,55 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
   const loadCharactersOnly = useCallback(async () => {
     if (!isOwnProfile) {
       setCharacters([])
+      setHasMoreCharactersServer(false)
       return
     }
     setError('')
     setIsLoadingContent(true)
     try {
-      const loadedCharacters = await listStoryCharacters(authToken)
-      setCharacters(loadedCharacters)
+      const loadedCharacters = await listStoryCharacters(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        query: normalizedContentSearchQuery || undefined,
+        includeEmotionAssets: false,
+      })
+      const page = splitProfileServerPage(loadedCharacters)
+      setCharacters(page.items)
+      setHasMoreCharactersServer(page.hasMore)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить персонажей'
       setCharacters([])
+      setHasMoreCharactersServer(false)
       setError(detail)
     } finally {
       setIsLoadingContent(false)
     }
-  }, [authToken, isOwnProfile])
+  }, [authToken, isOwnProfile, normalizedContentSearchQuery])
 
   const loadTemplatesOnly = useCallback(async () => {
     if (!isOwnProfile) {
       setTemplates([])
+      setHasMoreTemplatesServer(false)
       return
     }
     setError('')
     setIsLoadingContent(true)
     try {
-      const loadedTemplates = await listStoryInstructionTemplates(authToken)
-      setTemplates(loadedTemplates)
+      const loadedTemplates = await listStoryInstructionTemplates(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        query: normalizedContentSearchQuery || undefined,
+      })
+      const page = splitProfileServerPage(loadedTemplates)
+      setTemplates(page.items)
+      setHasMoreTemplatesServer(page.hasMore)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить инструкции'
       setTemplates([])
+      setHasMoreTemplatesServer(false)
       setError(detail)
     } finally {
       setIsLoadingContent(false)
     }
-  }, [authToken, isOwnProfile])
+  }, [authToken, isOwnProfile, normalizedContentSearchQuery])
 
   const loadProfileContent = useCallback(async () => {
     if (!isOwnProfile) {
@@ -1265,29 +1492,56 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
       setTemplates([])
       setFavoriteWorlds([])
       setHasLoadedFavoriteWorlds(false)
+      setHasMoreOwnGamesServer(false)
+      setHasMoreCharactersServer(false)
+      setHasMoreTemplatesServer(false)
+      setHasMoreFavoriteWorldsServer(false)
       setIsLoadingContent(false)
       setIsOwnGamesLoading(false)
+      setIsOwnGamesLoadingMore(false)
+      setIsCharactersLoadingMore(false)
+      setIsTemplatesLoadingMore(false)
       setIsFavoriteWorldsLoading(false)
+      setIsFavoriteWorldsLoadingMore(false)
       return
     }
 
     setError('')
     setIsLoadingContent(true)
     setIsOwnGamesLoading(true)
+    setIsOwnGamesLoadingMore(false)
+    setIsCharactersLoadingMore(false)
+    setIsTemplatesLoadingMore(false)
+    setIsFavoriteWorldsLoadingMore(false)
 
     const [gamesResult, charactersResult, templatesResult, favoritesResult] = await Promise.allSettled([
-      listStoryGames(authToken, { compact: true }),
-      listStoryCharacters(authToken),
-      listStoryInstructionTemplates(authToken),
-      listFavoriteCommunityWorlds(authToken),
+      listStoryGames(authToken, {
+        compact: true,
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        sort: toProfileGameApiSort(gameSortMode),
+        query: normalizedContentSearchQuery || undefined,
+      }),
+      listStoryCharacters(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        query: normalizedContentSearchQuery || undefined,
+        includeEmotionAssets: false,
+      }),
+      listStoryInstructionTemplates(authToken, {
+        limit: PROFILE_SERVER_REQUEST_SIZE,
+        query: normalizedContentSearchQuery || undefined,
+      }),
+      listFavoriteCommunityWorlds(authToken, { limit: PROFILE_SERVER_REQUEST_SIZE }),
     ])
 
     const nextErrors: string[] = []
 
     if (gamesResult.status === 'fulfilled') {
-      setOwnGames(gamesResult.value)
+      const page = splitProfileServerPage(gamesResult.value)
+      setOwnGames(page.items)
+      setHasMoreOwnGamesServer(page.hasMore)
     } else {
       setOwnGames([])
+      setHasMoreOwnGamesServer(false)
       nextErrors.push(
         gamesResult.reason instanceof Error
           ? gamesResult.reason.message
@@ -1296,9 +1550,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
 
     if (charactersResult.status === 'fulfilled') {
-      setCharacters(charactersResult.value)
+      const page = splitProfileServerPage(charactersResult.value)
+      setCharacters(page.items)
+      setHasMoreCharactersServer(page.hasMore)
     } else {
       setCharacters([])
+      setHasMoreCharactersServer(false)
       nextErrors.push(
         charactersResult.reason instanceof Error
           ? charactersResult.reason.message
@@ -1307,9 +1564,12 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
 
     if (templatesResult.status === 'fulfilled') {
-      setTemplates(templatesResult.value)
+      const page = splitProfileServerPage(templatesResult.value)
+      setTemplates(page.items)
+      setHasMoreTemplatesServer(page.hasMore)
     } else {
       setTemplates([])
+      setHasMoreTemplatesServer(false)
       nextErrors.push(
         templatesResult.reason instanceof Error
           ? templatesResult.reason.message
@@ -1318,10 +1578,13 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     }
 
     if (favoritesResult.status === 'fulfilled') {
-      setFavoriteWorlds(favoritesResult.value)
+      const page = splitProfileServerPage(favoritesResult.value)
+      setFavoriteWorlds(page.items)
+      setHasMoreFavoriteWorldsServer(page.hasMore)
       setHasLoadedFavoriteWorlds(true)
     } else {
       setFavoriteWorlds([])
+      setHasMoreFavoriteWorldsServer(false)
       setHasLoadedFavoriteWorlds(false)
       nextErrors.push(
         favoritesResult.reason instanceof Error
@@ -1334,24 +1597,28 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setIsLoadingContent(false)
     setIsOwnGamesLoading(false)
     setIsFavoriteWorldsLoading(false)
-  }, [authToken, isOwnProfile])
+  }, [authToken, gameSortMode, isOwnProfile, normalizedContentSearchQuery])
 
   const loadFavoriteWorlds = useCallback(async () => {
     if (!isOwnProfile) {
       setFavoriteWorlds([])
       setHasLoadedFavoriteWorlds(false)
+      setHasMoreFavoriteWorldsServer(false)
       return
     }
 
     setIsFavoriteWorldsLoading(true)
     setError('')
     try {
-      const loadedFavorites = await listFavoriteCommunityWorlds(authToken)
-      setFavoriteWorlds(loadedFavorites)
+      const loadedFavorites = await listFavoriteCommunityWorlds(authToken, { limit: PROFILE_SERVER_REQUEST_SIZE })
+      const page = splitProfileServerPage(loadedFavorites)
+      setFavoriteWorlds(page.items)
+      setHasMoreFavoriteWorldsServer(page.hasMore)
       setHasLoadedFavoriteWorlds(true)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить любимые миры'
       setError(detail)
+      setHasMoreFavoriteWorldsServer(false)
     } finally {
       setIsFavoriteWorldsLoading(false)
     }
@@ -1618,6 +1885,14 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
     setOwnGames([])
     setFavoriteWorlds([])
     setHasLoadedFavoriteWorlds(false)
+    setHasMoreOwnGamesServer(false)
+    setHasMoreCharactersServer(false)
+    setHasMoreTemplatesServer(false)
+    setHasMoreFavoriteWorldsServer(false)
+    setIsOwnGamesLoadingMore(false)
+    setIsCharactersLoadingMore(false)
+    setIsTemplatesLoadingMore(false)
+    setIsFavoriteWorldsLoadingMore(false)
     setNotifications([])
     setNotificationCounts({ unread_count: 0, total_count: 0 })
     setHasLoadedNotifications(false)
@@ -2600,6 +2875,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             />
           ))}
         </Stack>
+        {isOwnGamesLoadingMore ? (
+          <Stack alignItems="center" sx={{ py: 0.7 }}>
+            <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+          </Stack>
+        ) : null}
         {hasMoreOwnGames ? <Box ref={loadMoreOwnGamesRef} sx={{ height: 1, width: '100%' }} /> : null}
       </>
     )
@@ -2690,6 +2970,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                 />
               ))}
             </Box>
+            {isCharactersLoadingMore ? (
+              <Stack alignItems="center" sx={{ py: 0.7 }}>
+                <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+              </Stack>
+            ) : null}
             {hasMoreCharacters ? <Box ref={loadMoreCharactersRef} sx={{ height: 1, width: '100%' }} /> : null}
           </>
         )}
@@ -2799,6 +3084,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               </ButtonBase>
             ))}
             </Box>
+            {isTemplatesLoadingMore ? (
+              <Stack alignItems="center" sx={{ py: 0.7 }}>
+                <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+              </Stack>
+            ) : null}
             {hasMoreTemplates ? <Box ref={loadMoreTemplatesRef} sx={{ height: 1, width: '100%' }} /> : null}
           </>
         )}
@@ -2836,6 +3126,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             />
           ))}
         </Box>
+        {isFavoriteWorldsLoadingMore ? (
+          <Stack alignItems="center" sx={{ py: 0.7 }}>
+            <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+          </Stack>
+        ) : null}
         {hasMoreFavoriteWorlds ? <Box ref={loadMoreFavoriteWorldsRef} sx={{ height: 1, width: '100%' }} /> : null}
       </>
     )
@@ -3433,6 +3728,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               )
             })}
           </Box>
+          {isOwnGamesLoadingMore ? (
+            <Stack alignItems="center" sx={{ py: 0.7 }}>
+              <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+            </Stack>
+          ) : null}
           {hasMoreProfilePublicationGames ? <Box ref={loadMoreProfilePublicationGamesRef} sx={{ height: 2 }} /> : null}
         </>
       )
@@ -3480,6 +3780,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
               )
             })}
           </Box>
+          {isCharactersLoadingMore ? (
+            <Stack alignItems="center" sx={{ py: 0.7 }}>
+              <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+            </Stack>
+          ) : null}
           {hasMoreProfilePublicationCharacters ? <Box ref={loadMoreProfilePublicationCharactersRef} sx={{ height: 2 }} /> : null}
         </>
       )
@@ -3525,6 +3830,11 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
             )
           })}
         </Box>
+        {isTemplatesLoadingMore ? (
+          <Stack alignItems="center" sx={{ py: 0.7 }}>
+            <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+          </Stack>
+        ) : null}
         {hasMoreProfilePublicationTemplates ? <Box ref={loadMoreProfilePublicationTemplatesRef} sx={{ height: 2 }} /> : null}
       </>
     )
@@ -3792,7 +4102,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     },
                   }}
                 >
-                  {coins.toLocaleString('ru-RU')} солов
+                  <SoulAmount amount={coins} iconSize={15} fontSize="0.78rem" />
                 </Button>
               </Stack>
 
@@ -3859,7 +4169,10 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                     },
                   }}
                 >
-                  Солы: {coins.toLocaleString('ru-RU')}
+                  <Stack component="span" direction="row" spacing={0.6} alignItems="center">
+                    <Box component="span">Баланс</Box>
+                    <SoulAmount amount={coins} iconSize={15} fontSize="0.9rem" />
+                  </Stack>
                 </Button>
               </Stack>
             </Stack>
@@ -4411,7 +4724,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                                   },
                                 }}
                               >
-                                {coins.toLocaleString('ru-RU')} Солов
+                                <SoulAmount amount={coins} iconSize={14} fontSize="0.72rem" />
                               </Button>
                             </Stack>
                           ) : null}
@@ -4448,7 +4761,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                             },
                           }}
                         >
-                          {coins.toLocaleString('ru-RU')} Солов
+                          <SoulAmount amount={coins} iconSize={14} fontSize="12px" />
                         </Button>
                       </Box>
                     ) : null}
@@ -4469,7 +4782,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                               Пригласи друга
                             </Typography>
                             <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.78rem', fontWeight: 900 }}>
-                              +500 солов
+                              <SoulAmount amount="+500" iconSize={15} fontSize="0.78rem" />
                             </Typography>
                           </Stack>
                           <Button
@@ -5177,7 +5490,7 @@ function ProfilePage({ user, authToken, onNavigate, onUserUpdate, onLogout, view
                         </Typography>
                       </Stack>
                       <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                        Друг получит +500 солов после первой покупки, и ты тоже получишь +500.
+                        Друг получит <SoulAmount amount="+500" iconSize={13} fontSize="0.78rem" /> после первой покупки, и ты тоже получишь <SoulAmount amount="+500" iconSize={13} fontSize="0.78rem" />.
                       </Typography>
                       {isReferralSummaryLoading && !referralSummary ? (
                         <Skeleton variant="rounded" height={34} sx={{ borderRadius: '8px', bgcolor: 'rgba(184, 201, 226, 0.16)' }} />

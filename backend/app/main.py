@@ -11,6 +11,7 @@ import time
 from binascii import Error as BinasciiError
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+from pathlib import Path
 from threading import Lock, Thread
 from typing import Any
 from uuid import uuid4
@@ -22,6 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -119,6 +121,7 @@ from app.services.story_characters import (
     normalize_story_character_health_status as _normalize_story_character_health_status,
     normalize_story_character_inventory as _normalize_story_character_inventory,
     normalize_story_character_race as _normalize_story_character_race,
+    normalize_story_character_text_color as _normalize_story_character_text_color,
 )
 from app.services.story_emotions import (
     STORY_CHARACTER_EMOTION_IDS as _STORY_CHARACTER_EMOTION_IDS,
@@ -838,6 +841,119 @@ STORY_NPC_GENERIC_NAME_TOKENS = {
     "thugs",
     "villager",
     "villagers",
+}
+STORY_NPC_ROLE_TITLE_TOKENS = {
+    "профессор",
+    "професор",
+    "профессорша",
+    "директор",
+    "директриса",
+    "директрисса",
+    "ректор",
+    "декан",
+    "завуч",
+    "куратор",
+    "учитель",
+    "учительница",
+    "преподаватель",
+    "преподавательница",
+    "наставник",
+    "наставница",
+    "мастер",
+    "магистр",
+    "доктор",
+    "врач",
+    "лекарь",
+    "целитель",
+    "капитан",
+    "командир",
+    "офицер",
+    "генерал",
+    "сержант",
+    "лейтенант",
+    "майор",
+    "адмирал",
+    "начальник",
+    "начальница",
+    "управляющий",
+    "управляющая",
+    "король",
+    "королева",
+    "принц",
+    "принцесса",
+    "князь",
+    "княгиня",
+    "герцог",
+    "герцогиня",
+    "граф",
+    "графиня",
+    "барон",
+    "баронесса",
+    "лорд",
+    "леди",
+    "сэр",
+    "сир",
+    "милорд",
+    "миледи",
+    "жрец",
+    "жрица",
+    "священник",
+    "священница",
+    "монах",
+    "монахиня",
+    "ведьма",
+    "колдун",
+    "колдунья",
+    "маг",
+    "волшебник",
+    "волшебница",
+    "алхимик",
+    "инквизитор",
+    "инквизиторша",
+    "следователь",
+    "следовательница",
+    "детектив",
+    "инспектор",
+    "агент",
+    "агентка",
+    "professor",
+    "principal",
+    "headmistress",
+    "headmaster",
+    "director",
+    "dean",
+    "teacher",
+    "tutor",
+    "mentor",
+    "doctor",
+    "captain",
+    "commander",
+    "officer",
+    "general",
+    "lieutenant",
+    "sergeant",
+    "major",
+    "admiral",
+    "king",
+    "queen",
+    "prince",
+    "princess",
+    "duke",
+    "duchess",
+    "count",
+    "countess",
+    "baron",
+    "baroness",
+    "lord",
+    "lady",
+    "sir",
+    "priest",
+    "witch",
+    "wizard",
+    "mage",
+    "detective",
+    "inspector",
+    "agent",
 }
 STORY_NPC_NON_NAME_TOKENS = {
     "он",
@@ -1563,6 +1679,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SHOP_ASSETS_DIR_CANDIDATES = (
+    Path(__file__).resolve().parents[2] / "frontend" / "public" / "shop-assets",
+    Path(__file__).resolve().parents[2] / "frontend" / "dist" / "shop-assets",
+)
+for shop_assets_dir in SHOP_ASSETS_DIR_CANDIDATES:
+    if shop_assets_dir.is_dir():
+        app.mount("/shop-assets", StaticFiles(directory=str(shop_assets_dir)), name="shop-assets")
+        break
+
 app.include_router(auth_router)
 app.include_router(downloads_router)
 app.include_router(health_router)
@@ -1737,6 +1863,10 @@ def _ensure_story_games_fallback_support(*, require_community_models: bool = Fal
 def list_story_games_fallback(
     compact: bool = False,
     limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="updated_desc", max_length=24),
+    search_query: str = Query(default="", max_length=120, alias="query"),
+    visibility: str = Query(default="all", max_length=16),
     authorization: str | None = Header(default=None),
 ) -> list[StoryGameSummaryOut]:
     if story_games_router is not None:
@@ -1751,10 +1881,35 @@ def list_story_games_fallback(
         query = (
             select(StoryGame)
             .where(StoryGame.user_id == user.id)
-            .order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
         )
+        normalized_visibility = str(visibility or "").strip().lower()
+        if normalized_visibility == STORY_GAME_VISIBILITY_PUBLIC:
+            query = query.where(StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC)
+        elif normalized_visibility == STORY_GAME_VISIBILITY_PRIVATE:
+            query = query.where(StoryGame.visibility != STORY_GAME_VISIBILITY_PUBLIC)
+
+        normalized_search_query = " ".join(str(search_query or "").split()).strip()
+        if normalized_search_query:
+            search_pattern = f"%{normalized_search_query}%"
+            query = query.where(
+                StoryGame.title.ilike(search_pattern)
+                | StoryGame.description.ilike(search_pattern)
+                | StoryGame.opening_scene.ilike(search_pattern)
+            )
+
+        normalized_sort = str(sort or "").strip().lower()
+        if normalized_sort == "updated_asc":
+            query = query.order_by(StoryGame.last_activity_at.asc(), StoryGame.id.asc())
+        elif normalized_sort == "created_desc":
+            query = query.order_by(StoryGame.created_at.desc(), StoryGame.id.desc())
+        elif normalized_sort == "created_asc":
+            query = query.order_by(StoryGame.created_at.asc(), StoryGame.id.asc())
+        else:
+            query = query.order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
         if limit is not None:
             query = query.limit(limit)
+        if offset > 0:
+            query = query.offset(offset)
         games = db.scalars(query).all()
         if not games:
             return []
@@ -2590,7 +2745,11 @@ def _is_story_npc_single_token_person_name_like(token: str) -> bool:
     normalized_token = token.strip().casefold()
     if not normalized_token:
         return False
-    if normalized_token in STORY_NPC_GENERIC_NAME_TOKENS or normalized_token in STORY_NPC_NON_NAME_TOKENS:
+    if (
+        normalized_token in STORY_NPC_GENERIC_NAME_TOKENS
+        or normalized_token in STORY_NPC_ROLE_TITLE_TOKENS
+        or normalized_token in STORY_NPC_NON_NAME_TOKENS
+    ):
         return False
     if normalized_token.isdigit():
         return False
@@ -2635,14 +2794,20 @@ def _is_story_generic_npc_name(value: str) -> bool:
         return True
     if any(token in STORY_NPC_NON_NAME_TOKENS for token in tokens):
         return True
+    role_or_generic_tokens = STORY_NPC_GENERIC_NAME_TOKENS | STORY_NPC_ROLE_TITLE_TOKENS
+    if all(token in role_or_generic_tokens for token in tokens):
+        return True
     if len(tokens) == 1:
         token = tokens[0]
-        if token in STORY_NPC_GENERIC_NAME_TOKENS:
+        if token in role_or_generic_tokens:
             return True
         return not _is_story_npc_single_token_person_name_like(token)
     if len(tokens) <= 3:
-        if all(token in STORY_NPC_GENERIC_NAME_TOKENS for token in tokens):
+        candidate_name_tokens = [token for token in tokens if token not in role_or_generic_tokens]
+        if not candidate_name_tokens:
             return True
+        if tokens[0] in role_or_generic_tokens:
+            return not any(_is_story_npc_single_token_person_name_like(token) for token in candidate_name_tokens)
         return not _is_story_npc_single_token_person_name_like(tokens[0])
     return False
 
@@ -3025,13 +3190,18 @@ def _is_story_world_card_title_ephemeral(value: str) -> bool:
 
 
 def _normalize_story_identity_key(value: str) -> str:
-    return " ".join(value.split()).strip().casefold()
+    return " ".join(_normalize_story_match_tokens(value)).strip()
 
 
 def _filter_story_identity_triggers(title: str, triggers: list[str]) -> list[str]:
     title_key = _normalize_story_identity_key(title)
     title_tokens = _normalize_story_match_tokens(title)
     primary_title_token = title_tokens[0] if title_tokens else ""
+    title_identity_tokens = {
+        token
+        for token in title_tokens
+        if token in STORY_NPC_ROLE_TITLE_TOKENS or _is_story_npc_single_token_person_name_like(token)
+    }
     filtered: list[str] = []
 
     for trigger in triggers:
@@ -3049,6 +3219,14 @@ def _filter_story_identity_triggers(title: str, triggers: list[str]) -> list[str
         trigger_tokens = _normalize_story_match_tokens(trigger_value)
         if not trigger_tokens or not primary_title_token:
             continue
+        trigger_identity_tokens = {
+            token
+            for token in trigger_tokens
+            if token in STORY_NPC_ROLE_TITLE_TOKENS or _is_story_npc_single_token_person_name_like(token)
+        }
+        if title_identity_tokens and trigger_identity_tokens and title_identity_tokens.intersection(trigger_identity_tokens):
+            filtered.append(trigger_value)
+            continue
         primary_trigger_token = trigger_tokens[0]
         if (
             primary_trigger_token == primary_title_token
@@ -3060,24 +3238,58 @@ def _filter_story_identity_triggers(title: str, triggers: list[str]) -> list[str
     return filtered
 
 
+def _normalize_story_role_identity_token(token: str) -> str:
+    normalized_token = token.strip().casefold().replace("ё", "е")
+    aliases = {
+        "директрисса": "директриса",
+        "професор": "профессор",
+    }
+    return aliases.get(normalized_token, normalized_token)
+
+
+def _is_story_identity_name_token(token: str) -> bool:
+    normalized_token = token.strip().casefold().replace("ё", "е")
+    return len(normalized_token) >= 3 and _is_story_npc_single_token_person_name_like(normalized_token)
+
+
 def _build_story_identity_keys(title: str, triggers: list[str]) -> set[str]:
     keys: set[str] = set()
+    role_or_generic_tokens = STORY_NPC_GENERIC_NAME_TOKENS | STORY_NPC_ROLE_TITLE_TOKENS
 
-    title_key = _normalize_story_identity_key(title)
-    if title_key:
-        keys.add(title_key)
+    for raw_value in [title, *triggers]:
+        raw_text = str(raw_value or "")
+        is_context_blob = len(raw_text) > 180 or "\n" in raw_text
+        identity_key = _normalize_story_identity_key(raw_value)
+        if identity_key and not is_context_blob:
+            keys.add(identity_key)
+        value_tokens = _normalize_story_match_tokens(raw_value)
+        if not value_tokens:
+            continue
 
-    title_tokens = _normalize_story_match_tokens(title)
-    if title_tokens and len(title_tokens[0]) >= 4:
-        keys.add(title_tokens[0])
+        for token in value_tokens:
+            if token in STORY_NPC_ROLE_TITLE_TOKENS:
+                role_token = _normalize_story_role_identity_token(token)
+                if role_token:
+                    keys.add(f"role:{role_token}")
+        if is_context_blob:
+            continue
 
-    for trigger in triggers:
-        trigger_key = _normalize_story_identity_key(trigger)
-        if trigger_key:
-            keys.add(trigger_key)
-        trigger_tokens = _normalize_story_match_tokens(trigger)
-        if trigger_tokens and len(trigger_tokens[0]) >= 4:
-            keys.add(trigger_tokens[0])
+        specific_tokens = [
+            token
+            for token in value_tokens
+            if token not in role_or_generic_tokens and token not in STORY_NPC_NON_NAME_TOKENS
+        ]
+        if specific_tokens:
+            specific_key = " ".join(specific_tokens)
+            if specific_key:
+                keys.add(specific_key)
+            if len(specific_tokens[0]) >= 3:
+                keys.add(specific_tokens[0])
+
+        for token in value_tokens:
+            if _is_story_identity_name_token(token):
+                keys.add(token)
+                keys.add(f"name:{token}")
 
     return keys
 
@@ -3088,16 +3300,29 @@ def _are_story_identity_keys_related(left: str, right: str) -> bool:
     if left == right:
         return True
 
-    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
-    if len(shorter) >= 4 and longer.startswith(shorter):
-        return True
+    left_prefix, _, left_value = left.partition(":")
+    right_prefix, _, right_value = right.partition(":")
+    if left_value and right_value and left_prefix in {"name", "role"} and right_prefix in {"name", "role"}:
+        if left_prefix != right_prefix:
+            return False
+        shorter_value, longer_value = (left_value, right_value) if len(left_value) <= len(right_value) else (right_value, left_value)
+        return len(shorter_value) >= 4 and longer_value.startswith(shorter_value)
+    if left_value or right_value:
+        return False
 
+    shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
     shorter_tokens = _normalize_story_match_tokens(shorter)
     longer_tokens = _normalize_story_match_tokens(longer)
+    role_or_generic_tokens = STORY_NPC_GENERIC_NAME_TOKENS | STORY_NPC_ROLE_TITLE_TOKENS
+    if len(shorter) >= 4 and longer.startswith(shorter):
+        if shorter_tokens and all(token in role_or_generic_tokens for token in shorter_tokens):
+            return False
+        return True
+
     if shorter_tokens and longer_tokens:
         first_short = shorter_tokens[0]
         first_long = longer_tokens[0]
-        if len(first_short) >= 4 and first_short == first_long:
+        if len(first_short) >= 4 and first_short == first_long and first_short not in role_or_generic_tokens:
             return True
 
     return False
@@ -3113,8 +3338,13 @@ def _is_story_npc_identity_duplicate(
     if not candidate_keys:
         return False
 
+    candidate_has_name_identity = any(key.startswith("name:") for key in candidate_keys)
     for candidate_key in candidate_keys:
+        if candidate_has_name_identity and candidate_key.startswith("role:"):
+            continue
         for known_key in known_identity_keys:
+            if candidate_has_name_identity and known_key.startswith("role:"):
+                continue
             if _are_story_identity_keys_related(candidate_key, known_key):
                 return True
     return False
@@ -3123,13 +3353,46 @@ def _is_story_npc_identity_duplicate(
 def _build_story_known_npc_identity_keys(cards: list[StoryWorldCard]) -> set[str]:
     known_keys: set[str] = set()
     for card in cards:
-        card_kind = _normalize_story_world_card_kind(card.kind)
-        if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
-            continue
-        raw_triggers = _deserialize_story_world_card_triggers(card.triggers)
-        identity_triggers = _filter_story_identity_triggers(card.title, raw_triggers)
-        known_keys.update(_build_story_identity_keys(card.title, identity_triggers))
+        known_keys.update(_build_story_card_identity_keys(card))
     return known_keys
+
+
+def _build_story_card_identity_keys(card: StoryWorldCard) -> set[str]:
+    card_kind = _normalize_story_world_card_kind(card.kind)
+    if card_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
+        return set()
+    raw_triggers = _deserialize_story_world_card_triggers(card.triggers)
+    identity_triggers = _filter_story_identity_triggers(card.title, raw_triggers)
+    content_value = _normalize_story_message_content(getattr(card, "content", None))
+    identity_sources = [*identity_triggers]
+    if content_value:
+        identity_sources.append(content_value)
+    return _build_story_identity_keys(card.title, identity_sources)
+
+
+def _find_story_npc_identity_duplicate_card(
+    *,
+    candidate_name: str,
+    candidate_triggers: list[str],
+    existing_cards: list[StoryWorldCard],
+) -> StoryWorldCard | None:
+    candidate_keys = _build_story_identity_keys(candidate_name, candidate_triggers)
+    if not candidate_keys:
+        return None
+    candidate_has_name_identity = any(key.startswith("name:") for key in candidate_keys)
+    for card in existing_cards:
+        known_keys = _build_story_card_identity_keys(card)
+        if not known_keys:
+            continue
+        for candidate_key in candidate_keys:
+            if candidate_has_name_identity and candidate_key.startswith("role:"):
+                continue
+            for known_key in known_keys:
+                if candidate_has_name_identity and known_key.startswith("role:"):
+                    continue
+                if _are_story_identity_keys_related(candidate_key, known_key):
+                    return card
+    return None
 
 
 def _extract_story_npc_dialogue_mentions(assistant_text: str) -> list[dict[str, Any]]:
@@ -3779,6 +4042,8 @@ def _story_world_card_snapshot_from_card(card: StoryWorldCard) -> dict[str, Any]
         "inventory": _normalize_story_character_inventory(getattr(card, "inventory", "")),
         "health_status": _normalize_story_character_health_status(getattr(card, "health_status", "")),
         "triggers": _deserialize_story_world_card_triggers(card.triggers),
+        "name_color": _normalize_story_character_text_color(getattr(card, "name_color", "")),
+        "speech_color": _normalize_story_character_text_color(getattr(card, "speech_color", "")),
         "kind": card_kind,
         "detail_type": " ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
         "avatar_url": _normalize_avatar_value(card.avatar_url),
@@ -3832,6 +4097,26 @@ def _normalize_story_match_tokens(value: str | None) -> list[str]:
 
 def _normalize_story_message_content(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
+
+
+STORY_CONTINUE_PROMPT_MARKERS = {
+    "продолжай",
+    "продолжить",
+    "continue",
+}
+STORY_CONTINUE_PROMPT_REPLACEMENT = (
+    "Продолжай текущую сцену строго с того места, где остановился предыдущий ответ рассказчика. "
+    "Не повторяй уже написанные фразы, описания и действия. Добавь новое событие, реакцию, последствие или выбор, "
+    "сохраняя стиль и причинно-следственную связь."
+)
+
+
+def _normalize_story_continue_prompt_marker(value: str) -> str:
+    return " ".join(value.replace("\r\n", " ").replace("\n", " ").split()).strip(" \t.!?…:;,-").casefold()
+
+
+def _is_story_continue_prompt(value: str) -> bool:
+    return _normalize_story_continue_prompt_marker(value) in STORY_CONTINUE_PROMPT_MARKERS
 
 
 def _normalize_story_match_token_script(token: str) -> str:
@@ -6636,6 +6921,36 @@ def _select_story_history_source(
 
     latest_user_turn = {"role": STORY_USER_ROLE, "content": latest_user_content}
 
+    if _is_story_continue_prompt(latest_user_content):
+        latest_user_turn = {"role": STORY_USER_ROLE, "content": STORY_CONTINUE_PROMPT_REPLACEMENT}
+        previous_assistant_turn: dict[str, str] | None = None
+        previous_user_turn: dict[str, str] | None = None
+        previous_assistant_index: int | None = None
+        for index in range(latest_user_index - 1, -1, -1):
+            item = history[index]
+            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+            content = str(item.get("content", "")).strip()
+            if role != STORY_ASSISTANT_ROLE or not content:
+                continue
+            previous_assistant_turn = {"role": STORY_ASSISTANT_ROLE, "content": content}
+            previous_assistant_index = index
+            break
+        if previous_assistant_index is not None:
+            for item in reversed(history[:previous_assistant_index]):
+                role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+                content = str(item.get("content", "")).strip()
+                if role != STORY_USER_ROLE or not content:
+                    continue
+                previous_user_turn = {"role": STORY_USER_ROLE, "content": content}
+                break
+        selected_turns = [
+            item
+            for item in (previous_user_turn, previous_assistant_turn, latest_user_turn)
+            if item is not None
+        ]
+        if selected_turns:
+            return selected_turns
+
     # Ensure the opening scene is present for the very first user turn.
     # Runtime seeds opening_scene as the first assistant message before turn 1.
     if user_turn_count == 1:
@@ -7453,7 +7768,10 @@ def _build_story_world_card_change_messages(
                 "4) Не update/delete карточки с is_locked=true или ai_edit_enabled=false. "
                 "5) Для add/update давай полный актуальный content и полезные triggers. "
                 "6) NPC должен быть конкретным именованным персонажем, без generic названий. "
-                f"7) Максимум {STORY_WORLD_CARD_MAX_AI_CHANGES} операций; если изменений нет, верни []."
+                "7) Перед add NPC проверь все текущие карточки по title, triggers и content: если персонаж уже есть под именем, прозвищем, титулом, должностью или ролью, делай update этой карточки по card_id, а не add. "
+                "8) Не создавай role-only NPC вроде \"Профессор\", \"Директриса\", \"Охранник\", \"Director\", \"Professor\"; без личного имени это не новая карточка. "
+                "9) В triggers NPC добавляй имя, прозвища/алиасы, титул/должность и уникальные признаки, чтобы следующий проход не создал дубль. "
+                f"10) Максимум {STORY_WORLD_CARD_MAX_AI_CHANGES} операций; если изменений нет, верни []."
             ) if compact_mode else (
                 "You update long-term world memory for an interactive RPG session. "
                 "Return strict JSON array without markdown.\n"
@@ -7479,9 +7797,12 @@ def _build_story_world_card_change_messages(
                 "8) NPC cards must describe a specific named character only, not a faceless group.\n"
                 "9) For NPC add/update title must be character name; content must include appearance/personality and important details.\n"
                 "10) Do not create generic NPC names like \"bandit\", \"guards\", \"soldiers\" without a unique name.\n"
-                "11) If a new speaking/thinking character appears in format [[NPC:Name]] or [[NPC_THOUGHT:Name]] and there is no such NPC card yet, "
+                "11) Before adding an NPC, compare against every existing card's title, triggers, and content. If the same person already exists under a name, alias, title, job, role, or unique descriptor, return update with that card_id instead of add.\n"
+                "12) Never add role-only NPC cards such as \"Professor\", \"Headmistress\", \"Director\", \"Guard\", \"Профессор\", or \"Директриса\". A new NPC must have a personal name or a unique stable alias.\n"
+                "13) For NPC triggers include the personal name, aliases/nicknames, titles/jobs/roles, and unique descriptors so future turns can match the same person.\n"
+                "14) If a new speaking/thinking character appears in format [[NPC:Name]] or [[NPC_THOUGHT:Name]] and there is no such NPC card yet, "
                 "add it as kind \"npc\".\n"
-                f"12) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
+                f"15) Return at most {STORY_WORLD_CARD_MAX_AI_CHANGES} operations. Return [] if no important changes."
             ),
         },
         {
@@ -7493,6 +7814,7 @@ def _build_story_world_card_change_messages(
                 "Верни только JSON-массив."
             ) if compact_mode else (
                 f"Player action:\n{prompt_preview}\n\n"
+                f"Narrator response:\n{assistant_preview}\n\n"
                 f"Existing world cards JSON:\n{existing_cards_json}\n\n"
                 "Return JSON array only."
             ),
@@ -7560,6 +7882,7 @@ def _normalize_story_world_card_change_operations(
     normalized_operations: list[dict[str, Any]] = []
     seen_target_ids: set[int] = set()
     seen_added_title_keys: set[str] = set()
+    seen_added_identity_keys: set[str] = set()
 
     for raw_item in raw_operations:
         if not isinstance(raw_item, dict):
@@ -7625,6 +7948,29 @@ def _normalize_story_world_card_change_operations(
                 target_card = existing_by_title.get(title_key)
                 if target_card is not None:
                     action = STORY_WORLD_CARD_EVENT_UPDATED
+            if action == STORY_WORLD_CARD_EVENT_ADDED and target_card is None and ai_card_kind == STORY_WORLD_CARD_KIND_NPC:
+                candidate_identity_triggers = _filter_story_identity_triggers(title, triggers)
+                candidate_identity_sources = candidate_identity_triggers or [title]
+                if content:
+                    candidate_identity_sources = [*candidate_identity_sources, content]
+                duplicate_card = _find_story_npc_identity_duplicate_card(
+                    candidate_name=title,
+                    candidate_triggers=candidate_identity_sources,
+                    existing_cards=existing_cards,
+                )
+                if duplicate_card is not None:
+                    duplicate_kind = _normalize_story_world_card_kind(duplicate_card.kind)
+                    if duplicate_kind == STORY_WORLD_CARD_KIND_MAIN_HERO:
+                        continue
+                    target_card = duplicate_card
+                    action = STORY_WORLD_CARD_EVENT_UPDATED
+                    candidate_title = title
+                    current_title = " ".join(target_card.title.split()).strip()
+                    title = current_title or title
+                    triggers = _normalize_story_world_card_triggers(
+                        [candidate_title, *triggers],
+                        fallback_title=title,
+                    )
 
             if (
                 action == STORY_WORLD_CARD_EVENT_ADDED
@@ -7638,6 +7984,16 @@ def _normalize_story_world_card_change_operations(
                     if _is_story_generic_npc_name(title):
                         continue
                     content = _normalize_story_npc_profile_content(title, content)
+                    pending_identity_triggers = _filter_story_identity_triggers(title, triggers)
+                    pending_identity_sources = pending_identity_triggers or [title]
+                    if content:
+                        pending_identity_sources = [*pending_identity_sources, content]
+                    if _is_story_npc_identity_duplicate(
+                        candidate_name=title,
+                        candidate_triggers=pending_identity_sources,
+                        known_identity_keys=seen_added_identity_keys,
+                    ):
+                        continue
                 if title_key in seen_added_title_keys:
                     continue
                 changed_text = _normalize_story_world_card_changed_text(
@@ -7655,6 +8011,8 @@ def _normalize_story_world_card_change_operations(
                     }
                 )
                 seen_added_title_keys.add(title_key)
+                if ai_card_kind == STORY_WORLD_CARD_KIND_NPC:
+                    seen_added_identity_keys.update(_build_story_identity_keys(title, pending_identity_sources))
                 if len(normalized_operations) >= STORY_WORLD_CARD_MAX_AI_CHANGES:
                     break
                 continue
@@ -8195,15 +8553,14 @@ def _apply_story_world_card_change_operations(
                     existing_kind = _normalize_story_world_card_kind(existing_card.kind)
                     if existing_kind not in {STORY_WORLD_CARD_KIND_NPC, STORY_WORLD_CARD_KIND_MAIN_HERO}:
                         continue
-                    raw_existing_triggers = _deserialize_story_world_card_triggers(existing_card.triggers)
-                    existing_identity_triggers = _filter_story_identity_triggers(existing_card.title, raw_existing_triggers)
-                    existing_identity_keys = _build_story_identity_keys(existing_card.title, existing_identity_triggers)
+                    existing_identity_keys = _build_story_card_identity_keys(existing_card)
                     candidate_identity_triggers = _filter_story_identity_triggers(candidate_name, normalized_triggers)
-                    if not candidate_identity_triggers:
-                        candidate_identity_triggers = [candidate_name]
+                    candidate_identity_sources = candidate_identity_triggers or [candidate_name]
+                    if normalized_content:
+                        candidate_identity_sources = [*candidate_identity_sources, normalized_content]
                     if _is_story_npc_identity_duplicate(
                         candidate_name=candidate_name,
-                        candidate_triggers=candidate_identity_triggers,
+                        candidate_triggers=candidate_identity_sources,
                         known_identity_keys=existing_identity_keys,
                     ):
                         duplicate_npc_exists = True
@@ -11956,6 +12313,114 @@ def _build_story_turn_image_latest_scene_focus_text(assistant_text: str, *, max_
     return _trim_story_turn_image_prompt_tail_text(merged_scene_focus, max_chars=max_chars)
 
 
+def _build_story_turn_image_environment_context(*, db: Session, game: StoryGame) -> str:
+    context_lines: list[str] = []
+
+    def _append_context(label: str, value: Any, *, max_chars: int = 700) -> None:
+        normalized_value = _normalize_story_prompt_text(
+            _normalize_story_markup_to_plain_text(str(value or "")),
+            max_chars=max_chars,
+        )
+        if normalized_value:
+            context_lines.append(f"{label}: {normalized_value}")
+
+    raw_location_label = " ".join(str(getattr(game, "current_location_label", "") or "").split()).strip()
+    location_memory_content = ""
+    story_memory_pipeline: Any | None = None
+    try:
+        from app.services import story_memory_pipeline as imported_story_memory_pipeline
+
+        story_memory_pipeline = imported_story_memory_pipeline
+    except Exception:
+        story_memory_pipeline = None
+
+    if story_memory_pipeline is not None:
+        try:
+            location_memory_content = story_memory_pipeline._get_story_latest_location_memory_content(
+                db=db,
+                game_id=int(game.id),
+            )
+        except Exception:
+            location_memory_content = ""
+
+    resolved_location_label = raw_location_label
+    if not resolved_location_label:
+        try:
+            resolved_location_label = _resolve_story_current_location_label(
+                raw_location_label,
+                _list_story_memory_blocks(db, int(game.id)),
+            ) or ""
+        except Exception:
+            resolved_location_label = ""
+    if not resolved_location_label and location_memory_content:
+        resolved_location_label = _strip_story_location_time_context(location_memory_content).strip(" .,:;!?…")
+
+    _append_context("Current place module", resolved_location_label)
+    if location_memory_content and location_memory_content.casefold() != resolved_location_label.casefold():
+        _append_context("Latest place memory", location_memory_content)
+
+    time_enabled = False
+    weather_enabled = False
+    if story_memory_pipeline is not None:
+        try:
+            time_enabled = bool(story_memory_pipeline._story_environment_time_enabled_for_game(game))
+        except Exception:
+            time_enabled = False
+        try:
+            weather_enabled = bool(story_memory_pipeline._story_environment_weather_enabled_for_game(game))
+        except Exception:
+            weather_enabled = False
+    else:
+        time_enabled = bool(getattr(game, "environment_time_enabled", None) or getattr(game, "environment_enabled", None))
+        weather_enabled = bool(getattr(game, "environment_weather_enabled", None) or getattr(game, "environment_enabled", None))
+
+    if time_enabled:
+        time_context = ""
+        if story_memory_pipeline is not None:
+            try:
+                time_prompt_card = story_memory_pipeline._build_story_environment_time_prompt_card(game)
+            except Exception:
+                time_prompt_card = None
+            if isinstance(time_prompt_card, dict):
+                time_title = " ".join(str(time_prompt_card.get("title", "")).split()).strip()
+                time_content = str(time_prompt_card.get("content", "")).replace("\r\n", "\n").strip()
+                time_context = f"{time_title}: {time_content}" if time_title and time_content else time_content
+            if not time_context:
+                try:
+                    current_datetime = story_memory_pipeline._deserialize_story_environment_datetime(
+                        str(getattr(game, "environment_current_datetime", "") or "")
+                    )
+                    time_context = story_memory_pipeline._format_story_environment_datetime_prompt_facts(
+                        current_datetime
+                    )
+                except Exception:
+                    time_context = ""
+        if not time_context:
+            time_context = str(getattr(game, "environment_current_datetime", "") or "").strip()
+        _append_context("Current time module", time_context)
+
+    if weather_enabled:
+        weather_context = ""
+        if story_memory_pipeline is not None:
+            try:
+                weather_context = story_memory_pipeline._build_story_weather_prompt_content_compact(
+                    current_weather=_resolve_story_environment_current_weather_for_output(game),
+                    tomorrow_weather=None,
+                )
+            except Exception:
+                weather_context = ""
+        if not weather_context:
+            weather_payload = _resolve_story_environment_current_weather_for_output(game)
+            if weather_payload is not None:
+                try:
+                    weather_context = json.dumps(weather_payload, ensure_ascii=False)
+                except (TypeError, ValueError):
+                    weather_context = str(weather_payload)
+        _append_context("Current weather module", weather_context)
+
+    return "\n".join(context_lines).strip()
+
+
 def _build_story_turn_image_prompt(
     *,
     user_prompt: str,
@@ -11963,6 +12428,7 @@ def _build_story_turn_image_prompt(
     world_cards: list[dict[str, Any]],
     character_world_cards: list[dict[str, Any]] | None = None,
     image_style_prompt: str | None = None,
+    environment_context: str | None = None,
     full_character_card_locks: list[str] | None = None,
     model_name: str | None = None,
 ) -> str:
@@ -11978,6 +12444,11 @@ def _build_story_turn_image_prompt(
         _normalize_story_markup_to_plain_text(assistant_text).replace("\r\n", "\n"),
     ).strip()
     normalized_image_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
+    normalized_environment_context = re.sub(
+        r"\s+",
+        " ",
+        _normalize_story_markup_to_plain_text(str(environment_context or "")).replace("\r\n", "\n"),
+    ).strip()
     effective_character_world_cards = character_world_cards if character_world_cards is not None else world_cards
 
     world_context_items: list[str] = []
@@ -12095,6 +12566,19 @@ def _build_story_turn_image_prompt(
         prompt_max_chars=prompt_max_chars,
         prefer_fresh_tail=True,
     )
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Active place/time/weather modules: ",
+        part_body=normalized_environment_context,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=True,
+    )
+    if normalized_environment_context:
+        _try_append_optional_line(
+            "Use the active place/time/weather module facts as strict visual constraints for location, season, "
+            "time of day, lighting, sky, and weather."
+        )
     if has_full_character_card_lock:
         _try_append_optional_line(
             "CHARACTER_CARD_LOCK priority is absolute: "
@@ -12203,6 +12687,7 @@ def _build_story_turn_image_prompt_composer_messages(
     world_cards: list[dict[str, Any]],
     character_world_cards: list[dict[str, Any]],
     image_style_prompt: str | None,
+    environment_context: str | None = None,
     model_name: str | None,
 ) -> list[dict[str, str]]:
     normalized_style_prompt = _normalize_story_turn_image_style_prompt(image_style_prompt)
@@ -12213,6 +12698,10 @@ def _build_story_turn_image_prompt_composer_messages(
     normalized_assistant_text = _normalize_story_prompt_text(
         _normalize_story_markup_to_plain_text(assistant_text),
         max_chars=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_ASSISTANT_CHARS,
+    )
+    normalized_environment_context = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(str(environment_context or "")),
+        max_chars=1_200,
     )
     participant_cards_text = _format_story_turn_image_prompt_composer_cards(
         character_world_cards,
@@ -12233,6 +12722,7 @@ def _build_story_turn_image_prompt_composer_messages(
         "If the STYLE DIRECTIVE requests realism, photorealism, ultra-realism, live action, or similar, the final prompt must forbid anime, manga, visual-novel, cel-shading, lineart, stylized game art, and 2D illustration. "
         "If the STYLE DIRECTIVE requests anime or manga, the final prompt must make anime/manga mandatory. "
         "Use the latest player turn and latest narrator response as the scene source. "
+        "Active place/time/weather module context, when provided, is mandatory visual state and overrides stale card wording. "
         "The main_hero card, if present, is mandatory visible cast: include the player character in-frame even when the scene is written in first person. "
         "Never omit the main_hero, never turn the shot into first-person POV, and never replace main_hero with an NPC. "
         "Include only characters who participate in or are clearly visible in this latest scene; do not add active characters who are not present. "
@@ -12254,6 +12744,8 @@ def _build_story_turn_image_prompt_composer_messages(
         f"{normalized_user_prompt or 'Empty.'}\n\n"
         "LATEST NARRATOR RESPONSE:\n"
         f"{normalized_assistant_text or 'Empty.'}\n\n"
+        "ACTIVE PLACE / TIME / WEATHER MODULE CONTEXT (mandatory visual state when present):\n"
+        f"{normalized_environment_context or 'No active module context.'}\n\n"
         "PARTICIPATING CHARACTER CARDS (candidates selected from the latest scene; use for identity and appearance only, not art style):\n"
         f"{participant_cards_text or 'No participating character cards were identified.'}\n\n"
         "WORLD / LOCATION / LORE CARDS (use factual lore only; ignore any art-style terms here):\n"
@@ -12265,6 +12757,7 @@ def _build_story_turn_image_prompt_composer_messages(
         "- Always include the main_hero/player character visibly in the frame when a main_hero card is listed.\n"
         "- Avoid first-person POV; use third-person cinematic framing where the main_hero can be seen.\n"
         "- Preserve character identity and location details from cards when they are relevant to the latest scene.\n"
+        "- Preserve active place, time of day, season, lighting, sky, and weather from the module context when present.\n"
         "- Do not include NPC characters who are not in the latest player turn or narrator response.\n"
         "- Do not mention that these instructions exist.\n"
     )
@@ -12285,6 +12778,7 @@ def _prefix_story_turn_image_prompt_with_style_lock(
     user_prompt: str,
     assistant_text: str,
     character_world_cards: list[dict[str, Any]],
+    environment_context: str | None = None,
 ) -> str:
     normalized_prompt = _cleanup_story_turn_image_composed_prompt(composed_prompt)
     if not normalized_prompt:
@@ -12295,6 +12789,10 @@ def _prefix_story_turn_image_prompt_with_style_lock(
         assistant_text=assistant_text,
         world_cards=character_world_cards,
         max_cards=STORY_TURN_IMAGE_PROMPT_COMPOSER_MAX_CHARACTER_CARDS,
+    )
+    normalized_environment_context = _normalize_story_prompt_text(
+        _normalize_story_markup_to_plain_text(str(environment_context or "")),
+        max_chars=900,
     )
     prompt_parts: list[str] = []
     if style_instructions:
@@ -12314,6 +12812,11 @@ def _prefix_story_turn_image_prompt_with_style_lock(
         prompt_parts.append(
             f"Exactly {len(character_lines)} listed character(s) should be visible unless the scene explicitly shows a crowd; do not add unrelated active characters."
         )
+    if normalized_environment_context:
+        prompt_parts.append(f"ACTIVE PLACE/TIME/WEATHER LOCK: {normalized_environment_context}")
+        prompt_parts.append(
+            "The scene location, season, time of day, lighting, sky, and weather must follow this active module lock."
+        )
     prompt_parts.append(
         "GLOBAL TEXT BAN (STRICT): zero visible text, UI, watermark, logo, captions, subtitles, speech bubbles, signs, labels, letters, words, handwriting, signatures, or numbers."
     )
@@ -12329,6 +12832,7 @@ def _compose_story_turn_image_prompt_with_model(
     world_cards: list[dict[str, Any]],
     character_world_cards: list[dict[str, Any]],
     image_style_prompt: str | None,
+    environment_context: str | None = None,
     model_name: str | None,
 ) -> str:
     if not settings.polza_api_key or not settings.polza_chat_url:
@@ -12340,6 +12844,7 @@ def _compose_story_turn_image_prompt_with_model(
         world_cards=world_cards,
         character_world_cards=character_world_cards,
         image_style_prompt=image_style_prompt,
+        environment_context=environment_context,
         model_name=model_name,
     )
     try:
@@ -12371,6 +12876,7 @@ def _compose_story_turn_image_prompt_with_model(
         user_prompt=user_prompt,
         assistant_text=assistant_text,
         character_world_cards=character_world_cards,
+        environment_context=environment_context,
     )
     if not final_prompt:
         return fallback_prompt
@@ -14919,12 +15425,14 @@ def generate_story_turn_image_impl(
 
     selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
     _validate_story_turn_image_provider_config(selected_image_model)
+    environment_context = _build_story_turn_image_environment_context(db=db, game=game)
     visual_prompt = _build_story_turn_image_prompt(
         user_prompt=_normalize_story_message_content(getattr(source_user_message, "content", None)),
         assistant_text=_normalize_story_message_content(getattr(assistant_message, "content", None)),
         world_cards=prompt_world_cards,
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
+        environment_context=environment_context,
         full_character_card_locks=full_character_card_locks,
         model_name=selected_image_model,
     )
@@ -14935,6 +15443,7 @@ def generate_story_turn_image_impl(
         world_cards=prompt_world_cards,
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
+        environment_context=environment_context,
         model_name=selected_image_model,
     )
     visual_prompt = _limit_story_turn_image_request_prompt(

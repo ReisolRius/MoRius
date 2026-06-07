@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from app.models import (
     StoryCharacter,
@@ -183,14 +183,35 @@ def list_story_messages_window(
 
 
 def list_story_turn_images(db: Session, game_id: int) -> list[StoryTurnImage]:
-    return db.scalars(
-        select(StoryTurnImage)
+    rows = db.execute(
+        select(
+            StoryTurnImage,
+            StoryTurnImage.image_data_url.is_not(None).label("has_image_data_url"),
+        )
+        .options(
+            load_only(
+                StoryTurnImage.id,
+                StoryTurnImage.game_id,
+                StoryTurnImage.assistant_message_id,
+                StoryTurnImage.model,
+                StoryTurnImage.prompt,
+                StoryTurnImage.revised_prompt,
+                StoryTurnImage.image_url,
+                StoryTurnImage.created_at,
+                StoryTurnImage.updated_at,
+            )
+        )
         .where(
             StoryTurnImage.game_id == game_id,
             StoryTurnImage.undone_at.is_(None),
         )
         .order_by(StoryTurnImage.assistant_message_id.asc(), StoryTurnImage.id.asc())
     ).all()
+    images: list[StoryTurnImage] = []
+    for image, has_image_data_url in rows:
+        setattr(image, "_morius_has_image_data_url", bool(has_image_data_url))
+        images.append(image)
+    return images
 
 
 def has_story_assistant_redo_step(db: Session, game_id: int) -> bool:
@@ -264,8 +285,44 @@ def list_story_characters(
     limit: int | None = None,
     offset: int = 0,
     query: str = "",
+    include_emotion_assets: bool = True,
 ) -> list[StoryCharacter]:
     statement = select(StoryCharacter).where(StoryCharacter.user_id == user_id)
+    if not include_emotion_assets:
+        statement = statement.options(
+            load_only(
+                StoryCharacter.id,
+                StoryCharacter.user_id,
+                StoryCharacter.name,
+                StoryCharacter.description,
+                StoryCharacter.race,
+                StoryCharacter.clothing,
+                StoryCharacter.inventory,
+                StoryCharacter.health_status,
+                StoryCharacter.note,
+                StoryCharacter.triggers,
+                StoryCharacter.name_color,
+                StoryCharacter.speech_color,
+                StoryCharacter.avatar_url,
+                StoryCharacter.avatar_original_url,
+                StoryCharacter.avatar_scale,
+                StoryCharacter.emotion_model,
+                StoryCharacter.emotion_prompt_lock,
+                StoryCharacter.source,
+                StoryCharacter.visibility,
+                StoryCharacter.source_character_id,
+                StoryCharacter.community_rating_sum,
+                StoryCharacter.community_rating_count,
+                StoryCharacter.community_additions_count,
+                StoryCharacter.publication_status,
+                StoryCharacter.publication_requested_at,
+                StoryCharacter.publication_reviewed_at,
+                StoryCharacter.publication_reviewer_user_id,
+                StoryCharacter.publication_rejection_reason,
+                StoryCharacter.created_at,
+                StoryCharacter.updated_at,
+            )
+        )
     normalized_query = " ".join(str(query or "").split()).strip()
     if normalized_query:
         pattern = f"%{normalized_query}%"
@@ -282,7 +339,10 @@ def list_story_characters(
             )
         )
     is_paginated_lookup = limit is not None or offset > 0 or bool(normalized_query)
-    statement = statement.order_by(StoryCharacter.id.desc() if is_paginated_lookup else StoryCharacter.id.asc())
+    if is_paginated_lookup:
+        statement = statement.order_by(StoryCharacter.updated_at.desc(), StoryCharacter.id.desc())
+    else:
+        statement = statement.order_by(StoryCharacter.id.asc())
     if offset > 0:
         statement = statement.offset(offset)
     if limit is not None:
@@ -290,12 +350,34 @@ def list_story_characters(
     return db.scalars(statement).all()
 
 
-def list_story_instruction_templates(db: Session, user_id: int) -> list[StoryInstructionTemplate]:
-    return db.scalars(
-        select(StoryInstructionTemplate)
-        .where(StoryInstructionTemplate.user_id == user_id)
-        .order_by(StoryInstructionTemplate.id.asc())
-    ).all()
+def list_story_instruction_templates(
+    db: Session,
+    user_id: int,
+    *,
+    limit: int | None = None,
+    offset: int = 0,
+    query: str = "",
+) -> list[StoryInstructionTemplate]:
+    statement = select(StoryInstructionTemplate).where(StoryInstructionTemplate.user_id == user_id)
+    normalized_query = " ".join(str(query or "").split()).strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryInstructionTemplate.title.ilike(pattern),
+                StoryInstructionTemplate.content.ilike(pattern),
+            )
+        )
+    is_paginated_lookup = limit is not None or offset > 0 or bool(normalized_query)
+    if is_paginated_lookup:
+        statement = statement.order_by(StoryInstructionTemplate.updated_at.desc(), StoryInstructionTemplate.id.desc())
+    else:
+        statement = statement.order_by(StoryInstructionTemplate.id.asc())
+    if offset > 0:
+        statement = statement.offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    return db.scalars(statement).all()
 
 
 def get_story_instruction_template_for_user_or_404(

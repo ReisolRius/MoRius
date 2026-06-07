@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -47,6 +48,7 @@ STORY_CHARACTER_VISIBILITY_VALUES = {
 STORY_AVATAR_SCALE_MIN = 1.0
 STORY_AVATAR_SCALE_MAX = 3.0
 STORY_AVATAR_SCALE_DEFAULT = 1.0
+STORY_CHARACTER_TEXT_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def _normalize_story_trigger(value: str) -> str:
@@ -178,6 +180,18 @@ def normalize_story_character_note(value: str | None) -> str:
     return normalized
 
 
+def normalize_story_character_text_color(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return ""
+    if STORY_CHARACTER_TEXT_COLOR_PATTERN.fullmatch(normalized):
+        return normalized.upper()
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Character text colors should be #RRGGBB values",
+    )
+
+
 def normalize_story_character_avatar_url(raw_value: str | None, *, db: Session | None = None) -> str | None:
     normalized = normalize_avatar_value(raw_value)
     if normalized is None:
@@ -298,6 +312,8 @@ def story_character_to_out(character: StoryCharacter, *, include_emotion_assets:
         health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
         note=normalize_story_character_note(getattr(character, "note", "")),
         triggers=deserialize_triggers(character.triggers),
+        name_color=normalize_story_character_text_color(getattr(character, "name_color", "")),
+        speech_color=normalize_story_character_text_color(getattr(character, "speech_color", "")),
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url,
         avatar_scale=normalize_story_avatar_scale(character.avatar_scale),

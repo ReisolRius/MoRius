@@ -2917,6 +2917,36 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
         return None
     normalized_lower = normalized_text.casefold()
 
+    def _has_time_signal(pattern: str) -> bool:
+        return bool(re.search(pattern, normalized_lower, re.IGNORECASE))
+
+    explicit_long_duration_match = re.search(
+        r"\b(\d{1,3})\s*(недел(?:ю|и|ь)?|месяц(?:а|ев)?|год(?:а|ов)?|лет)\b",
+        normalized_lower,
+        re.IGNORECASE,
+    )
+    if explicit_long_duration_match:
+        numeric_value = int(explicit_long_duration_match.group(1))
+        unit_value = explicit_long_duration_match.group(2)
+        if unit_value.startswith("недел"):
+            return numeric_value * 7 * 24 * 60
+        if unit_value.startswith("месяц"):
+            return numeric_value * 30 * 24 * 60
+        return numeric_value * 365 * 24 * 60
+
+    if _has_time_signal(r"\b(?:через|спустя|прошл[аои]?|минул[аои]?)\s+(?:две|два)\s+недел"):
+        return 14 * 24 * 60
+    if _has_time_signal(r"\b(?:через|спустя)\s+две?недел"):
+        return 14 * 24 * 60
+    if _has_time_signal(r"\b(?:через|спустя|прошл[аои]?|минул[аои]?)\s+(?:одну|одна|один)\s+недел"):
+        return 7 * 24 * 60
+    if _has_time_signal(r"\b(?:через|спустя|прошл[аои]?|минул[аои]?)\s+три\s+недел"):
+        return 21 * 24 * 60
+    if _has_time_signal(r"\b(?:поспал[аи]?|спал[аи]?|проспал[аи]?|уснул[аи]?|проснул(?:ся|ась|ись)|ночь\s+прошла|прошла\s+ночь|до\s+утра|к\s+утру)\b"):
+        return 8 * 60
+    if _has_time_signal(r"\b(?:за\s+завтраком|завтракал[аи]?|позавтракал[аи]?|за\s+обедом|обедал[аи]?|пообедал[аи]?|за\s+ужином|ужинал[аи]?|поужинал[аи]?)\b"):
+        return 30
+
     def _clamp_elapsed_minutes(value: int | float | None) -> int | None:
         if value is None:
             return None
@@ -2924,7 +2954,7 @@ def _estimate_story_environment_elapsed_minutes(text: str) -> int | None:
             normalized_value = int(round(float(value)))
         except Exception:
             return None
-        return max(1, min(normalized_value, 12 * 60))
+        return max(1, min(normalized_value, 366 * 24 * 60))
 
     explicit_range_match = re.search(
         r"\b(\d{1,3})\s*(?:-|–|—|до)\s*(\d{1,3})\s*(минут(?:ы)?|час(?:а|ов)?|дн(?:я|ей)|сут(?:ки|ок)?)\b",
@@ -8757,6 +8787,10 @@ def _extract_story_postprocess_memory_payload(
                 "Preserve named establishments and rooms such as 'таверна Ржавый якорь' whenever the current scene is still happening there.",
                 "Never add a city, capital, district, country, kingdom, or world name just to make the place sound fuller. If that broader geography is not explicitly present in the recent scene text, omit it.",
                 "Use the latest player turn as supporting evidence, and allow it to establish or refine the place when it explicitly states where the hero enters, goes, stands, remains, or moves and the newest narrator reply continues that same scene without contradiction.",
+                "If the latest player turn or newest narrator reply says or strongly implies that the active scene moved, arrived, entered, exited, woke up somewhere, sat down somewhere, began breakfast/lunch/dinner somewhere, started work somewhere, or continued after travel, update the location to that new current place.",
+                "Do not wait for a formal phrase like 'we moved to'. Treat concrete verbs and scene anchors as location evidence: entered, left, reached, arrived, returned, woke up, went downstairs, crossed the threshold, sat at the table, stood at the counter, opened the door into a room, came to the square, or similar movement/placement.",
+                "When the newest text establishes a new visible scene location, location.action must be update even if the saved place was valid before this turn.",
+                "If both the saved location and a new location are plausible, prefer the location where the latest narrator response is actually happening now.",
 
                 "If the newest narrator reply does not clearly confirm a new place, keep the saved place when it is still valid. If there is no valid saved place yet, you may use the latest explicit player-stated place only when the newest narrator reply continues that same scene without contradiction.",
                 "Never return location.action=keep when there is no valid saved place and the newest player turn or narrator reply explicitly names the active current place.",
@@ -8785,6 +8819,13 @@ def _extract_story_postprocess_memory_payload(
                 "Respect explicit time skips such as 'спустя 2 месяца', 'через полтора часа', travel, sleep, waiting, or scene skips.",
                 "Treat the latest player turn as authoritative for clear current-time context such as lunch time, dinner time, after lessons, after work, dawn, late evening, or similar cues even when no HH:MM is written.",
                 "If the newest turn clearly implies lunch, after-school daytime, dinner, or another broad time-of-day, move current_datetime into a believable range for that cue instead of lazily preserving an old morning or night clock.",
+                "Gemini 2.5 Flash service model must estimate how much real in-world time the combined latest player turn plus newest narrator reply would reasonably take. Use that estimate to advance current_datetime.",
+                "Account for indirect time cues: sleep, nap, woke up, slept through the night, morning after, night passed, at breakfast, over breakfast, at lunch, at dinner, after work, after lessons, during travel, waiting, searching, treatment, training, crafting, conversation length, and scene cuts.",
+                "If the text says 'I slept', 'we slept', 'the night passed', or a character wakes after sleep, advance to a believable next waking time, usually the next morning unless the text says otherwise.",
+                "If the text says 'through two weeks', 'after two weeks', 'in two weeks', 'через две недели', or similar, advance the date by that duration and set the time of day from the cue, for example lunch/noon if it says at lunch or over breakfast if it says breakfast.",
+                "If a meal cue is present, choose a believable local time range instead of preserving the previous clock: breakfast 07:00-10:00, lunch 12:00-15:00, dinner 18:00-21:00, unless the scene explicitly gives another time.",
+                "When a turn contains both a duration and a time-of-day anchor, apply the duration first and then place the clock within the anchored part of day.",
+                "Do not make random jumps. Every environment.current_datetime change must be explainable by the newest player turn, newest narrator reply, or the minimal fallback step.",
 
                 "Treat precise HH:MM in the saved state as authoritative.",
 

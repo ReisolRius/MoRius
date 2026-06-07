@@ -34,6 +34,7 @@ from app.services.story_games import (
     normalize_story_repetition_penalty,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
+    normalize_story_response_token_limit_enabled,
     normalize_story_temperature,
     normalize_story_top_k,
     normalize_story_top_r,
@@ -1232,7 +1233,14 @@ def _generate_story_response_locked(
         story_response_max_tokens = normalize_story_response_max_tokens(payload.response_max_tokens)
         story_response_max_tokens_enabled = True
     if not story_response_max_tokens_enabled:
-        story_response_max_tokens = STORY_RESPONSE_MAX_TOKENS_MAX
+        response_token_limit_enabled = normalize_story_response_token_limit_enabled(
+            getattr(game, "response_token_limit_enabled", None)
+        )
+        is_response_token_limit_bypass_allowed = (
+            str(getattr(user, "role", "") or "").strip().lower() == "administrator"
+            and not response_token_limit_enabled
+        )
+        story_response_max_tokens = None if is_response_token_limit_bypass_allowed else STORY_RESPONSE_MAX_TOKENS_MAX
     context_limit_chars = deps.normalize_context_limit_chars(
         game.context_limit_chars,
         model_name=story_model_name,

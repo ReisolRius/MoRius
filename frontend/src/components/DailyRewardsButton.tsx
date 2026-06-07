@@ -100,7 +100,7 @@ function DailyRewardsButton({ authToken, size = 40 }: DailyRewardsButtonProps) {
     const isDisabled = !isClaimable || isClaiming
 
     const coinIcon = isBoosted ? icons.coin : icons.dailyRewardsCoin
-    const coinSize = isBoosted ? { width: 18, height: 18 } : { width: 20, height: 13 }
+    const coinSize = isBoosted ? { width: 13, height: 20 } : { width: 12, height: 18 }
     const coinOpacity = isClaimed ? 0.45 : 0.95
     const textColor = isClaimed ? 'var(--morius-text-secondary)' : 'var(--morius-title-text)'
 

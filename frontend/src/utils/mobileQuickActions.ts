@@ -176,7 +176,7 @@ export function buildUnifiedMobileQuickActions({
     {
       key: 'shop',
       title: 'Магазин',
-      description: 'Откройте пакеты солов и пополнение.',
+      description: 'Откройте пакеты валюты и пополнение.',
       imageSrc: shopDashboardImage,
       iconMarkup: sidebarVectorAltIconMarkup,
       onClick: onOpenShop,

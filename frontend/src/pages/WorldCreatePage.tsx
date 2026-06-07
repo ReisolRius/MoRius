@@ -2112,7 +2112,7 @@ function WorldCreatePage({ user, authToken, editingGameId = null, editSource = n
       setTopUpPlans(plans)
       setHasTopUpPlansLoaded(true)
     } catch (error) {
-      const detail = error instanceof Error ? error.message : 'Не удалось загрузить пакеты солов'
+      const detail = error instanceof Error ? error.message : 'Не удалось загрузить пакеты валюты'
       setTopUpError(detail)
     } finally {
       setIsTopUpPlansLoading(false)

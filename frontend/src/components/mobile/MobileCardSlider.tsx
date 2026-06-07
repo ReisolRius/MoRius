@@ -5,6 +5,7 @@
  */
 import { Box, IconButton, Stack, SvgIcon, Typography } from '@mui/material'
 import type React from 'react'
+import DeferredImage from '../media/DeferredImage'
 import ProgressiveAvatar from '../media/ProgressiveAvatar'
 
 // ─── constants ─────────────────────────────────────────────────────────────
@@ -145,20 +146,13 @@ export function MobileCardItem({
         }}
       >
         {imageUrl ? (
-          <Box
-            component="img"
+          <DeferredImage
             src={imageUrl}
             alt=""
-            loading="lazy"
-            decoding="async"
-            sx={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              objectPosition: 'top center',
-            }}
+            rootMargin="320px 0px"
+            objectFit="cover"
+            objectPosition="top center"
+            fetchPriority="low"
           />
         ) : null}
       </Box>

@@ -85,8 +85,7 @@ def _build_story_provider_messages(
 
 
 def _should_lock_polza_story_request_to_selected_model(model_name: str | None) -> bool:
-    _ = model_name
-    return False
+    return _is_polza_gemini_pro_model(model_name)
 
 
 def _apply_polza_story_response_limit(payload: dict[str, Any], max_tokens: int | None) -> None:
@@ -137,7 +136,8 @@ POLZA_RETRY_DELAYS_SECONDS = (1.1, 2.4)
 POLZA_TRANSIENT_STATUS_CODES = {500, 502, 503, 504}
 POLZA_FALLBACK_STATUS_CODES = {404, 429, *POLZA_TRANSIENT_STATUS_CODES}
 POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS = 20
-POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 45
+POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS = 90
+POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS = 300
 POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "provider returned error",
     "internal server error",
@@ -145,6 +145,14 @@ POLZA_PROVIDER_TEMPORARY_ERROR_MARKERS = (
     "upstream",
 )
 POLZA_GEMINI_25_PRO_MODEL_ID = "google/gemini-2.5-pro"
+POLZA_GEMINI_31_PRO_MODEL_IDS = {
+    "google/gemini-3.1-pro-preview",
+    "google/gemini-3.1-pro",
+}
+POLZA_GEMINI_PRO_MODEL_IDS = {
+    POLZA_GEMINI_25_PRO_MODEL_ID,
+    *POLZA_GEMINI_31_PRO_MODEL_IDS,
+}
 POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS = 1
 POLZA_GEMINI_PRO_RETRY_STATUS_CODES = {400, 408, 409, 425, 429, 499, 500, 502, 503, 504}
 
@@ -251,13 +259,23 @@ def _is_polza_gemini_25_pro_model(model_name: str | None) -> bool:
     return _normalize_story_model_id(model_name) == POLZA_GEMINI_25_PRO_MODEL_ID
 
 
+def _is_polza_gemini_pro_model(model_name: str | None) -> bool:
+    return _normalize_story_model_id(model_name) in POLZA_GEMINI_PRO_MODEL_IDS
+
+
+def _polza_story_stream_read_timeout_seconds(model_name: str | None) -> int:
+    if _is_polza_gemini_pro_model(model_name):
+        return POLZA_GEMINI_PRO_STREAM_READ_TIMEOUT_SECONDS
+    return POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS
+
+
 def _should_retry_polza_gemini_pro_turn_failure(
     *,
     model_name: str | None,
     attempt_index: int,
     status_code: int | None = None,
 ) -> bool:
-    if not _is_polza_gemini_25_pro_model(model_name):
+    if not _is_polza_gemini_pro_model(model_name):
         return False
     if attempt_index >= POLZA_GEMINI_PRO_SILENT_RETRY_ATTEMPTS:
         return False
@@ -670,7 +688,7 @@ def _iter_polza_story_stream_chunks(
                     json=payload,
                     timeout=(
                         POLZA_STORY_STREAM_CONNECT_TIMEOUT_SECONDS,
-                        POLZA_STORY_STREAM_READ_TIMEOUT_SECONDS,
+                        _polza_story_stream_read_timeout_seconds(model_name),
                     ),
                     stream=True,
                 )
@@ -854,7 +872,7 @@ def _iter_polza_story_stream_chunks(
                     ):
                         last_error = RuntimeError(str(exc).strip() or "Polza.ai stream returned an error")
                         logger.warning(
-                            "Polza.ai Gemini 2.5 Pro stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
+                            "Polza.ai Gemini Pro stream failed before content; silently retrying same turn: model=%s provider=%s attempt=%s error=%s",
                             model_name,
                             provider_label,
                             attempt_index + 1,

@@ -113,6 +113,7 @@ POSTGRES_BOOLEAN_COLUMN_DEFAULTS: dict[tuple[str, str], bool] = {
     (User.__tablename__, "ai_assistant_visible"): True,
     (CosmeticItem.__tablename__, "is_active"): True,
     (StoryGame.__tablename__, "response_max_tokens_enabled"): False,
+    (StoryGame.__tablename__, "response_token_limit_enabled"): False,
     (StoryGame.__tablename__, "memory_optimization_enabled"): True,
     (StoryGame.__tablename__, "show_gg_thoughts"): False,
     (StoryGame.__tablename__, "show_npc_thoughts"): False,
@@ -423,6 +424,11 @@ def _ensure_story_game_community_columns_exist(private_visibility: str, default_
             f"ALTER TABLE {StoryGame.__tablename__} "
             "ADD COLUMN response_max_tokens_enabled INTEGER NOT NULL DEFAULT 0"
         )
+    if "response_token_limit_enabled" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryGame.__tablename__} "
+            "ADD COLUMN response_token_limit_enabled INTEGER NOT NULL DEFAULT 0"
+        )
     if "memory_optimization_enabled" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryGame.__tablename__} "
@@ -688,6 +694,16 @@ def _ensure_story_world_card_extended_columns_exist(defaults: StoryBootstrapDefa
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
             "ADD COLUMN health_status TEXT NOT NULL DEFAULT ''"
         )
+    if "name_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN name_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
+    if "speech_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryWorldCard.__tablename__} "
+            "ADD COLUMN speech_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
     if "memory_turns" not in existing_columns:
         alter_statements.append(
             f"ALTER TABLE {StoryWorldCard.__tablename__} "
@@ -905,6 +921,16 @@ def _ensure_story_character_community_columns_exist(private_visibility: str) -> 
         alter_statements.append(
             f"ALTER TABLE {StoryCharacter.__tablename__} "
             "ADD COLUMN health_status TEXT NOT NULL DEFAULT ''"
+        )
+    if "name_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN name_color VARCHAR(16) NOT NULL DEFAULT ''"
+        )
+    if "speech_color" not in existing_columns:
+        alter_statements.append(
+            f"ALTER TABLE {StoryCharacter.__tablename__} "
+            "ADD COLUMN speech_color VARCHAR(16) NOT NULL DEFAULT ''"
         )
     if "visibility" not in existing_columns:
         alter_statements.append(
@@ -1297,11 +1323,20 @@ def _ensure_shop_system_cosmetics() -> None:
     try:
         changed = False
         for payload in SHOP_SYSTEM_COSMETICS:
+            title = str(payload["title"])
+            image_url = str(payload["image_url"])
+            legacy_image_pattern = "%frame-sakura%" if payload["kind"] == "avatar_frame" else "%profile-banner-sakura%"
             item = db.scalar(
-                select(CosmeticItem).where(
+                select(CosmeticItem)
+                .where(
                     CosmeticItem.kind == payload["kind"],
-                    CosmeticItem.image_url == payload["image_url"],
+                    or_(
+                        CosmeticItem.image_url == image_url,
+                        CosmeticItem.title == title,
+                        CosmeticItem.image_url.ilike(legacy_image_pattern),
+                    ),
                 )
+                .order_by(CosmeticItem.id.asc())
             )
             if item is None:
                 db.add(CosmeticItem(**payload, is_active=True, created_by_user_id=None))

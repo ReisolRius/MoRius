@@ -277,6 +277,12 @@ class StoryGame(Base):
         default=False,
         server_default="0",
     )
+    response_token_limit_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     story_llm_model: Mapped[str] = mapped_column(
         String(120),
         nullable=False,
@@ -798,6 +804,8 @@ class StoryCharacter(Base):
     health_status: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     note: Mapped[str] = mapped_column(String(20), nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    name_color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    speech_color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_original_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     avatar_scale: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default="1.0")
@@ -982,6 +990,8 @@ class StoryWorldCard(Base):
     inventory: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     health_status: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     triggers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    name_color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
+    speech_color: Mapped[str] = mapped_column(String(16), nullable=False, default="", server_default="")
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="world", server_default="world")
     detail_type: Mapped[str] = mapped_column(String(120), nullable=False, default="", server_default="")
     avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)

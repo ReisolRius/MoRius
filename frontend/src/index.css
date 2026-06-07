@@ -267,6 +267,17 @@ select {
   border: none !important;
 }
 
+.morius-app-shell .MuiIconButton-root.morius-main-hero-avatar-button img {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  border-radius: inherit !important;
+}
+
 .morius-app-shell .MuiIconButton-root.morius-daily-rewards-button {
   width: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;
   height: var(--morius-daily-rewards-size, var(--morius-action-size)) !important;

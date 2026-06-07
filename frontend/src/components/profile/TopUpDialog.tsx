@@ -13,6 +13,7 @@ import {
   type DialogProps,
 } from '@mui/material'
 import { getCurrentUserReferralSummary, type CoinTopUpPlan } from '../../services/authApi'
+import SoulAmount from '../currency/SoulAmount'
 import mobileCloseIcon from '../../assets/icons/mobile-close.svg'
 import chroniclerOrnament from '../../assets/images/topup/chronicler-ornament.svg'
 import putnikRibbon from '../../assets/images/topup/putnik-ribbon.svg'
@@ -56,7 +57,7 @@ const PLAN_LOOKUP: Record<
     imageSrc: seekerTrail,
     lines: [
       'Оптимален для регулярной игры и длинных сцен.',
-      'Лучший баланс между ценой и запасом солов.',
+      'Лучший баланс между ценой и запасом.',
       'Один баланс на текст, изображения и эффекты.',
     ],
     badge: 'Самый популярный',
@@ -76,7 +77,7 @@ const DEFAULT_PLAN_CARD = {
   accent: '#5F93F2',
   imageSrc: putnikRibbon,
   lines: [
-    'Пакет солов для игры без подписки.',
+    'Пакет валюты для игры без подписки.',
     'Поддерживает новый лимит контекста до 64k.',
     'Один баланс на текст, изображения и эффекты.',
   ],
@@ -149,7 +150,7 @@ function TopUpDialog({
       }}
     >
       <DialogTitle sx={{ pb: 1, pr: 7, position: 'relative' }}>
-        <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.6rem', sm: '1.9rem' }, lineHeight: 1.12 }}>Пакеты солов</Typography>
+        <Typography sx={{ fontWeight: 900, fontSize: { xs: '1.6rem', sm: '1.9rem' }, lineHeight: 1.12 }}>Пакеты валюты</Typography>
         <Typography sx={{ color: 'var(--morius-text-secondary)', mt: 0.45, fontSize: '0.98rem', lineHeight: 1.35 }}>
           Выберите пакет и перейдите к оплате.
         </Typography>
@@ -199,7 +200,7 @@ function TopUpDialog({
                 },
               }}
             >
-              После первой покупки по приглашению начислим +{Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')} солов вам и другу.
+              После первой покупки по приглашению начислим <SoulAmount amount={`+${Math.max(0, Math.trunc(resolvedReferralBonusAmount)).toLocaleString('ru-RU')}`} iconSize={15} /> вам и другу.
             </Alert>
           ) : null}
           {isTopUpPlansLoading ? (
@@ -326,9 +327,7 @@ function TopUpDialog({
                       <Typography sx={{ fontWeight: 900, fontSize: '3rem', lineHeight: 1, color: '#FFFFFF' }}>
                         {plan.price_rub} ₽
                       </Typography>
-                      <Typography sx={{ color: card.accent, fontSize: '1.08rem', fontWeight: 800 }}>
-                        {plan.coins.toLocaleString('ru-RU')} солов
-                      </Typography>
+                      <SoulAmount amount={plan.coins} iconSize={18} color={card.accent} fontSize="1.08rem" fontWeight={800} />
                       {card.lines.map((line) => (
                         <Typography key={`${plan.id}-${line}`} sx={{ color: 'rgba(255,255,255,0.78)', fontSize: '1.02rem' }}>
                           {line}

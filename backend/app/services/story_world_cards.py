@@ -18,6 +18,7 @@ from app.services.story_characters import (
     normalize_story_character_health_status,
     normalize_story_character_inventory,
     normalize_story_character_race,
+    normalize_story_character_text_color,
 )
 from app.services.text_encoding import sanitize_likely_utf8_mojibake
 
@@ -288,6 +289,8 @@ def story_world_card_to_out(card: StoryWorldCard) -> StoryWorldCardOut:
         inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
         health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
         triggers=deserialize_story_world_card_triggers(card.triggers),
+        name_color=normalize_story_character_text_color(getattr(card, "name_color", "")),
+        speech_color=normalize_story_character_text_color(getattr(card, "speech_color", "")),
         kind=normalized_kind,
         detail_type=normalize_story_world_detail_type(getattr(card, "detail_type", "")),
         avatar_url=avatar_url,
@@ -329,6 +332,8 @@ def build_story_world_card_from_character(
         inventory=normalize_story_character_inventory(getattr(character, "inventory", "")),
         health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
         triggers=serialize_story_world_card_triggers(normalized_triggers),
+        name_color=normalize_story_character_text_color(getattr(character, "name_color", "")),
+        speech_color=normalize_story_character_text_color(getattr(character, "speech_color", "")),
         kind=normalized_kind,
         detail_type="",
         avatar_url=normalize_story_character_avatar_url(character.avatar_url, db=db),

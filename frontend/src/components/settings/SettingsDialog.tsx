@@ -40,6 +40,7 @@ import type { AuthUser } from '../../types/auth'
 import { getMoriusThemeById, moriusThemePresets, useMoriusThemeController, type MoriusThemePreset } from '../../theme'
 import { buildPresetFromCustomTheme } from '../../theme/customTheme'
 import { getProfileBannerPreset, normalizeProfileBannerId, PROFILE_BANNER_PRESETS } from '../../constants/profileBanners'
+import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../../utils/cosmeticImageFallbacks'
 import { AVATAR_FRAME_PRESETS, normalizeAvatarFrameId } from '../../constants/avatarFrames'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
 import ThemedSvgIcon from '../icons/ThemedSvgIcon'
@@ -351,8 +352,8 @@ function SettingsDialog({
           return
         }
         setOwnedShopCosmetics({
-          avatar_frames: response.avatar_frames.filter((item) => item.is_owned),
-          profile_banners: response.profile_banners.filter((item) => item.is_owned),
+          avatar_frames: response.avatar_frames.filter((item) => item.is_owned).map(withKnownCosmeticImageUrl),
+          profile_banners: response.profile_banners.filter((item) => item.is_owned).map(withKnownCosmeticImageUrl),
         })
       })
       .catch(() => {
@@ -699,7 +700,8 @@ function SettingsDialog({
     () => ownedShopCosmetics.avatar_frames.find((item) => item.selection_id === avatarFrameId) ?? null,
     [avatarFrameId, ownedShopCosmetics.avatar_frames],
   )
-  const selectedProfileBannerSrc = selectedOwnedProfileBanner?.image_url ?? selectedProfileBanner.src
+  const selectedProfileBannerSrc =
+    resolveProfileBannerImageUrl(profileBannerId, selectedOwnedProfileBanner?.image_url ?? null) ?? selectedProfileBanner.src
   const selectedProfileBannerObjectPosition = selectedOwnedProfileBanner ? 'center center' : selectedProfileBanner.objectPosition
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 

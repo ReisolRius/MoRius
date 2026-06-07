@@ -19,6 +19,26 @@ def _normalize_story_message_content(value: str | None) -> str:
     return str(value or "").replace("\r\n", "\n").strip()
 
 
+STORY_CONTINUE_PROMPT_MARKERS = {
+    "продолжай",
+    "продолжить",
+    "continue",
+}
+STORY_CONTINUE_PROMPT_REPLACEMENT = (
+    "Продолжай текущую сцену строго с того места, где остановился предыдущий ответ рассказчика. "
+    "Не повторяй уже написанные фразы, описания и действия. Добавь новое событие, реакцию, последствие или выбор, "
+    "сохраняя стиль и причинно-следственную связь."
+)
+
+
+def _normalize_story_continue_prompt_marker(value: str) -> str:
+    return " ".join(value.replace("\r\n", " ").replace("\n", " ").split()).strip(" \t.!?…:;,-").casefold()
+
+
+def _is_story_continue_prompt(value: str) -> bool:
+    return _normalize_story_continue_prompt_marker(value) in STORY_CONTINUE_PROMPT_MARKERS
+
+
 def _translate_text_batch_with_polza(
     texts: list[str],
     *,
@@ -550,6 +570,36 @@ def _select_story_history_source(
         return []
 
     latest_user_turn = {"role": STORY_USER_ROLE, "content": latest_user_content}
+
+    if _is_story_continue_prompt(latest_user_content):
+        latest_user_turn = {"role": STORY_USER_ROLE, "content": STORY_CONTINUE_PROMPT_REPLACEMENT}
+        previous_assistant_turn: dict[str, str] | None = None
+        previous_user_turn: dict[str, str] | None = None
+        previous_assistant_index: int | None = None
+        for index in range(latest_user_index - 1, -1, -1):
+            item = history[index]
+            role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+            content = str(item.get("content", "")).strip()
+            if role != STORY_ASSISTANT_ROLE or not content:
+                continue
+            previous_assistant_turn = {"role": STORY_ASSISTANT_ROLE, "content": content}
+            previous_assistant_index = index
+            break
+        if previous_assistant_index is not None:
+            for item in reversed(history[:previous_assistant_index]):
+                role = str(item.get("role", STORY_USER_ROLE)).strip() or STORY_USER_ROLE
+                content = str(item.get("content", "")).strip()
+                if role != STORY_USER_ROLE or not content:
+                    continue
+                previous_user_turn = {"role": STORY_USER_ROLE, "content": content}
+                break
+        selected_turns = [
+            item
+            for item in (previous_user_turn, previous_assistant_turn, latest_user_turn)
+            if item is not None
+        ]
+        if selected_turns:
+            return selected_turns
 
     # Ensure the opening scene is present for the very first user turn.
     # Runtime seeds opening_scene as the first assistant message before turn 1.

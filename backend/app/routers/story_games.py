@@ -98,6 +98,7 @@ from app.services.story_games import (
     normalize_story_cover_scale,
     normalize_story_response_max_tokens,
     normalize_story_response_max_tokens_enabled,
+    normalize_story_response_token_limit_enabled,
     normalize_story_emotion_visualization_enabled,
     normalize_story_game_age_rating,
     normalize_story_game_description,
@@ -1689,6 +1690,7 @@ def _create_story_game_publication_copy_from_source(
         ),
         response_max_tokens=source_game.response_max_tokens,
         response_max_tokens_enabled=source_game.response_max_tokens_enabled,
+        response_token_limit_enabled=getattr(source_game, "response_token_limit_enabled", False),
         story_llm_model=source_game.story_llm_model,
         image_model=source_game.image_model,
         image_style_prompt=source_game.image_style_prompt,
@@ -1773,6 +1775,10 @@ def list_story_games(
     response: Response,
     compact: bool = False,
     limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    sort: str = Query(default="updated_desc", max_length=24),
+    search_query: str = Query(default="", max_length=120, alias="query"),
+    visibility: str = Query(default="all", max_length=16),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryGameSummaryOut]:
@@ -1781,13 +1787,38 @@ def list_story_games(
     response.headers["Expires"] = "0"
     response.headers["Vary"] = "Authorization"
     user = get_current_user(db, authorization)
-    query = (
+    statement = (
         select(StoryGame)
         .where(StoryGame.user_id == user.id)
-        .order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
     )
+    normalized_visibility = str(visibility or "").strip().lower()
+    if normalized_visibility == STORY_GAME_VISIBILITY_PUBLIC:
+        statement = statement.where(StoryGame.visibility == STORY_GAME_VISIBILITY_PUBLIC)
+    elif normalized_visibility == STORY_GAME_VISIBILITY_PRIVATE:
+        statement = statement.where(StoryGame.visibility != STORY_GAME_VISIBILITY_PUBLIC)
+
+    normalized_search_query = " ".join(str(search_query or "").split()).strip()
+    if normalized_search_query:
+        search_pattern = f"%{normalized_search_query}%"
+        statement = statement.where(
+            or_(
+                StoryGame.title.ilike(search_pattern),
+                StoryGame.description.ilike(search_pattern),
+                StoryGame.opening_scene.ilike(search_pattern),
+            )
+        )
+
+    normalized_sort = str(sort or "").strip().lower()
+    if normalized_sort == "updated_asc":
+        statement = statement.order_by(StoryGame.last_activity_at.asc(), StoryGame.id.asc())
+    elif normalized_sort == "created_desc":
+        statement = statement.order_by(StoryGame.created_at.desc(), StoryGame.id.desc())
+    elif normalized_sort == "created_asc":
+        statement = statement.order_by(StoryGame.created_at.asc(), StoryGame.id.asc())
+    else:
+        statement = statement.order_by(StoryGame.last_activity_at.desc(), StoryGame.id.desc())
     if compact:
-        query = query.options(
+        statement = statement.options(
             load_only(
                 StoryGame.id,
                 StoryGame.title,
@@ -1807,6 +1838,7 @@ def list_story_games(
                 StoryGame.context_limit_chars,
                 StoryGame.response_max_tokens,
                 StoryGame.response_max_tokens_enabled,
+                StoryGame.response_token_limit_enabled,
                 StoryGame.story_llm_model,
                 StoryGame.image_model,
                 StoryGame.memory_optimization_enabled,
@@ -1824,8 +1856,10 @@ def list_story_games(
             )
         )
     if limit is not None:
-        query = query.limit(limit)
-    games = db.scalars(query).all()
+        statement = statement.limit(limit)
+    if offset > 0:
+        statement = statement.offset(offset)
+    games = db.scalars(statement).all()
     turn_count_by_game_id = _load_story_turn_count_by_game_id(
         db,
         game_ids=[game.id for game in games],
@@ -2016,6 +2050,8 @@ def list_story_community_worlds(
 
 @router.get("/api/story/community/favorites", response_model=list[StoryCommunityWorldSummaryOut])
 def list_story_community_favorites(
+    limit: int = Query(default=120, ge=1, le=120),
+    offset: int = Query(default=0, ge=0),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryCommunityWorldSummaryOut]:
@@ -2024,7 +2060,8 @@ def list_story_community_favorites(
         select(StoryCommunityWorldFavorite)
         .where(StoryCommunityWorldFavorite.user_id == user.id)
         .order_by(StoryCommunityWorldFavorite.created_at.desc(), StoryCommunityWorldFavorite.id.desc())
-        .limit(120)
+        .offset(offset)
+        .limit(limit)
     ).all()
     if not favorite_rows:
         return []
@@ -2126,6 +2163,9 @@ def launch_story_community_world(
         response_max_tokens=normalize_story_response_max_tokens(getattr(world, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(world, "response_max_tokens_enabled", None)
+        ),
+        response_token_limit_enabled=normalize_story_response_token_limit_enabled(
+            getattr(world, "response_token_limit_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(world, "story_llm_model", None)),
         image_model=coerce_story_image_model(getattr(world, "image_model", None)),
@@ -2625,6 +2665,7 @@ def create_story_game(
         context_limit_chars=context_limit_chars,
         response_max_tokens=response_max_tokens,
         response_max_tokens_enabled=response_max_tokens_enabled,
+        response_token_limit_enabled=False,
         story_llm_model=story_llm_model,
         image_model=image_model,
         image_style_prompt=image_style_prompt,
@@ -2746,6 +2787,7 @@ def create_story_quick_start_game(
         context_limit_chars=normalize_story_context_limit_chars(None),
         response_max_tokens=normalize_story_response_max_tokens(None),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(None),
+        response_token_limit_enabled=False,
         story_llm_model=default_story_llm_model,
         image_model=normalize_story_image_model(None),
         image_style_prompt=normalize_story_image_style_prompt(None),
@@ -2856,6 +2898,9 @@ def clone_story_game(
         response_max_tokens=normalize_story_response_max_tokens(getattr(source_game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(source_game, "response_max_tokens_enabled", None)
+        ),
+        response_token_limit_enabled=normalize_story_response_token_limit_enabled(
+            getattr(source_game, "response_token_limit_enabled", None)
         ),
         story_llm_model=coerce_story_llm_model(getattr(source_game, "story_llm_model", None)),
         image_model=coerce_story_image_model(getattr(source_game, "image_model", None)),
@@ -3072,6 +3117,12 @@ def update_story_game_settings(
     if payload.response_max_tokens_enabled is not None:
         game.response_max_tokens_enabled = normalize_story_response_max_tokens_enabled(
             payload.response_max_tokens_enabled
+        )
+    if payload.response_token_limit_enabled is not None:
+        if str(getattr(user, "role", "") or "").strip().lower() != "administrator":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+        game.response_token_limit_enabled = normalize_story_response_token_limit_enabled(
+            payload.response_token_limit_enabled
         )
     if payload.image_model is not None:
         game.image_model = normalize_story_image_model(payload.image_model)

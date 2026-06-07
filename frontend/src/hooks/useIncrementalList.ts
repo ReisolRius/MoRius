@@ -7,6 +7,9 @@ type UseIncrementalListOptions = {
   enabled?: boolean
   resetKey?: unknown
   rootMargin?: string
+  hasMoreRemote?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 export function useIncrementalList<T>(
@@ -17,19 +20,31 @@ export function useIncrementalList<T>(
     enabled = true,
     resetKey,
     rootMargin = '120px 0px',
+    hasMoreRemote = false,
+    isLoadingMore = false,
+    onLoadMore,
   }: UseIncrementalListOptions = {},
 ) {
   const [visibleCount, setVisibleCount] = useState(enabled ? initialCount : items.length)
 
   useEffect(() => {
     setVisibleCount(enabled ? initialCount : items.length)
-  }, [enabled, initialCount, items.length, resetKey])
+  }, [enabled, initialCount, resetKey])
 
-  const hasMore = enabled && visibleCount < items.length
+  useEffect(() => {
+    if (!enabled) {
+      setVisibleCount(items.length)
+      return
+    }
+    setVisibleCount((currentCount) => Math.min(currentCount, Math.max(items.length, initialCount)))
+  }, [enabled, initialCount, items.length])
+
+  const hasMoreLocal = enabled && visibleCount < items.length
+  const hasMore = hasMoreLocal || (enabled && hasMoreRemote)
   const { ref: loadMoreRef, isVisible: isLoadMoreVisible } = useVisibilityTrigger<HTMLDivElement>({
     rootMargin,
     once: false,
-    disabled: !hasMore,
+    disabled: !hasMore || isLoadingMore,
   })
 
   useEffect(() => {
@@ -37,8 +52,15 @@ export function useIncrementalList<T>(
       return
     }
 
-    setVisibleCount((currentCount) => Math.min(items.length, currentCount + step))
-  }, [enabled, hasMore, isLoadMoreVisible, items.length, step, visibleCount])
+    if (hasMoreLocal) {
+      setVisibleCount((currentCount) => Math.min(items.length, currentCount + step))
+      return
+    }
+
+    if (hasMoreRemote && !isLoadingMore) {
+      onLoadMore?.()
+    }
+  }, [enabled, hasMore, hasMoreLocal, hasMoreRemote, isLoadMoreVisible, isLoadingMore, items.length, onLoadMore, step])
 
   const visibleItems = useMemo(
     () => (enabled ? items.slice(0, visibleCount) : items),

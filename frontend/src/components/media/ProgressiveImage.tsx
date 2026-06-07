@@ -4,7 +4,6 @@ import type { SxProps } from '@mui/system'
 import { useEffect, useState, type ReactNode } from 'react'
 import { resolveApiResourceUrl } from '../../services/httpClient'
 
-const IMAGE_LOAD_TIMEOUT_MS = 8000
 type ImageLoadStatus = 'idle' | 'loading' | 'loaded' | 'failed'
 
 type ProgressiveImageProps = {
@@ -20,6 +19,14 @@ type ProgressiveImageProps = {
   fallback?: ReactNode
 }
 
+function buildImageRequestSrc(src: string | null, retryNonce: number): string | null {
+  if (!src || retryNonce <= 0 || src.startsWith('data:') || src.startsWith('blob:')) {
+    return src
+  }
+  const separator = src.includes('?') ? '&' : '?'
+  return `${src}${separator}morius_img_retry=${retryNonce}`
+}
+
 export default function ProgressiveImage({
   src,
   alt = '',
@@ -33,25 +40,22 @@ export default function ProgressiveImage({
   fallback = null,
 }: ProgressiveImageProps) {
   const resolvedSrc = resolveApiResourceUrl(src)
+  const [retryNonce, setRetryNonce] = useState(0)
   const [loadStatus, setLoadStatus] = useState<ImageLoadStatus>(resolvedSrc ? 'loading' : 'idle')
+  const requestSrc = buildImageRequestSrc(resolvedSrc, retryNonce)
   const shouldRevealImage = loadStatus === 'loaded' || loadStatus === 'idle'
   const isImageLoading = loadStatus === 'loading'
   const hasFailed = loadStatus === 'failed'
 
   useEffect(() => {
     if (!resolvedSrc) {
+      setRetryNonce(0)
       setLoadStatus('idle')
       return
     }
 
+    setRetryNonce(0)
     setLoadStatus('loading')
-    const timeoutId = window.setTimeout(() => {
-      setLoadStatus((currentStatus) => (currentStatus === 'loading' ? 'idle' : currentStatus))
-    }, IMAGE_LOAD_TIMEOUT_MS)
-
-    return () => {
-      window.clearTimeout(timeoutId)
-    }
   }, [resolvedSrc])
 
   return (
@@ -72,14 +76,21 @@ export default function ProgressiveImage({
         <>
           <Box
             component="img"
-            src={resolvedSrc}
+            src={requestSrc ?? resolvedSrc}
             alt={alt}
             loading={loading}
             fetchPriority={fetchPriority}
             decoding="async"
             referrerPolicy="no-referrer"
             onLoad={() => setLoadStatus('loaded')}
-            onError={() => setLoadStatus('failed')}
+            onError={() => {
+              if (retryNonce < 2) {
+                setLoadStatus('loading')
+                setRetryNonce((current) => current + 1)
+              } else {
+                setLoadStatus('failed')
+              }
+            }}
             sx={[
               {
                 width: '100%',

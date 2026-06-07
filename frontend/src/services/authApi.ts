@@ -1553,6 +1553,22 @@ export async function updateShopCosmeticItem(payload: {
   )
 }
 
+export async function deleteShopCosmeticItem(payload: {
+  token: string
+  item_id: number
+}): Promise<MessageResponse> {
+  return requestJson<MessageResponse>(
+    `/api/shop/cosmetics/${payload.item_id}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${payload.token}`,
+      },
+    },
+    AUTH_NETWORK_ERROR,
+  )
+}
+
 export async function purchaseShopCosmeticItem(payload: {
   token: string
   item_id: number

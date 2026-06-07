@@ -1066,6 +1066,7 @@ def _build_story_turn_image_prompt(
     world_cards: list[dict[str, Any]],
     character_world_cards: list[dict[str, Any]] | None = None,
     image_style_prompt: str | None = None,
+    environment_context: str | None = None,
     full_character_card_locks: list[str] | None = None,
     model_name: str | None = None,
 ) -> str:
@@ -1073,6 +1074,7 @@ def _build_story_turn_image_prompt(
     sanitized_user_prompt = _sanitize_story_turn_image_source_text(user_prompt)
     sanitized_assistant_text = _sanitize_story_turn_image_source_text(assistant_text)
     sanitized_image_style_prompt = _sanitize_story_turn_image_source_text(image_style_prompt)
+    sanitized_environment_context = _sanitize_story_turn_image_source_text(environment_context)
     sanitized_world_cards = repair_likely_utf8_mojibake_deep(world_cards)
     effective_character_world_cards = repair_likely_utf8_mojibake_deep(
         character_world_cards if character_world_cards is not None else world_cards
@@ -1089,6 +1091,11 @@ def _build_story_turn_image_prompt(
         _normalize_story_markup_to_plain_text(sanitized_assistant_text).replace("\r\n", "\n"),
     ).strip()
     normalized_image_style_prompt = _normalize_story_turn_image_style_prompt(sanitized_image_style_prompt)
+    normalized_environment_context = re.sub(
+        r"\s+",
+        " ",
+        _normalize_story_markup_to_plain_text(sanitized_environment_context).replace("\r\n", "\n"),
+    ).strip()
 
     world_context_items: list[str] = []
     for card in sanitized_world_cards:
@@ -1214,6 +1221,19 @@ def _build_story_turn_image_prompt(
         prompt_max_chars=prompt_max_chars,
         prefer_fresh_tail=True,
     )
+    _append_story_turn_image_optional_context_part(
+        prompt_parts,
+        part_prefix="Active place/time/weather modules: ",
+        part_body=normalized_environment_context,
+        part_suffix=".",
+        prompt_max_chars=prompt_max_chars,
+        prefer_fresh_tail=True,
+    )
+    if normalized_environment_context:
+        _try_append_optional_line(
+            "Use the active place/time/weather module facts as strict visual constraints for location, season, "
+            "time of day, lighting, sky, and weather."
+        )
     _try_append_optional_line(
         "Do not invent unrelated people, symbols, dream imagery, flashbacks, parallel scenes, or extra locations."
     )
@@ -3682,12 +3702,17 @@ def generate_story_turn_image_impl(
 
     selected_image_model = _coerce_story_image_model(getattr(game, "image_model", None))
     _validate_story_turn_image_provider_config(selected_image_model)
+    try:
+        environment_context = monolith_main._build_story_turn_image_environment_context(db=db, game=game)
+    except Exception:
+        environment_context = ""
     visual_prompt = _build_story_turn_image_prompt(
         user_prompt=source_user_message.content,
         assistant_text=assistant_message.content,
         world_cards=prompt_world_cards,
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
+        environment_context=environment_context,
         full_character_card_locks=full_character_card_locks,
         model_name=selected_image_model,
     )
@@ -3698,6 +3723,7 @@ def generate_story_turn_image_impl(
         world_cards=prompt_world_cards,
         character_world_cards=character_world_cards,
         image_style_prompt=effective_image_style_prompt,
+        environment_context=environment_context,
         model_name=selected_image_model,
     )
     visual_prompt = _limit_story_turn_image_request_prompt(

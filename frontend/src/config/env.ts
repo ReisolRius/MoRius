@@ -23,7 +23,7 @@ const isLocalRuntime =
   runtimeHostname === '127.0.0.1' ||
   runtimeHostname === '::1' ||
   runtimeHostname === '[::1]'
-const defaultApiUrl = isLocalRuntime ? 'http://localhost:8000' : ''
+const defaultApiUrl = isDevRuntime && isLocalRuntime ? '' : isLocalRuntime ? 'http://localhost:8000' : ''
 
 function isLoopbackHttpUrl(value: string): boolean {
   try {

@@ -75,6 +75,7 @@ const DEFAULT_PUBLICATION_STATE: StoryPublicationState = {
   rejection_reason: null,
 }
 const STORY_APPEARANCE_HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+const STORY_CHARACTER_TEXT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 
 function normalizeStoryAppearanceBackgroundMode(value: unknown): StoryAppearanceBackgroundMode {
   return value === 'custom' ? 'custom' : 'default'
@@ -99,6 +100,17 @@ function normalizeStoryAppearanceColor(value: unknown, fallback: string): string
     return fallback
   }
   return value.trim().toUpperCase()
+}
+
+function normalizeStoryCharacterTextColor(value: unknown): string {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  const normalized = value.trim()
+  if (!STORY_CHARACTER_TEXT_COLOR_PATTERN.test(normalized)) {
+    return ''
+  }
+  return normalized.toUpperCase()
 }
 
 function normalizeRequestMethod(method: string | undefined): string {
@@ -183,6 +195,8 @@ export type StoryWorldCardInput = {
   clothing?: string
   inventory?: string
   health_status?: string
+  name_color?: string | null
+  speech_color?: string | null
   triggers: string[]
   detail_type?: string
 }
@@ -197,6 +211,8 @@ export type StoryCharacterInput = {
   inventory?: string
   health_status?: string
   note?: string
+  name_color?: string | null
+  speech_color?: string | null
   triggers: string[]
   avatar_url: string | null
   avatar_original_url?: string | null
@@ -424,6 +440,7 @@ function normalizeStoryGameSummaryPayload(rawGame: StoryGameSummary): StoryGameS
         ? Math.max(0, Math.trunc(game.response_max_tokens))
         : 0,
     response_max_tokens_enabled: Boolean(game.response_max_tokens_enabled),
+    response_token_limit_enabled: Boolean(game.response_token_limit_enabled),
     story_llm_model:
       typeof game.story_llm_model === 'string'
         ? (game.story_llm_model as StoryGameSummary['story_llm_model'])
@@ -535,6 +552,8 @@ function normalizeStoryWorldCardPayload(rawCard: StoryWorldCard): StoryWorldCard
     inventory: typeof card.inventory === 'string' ? card.inventory : '',
     health_status: typeof card.health_status === 'string' ? card.health_status : '',
     triggers: normalizeStoryStringArray(card.triggers),
+    name_color: normalizeStoryCharacterTextColor(card.name_color),
+    speech_color: normalizeStoryCharacterTextColor(card.speech_color),
     kind: card.kind === 'npc' || card.kind === 'main_hero' || card.kind === 'world_profile' ? card.kind : 'world',
     detail_type: typeof card.detail_type === 'string' ? card.detail_type : '',
     avatar_url: typeof card.avatar_url === 'string' ? card.avatar_url : null,
@@ -641,6 +660,8 @@ function normalizeStoryCharacterPayload(rawCharacter: StoryCharacter): StoryChar
     health_status: typeof character.health_status === 'string' ? character.health_status : '',
     note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
+    name_color: normalizeStoryCharacterTextColor(character.name_color),
+    speech_color: normalizeStoryCharacterTextColor(character.speech_color),
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
     avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
     avatar_scale:
@@ -762,6 +783,8 @@ function normalizeStoryCommunityCharacterSummaryPayload(
     health_status: typeof character.health_status === 'string' ? character.health_status : '',
     note: typeof character.note === 'string' ? character.note : '',
     triggers: normalizedTriggers,
+    name_color: normalizeStoryCharacterTextColor(character.name_color),
+    speech_color: normalizeStoryCharacterTextColor(character.speech_color),
     avatar_url: typeof character.avatar_url === 'string' ? character.avatar_url : null,
     avatar_original_url: typeof character.avatar_original_url === 'string' ? character.avatar_original_url : null,
     avatar_scale:
@@ -814,6 +837,10 @@ export async function listStoryGames(
   options: {
     compact?: boolean
     limit?: number
+    offset?: number
+    sort?: 'updated_desc' | 'updated_asc' | 'created_desc' | 'created_asc'
+    query?: string
+    visibility?: 'all' | 'private' | 'public'
   } = {},
 ): Promise<StoryGameSummary[]> {
   const params = new URLSearchParams()
@@ -822,6 +849,18 @@ export async function listStoryGames(
   }
   if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
     params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.sort === 'string' && options.sort.trim()) {
+    params.set('sort', options.sort.trim())
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  if (typeof options.visibility === 'string' && options.visibility !== 'all') {
+    params.set('visibility', options.visibility)
   }
   const query = params.toString()
   const path = query ? `/api/story/games?${query}` : '/api/story/games'
@@ -889,8 +928,22 @@ export async function listCommunityWorlds(
   })
 }
 
-export async function listFavoriteCommunityWorlds(token: string): Promise<StoryCommunityWorldSummary[]> {
-  return request<StoryCommunityWorldSummary[]>('/api/story/community/favorites', {
+export async function listFavoriteCommunityWorlds(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+  } = {},
+): Promise<StoryCommunityWorldSummary[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  const query = params.toString()
+  return request<StoryCommunityWorldSummary[]>(query ? `/api/story/community/favorites?${query}` : '/api/story/community/favorites', {
     method: 'GET',
     cache: 'no-store',
     headers: {
@@ -1249,6 +1302,7 @@ export async function listStoryCharacters(
     limit?: number
     offset?: number
     query?: string
+    includeEmotionAssets?: boolean
   } = {},
 ): Promise<StoryCharacter[]> {
   const params = new URLSearchParams()
@@ -1260,6 +1314,9 @@ export async function listStoryCharacters(
   }
   if (typeof options.query === 'string' && options.query.trim()) {
     params.set('query', options.query.trim())
+  }
+  if (typeof options.includeEmotionAssets === 'boolean') {
+    params.set('include_emotion_assets', options.includeEmotionAssets ? '1' : '0')
   }
   const query = params.toString()
   const response = await request<StoryCharacter[]>(query ? `/api/story/characters?${query}` : '/api/story/characters', {
@@ -1333,8 +1390,24 @@ export async function createStoryWorldDetailType(payload: {
   return normalizeStoryWorldDetailTypePayload(response)
 }
 
-export async function listStoryWorldCardTemplates(payload: { token: string }): Promise<StoryWorldCardTemplate[]> {
-  const response = await request<StoryWorldCardTemplate[]>('/api/story/world-card-templates', {
+export async function listStoryWorldCardTemplates(payload: {
+  token: string
+  limit?: number
+  offset?: number
+  query?: string
+}): Promise<StoryWorldCardTemplate[]> {
+  const params = new URLSearchParams()
+  if (typeof payload.limit === 'number' && Number.isFinite(payload.limit) && payload.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(payload.limit))))
+  }
+  if (typeof payload.offset === 'number' && Number.isFinite(payload.offset) && payload.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(payload.offset))))
+  }
+  if (typeof payload.query === 'string' && payload.query.trim()) {
+    params.set('query', payload.query.trim())
+  }
+  const query = params.toString()
+  const response = await request<StoryWorldCardTemplate[]>(query ? `/api/story/world-card-templates?${query}` : '/api/story/world-card-templates', {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -1638,8 +1711,26 @@ export async function generateStoryCharacterEmotionPack(payload: {
   }
 }
 
-export async function listStoryInstructionTemplates(token: string): Promise<StoryInstructionTemplate[]> {
-  return request<StoryInstructionTemplate[]>('/api/story/instruction-templates', {
+export async function listStoryInstructionTemplates(
+  token: string,
+  options: {
+    limit?: number
+    offset?: number
+    query?: string
+  } = {},
+): Promise<StoryInstructionTemplate[]> {
+  const params = new URLSearchParams()
+  if (typeof options.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
+    params.set('limit', String(Math.max(1, Math.trunc(options.limit))))
+  }
+  if (typeof options.offset === 'number' && Number.isFinite(options.offset) && options.offset >= 0) {
+    params.set('offset', String(Math.max(0, Math.trunc(options.offset))))
+  }
+  if (typeof options.query === 'string' && options.query.trim()) {
+    params.set('query', options.query.trim())
+  }
+  const query = params.toString()
+  return request<StoryInstructionTemplate[]>(query ? `/api/story/instruction-templates?${query}` : '/api/story/instruction-templates', {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -1831,6 +1922,7 @@ export async function updateStoryGameSettings(payload: {
   contextLimitTokens?: number
   responseMaxTokens?: number
   responseMaxTokensEnabled?: boolean
+  responseTokenLimitEnabled?: boolean
   storyLlmModel?: StoryNarratorModelId
   imageModel?: StoryImageModelId
   imageStylePrompt?: string
@@ -1873,6 +1965,9 @@ export async function updateStoryGameSettings(payload: {
   }
   if (typeof payload.responseMaxTokensEnabled === 'boolean') {
     requestPayload.response_max_tokens_enabled = payload.responseMaxTokensEnabled
+  }
+  if (typeof payload.responseTokenLimitEnabled === 'boolean') {
+    requestPayload.response_token_limit_enabled = payload.responseTokenLimitEnabled
   }
   if (typeof payload.storyLlmModel === 'string') {
     requestPayload.story_llm_model = payload.storyLlmModel
@@ -2593,12 +2688,17 @@ export async function listStoryWorldCards(payload: {
   token: string
   gameId: number
 }): Promise<StoryWorldCard[]> {
-  return request<StoryWorldCard[]>(`/api/story/games/${payload.gameId}/world-cards`, {
+  const response = await request<StoryWorldCard[]>(`/api/story/games/${payload.gameId}/world-cards`, {
     method: 'GET',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
   })
+  return Array.isArray(response)
+    ? response
+        .filter((item): item is StoryWorldCard => Boolean(item) && typeof item === 'object')
+        .map((item) => normalizeStoryWorldCardPayload(item))
+    : []
 }
 
 export async function createStoryWorldCard(payload: {
@@ -2610,6 +2710,8 @@ export async function createStoryWorldCard(payload: {
   clothing?: string
   inventory?: string
   health_status?: string
+  name_color?: string | null
+  speech_color?: string | null
   triggers: string[]
   kind?: 'world' | 'world_profile' | 'npc' | 'main_hero'
   detail_type?: string
@@ -2626,6 +2728,8 @@ export async function createStoryWorldCard(payload: {
     clothing: payload.clothing ?? '',
     inventory: payload.inventory ?? '',
     health_status: payload.health_status ?? '',
+    name_color: payload.name_color ?? null,
+    speech_color: payload.speech_color ?? null,
     triggers: payload.triggers,
     kind: payload.kind ?? 'world',
     detail_type: payload.detail_type ?? '',
@@ -2639,13 +2743,14 @@ export async function createStoryWorldCard(payload: {
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns
   }
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(body),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function selectStoryMainHero(payload: {
@@ -2653,7 +2758,7 @@ export async function selectStoryMainHero(payload: {
   gameId: number
   characterId: number
 }): Promise<StoryWorldCard> {
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/main-hero`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/main-hero`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -2662,6 +2767,7 @@ export async function selectStoryMainHero(payload: {
       character_id: payload.characterId,
     }),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function createStoryNpcFromCharacter(payload: {
@@ -2669,7 +2775,7 @@ export async function createStoryNpcFromCharacter(payload: {
   gameId: number
   characterId: number
 }): Promise<StoryWorldCard> {
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/npc-from-character`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/npc-from-character`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -2678,6 +2784,7 @@ export async function createStoryNpcFromCharacter(payload: {
       character_id: payload.characterId,
     }),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function updateStoryWorldCardAvatar(payload: {
@@ -2688,7 +2795,7 @@ export async function updateStoryWorldCardAvatar(payload: {
   avatar_original_url?: string | null
   avatar_scale?: number
 }): Promise<StoryWorldCard> {
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/avatar`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/avatar`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -2699,6 +2806,7 @@ export async function updateStoryWorldCardAvatar(payload: {
       avatar_scale: payload.avatar_scale ?? null,
     }),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function updateStoryInstructionCardActive(payload: {
@@ -2724,7 +2832,7 @@ export async function updateStoryWorldCardAiEdit(payload: {
   cardId: number
   ai_edit_enabled: boolean
 }): Promise<StoryWorldCard> {
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/ai-edit`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}/ai-edit`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
@@ -2733,6 +2841,7 @@ export async function updateStoryWorldCardAiEdit(payload: {
       ai_edit_enabled: payload.ai_edit_enabled,
     }),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function updateStoryWorldCard(payload: {
@@ -2745,6 +2854,8 @@ export async function updateStoryWorldCard(payload: {
   clothing?: string
   inventory?: string
   health_status?: string
+  name_color?: string | null
+  speech_color?: string | null
   triggers: string[]
   detail_type?: string
   character_id?: number | null
@@ -2757,6 +2868,8 @@ export async function updateStoryWorldCard(payload: {
     clothing: payload.clothing ?? '',
     inventory: payload.inventory ?? '',
     health_status: payload.health_status ?? '',
+    name_color: payload.name_color ?? null,
+    speech_color: payload.speech_color ?? null,
     triggers: payload.triggers,
     detail_type: payload.detail_type ?? '',
   }
@@ -2766,13 +2879,14 @@ export async function updateStoryWorldCard(payload: {
   if (payload.memory_turns !== undefined) {
     body.memory_turns = payload.memory_turns
   }
-  return request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
+  const response = await request<StoryWorldCard>(`/api/story/games/${payload.gameId}/world-cards/${payload.cardId}`, {
     method: 'PATCH',
     headers: {
       Authorization: `Bearer ${payload.token}`,
     },
     body: JSON.stringify(body),
   })
+  return normalizeStoryWorldCardPayload(response)
 }
 
 export async function deleteStoryWorldCard(payload: {

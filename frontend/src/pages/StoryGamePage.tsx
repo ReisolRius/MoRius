@@ -225,6 +225,7 @@ type StorySettingsOverride = {
   storyLlmModel: StoryNarratorModelId
   responseMaxTokens: number
   responseMaxTokensEnabled: boolean
+  responseTokenLimitEnabled?: boolean
   memoryOptimizationEnabled: boolean
   memoryOptimizationMode?: StoryMemoryOptimizationMode
   storyRepetitionPenalty?: number
@@ -430,7 +431,7 @@ function EnvironmentModuleCard({
               },
             }}
           />
-          <Tooltip title="Вернуть карточку на место">
+          <Tooltip disableInteractive title="Вернуть карточку на место">
             <IconButton
               aria-label={`Вернуть модуль ${title} на место`}
               onClick={() => onReset(cardId)}
@@ -518,6 +519,134 @@ type SpeakerAvatarEntry = {
   card: StoryWorldCard | null
   character: StoryCharacter | null
 }
+const STORY_CHARACTER_DEFAULT_TEXT_COLOR = '#DFE8F3'
+const STORY_CHARACTER_TEXT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
+
+function normalizeStoryCharacterTextColor(value: string | null | undefined): string {
+  const normalized = String(value ?? '').trim()
+  return STORY_CHARACTER_TEXT_COLOR_PATTERN.test(normalized) ? normalized.toUpperCase() : ''
+}
+
+function normalizeStoryCharacterTextColorDraft(value: string): string | null {
+  return normalizeStoryCharacterTextColor(value) || null
+}
+
+function resolveSpeakerNameColor(entry: SpeakerAvatarEntry | null, fallbackColor: string): string {
+  return (
+    normalizeStoryCharacterTextColor(entry?.card?.name_color) ||
+    normalizeStoryCharacterTextColor(entry?.character?.name_color) ||
+    fallbackColor
+  )
+}
+
+function resolveSpeakerSpeechColor(entry: SpeakerAvatarEntry | null, fallbackColor: string): string {
+  return (
+    normalizeStoryCharacterTextColor(entry?.card?.speech_color) ||
+    normalizeStoryCharacterTextColor(entry?.character?.speech_color) ||
+    fallbackColor
+  )
+}
+
+type StoryCharacterTextColorFieldProps = {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}
+
+function StoryCharacterTextColorField({
+  label,
+  value,
+  onChange,
+  disabled = false,
+}: StoryCharacterTextColorFieldProps) {
+  const normalizedValue = normalizeStoryCharacterTextColor(value)
+  const pickerValue = normalizedValue || STORY_CHARACTER_DEFAULT_TEXT_COLOR
+  return (
+    <Stack spacing={0.45}>
+      <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.78rem', fontWeight: 700 }}>
+        {label}
+      </Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} alignItems={{ xs: 'stretch', sm: 'center' }}>
+        <Box
+          component="input"
+          type="color"
+          value={pickerValue}
+          disabled={disabled}
+          onChange={(event) => onChange(String((event.target as HTMLInputElement).value || '').toUpperCase())}
+          aria-label={label}
+          sx={{
+            width: { xs: '100%', sm: 46 },
+            height: 36,
+            minWidth: { xs: '100%', sm: 46 },
+            p: 0,
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            borderRadius: '8px',
+            backgroundColor: 'transparent',
+            cursor: disabled ? 'default' : 'pointer',
+            '&::-webkit-color-swatch-wrapper': { p: 0 },
+            '&::-webkit-color-swatch': { border: 0, borderRadius: '7px' },
+            '&::-moz-color-swatch': { border: 0, borderRadius: '7px' },
+          }}
+        />
+        <TextField
+          value={value}
+          onChange={(event) => onChange(event.target.value.trim().slice(0, 7).toUpperCase())}
+          placeholder="По умолчанию"
+          disabled={disabled}
+          size="small"
+          inputProps={{ maxLength: 7 }}
+          sx={{ flex: 1 }}
+        />
+        <Button
+          onClick={() => onChange('')}
+          disabled={disabled || !value}
+          sx={{
+            minHeight: 36,
+            borderRadius: '8px',
+            color: 'var(--morius-text-secondary)',
+            textTransform: 'none',
+          }}
+        >
+          Сброс
+        </Button>
+      </Stack>
+    </Stack>
+  )
+}
+
+type StoryCharacterTextColorControlsProps = {
+  nameColor: string
+  speechColor: string
+  onNameColorChange: (value: string) => void
+  onSpeechColorChange: (value: string) => void
+  disabled?: boolean
+}
+
+function StoryCharacterTextColorControls({
+  nameColor,
+  speechColor,
+  onNameColorChange,
+  onSpeechColorChange,
+  disabled = false,
+}: StoryCharacterTextColorControlsProps) {
+  return (
+    <Stack spacing={0.85}>
+      <StoryCharacterTextColorField
+        label="Цвет имени"
+        value={nameColor}
+        onChange={onNameColorChange}
+        disabled={disabled}
+      />
+      <StoryCharacterTextColorField
+        label="Цвет реплик"
+        value={speechColor}
+        onChange={onSpeechColorChange}
+        disabled={disabled}
+      />
+    </Stack>
+  )
+}
 type SceneEmotionCharacterEntry = {
   names: string[]
   displayName: string
@@ -535,7 +664,6 @@ const PENDING_PAYMENT_STORAGE_KEY = 'morius.pending.payment.id'
 const STREAMING_CARET_CLASS_NAME = 'morius-streaming-caret'
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_DEFAULT_MS = 120_000
 const STORY_TURN_IMAGE_REQUEST_TIMEOUT_SLOW_MS = 120_000
-const STORY_GENERATION_CANCEL_TIMEOUT_MS = 4_000
 const STORY_GENERATION_INTERRUPTION_MARKERS = [
   'генерация прервалась',
   'network error',
@@ -548,6 +676,7 @@ const STORY_GENERATION_INTERRUPTION_MARKERS = [
 ] as const
 const STORY_IMAGE_STYLE_PROMPT_MAX_LENGTH = 320
 const STORY_PROMPT_MAX_LENGTH = 4000
+const STORY_GAME_LIST_SNAPSHOT_LIMIT = 12
 const STORY_BUG_REPORT_TITLE_MAX_LENGTH = 160
 const STORY_BUG_REPORT_DESCRIPTION_MAX_LENGTH = 8000
 const FINAL_PAYMENT_STATUSES = new Set(['succeeded', 'canceled'])
@@ -556,7 +685,7 @@ const CARDS_PANEL_TABS_DRAG_THRESHOLD_PX = 10
 const INITIAL_STORY_PLACEHOLDER = 'Начните свою историю...'
 const INITIAL_INPUT_PLACEHOLDER = 'Как же все началось?'
 const NEXT_INPUT_PLACEHOLDER = 'Введите ваше действие...'
-const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Закончились солы'
+const OUT_OF_TOKENS_INPUT_PLACEHOLDER = 'Недостаточно валюты'
 const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const STORY_GAME_TITLE_MAX_LENGTH = 160
 const STORY_CARD_TITLE_MAX_LENGTH = 120
@@ -937,7 +1066,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'z-ai/glm-4.7-flash',
     title: 'GLM 4.7 Flash',
     description:
-      'Быстрая экономичная версия GLM 4.7 для коротких ходов от 1 сола. Подходит для динамичных сцен, когда важны темп и цена.',
+      'Быстрая экономичная версия GLM 4.7 для коротких ходов от 1 единицы валюты. Подходит для динамичных сцен, когда важны темп и цена.',
     portraitSrc: narratorFreyaPortrait,
     portraitAlt: 'GLM 4.7 Flash',
     stats: [
@@ -963,7 +1092,7 @@ const STORY_NARRATOR_MODEL_OPTIONS: StoryNarratorModelOption[] = [
     id: 'deepseek/deepseek-v3.2',
     title: 'DeepSeek V3.2',
     description:
-      'Экономичный быстрый рассказчик для коротких ходов и динамичного темпа. Хорош, когда нужен ход от 1 сола.',
+      'Экономичный быстрый рассказчик для коротких ходов и динамичного темпа. Хорош, когда нужен ход от 1 единицы валюты.',
     portraitSrc: narratorVelesPortrait,
     portraitAlt: 'DeepSeek V3.2',
     stats: [
@@ -1076,48 +1205,50 @@ const STORY_IMAGE_MODEL_OPTIONS: Array<{
   {
     id: STORY_IMAGE_MODEL_FLUX_KLEIN_4B_ID,
     title: 'Flux.2 Klein 4B',
-    description: 'AITunnel. 6 солов за генерацию кадра.',
-    priceLabel: '6 \u0441\u043e\u043b\u043e\u0432',
+    description: 'AITunnel. 6 единиц валюты за генерацию кадра.',
+    priceLabel: '6',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_ID,
     title: 'Nano Banano',
-    description: '9 солов за генерацию кадра.',
-    priceLabel: '9 \u0441\u043e\u043b\u043e\u0432',
+    description: '9 единиц валюты за генерацию кадра.',
+    priceLabel: '9',
   },
   {
     id: STORY_IMAGE_MODEL_NANO_BANANO_2_ID,
     title: 'Nano Banano 2',
-    description: '13 солов за генерацию кадра.',
-    priceLabel: '13 \u0441\u043e\u043b\u043e\u0432',
+    description: '13 единиц валюты за генерацию кадра.',
+    priceLabel: '13',
   },
   {
     id: STORY_IMAGE_MODEL_FLUX_ID,
     title: 'Flux 2 Pro',
-    description: 'AITunnel. 18 солов за генерацию кадра.',
-    priceLabel: '18 \u0441\u043e\u043b\u043e\u0432',
+    description: 'AITunnel. 18 единиц валюты за генерацию кадра.',
+    priceLabel: '18',
   },
   {
     id: STORY_IMAGE_MODEL_SEEDREAM_ID,
     title: 'Seedream 4.5',
-    description: 'AITunnel. 20 солов за генерацию кадра.',
-    priceLabel: '20 \u0441\u043e\u043b\u043e\u0432',
+    description: 'AITunnel. 20 единиц валюты за генерацию кадра.',
+    priceLabel: '20',
   },
   {
     id: STORY_IMAGE_MODEL_QWEN_IMAGE_EDIT_ID,
     title: 'Qwen Image Edit',
     description: 'AITunnel. Художник-редактор для аккуратной стилизации и правки кадра.',
-    priceLabel: '24 \u0441\u043e\u043b\u0430',
+    priceLabel: '24',
   },
 ]
 const STORY_SETTINGS_INFO_TEXT = {
   narrator:
-    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 сола; обычный GLM 4.7 дороже, но стабильнее; старшие модели стоят по новой таблице.',
+    'Выберите модель рассказчика. DeepSeek V3, DeepSeek V3.2 и GLM 4.7 Flash дают короткие ходы от 1 единицы валюты; обычный GLM 4.7 дороже, но стабильнее; старшие модели стоят по новой таблице.',
   artist:
     'Выберите ИИ-модель для генерации изображения. У каждой модели своя цена и свой визуальный почерк.',
   contextLimit:
     'Ограничение памяти истории для ИИ. GLM 5.1 и AionLabs могут держать до 128000 токенов, остальные рассказчики ограничены 64000. Чем выше лимит, тем дороже ход.',
   responseTokens: 'Ограничьте объем ответа ИИ точнее в токенах. ИИ получает инструкцию завершать мысль внутри выбранного бюджета, а не писать до обрыва.',
+  responseTokenLimit:
+    'Админ-настройка. Когда выключена, скрытый потолок 4500 токенов не отправляется в запрос рассказчика. Обычные пользователи всегда остаются под защитным лимитом.',
   showGgThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли вашего ГГ.',
   showNpcThoughts: 'Настройка того, будет ли ИИ генерировать и транслировать мысли NPC.',
   memoryOptimization:
@@ -1156,22 +1287,6 @@ function isStoryGenerationInterruptionDetail(value: string): boolean {
     normalizedValue &&
       STORY_GENERATION_INTERRUPTION_MARKERS.some((marker) => normalizedValue.includes(marker)),
   )
-}
-
-async function requestStoryGenerationCancelWithTimeout(token: string, gameId: number): Promise<void> {
-  const controller = new AbortController()
-  const timeoutId = window.setTimeout(() => {
-    controller.abort()
-  }, STORY_GENERATION_CANCEL_TIMEOUT_MS)
-  try {
-    await cancelStoryGeneration({
-      token,
-      gameId,
-      signal: controller.signal,
-    })
-  } finally {
-    window.clearTimeout(timeoutId)
-  }
 }
 
 function resolveNarratorStatLabel(label: string, index: number): string {
@@ -1816,6 +1931,8 @@ function normalizeStoryWorldCardItem(card: StoryWorldCard): StoryWorldCard {
     title: toStoryText(card.title),
     content: toStoryText(card.content),
     triggers: toStoryStringList(card.triggers),
+    name_color: normalizeStoryCharacterTextColor(card.name_color),
+    speech_color: normalizeStoryCharacterTextColor(card.speech_color),
     memory_turns: typeof card.memory_turns === 'number' && Number.isFinite(card.memory_turns) ? card.memory_turns : null,
   }
 }
@@ -2989,6 +3106,18 @@ function StreamingAssistantMessageContent({
           )
           const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
           const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+          const speakerLabelColor = resolveSpeakerNameColor(
+            speakerEntry,
+            block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+          )
+          const speakerTextColor = resolveSpeakerSpeechColor(
+            speakerEntry,
+            isGrayTheme
+              ? assistantReplyTextColor
+              : block.delivery === 'thought'
+                ? assistantThoughtTextColor
+                : 'var(--morius-title-text)',
+          )
           return (
             <Stack
               key={`${messageId}-${index}-stream-character`}
@@ -3011,7 +3140,7 @@ function StreamingAssistantMessageContent({
               <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                 <Typography
                   sx={{
-                    color: block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+                    color: speakerLabelColor,
                     fontSize: '0.84rem',
                     lineHeight: 1.2,
                     fontWeight: 700,
@@ -3023,11 +3152,7 @@ function StreamingAssistantMessageContent({
                 <Box
                   component="div"
                   sx={{
-                    color: isGrayTheme
-                      ? assistantReplyTextColor
-                      : block.delivery === 'thought'
-                        ? assistantThoughtTextColor
-                        : 'var(--morius-title-text)',
+                    color: speakerTextColor,
                     lineHeight: 1.54,
                     fontSize: { xs: '1rem', md: '1.08rem' },
                     ...storyHistoryTextSx,
@@ -3500,52 +3625,52 @@ function getStoryTurnCostTooltipText(): string {
     'Стоимость хода зависит от рассказчика и использованного контекста:',
     '',
     'DeepSeek V3/V3.2:',
-    'до 6000 — 1 сол',
-    '6001–16000 — 4 сола',
-    '16001–32000 — 9 солов',
-    '32001–64000 — 18 солов',
+    'до 6000 — 1 ед.',
+    '6001–16000 — 4 ед.',
+    '16001–32000 — 9 ед.',
+    '32001–64000 — 18 ед.',
     '',
     'GLM 4.7 Flash:',
-    'до 6000 — 1 сол',
-    '6001–16000 — 4 сола',
-    '16001–32000 — 9 солов',
-    '32001–64000 — 18 солов',
+    'до 6000 — 1 ед.',
+    '6001–16000 — 4 ед.',
+    '16001–32000 — 9 ед.',
+    '32001–64000 — 18 ед.',
     '',
     'GLM 4.7:',
-    'до 6000 — 2 сола',
-    '6001–16000 — 5 солов',
-    '16001–32000 — 12 солов',
-    '32001–64000 — 25 солов',
+    'до 6000 — 2 ед.',
+    '6001–16000 — 5 ед.',
+    '16001–32000 — 12 ед.',
+    '32001–64000 — 25 ед.',
     '',
     'AionLabs, Qwen 3.5 122B:',
-    'до 6000 — 3 сола',
-    '6001–16000 — 7 солов',
-    '16001–32000 — 16 солов',
-    '32001–64000 — 34 сола',
+    'до 6000 — 3 ед.',
+    '6001–16000 — 7 ед.',
+    '16001–32000 — 16 ед.',
+    '32001–64000 — 34 ед.',
     '',
     'GLM 5.0, Gemini 2.5 Pro:',
-    'до 6000 — 4 сола',
-    '6001–16000 — 10 солов',
-    '16001–32000 — 22 сола',
-    '32001–64000 — 45 солов',
+    'до 6000 — 4 ед.',
+    '6001–16000 — 10 ед.',
+    '16001–32000 — 22 ед.',
+    '32001–64000 — 45 ед.',
     '',
     'GLM 5.1:',
-    'до 6000 — 5 солов',
-    '6001–16000 — 12 солов',
-    '16001–32000 — 26 солов',
-    '32001–64000 — 55 солов',
+    'до 6000 — 5 ед.',
+    '6001–16000 — 12 ед.',
+    '16001–32000 — 26 ед.',
+    '32001–64000 — 55 ед.',
     '',
     'Gemini 3.1 Pro:',
-    'до 6000 — 8 солов',
-    '6001–16000 — 20 солов',
-    '16001–32000 — 35 солов',
-    '32001–64000 — 65 солов',
+    'до 6000 — 8 ед.',
+    '6001–16000 — 20 ед.',
+    '16001–32000 — 35 ед.',
+    '32001–64000 — 65 ед.',
     '',
     'Claude Sonnet 4.6:',
-    'до 6000 — 10 солов',
-    '6001–16000 — 24 сола',
-    '16001–32000 — 45 солов',
-    '32001–64000 — 85 солов',
+    'до 6000 — 10 ед.',
+    '6001–16000 — 24 ед.',
+    '16001–32000 — 45 ед.',
+    '32001–64000 — 85 ед.',
     '',
   ].join('\n')
 }
@@ -3573,7 +3698,7 @@ function StoryTurnCostTooltipContent() {
             Стоимость хода
           </Typography>
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.78rem', lineHeight: 1.32 }}>
-            Солы за один ответ. 128k показан только там, где сейчас доступен.
+            Валюта за один ответ. 128k показан только там, где сейчас доступен.
           </Typography>
         </Stack>
         <Box
@@ -4547,7 +4672,7 @@ function renderWorldCardAiAccessBadge(card: Pick<StoryWorldCard, 'ai_edit_enable
   }
 
   return (
-    <Tooltip arrow placement="top" title={STORY_WORLD_CARD_AI_ACCESS_TOOLTIP}>
+    <Tooltip arrow disableInteractive placement="top" title={STORY_WORLD_CARD_AI_ACCESS_TOOLTIP}>
       <Box
         sx={{
           display: 'inline-flex',
@@ -5306,6 +5431,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [characterDescriptionDraft, setCharacterDescriptionDraft] = useState('')
   const [characterNoteDraft, setCharacterNoteDraft] = useState('')
   const [characterTriggersDraft, setCharacterTriggersDraft] = useState('')
+  const [characterNameColorDraft, setCharacterNameColorDraft] = useState('')
+  const [characterSpeechColorDraft, setCharacterSpeechColorDraft] = useState('')
   const [characterAvatarDraft, setCharacterAvatarDraft] = useState<string | null>(null)
   const [characterAvatarSourceDraft, setCharacterAvatarSourceDraft] = useState<string | null>(null)
   const [characterAvatarCropSource, setCharacterAvatarCropSource] = useState<string | null>(null)
@@ -5357,6 +5484,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   const [worldCardInventoryDraft, setWorldCardInventoryDraft] = useState('')
   const [worldCardHealthStatusDraft, setWorldCardHealthStatusDraft] = useState('')
   const [worldCardTriggersDraft, setWorldCardTriggersDraft] = useState('')
+  const [worldCardNameColorDraft, setWorldCardNameColorDraft] = useState('')
+  const [worldCardSpeechColorDraft, setWorldCardSpeechColorDraft] = useState('')
   const [worldCardMemoryTurnsDraft, setWorldCardMemoryTurnsDraft] = useState<NpcMemoryTurnsOption>(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
   const [worldCardAvatarDraft, setWorldCardAvatarDraft] = useState<string | null>(null)
   const [worldCardAvatarOriginalDraft, setWorldCardAvatarOriginalDraft] = useState<string | null>(null)
@@ -5390,8 +5519,10 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   } | null>(null)
   const [responseMaxTokens, setResponseMaxTokens] = useState(STORY_DEFAULT_RESPONSE_MAX_TOKENS)
   const [responseMaxTokensEnabled, setResponseMaxTokensEnabled] = useState(false)
+  const [responseTokenLimitEnabled, setResponseTokenLimitEnabled] = useState(false)
   const [isSavingResponseMaxTokens, setIsSavingResponseMaxTokens] = useState(false)
   const [isSavingResponseMaxTokensEnabled, setIsSavingResponseMaxTokensEnabled] = useState(false)
+  const [isSavingResponseTokenLimit, setIsSavingResponseTokenLimit] = useState(false)
   const [storyLlmModel, setStoryLlmModel] = useState<StoryNarratorModelId>(STORY_DEFAULT_NARRATOR_MODEL_ID)
   const [storyImageModel, setStoryImageModel] = useState<StoryImageModelId>(STORY_DEFAULT_IMAGE_MODEL_ID)
   const [imageStylePromptDraft, setImageStylePromptDraft] = useState('')
@@ -5919,8 +6050,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       typeof runtimeGame.response_max_tokens_enabled === 'boolean'
         ? runtimeGame.response_max_tokens_enabled
         : false
+    const normalizedResponseTokenLimitEnabled =
+      typeof runtimeGame.response_token_limit_enabled === 'boolean'
+        ? runtimeGame.response_token_limit_enabled
+        : false
     setResponseMaxTokens(normalizedResponseMaxTokens)
     setResponseMaxTokensEnabled(normalizedResponseMaxTokensEnabled)
+    setResponseTokenLimitEnabled(normalizedResponseTokenLimitEnabled)
     const rawAmbientProfile = runtimeGame.ambient_profile
     if (rawAmbientProfile && typeof rawAmbientProfile === 'object') {
       setPersistedAmbientProfile(normalizeStoryAmbientProfile(rawAmbientProfile))
@@ -5948,6 +6084,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setStoryLlmModel(override.storyLlmModel)
       setResponseMaxTokens(clampStoryResponseMaxTokens(override.responseMaxTokens))
       setResponseMaxTokensEnabled(override.responseMaxTokensEnabled)
+      setResponseTokenLimitEnabled(
+        typeof override.responseTokenLimitEnabled === 'boolean'
+          ? override.responseTokenLimitEnabled
+          : normalizedResponseTokenLimitEnabled,
+      )
       setMemoryOptimizationEnabled(true)
       setMemoryOptimizationMode(override.memoryOptimizationMode ?? normalizedRuntimeMemoryOptimizationMode)
       setStoryTemperature(clampStoryTemperature(override.storyTemperature ?? normalizedRuntimeStoryTemperature))
@@ -7147,10 +7288,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     [resolveDirectWorldCardPreviewAvatar, resolveLinkedCharacterPreviewAvatar],
   )
   const mainHeroAvatarUrl = useMemo(() => resolveWorldCardAvatar(mainHeroCard), [mainHeroCard, resolveWorldCardAvatar])
-  const mainHeroComposerAvatarUrl = useMemo(() => {
-    const linkedCharacter = resolveLinkedCharacterForWorldCard(mainHeroCard)
-    return linkedCharacter?.avatar_url ?? mainHeroAvatarUrl
-  }, [mainHeroAvatarUrl, mainHeroCard, resolveLinkedCharacterForWorldCard])
+  const mainHeroComposerAvatarUrl = useMemo(() => mainHeroAvatarUrl, [mainHeroAvatarUrl])
+  const mainHeroComposerAvatarSrc = useMemo(
+    () => resolveApiResourceUrl(mainHeroComposerAvatarUrl) ?? mainHeroComposerAvatarUrl,
+    [mainHeroComposerAvatarUrl],
+  )
   const editingWorldCardAvatarUrl = useMemo(
     () => worldCardAvatarDraft ?? resolveWorldCardAvatar(editingWorldCard),
     [editingWorldCard, resolveWorldCardAvatar, worldCardAvatarDraft],
@@ -7176,6 +7318,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         Boolean(worldCardInventoryDraft.trim()) ||
         Boolean(worldCardHealthStatusDraft.trim()) ||
         Boolean(worldCardTriggersDraft.trim()) ||
+        Boolean(worldCardNameColorDraft.trim()) ||
+        Boolean(worldCardSpeechColorDraft.trim()) ||
         worldCardMemoryTurnsDraft !== emptyMemoryTurns ||
         Boolean(worldCardAvatarDraft) ||
         Boolean(worldCardAvatarOriginalDraft) ||
@@ -7197,6 +7341,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       worldCardInventoryDraft !== normalizeCharacterAdditionalValue(editingWorldCard.inventory) ||
       worldCardHealthStatusDraft !== normalizeCharacterAdditionalValue(editingWorldCard.health_status) ||
       worldCardTriggersDraft !== editingWorldCard.triggers.join(', ') ||
+      worldCardNameColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.name_color) ||
+      worldCardSpeechColorDraft !== normalizeStoryCharacterTextColor(editingWorldCard.speech_color) ||
       worldCardMemoryTurnsDraft !== toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(editingWorldCard)) ||
       worldCardAvatarDraft !== originalAvatar ||
       worldCardAvatarOriginalDraft !== originalPreviewAvatar ||
@@ -7218,9 +7364,11 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     worldCardDialogOpen,
     worldCardHealthStatusDraft,
     worldCardInventoryDraft,
+    worldCardNameColorDraft,
     worldCardMemoryTurnsDraft,
     worldCardRaceDraft,
     worldCardRaceInputDraft,
+    worldCardSpeechColorDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
   ])
@@ -8165,6 +8313,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterDescriptionDraft('')
     setCharacterNoteDraft('')
     setCharacterTriggersDraft('')
+    setCharacterNameColorDraft('')
+    setCharacterSpeechColorDraft('')
     setCharacterAvatarDraft(null)
     setCharacterAvatarSourceDraft(null)
     setCharacterAvatarCropSource(null)
@@ -8277,6 +8427,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               setWorldCardInventoryDraft(normalizeCharacterAdditionalValue(createdCard.inventory))
               setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(createdCard.health_status))
               setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+              setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
+              setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
               setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
               setIsWorldCardAdditionalExpanded(
                 Boolean(
@@ -8331,6 +8483,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           clothing: normalizeCharacterAdditionalValue(linkedCharacter.clothing),
           inventory: normalizeCharacterAdditionalValue(linkedCharacter.inventory),
           health_status: normalizeCharacterAdditionalValue(linkedCharacter.health_status),
+          name_color: normalizeStoryCharacterTextColor(linkedCharacter.name_color) || null,
+          speech_color: normalizeStoryCharacterTextColor(linkedCharacter.speech_color) || null,
           triggers: normalizedTriggers,
           memory_turns:
             targetCardKind === 'npc'
@@ -8531,39 +8685,20 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [characterDialogMode, characterDialogOpen])
 
   useEffect(() => {
-    if (
-      !characterDialogOpen ||
-      characterDialogMode === 'manage' ||
-      characterSelectionTab !== 'my' ||
-      hasLoadedOwnCharacterSelectionOptions ||
-      isLoadingOwnCharacterSelectionOptions
-    ) {
-      return
-    }
-    void loadOwnCharacterSelectionOptions()
-  }, [
-    characterDialogMode,
-    characterDialogOpen,
-    characterSelectionTab,
-    hasLoadedOwnCharacterSelectionOptions,
-    isLoadingOwnCharacterSelectionOptions,
-    loadOwnCharacterSelectionOptions,
-  ])
-
-  useEffect(() => {
     if (!characterDialogOpen || characterDialogMode === 'manage' || characterSelectionTab !== 'my') {
       return
     }
-    ownCharacterSelectionRequestIdRef.current += 1
     setOwnCharacterSelectionOptions([])
-    setIsLoadingOwnCharacterSelectionOptions(false)
     setHasLoadedOwnCharacterSelectionOptions(false)
     setHasMoreOwnCharacterSelectionOptionsFromApi(false)
+    setVisibleOwnCharacterCount(CHARACTER_SELECTION_BATCH_SIZE)
+    void loadOwnCharacterSelectionOptions()
   }, [
     characterDialogMode,
     characterDialogOpen,
     characterSelectionSearchQuery,
     characterSelectionTab,
+    loadOwnCharacterSelectionOptions,
   ])
 
   useEffect(() => {
@@ -8773,6 +8908,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setCharacterDescriptionDraft(character.description)
     setCharacterNoteDraft(character.note)
     setCharacterTriggersDraft(character.triggers.join(', '))
+    setCharacterNameColorDraft(normalizeStoryCharacterTextColor(character.name_color))
+    setCharacterSpeechColorDraft(normalizeStoryCharacterTextColor(character.speech_color))
     setCharacterAvatarDraft(character.avatar_url)
     setCharacterAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setCharacterAvatarCropSource(null)
@@ -8838,6 +8975,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedName = characterNameDraft.replace(/\s+/g, ' ').trim()
     const normalizedDescription = characterDescriptionDraft.replace(/\r\n/g, '\n').trim()
     const normalizedNote = normalizeCharacterNoteValue(characterNoteDraft)
+    const normalizedNameColor = normalizeStoryCharacterTextColorDraft(characterNameColorDraft)
+    const normalizedSpeechColor = normalizeStoryCharacterTextColorDraft(characterSpeechColorDraft)
     if (!normalizedName) {
       setErrorMessage('мя персонажа не может быть пустым')
       return
@@ -8865,6 +9004,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             description: normalizedDescription,
             note: normalizedNote,
             triggers: normalizedTriggers,
+            name_color: normalizedNameColor,
+            speech_color: normalizedSpeechColor,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
           },
@@ -8888,6 +9029,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             description: normalizedDescription,
             note: normalizedNote,
             triggers: normalizedTriggers,
+            name_color: normalizedNameColor,
+            speech_color: normalizedSpeechColor,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
             emotion_assets: existingCharacter?.emotion_assets ?? {},
@@ -8916,7 +9059,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     characterDialogReturnMode,
     characters,
     characterNameDraft,
+    characterNameColorDraft,
     characterNoteDraft,
+    characterSpeechColorDraft,
     characterTriggersDraft,
     editingCharacterId,
     isSavingCharacter,
@@ -9070,6 +9215,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCardInventoryDraft(normalizeCharacterAdditionalValue(createdCard.inventory))
           setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(createdCard.health_status))
           setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+          setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
+          setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
           setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
           setIsWorldCardAdditionalExpanded(
             Boolean(
@@ -9167,6 +9314,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               health_status: normalizeCharacterAdditionalValue(character.health_status),
               note: character.note,
               triggers: character.triggers,
+              name_color: normalizeStoryCharacterTextColor(character.name_color) || null,
+              speech_color: normalizeStoryCharacterTextColor(character.speech_color) || null,
               avatar_url: preparedCharacterAvatarPayload.avatarUrl,
               avatar_original_url: preparedCharacterAvatarPayload.avatarOriginalUrl,
               avatar_scale: character.avatar_scale,
@@ -9224,6 +9373,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           setWorldCardInventoryDraft(normalizeCharacterAdditionalValue(createdCard.inventory))
           setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(createdCard.health_status))
           setWorldCardTriggersDraft(createdCard.triggers.join(', '))
+          setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(createdCard.name_color))
+          setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(createdCard.speech_color))
           setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(createdCard)))
           setIsWorldCardAdditionalExpanded(
             Boolean(
@@ -9702,7 +9853,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
             ? initialGameId
             : null
         const loadAndStoreGameList = async (): Promise<StoryGameSummary[]> => {
-          const loadedGames = await listStoryGames(authToken, { compact: true })
+          const loadedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
           if (!isActive) {
             return []
           }
@@ -9916,6 +10067,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardTitleDraft('')
     setWorldCardContentDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardNameColorDraft('')
+    setWorldCardSpeechColorDraft('')
     setWorldCardMemoryTurnsDraft(NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setDeletingWorldCardId(null)
   }, [activeGameId, isCreatingGame, isSavingWorldCard])
@@ -10854,6 +11007,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardInventoryDraft('')
     setWorldCardHealthStatusDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardNameColorDraft('')
+    setWorldCardSpeechColorDraft('')
     setWorldCardMemoryTurnsDraft(kind === 'npc' ? NPC_WORLD_CARD_TRIGGER_ACTIVE_TURNS : WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardAvatarDraft(null)
     setWorldCardAvatarOriginalDraft(null)
@@ -10918,6 +11073,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
               inventory: normalizeCharacterAdditionalValue(card.inventory),
               health_status: normalizeCharacterAdditionalValue(card.health_status),
               note: '',
+              name_color: normalizeStoryCharacterTextColor(card.name_color) || null,
+              speech_color: normalizeStoryCharacterTextColor(card.speech_color) || null,
               triggers: normalizedTriggers,
               avatar_url: preparedMirroredAvatarPayload.avatarUrl,
               avatar_original_url: preparedMirroredAvatarPayload.avatarOriginalUrl,
@@ -10960,6 +11117,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardInventoryDraft(normalizeCharacterAdditionalValue(card.inventory))
     setWorldCardHealthStatusDraft(normalizeCharacterAdditionalValue(card.health_status))
     setWorldCardTriggersDraft(card.triggers.join(', '))
+    setWorldCardNameColorDraft(normalizeStoryCharacterTextColor(card.name_color))
+    setWorldCardSpeechColorDraft(normalizeStoryCharacterTextColor(card.speech_color))
     setWorldCardMemoryTurnsDraft(toNpcMemoryTurnsOption(resolveWorldCardMemoryTurns(card)))
     setWorldCardAvatarDraft(resolveWorldCardAvatar(card))
     setWorldCardAvatarOriginalDraft(resolveWorldCardPreviewAvatar(card) ?? resolveWorldCardAvatar(card))
@@ -10995,6 +11154,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     setWorldCardInventoryDraft('')
     setWorldCardHealthStatusDraft('')
     setWorldCardTriggersDraft('')
+    setWorldCardNameColorDraft('')
+    setWorldCardSpeechColorDraft('')
     setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
     setWorldCardAvatarDraft(null)
     setWorldCardAvatarOriginalDraft(null)
@@ -11172,6 +11333,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     const normalizedClothing = normalizeCharacterAdditionalValue(worldCardClothingDraft)
     const normalizedInventory = normalizeCharacterAdditionalValue(worldCardInventoryDraft)
     const normalizedHealthStatus = normalizeCharacterAdditionalValue(worldCardHealthStatusDraft)
+    const shouldPersistCharacterTextColors = editingWorldCardKind === 'npc' || editingWorldCardKind === 'main_hero'
+    const normalizedNameColor = shouldPersistCharacterTextColors
+      ? normalizeStoryCharacterTextColorDraft(worldCardNameColorDraft)
+      : null
+    const normalizedSpeechColor = shouldPersistCharacterTextColors
+      ? normalizeStoryCharacterTextColorDraft(worldCardSpeechColorDraft)
+      : null
 
     if (!normalizedTitle) {
       setErrorMessage('Название карточки мира не может быть пустым')
@@ -11244,6 +11412,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           clothing: normalizedClothing,
           inventory: normalizedInventory,
           health_status: normalizedHealthStatus,
+          name_color: normalizedNameColor,
+          speech_color: normalizedSpeechColor,
           triggers: normalizedTriggers,
           kind: editingWorldCardKind,
           detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
@@ -11271,6 +11441,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           clothing: normalizedClothing,
           inventory: normalizedInventory,
           health_status: normalizedHealthStatus,
+          name_color: normalizedNameColor,
+          speech_color: normalizedSpeechColor,
           triggers: normalizedTriggers,
           detail_type: editingWorldCardKind === 'world' ? normalizedDetailType : '',
           memory_turns: normalizedMemoryTurns,
@@ -11301,6 +11473,8 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       setWorldCardInventoryDraft('')
       setWorldCardHealthStatusDraft('')
       setWorldCardTriggersDraft('')
+      setWorldCardNameColorDraft('')
+      setWorldCardSpeechColorDraft('')
       setWorldCardMemoryTurnsDraft(WORLD_CARD_TRIGGER_ACTIVE_TURNS)
       setWorldCardAvatarDraft(null)
       setWorldCardAvatarOriginalDraft(null)
@@ -11333,7 +11507,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     worldCardHealthStatusDraft,
     worldCardInventoryDraft,
     worldCardMemoryTurnsDraft,
+    worldCardNameColorDraft,
     worldCardRaceDraft,
+    worldCardSpeechColorDraft,
     worldCardTitleDraft,
     worldCardTriggersDraft,
     worldDetailTypeOptions,
@@ -11914,6 +12090,111 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     })
   }, [])
 
+  const toggleResponseTokenLimitEnabled = useCallback(async () => {
+    const targetGameId = activeGameId
+    if (
+      !targetGameId ||
+      !isAdministrator ||
+      isSavingResponseTokenLimit ||
+      isSavingResponseMaxTokens ||
+      isSavingResponseMaxTokensEnabled ||
+      isGenerating
+    ) {
+      return
+    }
+
+    const previousValue = responseTokenLimitEnabled
+    const nextValue = !previousValue
+    setResponseTokenLimitEnabled(nextValue)
+    setStorySettingsOverrides((previousOverrides) => ({
+      ...previousOverrides,
+      [targetGameId]: {
+        ...previousOverrides[targetGameId],
+        storyLlmModel,
+        responseMaxTokens,
+        responseMaxTokensEnabled,
+        responseTokenLimitEnabled: nextValue,
+        memoryOptimizationEnabled,
+        memoryOptimizationMode,
+        storyRepetitionPenalty,
+        storyTemperature,
+        storyTopK,
+        storyTopR,
+        showGgThoughts,
+        showNpcThoughts,
+        ambientEnabled,
+        autoNpcCardsEnabled,
+        characterStateEnabled,
+      },
+    }))
+    setErrorMessage('')
+    setIsSavingResponseTokenLimit(true)
+    try {
+      const updatedGame = await updateStoryGameSettings({
+        token: authToken,
+        gameId: targetGameId,
+        responseMaxTokens,
+        responseMaxTokensEnabled,
+        responseTokenLimitEnabled: nextValue,
+      })
+      setResponseTokenLimitEnabled(Boolean(updatedGame.response_token_limit_enabled))
+      setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
+      setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
+      applyUpdatedGameSummary(updatedGame)
+    } catch (error) {
+      setResponseTokenLimitEnabled(previousValue)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          ...previousOverrides[targetGameId],
+          storyLlmModel,
+          responseMaxTokens,
+          responseMaxTokensEnabled,
+          responseTokenLimitEnabled: previousValue,
+          memoryOptimizationEnabled,
+          memoryOptimizationMode,
+          storyRepetitionPenalty,
+          storyTemperature,
+          storyTopK,
+          storyTopR,
+          showGgThoughts,
+          showNpcThoughts,
+          ambientEnabled,
+          autoNpcCardsEnabled,
+          characterStateEnabled,
+        },
+      }))
+      const detail = error instanceof Error ? error.message : 'Не удалось обновить лимит ответов'
+      setErrorMessage(detail)
+    } finally {
+      setIsSavingResponseTokenLimit(false)
+    }
+  }, [
+    activeGameId,
+    ambientEnabled,
+    applyUpdatedGameSummary,
+    authToken,
+    autoNpcCardsEnabled,
+    characterStateEnabled,
+    isAdministrator,
+    isGenerating,
+    isSavingResponseMaxTokens,
+    isSavingResponseMaxTokensEnabled,
+    isSavingResponseTokenLimit,
+    memoryOptimizationEnabled,
+    memoryOptimizationMode,
+    responseMaxTokens,
+    responseMaxTokensEnabled,
+    responseTokenLimitEnabled,
+    showGgThoughts,
+    showNpcThoughts,
+    storyLlmModel,
+    storyRepetitionPenalty,
+    storyTemperature,
+    storyTopK,
+    storyTopR,
+  ])
+
   const persistContextLimit = useCallback(
     async (nextValue: number) => {
       const targetGameId = activeGameId
@@ -11922,6 +12203,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         isSavingContextLimit ||
         isSavingResponseMaxTokens ||
         isSavingResponseMaxTokensEnabled ||
+        isSavingResponseTokenLimit ||
         isSavingStoryLlmModel ||
         isSavingMemoryOptimization ||
         isSavingStorySampling ||
@@ -11972,6 +12254,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
+      isSavingResponseTokenLimit,
       isSavingStoryLlmModel,
       isSavingStorySampling,
       isSavingThoughtVisibility,
@@ -11989,6 +12272,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         !responseMaxTokensEnabled ||
         isSavingResponseMaxTokens ||
         isSavingResponseMaxTokensEnabled ||
+        isSavingResponseTokenLimit ||
         isSavingContextLimit ||
         isSavingStoryLlmModel ||
         isSavingMemoryOptimization ||
@@ -12008,6 +12292,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           storyLlmModel,
           responseMaxTokens: normalizedValue,
           responseMaxTokensEnabled: true,
+          responseTokenLimitEnabled,
           memoryOptimizationEnabled,
           memoryOptimizationMode,
           storyRepetitionPenalty,
@@ -12051,10 +12336,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
+      isSavingResponseTokenLimit,
       isSavingStoryLlmModel,
       isSavingStorySampling,
       isSavingThoughtVisibility,
       responseMaxTokensEnabled,
+      responseTokenLimitEnabled,
       storyLlmModel,
       storyRepetitionPenalty,
       storyTemperature,
@@ -12073,6 +12360,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         isSavingStoryLlmModel ||
         isSavingResponseMaxTokens ||
         isSavingResponseMaxTokensEnabled ||
+        isSavingResponseTokenLimit ||
         isSavingContextLimit ||
         isSavingMemoryOptimization ||
         isSavingStorySampling ||
@@ -12253,6 +12541,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       isSavingMemoryOptimization,
       isSavingResponseMaxTokens,
       isSavingResponseMaxTokensEnabled,
+      isSavingResponseTokenLimit,
       isSavingStorySampling,
       isSavingThoughtVisibility,
       isSavingStoryLlmModel,
@@ -13484,19 +13773,21 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       !targetGameId ||
       isSavingResponseMaxTokensEnabled ||
       isSavingResponseMaxTokens ||
-        isSavingContextLimit ||
-        isSavingStoryLlmModel ||
-        isSavingMemoryOptimization ||
-        isSavingStorySampling ||
-        isSavingThoughtVisibility ||
-        isSavingAmbientEnabled ||
-        isGenerating
-      ) {
+      isSavingResponseTokenLimit ||
+      isSavingContextLimit ||
+      isSavingStoryLlmModel ||
+      isSavingMemoryOptimization ||
+      isSavingStorySampling ||
+      isSavingThoughtVisibility ||
+      isSavingAmbientEnabled ||
+      isGenerating
+    ) {
       return
     }
 
     const nextValue = !responseMaxTokensEnabled
     const normalizedResponseMaxTokens = clampStoryResponseMaxTokens(responseMaxTokens)
+    const previousValue = responseMaxTokensEnabled
     const previousStoryLlmModel = storyLlmModel
     const previousMemoryOptimization = memoryOptimizationEnabled
     const previousStoryTopK = storyTopK
@@ -13512,6 +13803,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         storyLlmModel: previousStoryLlmModel,
         responseMaxTokens: normalizedResponseMaxTokens,
         responseMaxTokensEnabled: nextValue,
+        responseTokenLimitEnabled,
         memoryOptimizationEnabled: previousMemoryOptimization,
         memoryOptimizationMode,
         storyTopK: previousStoryTopK,
@@ -13529,16 +13821,35 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
         gameId: targetGameId,
         responseMaxTokensEnabled: nextValue,
         responseMaxTokens: normalizedResponseMaxTokens,
+        responseTokenLimitEnabled,
         memoryOptimizationEnabled: previousMemoryOptimization,
         showGgThoughts: previousShowGgThoughts,
         showNpcThoughts: previousShowNpcThoughts,
       })
-      setResponseMaxTokensEnabled(nextValue)
+      setResponseMaxTokensEnabled(Boolean(updatedGame.response_max_tokens_enabled))
       setResponseMaxTokens(clampStoryResponseMaxTokens(updatedGame.response_max_tokens))
-      setGames((previousGames) =>
-        sortGamesByActivity(previousGames.map((game) => (game.id === updatedGame.id ? updatedGame : game))),
-      )
+      setResponseTokenLimitEnabled(Boolean(updatedGame.response_token_limit_enabled))
+      applyUpdatedGameSummary(updatedGame)
     } catch (error) {
+      setResponseMaxTokensEnabled(previousValue)
+      setResponseMaxTokens(normalizedResponseMaxTokens)
+      setStorySettingsOverrides((previousOverrides) => ({
+        ...previousOverrides,
+        [targetGameId]: {
+          ...previousOverrides[targetGameId],
+          storyLlmModel: previousStoryLlmModel,
+          responseMaxTokens: normalizedResponseMaxTokens,
+          responseMaxTokensEnabled: previousValue,
+          responseTokenLimitEnabled,
+          memoryOptimizationEnabled: previousMemoryOptimization,
+          memoryOptimizationMode,
+          storyTopK: previousStoryTopK,
+          storyTopR: previousStoryTopR,
+          showGgThoughts: previousShowGgThoughts,
+          showNpcThoughts: previousShowNpcThoughts,
+          ambientEnabled: previousAmbientEnabled,
+        },
+      }))
       const detail = error instanceof Error ? error.message : 'Не удалось обновить режим лимита ответа '
       setErrorMessage(detail)
     } finally {
@@ -13547,6 +13858,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
   }, [
     activeGameId,
     ambientEnabled,
+    applyUpdatedGameSummary,
     authToken,
     isGenerating,
     isSavingAmbientEnabled,
@@ -13554,12 +13866,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     isSavingMemoryOptimization,
     isSavingResponseMaxTokens,
     isSavingResponseMaxTokensEnabled,
+    isSavingResponseTokenLimit,
     isSavingStoryLlmModel,
     isSavingStorySampling,
     isSavingThoughtVisibility,
     memoryOptimizationEnabled,
+    memoryOptimizationMode,
     responseMaxTokens,
     responseMaxTokensEnabled,
+    responseTokenLimitEnabled,
     showGgThoughts,
     showNpcThoughts,
     storyTopK,
@@ -14398,13 +14713,6 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           generationFailed = true
           const detail = error instanceof Error ? error.message : 'Не удалось сгенерировать ответ'
           const generationInterrupted = isStoryGenerationInterruptionDetail(detail)
-          if (streamStarted || startedAssistantMessageId !== null || generationInterrupted) {
-            try {
-              await requestStoryGenerationCancelWithTimeout(authToken, options.gameId)
-            } catch (cancelError) {
-              console.error('Story generation cancellation after stream failure failed', cancelError)
-            }
-          }
           if (!streamStarted && options.prompt && !options.rerollLastResponse && !(options.discardLastAssistantSteps ?? 0)) {
             setInputValue((currentValue) => currentValue || options.prompt!.slice(0, STORY_PROMPT_MAX_LENGTH))
           }
@@ -14496,7 +14804,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 
             if (shouldRefreshGameList && canContinueDeferredTurnSync()) {
               try {
-                const refreshedGames = await listStoryGames(authToken, { compact: true })
+                const refreshedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
                 if (canContinueDeferredTurnSync()) {
                   setGames(sortGamesByActivity(refreshedGames))
                 }
@@ -14556,7 +14864,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     silent: true,
                     minAssistantMessageId: minimumExpectedAssistantMessageId,
                   })
-                  const refreshedGames = await listStoryGames(authToken, { compact: true })
+                  const refreshedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
                   if (canContinueDeferredTurnSync()) {
                     setGames(sortGamesByActivity(refreshedGames))
                   }
@@ -14727,7 +15035,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       }
 
       if (hasInsufficientTokensForTurn) {
-        setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
+        setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
         setTopUpError('')
         setProfileDialogOpen(false)
         setConfirmLogoutOpen(false)
@@ -14839,7 +15147,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
+      setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setProfileDialogOpen(false)
       setConfirmLogoutOpen(false)
@@ -15146,7 +15454,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       })
       await loadGameById(activeGameId, { silent: true })
       try {
-        const refreshedGames = await listStoryGames(authToken, { compact: true })
+        const refreshedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
         setGames(sortGamesByActivity(refreshedGames))
       } catch {
         // Keep current list if refresh failed.
@@ -15173,7 +15481,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
       })
       await loadGameById(activeGameId, { silent: true })
       try {
-        const refreshedGames = await listStoryGames(authToken, { compact: true })
+        const refreshedGames = await listStoryGames(authToken, { compact: true, limit: STORY_GAME_LIST_SNAPSHOT_LIMIT })
         setGames(sortGamesByActivity(refreshedGames))
       } catch {
         // Keep current list if refresh failed.
@@ -15195,7 +15503,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
     }
 
     if (hasInsufficientTokensForTurn) {
-      setErrorMessage(`Недостаточно солов для хода: нужно ${currentTurnCostTokens}.`)
+      setErrorMessage(`Недостаточно валюты для хода: нужно ${currentTurnCostTokens}.`)
       setTopUpError('')
       setProfileDialogOpen(false)
       setConfirmLogoutOpen(false)
@@ -15590,7 +15898,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           gap: 1,
         }}
       >
-        <Tooltip title={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}>
+        <Tooltip disableInteractive title={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}>
           <IconButton
             aria-label={isGameMenuOpen ? 'Свернуть меню игры' : 'Открыть меню игры'}
             onClick={() => {
@@ -15613,7 +15921,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           </IconButton>
         </Tooltip>
         {(user.ai_assistant_visible ?? true) ? (
-          <Tooltip title="AI-помощник">
+          <Tooltip disableInteractive title="AI-помощник">
             <IconButton
               aria-label="Открыть AI-помощника"
               onClick={() => window.dispatchEvent(new CustomEvent(AI_ASSISTANT_OPEN_EVENT))}
@@ -17809,7 +18117,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                           <FormControl fullWidth size="small" sx={{ mt: 0.72 }}>
                             <Select
                               value={memoryOptimizationMode}
-                              disabled={isSavingStorySettings || isGenerating}
+                              disabled={isSavingStorySettings || isSavingResponseTokenLimit || isGenerating}
                               onChange={(event: SelectChangeEvent<string>) => {
                                 const nextMode = normalizeStoryMemoryOptimizationMode(event.target.value)
                                 void persistStoryMemoryOptimizationMode(nextMode)
@@ -18280,6 +18588,42 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                 void toggleAmbientEnabled()
                               }}
                               disabled={isSavingStorySettings || isGenerating}
+                              sx={{
+                                '& .MuiSwitch-switchBase.Mui-checked': {
+                                  color: 'var(--morius-accent)',
+                                },
+                                '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                  backgroundColor: switchCheckedTrackColor,
+                                  opacity: 1,
+                                },
+                                '& .MuiSwitch-track': {
+                                  backgroundColor: switchTrackColor,
+                                  opacity: 1,
+                                },
+                              }}
+                            />
+                          </Stack>
+                        ) : null}
+
+                        {isAdministrator ? (
+                          <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.8}>
+                            <Stack direction="row" spacing={0.45} alignItems="center">
+                              <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '0.92rem', fontWeight: 700 }}>
+                                Лимит ответов
+                              </Typography>
+                              <SettingsInfoTooltipIcon text={STORY_SETTINGS_INFO_TEXT.responseTokenLimit} />
+                            </Stack>
+                            <Switch
+                              checked={responseTokenLimitEnabled}
+                              onChange={() => {
+                                void toggleResponseTokenLimitEnabled()
+                              }}
+                              disabled={
+                                isSavingResponseTokenLimit ||
+                                isSavingResponseMaxTokens ||
+                                isSavingResponseMaxTokensEnabled ||
+                                isGenerating
+                              }
                               sx={{
                                 '& .MuiSwitch-switchBase.Mui-checked': {
                                   color: 'var(--morius-accent)',
@@ -18816,7 +19160,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               onChange={() => {
                                 void toggleResponseMaxTokensEnabled()
                               }}
-                              disabled={isSavingStorySettings || isGenerating}
+                              disabled={
+                                isSavingResponseMaxTokensEnabled ||
+                                isSavingResponseMaxTokens ||
+                                isSavingResponseTokenLimit ||
+                                isGenerating
+                              }
                               sx={{
                                 '& .MuiSwitch-switchBase.Mui-checked': {
                                   color: 'var(--morius-accent)',
@@ -18849,7 +19198,12 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               onChangeCommitted={(event, value) => {
                                 void handleResponseMaxTokensSliderCommit(event, value)
                               }}
-                              disabled={!responseMaxTokensEnabled || isSavingStorySettings || isGenerating}
+                              disabled={
+                                !responseMaxTokensEnabled ||
+                                isSavingStorySettings ||
+                                isSavingResponseTokenLimit ||
+                                isGenerating
+                              }
                               sx={{
                                 mt: 0.42,
                                 color: 'var(--morius-accent)',
@@ -20475,6 +20829,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                        )
 	                        const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
 	                        const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+	                        const speakerLabelColor = resolveSpeakerNameColor(
+	                          speakerEntry,
+	                          block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+	                        )
+	                        const speakerTextColor = resolveSpeakerSpeechColor(
+	                          speakerEntry,
+	                          isGrayTheme
+	                            ? assistantReplyTextColor
+	                            : block.delivery === 'thought'
+	                              ? assistantThoughtTextColor
+	                              : 'var(--morius-title-text)',
+	                        )
 	                        return (
 	                          <Stack
                             key={`quick-start-character-${index}`}
@@ -20497,7 +20863,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                             <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                               <Typography
                                 sx={{
-                                  color: block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+                                  color: speakerLabelColor,
                                   fontSize: '0.84rem',
                                   lineHeight: 1.2,
                                   fontWeight: 700,
@@ -20508,11 +20874,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                               </Typography>
                               <Typography
                                 sx={{
-                                  color: isGrayTheme
-                                    ? assistantReplyTextColor
-                                    : block.delivery === 'thought'
-                                      ? assistantThoughtTextColor
-                                      : 'var(--morius-title-text)',
+                                  color: speakerTextColor,
                                   lineHeight: 1.54,
                                   fontSize: { xs: '1rem', md: '1.08rem' },
                                   ...storyHistoryTextSx,
@@ -20733,6 +21095,18 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
 	                              )
 	                              const speakerAvatar = resolveDialogueAvatar(resolvedSpeakerName)
 	                              const speakerEntry = resolveDialogueSpeakerEntry(resolvedSpeakerName)
+	                              const speakerLabelColor = resolveSpeakerNameColor(
+	                                speakerEntry,
+	                                block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+	                              )
+	                              const speakerTextColor = resolveSpeakerSpeechColor(
+	                                speakerEntry,
+	                                isGrayTheme
+	                                  ? assistantReplyTextColor
+	                                  : block.delivery === 'thought'
+	                                    ? assistantThoughtTextColor
+	                                    : 'var(--morius-title-text)',
+	                              )
 	                              return (
 	                                <Stack
                                   key={`${message.id}-${index}-character`}
@@ -20755,7 +21129,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                   <Stack spacing={0.35} sx={{ minWidth: 0, flex: 1 }}>
                                     <Typography
                                       sx={{
-                                        color: block.delivery === 'thought' ? assistantThoughtLabelColor : assistantSpeakerLabelColor,
+                                        color: speakerLabelColor,
                                         fontSize: '0.84rem',
                                         lineHeight: 1.2,
                                         fontWeight: 700,
@@ -20792,11 +21166,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                                         void handleSaveMessageInline(message.id, nextContent)
                                       }}
                                       sx={{
-                                        color: isGrayTheme
-                                          ? assistantReplyTextColor
-                                          : block.delivery === 'thought'
-                                            ? assistantThoughtTextColor
-                                            : 'var(--morius-title-text)',
+                                        color: speakerTextColor,
                                         lineHeight: 1.54,
                                         fontSize: { xs: '1rem', md: '1.08rem' },
                                         ...storyHistoryTextSx,
@@ -21514,7 +21884,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Typography>
                   </Box>
                 </Tooltip>
-                <Tooltip arrow placement="top" title="Назад">
+                <Tooltip arrow disableInteractive placement="top" title="Назад">
                   <span>
                     <IconButton
                       aria-label="Назад"
@@ -21526,7 +21896,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </IconButton>
                   </span>
                 </Tooltip>
-                <Tooltip arrow placement="top" title="Отменить">
+                <Tooltip arrow disableInteractive placement="top" title="Отменить">
                   <span>
                     <IconButton
                       aria-label="Отменить"
@@ -21538,7 +21908,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </IconButton>
                   </span>
                 </Tooltip>
-                <Tooltip arrow placement="top" title="Перегенерировать">
+                <Tooltip arrow disableInteractive placement="top" title="Перегенерировать">
                   <span>
                     <IconButton
                       aria-label="Перегенерировать"
@@ -21575,7 +21945,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                       zIndex: 30,
                     }}
                   >
-                    <Tooltip arrow placement="top" title="ИИ-функции">
+                    <Tooltip arrow disableInteractive placement="top" title="ИИ-функции">
                       <span>
                         <IconButton
                           ref={composerAiButtonRef}
@@ -21598,6 +21968,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Tooltip>
                     <Tooltip
                       arrow
+                      disableInteractive
                       placement="top"
                       title={hasLatestTurnImage ? 'Перегенерировать картинку' : 'Сгенерировать картинку'}
                     >
@@ -21632,7 +22003,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     </Tooltip>
                   </Box>
                 </Box>
-                <Tooltip arrow placement="top" title="Продолжить">
+                <Tooltip arrow disableInteractive placement="top" title="Продолжить">
                   <span>
                     <IconButton
                       aria-label="Продолжить"
@@ -21669,6 +22040,7 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
           >
             <Tooltip
               arrow
+              disableInteractive
               placement="top"
               title={mainHeroCard ? `Вы играете за ${mainHeroCard.title}` : 'Выбрать главного героя'}
             >
@@ -21691,6 +22063,9 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     borderRadius: '50%',
                     overflow: 'hidden',
                     border: 'none',
+                    display: 'block',
+                    lineHeight: 0,
+                    fontSize: 0,
                     backgroundColor: mainHeroCard ? 'transparent' : 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
                     boxShadow: 'none',
                     '&:hover': {
@@ -21699,12 +22074,80 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                   }}
                 >
                   {mainHeroCard ? (
-                    <CharacterAvatar
-                      avatarUrl={mainHeroComposerAvatarUrl}
-                      avatarScale={mainHeroCard.avatar_scale}
-                      fallbackLabel={mainHeroCard.title}
-                      size={38}
-                    />
+                    mainHeroComposerAvatarSrc ? (
+                      <Box
+                        component="span"
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          width: '100%',
+                          height: '100%',
+                          borderRadius: '50%',
+                          overflow: 'hidden',
+                          display: 'block',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                        }}
+                      >
+                        <ProgressiveImage
+                          src={mainHeroComposerAvatarSrc}
+                          alt={mainHeroCard.title}
+                          loading="eager"
+                          fetchPriority="high"
+                          objectFit="cover"
+                          loaderSize={14}
+                          fallback={(
+                            <Box
+                              component="span"
+                              sx={{
+                                position: 'absolute',
+                                inset: 0,
+                                borderRadius: '50%',
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: 'var(--morius-text-primary)',
+                                fontSize: '0.95rem',
+                                fontWeight: 900,
+                                lineHeight: 1,
+                              }}
+                            >
+                              {mainHeroCard.title.trim().charAt(0).toUpperCase() || '?'}
+                            </Box>
+                          )}
+                          containerSx={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            borderRadius: '50%',
+                          }}
+                          imgSx={{
+                            position: 'absolute',
+                            inset: 0,
+                            width: '100%',
+                            height: '100%',
+                            borderRadius: '50%',
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <Box
+                        component="span"
+                        sx={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          display: 'grid',
+                          placeItems: 'center',
+                          color: 'var(--morius-text-primary)',
+                          backgroundColor: 'color-mix(in srgb, var(--morius-elevated-bg) 82%, #000 18%)',
+                          fontSize: '0.95rem',
+                          fontWeight: 900,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {mainHeroCard.title.trim().charAt(0).toUpperCase() || '?'}
+                      </Box>
+                    )
                   ) : (
                     <Box
                       component="span"
@@ -22796,6 +23239,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+              {(editingWorldCardKind === 'npc' || editingWorldCardKind === 'main_hero') ? (
+                <StoryCharacterTextColorControls
+                  nameColor={worldCardNameColorDraft}
+                  speechColor={worldCardSpeechColorDraft}
+                  onNameColorChange={setWorldCardNameColorDraft}
+                  onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  disabled={isWorldCardActionLocked}
+                />
+              ) : null}
               {editingWorldCardKind === 'npc' ? (
                 <Stack spacing={0.35}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
@@ -23086,6 +23538,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+              {(editingWorldCardKind === 'npc' || editingWorldCardKind === 'main_hero') ? (
+                <StoryCharacterTextColorControls
+                  nameColor={worldCardNameColorDraft}
+                  speechColor={worldCardSpeechColorDraft}
+                  onNameColorChange={setWorldCardNameColorDraft}
+                  onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  disabled={isWorldCardActionLocked}
+                />
+              ) : null}
               {editingWorldCardKind === 'npc' ? (
                 <Stack spacing={0.35}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
@@ -23428,6 +23889,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+              {(editingWorldCardKind === 'npc' || editingWorldCardKind === 'main_hero') ? (
+                <StoryCharacterTextColorControls
+                  nameColor={worldCardNameColorDraft}
+                  speechColor={worldCardSpeechColorDraft}
+                  onNameColorChange={setWorldCardNameColorDraft}
+                  onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  disabled={isWorldCardActionLocked}
+                />
+              ) : null}
               {editingWorldCardKind === 'npc' ? (
                 <Stack spacing={0.35}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
@@ -23931,6 +24401,15 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                 helperText={<TextLimitIndicator currentLength={worldCardTriggersDraft.length} maxLength={STORY_TRIGGER_INPUT_MAX_LENGTH} />}
                 FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
               />
+              {(editingWorldCardKind === 'npc' || editingWorldCardKind === 'main_hero') ? (
+                <StoryCharacterTextColorControls
+                  nameColor={worldCardNameColorDraft}
+                  speechColor={worldCardSpeechColorDraft}
+                  onNameColorChange={setWorldCardNameColorDraft}
+                  onSpeechColorChange={setWorldCardSpeechColorDraft}
+                  disabled={isWorldCardActionLocked}
+                />
+              ) : null}
               {editingWorldCardKind === 'npc' ? (
                 <Stack spacing={0.35}>
                   <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.82rem' }}>
@@ -24490,6 +24969,13 @@ function StoryGamePage({ user, authToken, initialGameId, onNavigate, onLogout, o
                     }}
                   />
                   <TextLimitIndicator currentLength={characterNoteDraft.length} maxLength={STORY_CHARACTER_NOTE_MAX_LENGTH} />
+                  <StoryCharacterTextColorControls
+                    nameColor={characterNameColorDraft}
+                    speechColor={characterSpeechColorDraft}
+                    onNameColorChange={setCharacterNameColorDraft}
+                    onSpeechColorChange={setCharacterSpeechColorDraft}
+                    disabled={isSavingCharacter}
+                  />
                   {characterAvatarError ? <Alert severity="error">{characterAvatarError}</Alert> : null}
                   <Stack direction="row" spacing={0.7}>
                     <Button

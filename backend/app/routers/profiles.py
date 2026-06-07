@@ -86,7 +86,7 @@ except Exception:  # pragma: no cover - compatibility fallback for partial deplo
 
 router = APIRouter()
 
-PROFILE_LIST_LIMIT = 120
+PROFILE_LIST_LIMIT = 12
 AVATAR_SCALE_MIN = 1.0
 AVATAR_SCALE_MAX = 3.0
 AVATAR_SCALE_DEFAULT = 1.0

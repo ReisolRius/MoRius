@@ -96,6 +96,7 @@ export type StoryGameSummary = {
   context_limit_chars: number
   response_max_tokens: number
   response_max_tokens_enabled: boolean
+  response_token_limit_enabled: boolean
   story_llm_model: StoryNarratorModelId
   image_model: StoryImageModelId
   image_style_prompt: string
@@ -238,6 +239,8 @@ export type StoryWorldCard = {
   inventory: string
   health_status: string
   triggers: string[]
+  name_color: string
+  speech_color: string
   kind: StoryWorldCardKind
   detail_type: string
   avatar_url: string | null
@@ -263,6 +266,8 @@ export type StoryWorldCardSnapshot = {
   inventory: string
   health_status: string
   triggers: string[]
+  name_color: string
+  speech_color: string
   kind: StoryWorldCardKind
   detail_type: string
   avatar_url: string | null
@@ -301,6 +306,8 @@ export type StoryCharacter = {
   health_status: string
   note: string
   triggers: string[]
+  name_color: string
+  speech_color: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number
@@ -328,6 +335,8 @@ export type StoryCommunityCharacterSummary = {
   health_status: string
   note: string
   triggers: string[]
+  name_color: string
+  speech_color: string
   avatar_url: string | null
   avatar_original_url?: string | null
   avatar_scale: number

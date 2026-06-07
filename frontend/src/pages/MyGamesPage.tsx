@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useState, type ChangeEvent, type ReactElement, type Ref } from 'react'
+import { forwardRef, useCallback, useDeferredValue, useEffect, useMemo, useState, type ChangeEvent, type ReactElement, type Ref } from 'react'
 import {
   Alert,
   Box,
@@ -31,6 +31,7 @@ import ThemedSvgIcon from '../components/icons/ThemedSvgIcon'
 import searchIconRaw from '../assets/icons/search.svg?raw'
 import searchCloseIconRaw from '../assets/icons/search-close.svg?raw'
 import { usePersistentPageMenuState } from '../hooks/usePersistentPageMenuState'
+import { useVisibilityTrigger } from '../hooks/useVisibilityTrigger'
 import InstructionTemplateDialog from '../components/InstructionTemplateDialog'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import CommunityWorldCardSkeleton from '../components/community/CommunityWorldCardSkeleton'
@@ -112,35 +113,8 @@ const SORT_OPTIONS: Array<{ value: GamesSortMode; label: string }> = [
 ]
 
 const MY_GAMES_SKELETON_CARD_KEYS = Array.from({ length: 9 }, (_, index) => `my-game-skeleton-${index}`)
-
-function parseGameSortDate(value: string): number {
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function sortGamesByActivity(games: StoryGameSummary[]): StoryGameSummary[] {
-  return [...games].sort(
-    (left, right) =>
-      parseGameSortDate(right.last_activity_at) - parseGameSortDate(left.last_activity_at) || right.id - left.id,
-  )
-}
-
-function sortGames(games: StoryGameSummary[], mode: GamesSortMode): StoryGameSummary[] {
-  const sorted = [...games]
-  sorted.sort((left, right) => {
-    if (mode === 'updated_desc') {
-      return parseGameSortDate(right.last_activity_at) - parseGameSortDate(left.last_activity_at) || right.id - left.id
-    }
-    if (mode === 'updated_asc') {
-      return parseGameSortDate(left.last_activity_at) - parseGameSortDate(right.last_activity_at) || left.id - right.id
-    }
-    if (mode === 'created_desc') {
-      return parseGameSortDate(right.created_at) - parseGameSortDate(left.created_at) || right.id - left.id
-    }
-    return parseGameSortDate(left.created_at) - parseGameSortDate(right.created_at) || left.id - right.id
-  })
-  return sorted
-}
+const MY_GAMES_PAGE_SIZE = 12
+const MY_GAMES_REQUEST_LIMIT = MY_GAMES_PAGE_SIZE + 1
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -166,6 +140,33 @@ function normalizeGamePreview(value: string | null | undefined): string {
     return compact
   }
   return `${compact.slice(0, 142)}...`
+}
+
+function resolveGamesVisibilityFilter(mode: MyGamesPageProps['mode']): 'all' | 'private' | 'public' {
+  if (mode === 'my') {
+    return 'private'
+  }
+  if (mode === 'publications') {
+    return 'public'
+  }
+  return 'all'
+}
+
+function mergeGamesById(previous: StoryGameSummary[], nextPage: StoryGameSummary[]): StoryGameSummary[] {
+  const seenIds = new Set<number>()
+  const merged: StoryGameSummary[] = []
+  for (const game of [...previous, ...nextPage]) {
+    if (seenIds.has(game.id)) {
+      continue
+    }
+    seenIds.add(game.id)
+    merged.push(game)
+  }
+  return merged
+}
+
+function buildGamePreviewMap(games: StoryGameSummary[]): Record<number, string> {
+  return Object.fromEntries(games.map((game) => [game.id, normalizeGamePreview(game.latest_message_preview)]))
 }
 
 function clampCoverPosition(value: number): number {
@@ -257,6 +258,9 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [games, setGames] = useState<StoryGameSummary[]>([])
   const [gamePreviews, setGamePreviews] = useState<Record<number, string>>({})
   const [isLoadingGames, setIsLoadingGames] = useState(true)
+  const [isLoadingMoreGames, setIsLoadingMoreGames] = useState(false)
+  const [hasMoreGamesServer, setHasMoreGamesServer] = useState(false)
+  const [hasUserScrolledGames, setHasUserScrolledGames] = useState(false)
   const [communityWorldById, setCommunityWorldById] = useState<Record<number, StoryCommunityWorldSummary>>({})
   const [ratingDialogGame, setRatingDialogGame] = useState<StoryGameSummary | null>(null)
   const [ratingDraft, setRatingDraft] = useState(0)
@@ -291,23 +295,63 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
   const [cloneSelection, setCloneSelection] = useState<CloneSelectionState>({ ...DEFAULT_CLONE_SELECTION })
   const [isGameCloning, setIsGameCloning] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement | null>(null)
+  const gamesRequestVersionRef = useRef(0)
+  const gamesRequestInFlightRef = useRef(false)
+  const deferredSearchQuery = useDeferredValue(searchQuery)
+  const normalizedSearchQuery = deferredSearchQuery.trim()
+  const gamesVisibilityFilter = useMemo(() => resolveGamesVisibilityFilter(mode), [mode])
+  const {
+    ref: loadMoreGamesRef,
+    isVisible: isLoadMoreGamesVisible,
+  } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '180px 0px',
+    once: false,
+    disabled: !hasUserScrolledGames || !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames,
+  })
 
   useEffect(() => {
     setCustomTitleMap(loadStoryTitleMap())
   }, [])
 
-  const loadGames = useCallback(async () => {
+  const loadGames = useCallback(async (options?: { append?: boolean; offset?: number }) => {
+    const append = options?.append === true
+    const offset = Math.max(0, Math.trunc(options?.offset ?? 0))
+    if (append && gamesRequestInFlightRef.current) {
+      return
+    }
+
+    const requestId = gamesRequestVersionRef.current + 1
+    gamesRequestVersionRef.current = requestId
+    gamesRequestInFlightRef.current = true
     setErrorMessage('')
-    setIsLoadingGames(true)
+    if (append) {
+      setIsLoadingMoreGames(true)
+    } else {
+      setIsLoadingGames(true)
+    }
     try {
-      const loadedGames = await listStoryGames(authToken, { compact: true })
-      const sortedGames = sortGamesByActivity(loadedGames)
-      rememberLastPlayedGameCard(sortedGames[0] ?? null)
-      setGames(sortedGames)
+      const loadedGames = await listStoryGames(authToken, {
+        compact: true,
+        limit: MY_GAMES_REQUEST_LIMIT,
+        offset,
+        sort: sortMode,
+        query: normalizedSearchQuery || undefined,
+        visibility: gamesVisibilityFilter,
+      })
+      if (requestId !== gamesRequestVersionRef.current) {
+        return
+      }
+
+      const visiblePageGames = loadedGames.slice(0, MY_GAMES_PAGE_SIZE)
+      if (!append && !normalizedSearchQuery) {
+        rememberLastPlayedGameCard(visiblePageGames[0] ?? null)
+      }
+      setGames((previousGames) => (append ? mergeGamesById(previousGames, visiblePageGames) : visiblePageGames))
+      setHasMoreGamesServer(loadedGames.length > MY_GAMES_PAGE_SIZE)
       setCustomTitleMap((previousMap) => {
         let nextMap = previousMap
         let hasChanges = false
-        sortedGames.forEach((game) => {
+        visiblePageGames.forEach((game) => {
           if (previousMap[game.id]?.trim()) {
             return
           }
@@ -321,28 +365,58 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
         return previousMap
       })
 
-      setGamePreviews(
-        Object.fromEntries(
-          sortedGames.map((game) => [game.id, normalizeGamePreview(game.latest_message_preview)]),
-        ),
+      setGamePreviews((previousPreviews) =>
+        append ? { ...previousPreviews, ...buildGamePreviewMap(visiblePageGames) } : buildGamePreviewMap(visiblePageGames),
       )
     } catch (error) {
+      if (requestId !== gamesRequestVersionRef.current) {
+        return
+      }
       const detail = error instanceof Error ? error.message : 'Не удалось загрузить список игр'
       setErrorMessage(detail)
-      setGames([])
-      setGamePreviews({})
+      setHasMoreGamesServer(false)
+      if (!append) {
+        setGames([])
+        setGamePreviews({})
+      }
     } finally {
-      setIsLoadingGames(false)
+      if (requestId === gamesRequestVersionRef.current) {
+        gamesRequestInFlightRef.current = false
+        if (append) {
+          setIsLoadingMoreGames(false)
+        } else {
+          setIsLoadingGames(false)
+        }
+      }
     }
-  }, [authToken])
+  }, [authToken, gamesVisibilityFilter, normalizedSearchQuery, sortMode])
 
   useEffect(() => {
-    void loadGames()
+    setGames([])
+    setGamePreviews({})
+    setHasMoreGamesServer(false)
+    setHasUserScrolledGames(false)
+    void loadGames({ offset: 0 })
   }, [loadGames])
 
   useEffect(() => {
-    rememberLastPlayedGameCard(games[0] ?? null)
-  }, [games])
+    const handleScroll = () => {
+      if (window.scrollY > 24) {
+        setHasUserScrolledGames(true)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isLoadMoreGamesVisible || !hasMoreGamesServer || isLoadingGames || isLoadingMoreGames) {
+      return
+    }
+    void loadGames({ append: true, offset: games.length })
+  }, [games.length, hasMoreGamesServer, isLoadMoreGamesVisible, isLoadingGames, isLoadingMoreGames, loadGames])
 
   useEffect(() => {
     const missingSourceWorldIds = Array.from(
@@ -774,24 +848,7 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
     [customTitleMap],
   )
 
-  const visibleGames = useMemo(() => {
-    const modeFilteredGames =
-      mode === 'my'
-        ? games.filter((game) => game.visibility !== 'public')
-        : mode === 'publications'
-          ? games.filter((game) => game.visibility === 'public')
-          : games
-    const normalizedSearch = searchQuery.trim().toLowerCase()
-    const filtered = normalizedSearch
-      ? modeFilteredGames.filter((game) => {
-          const title = resolveDisplayTitle(game.id).toLowerCase()
-          const preview = (gamePreviews[game.id] ?? '').toLowerCase()
-          return title.includes(normalizedSearch) || preview.includes(normalizedSearch)
-        })
-      : modeFilteredGames
-
-    return sortGames(filtered, sortMode)
-  }, [gamePreviews, games, mode, resolveDisplayTitle, searchQuery, sortMode])
+  const visibleGames = games
   const publicationSourceWorldIds = useMemo(
     () =>
       new Set(
@@ -1205,6 +1262,19 @@ function MyGamesPage({ user, authToken, mode, onNavigate, onUserUpdate, onLogout
                   )
                 })}
               </Stack>
+              <Box
+                ref={loadMoreGamesRef}
+                sx={{
+                  display: 'grid',
+                  placeItems: 'center',
+                  minHeight: 58,
+                  mt: 1.8,
+                }}
+              >
+                {isLoadingMoreGames ? (
+                  <CircularProgress size={24} sx={{ color: 'var(--morius-accent)' }} />
+                ) : null}
+              </Box>
             </>
           )}
         </Box>

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-from app.services.media import normalize_media_scale, resolve_media_display_url
+from app.services.media import build_media_display_url, normalize_media_scale, resolve_media_display_url
 
 
 class UserOut(BaseModel):
@@ -650,6 +650,7 @@ class StoryGameSettingsUpdateRequest(BaseModel):
     context_limit_chars: int | None = Field(default=None, ge=6_000, le=128_000)
     response_max_tokens: int | None = Field(default=None, ge=200, le=4_500)
     response_max_tokens_enabled: bool | None = None
+    response_token_limit_enabled: bool | None = None
     story_llm_model: str | None = Field(default=None, max_length=120)
     image_model: str | None = Field(default=None, max_length=120)
     image_style_prompt: str | None = Field(default=None, max_length=320)
@@ -1035,6 +1036,8 @@ class StoryWorldCardCreateRequest(BaseModel):
     inventory: str = Field(default="", max_length=1_000)
     health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    name_color: str | None = Field(default=None, max_length=16)
+    speech_color: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=16)
     detail_type: str = Field(default="", max_length=120)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
@@ -1052,6 +1055,8 @@ class StoryWorldCardUpdateRequest(BaseModel):
     inventory: str = Field(default="", max_length=1_000)
     health_status: str = Field(default="", max_length=1_000)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    name_color: str | None = Field(default=None, max_length=16)
+    speech_color: str | None = Field(default=None, max_length=16)
     detail_type: str = Field(default="", max_length=120)
     character_id: int | None = Field(default=None, ge=1)
     memory_turns: int | None = Field(default=None)
@@ -1084,6 +1089,8 @@ class StoryCharacterCreateRequest(BaseModel):
     health_status: str = Field(default="", max_length=1_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    name_color: str | None = Field(default=None, max_length=16)
+    speech_color: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -1104,6 +1111,8 @@ class StoryCharacterUpdateRequest(BaseModel):
     health_status: str = Field(default="", max_length=1_000)
     note: str = Field(default="", max_length=20)
     triggers: list[str] = Field(default_factory=list, max_length=40)
+    name_color: str | None = Field(default=None, max_length=16)
+    speech_color: str | None = Field(default=None, max_length=16)
     avatar_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_original_url: str | None = Field(default=None, max_length=3_000_000)
     avatar_scale: float | None = Field(default=None, ge=1.0, le=3.0)
@@ -1210,10 +1219,23 @@ class StoryTurnImageOut(BaseModel):
             payload = dict(value)
             image_id = payload.get("id")
             version = payload.get("updated_at") or payload.get("created_at")
+            has_image_data_url = payload.get("_morius_has_image_data_url")
         else:
-            payload = {field_name: getattr(value, field_name, None) for field_name in cls.model_fields}
+            source_dict = getattr(value, "__dict__", {})
+            payload = {
+                "id": getattr(value, "id", None),
+                "assistant_message_id": getattr(value, "assistant_message_id", None),
+                "model": getattr(value, "model", None),
+                "prompt": getattr(value, "prompt", None),
+                "revised_prompt": getattr(value, "revised_prompt", None),
+                "image_url": getattr(value, "image_url", None),
+                "image_data_url": source_dict.get("image_data_url"),
+                "created_at": getattr(value, "created_at", None),
+                "updated_at": getattr(value, "updated_at", None),
+            }
             image_id = getattr(value, "id", None)
             version = getattr(value, "updated_at", None) or getattr(value, "created_at", None)
+            has_image_data_url = getattr(value, "_morius_has_image_data_url", None)
 
         if image_id is None:
             return payload
@@ -1232,6 +1254,14 @@ class StoryTurnImageOut(BaseModel):
         )
         if resolved_data_url and str(raw_image_data_url or "").strip().startswith("data:"):
             payload["image_url"] = resolved_data_url
+            payload["image_data_url"] = None
+            return payload
+        if bool(has_image_data_url):
+            payload["image_url"] = build_media_display_url(
+                kind="story-turn-image-data",
+                entity_id=entity_id,
+                version=version,
+            )
             payload["image_data_url"] = None
             return payload
 
@@ -1294,6 +1324,8 @@ class StoryWorldCardOut(BaseModel):
     inventory: str = ""
     health_status: str = ""
     triggers: list[str]
+    name_color: str = ""
+    speech_color: str = ""
     kind: str
     detail_type: str = ""
     avatar_url: str | None
@@ -1319,6 +1351,8 @@ class StoryCharacterOut(BaseModel):
     health_status: str = ""
     note: str
     triggers: list[str]
+    name_color: str = ""
+    speech_color: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float
@@ -1397,6 +1431,8 @@ class StoryWorldCardSnapshotOut(BaseModel):
     inventory: str = ""
     health_status: str = ""
     triggers: list[str]
+    name_color: str = ""
+    speech_color: str = ""
     kind: str
     detail_type: str = ""
     avatar_url: str | None
@@ -1445,6 +1481,7 @@ class StoryGameSummaryOut(BaseModel):
     context_limit_chars: int
     response_max_tokens: int
     response_max_tokens_enabled: bool
+    response_token_limit_enabled: bool = False
     story_llm_model: str
     image_model: str
     image_style_prompt: str
@@ -1542,6 +1579,8 @@ class StoryCommunityCharacterSummaryOut(BaseModel):
     health_status: str = ""
     note: str
     triggers: list[str]
+    name_color: str = ""
+    speech_color: str = ""
     avatar_url: str | None
     avatar_original_url: str | None = None
     avatar_scale: float

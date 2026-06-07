@@ -30,6 +30,7 @@ import {
 import AvatarCropDialog from './AvatarCropDialog'
 import { AI_ASSISTANT_ENTITIES_CHANGED_EVENT } from './ai/aiAssistantEvents'
 import CharacterShowcaseCard from './characters/CharacterShowcaseCard'
+import SoulAmount from './currency/SoulAmount'
 import BaseDialog from './dialogs/BaseDialog'
 import ProgressiveImage from './media/ProgressiveImage'
 import {
@@ -80,6 +81,8 @@ const CHARACTER_RACE_MAX_LENGTH = 120
 const CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH = 1000
 const CHARACTER_TRIGGERS_MAX_LENGTH = 600
 const CHARACTER_NOTE_MAX_LENGTH = 20
+const CHARACTER_DEFAULT_TEXT_COLOR = '#DFE8F3'
+const CHARACTER_TEXT_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/
 const DEFAULT_CHARACTER_RACE_VALUES = [
   '\u0427\u0435\u043b\u043e\u0432\u0435\u043a',
   '\u042d\u043b\u044c\u0444',
@@ -285,6 +288,111 @@ function normalizeCharacterAdditionalDraft(value: string): string {
     .replace(/\r\n/g, '\n')
     .trim()
     .slice(0, CHARACTER_ADDITIONAL_FIELD_MAX_LENGTH)
+}
+
+function normalizeCharacterTextColorValue(value: string | null | undefined): string {
+  const normalized = String(value ?? '').trim()
+  return CHARACTER_TEXT_COLOR_PATTERN.test(normalized) ? normalized.toUpperCase() : ''
+}
+
+function normalizeCharacterTextColorDraft(value: string): string | null {
+  return normalizeCharacterTextColorValue(value) || null
+}
+
+type CharacterTextColorFieldProps = {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}
+
+function CharacterTextColorField({ label, value, onChange, disabled = false }: CharacterTextColorFieldProps) {
+  const normalizedValue = normalizeCharacterTextColorValue(value)
+  const pickerValue = normalizedValue || CHARACTER_DEFAULT_TEXT_COLOR
+  return (
+    <Stack spacing={0.45}>
+      <Typography sx={{ color: 'rgba(190, 205, 224, 0.74)', fontSize: '0.78rem', fontWeight: 700 }}>
+        {label}
+      </Typography>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.7} alignItems={{ xs: 'stretch', sm: 'center' }}>
+        <Box
+          component="input"
+          type="color"
+          value={pickerValue}
+          disabled={disabled}
+          onChange={(event) => onChange(String((event.target as HTMLInputElement).value || '').toUpperCase())}
+          aria-label={label}
+          sx={{
+            width: { xs: '100%', sm: 46 },
+            height: 36,
+            minWidth: { xs: '100%', sm: 46 },
+            p: 0,
+            border: 'var(--morius-border-width) solid var(--morius-card-border)',
+            borderRadius: '8px',
+            backgroundColor: 'transparent',
+            cursor: disabled ? 'default' : 'pointer',
+            '&::-webkit-color-swatch-wrapper': { p: 0 },
+            '&::-webkit-color-swatch': { border: 0, borderRadius: '7px' },
+            '&::-moz-color-swatch': { border: 0, borderRadius: '7px' },
+          }}
+        />
+        <TextField
+          value={value}
+          onChange={(event) => onChange(event.target.value.trim().slice(0, 7).toUpperCase())}
+          placeholder="По умолчанию"
+          disabled={disabled}
+          size="small"
+          inputProps={{ maxLength: 7 }}
+          sx={{ flex: 1 }}
+        />
+        <Button
+          onClick={() => onChange('')}
+          disabled={disabled || !value}
+          sx={{
+            minHeight: 36,
+            borderRadius: '8px',
+            color: 'var(--morius-text-secondary)',
+            textTransform: 'none',
+          }}
+        >
+          Сброс
+        </Button>
+      </Stack>
+    </Stack>
+  )
+}
+
+type CharacterTextColorControlsProps = {
+  nameColor: string
+  speechColor: string
+  onNameColorChange: (value: string) => void
+  onSpeechColorChange: (value: string) => void
+  disabled?: boolean
+}
+
+function CharacterTextColorControls({
+  nameColor,
+  speechColor,
+  onNameColorChange,
+  onSpeechColorChange,
+  disabled = false,
+}: CharacterTextColorControlsProps) {
+  return (
+    <Stack spacing={0.85}>
+      <CharacterTextColorField
+        label="Цвет имени"
+        value={nameColor}
+        onChange={onNameColorChange}
+        disabled={disabled}
+      />
+      <CharacterTextColorField
+        label="Цвет реплик"
+        value={speechColor}
+        onChange={onSpeechColorChange}
+        disabled={disabled}
+      />
+    </Stack>
+  )
 }
 
 function loadImageFromDataUrl(dataUrl: string): Promise<HTMLImageElement> {
@@ -524,6 +632,8 @@ function CharacterManagerDialog({
   const [healthStatusDraft, setHealthStatusDraft] = useState('')
   const [noteDraft, setNoteDraft] = useState('')
   const [triggersDraft, setTriggersDraft] = useState('')
+  const [nameColorDraft, setNameColorDraft] = useState('')
+  const [speechColorDraft, setSpeechColorDraft] = useState('')
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null)
   const [avatarSourceDraft, setAvatarSourceDraft] = useState<string | null>(null)
   const [avatarScaleDraft, setAvatarScaleDraft] = useState(1)
@@ -693,6 +803,8 @@ function CharacterManagerDialog({
     setHealthStatusDraft('')
     setNoteDraft('')
     setTriggersDraft('')
+    setNameColorDraft('')
+    setSpeechColorDraft('')
     setAvatarDraft(null)
     setAvatarSourceDraft(null)
     setAvatarScaleDraft(1)
@@ -869,6 +981,8 @@ function CharacterManagerDialog({
     setHealthStatusDraft(character.health_status ?? '')
     setNoteDraft(character.note)
     setTriggersDraft(character.triggers.join(', '))
+    setNameColorDraft(normalizeCharacterTextColorValue(character.name_color))
+    setSpeechColorDraft(normalizeCharacterTextColorValue(character.speech_color))
     setAvatarDraft(character.avatar_url)
     setAvatarSourceDraft(character.avatar_original_url ?? character.avatar_url)
     setAvatarScaleDraft(Math.max(1, Math.min(3, character.avatar_scale ?? 1)))
@@ -1262,6 +1376,8 @@ function CharacterManagerDialog({
     const normalizedInventory = normalizeCharacterAdditionalDraft(inventoryDraft)
     const normalizedHealthStatus = normalizeCharacterAdditionalDraft(healthStatusDraft)
     const normalizedNote = normalizeCharacterNoteDraft(noteDraft)
+    const normalizedNameColor = normalizeCharacterTextColorDraft(nameColorDraft)
+    const normalizedSpeechColor = normalizeCharacterTextColorDraft(speechColorDraft)
 
     if (!normalizedName) {
       setErrorMessage('Имя персонажа не может быть пустым')
@@ -1300,6 +1416,8 @@ function CharacterManagerDialog({
             inventory: normalizedInventory,
             health_status: normalizedHealthStatus,
             note: normalizedNote,
+            name_color: normalizedNameColor,
+            speech_color: normalizedSpeechColor,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
@@ -1324,6 +1442,8 @@ function CharacterManagerDialog({
             inventory: normalizedInventory,
             health_status: normalizedHealthStatus,
             note: normalizedNote,
+            name_color: normalizedNameColor,
+            speech_color: normalizedSpeechColor,
             triggers: normalizedTriggers,
             avatar_url: preparedAvatarPayload.avatarUrl,
             avatar_original_url: preparedAvatarPayload.avatarOriginalUrl,
@@ -1365,11 +1485,13 @@ function CharacterManagerDialog({
     isAvatarActionsLocked,
     loadCharacters,
     nameDraft,
+    nameColorDraft,
     noteDraft,
     preserveExistingEmotionsDraft,
     raceDraft,
     resetDraft,
     showEmotionTools,
+    speechColorDraft,
     triggersDraft,
     visibilityDraft,
   ])
@@ -1667,7 +1789,7 @@ function CharacterManagerDialog({
                     ) : null}
                   </Box>
                   <Stack direction="row" spacing={0.7} alignItems="center" justifyContent="center" sx={{ width: '100%' }}>
-                    <Tooltip title={hasAvatarDraft ? 'Изменить кроп аватара' : 'Сначала добавьте аватар'}>
+                    <Tooltip disableInteractive title={hasAvatarDraft ? 'Изменить кроп аватара' : 'Сначала добавьте аватар'}>
                       <span>
                         <IconButton
                           onClick={handleOpenAvatarCrop}
@@ -1688,6 +1810,7 @@ function CharacterManagerDialog({
                       </span>
                     </Tooltip>
                     <Tooltip
+                      disableInteractive
                       title={
                         hasAvatarDraft
                           ? 'Перегенерировать через ИИ'
@@ -1717,6 +1840,7 @@ function CharacterManagerDialog({
                     </Tooltip>
                     {showEmotionTools ? (
                       <Tooltip
+                        disableInteractive
                         title={
                           readyEmotionCount > 0
                             ? 'Обновить пресет эмоций'
@@ -1936,6 +2060,13 @@ function CharacterManagerDialog({
                   inputProps={{ maxLength: CHARACTER_NOTE_MAX_LENGTH }}
                   helperText={<TextLimitIndicator currentLength={noteDraft.length} maxLength={CHARACTER_NOTE_MAX_LENGTH} />}
                   FormHelperTextProps={{ component: 'div', sx: { m: 0, mt: 0.55 } }}
+                />
+                <CharacterTextColorControls
+                  nameColor={nameColorDraft}
+                  speechColor={speechColorDraft}
+                  onNameColorChange={setNameColorDraft}
+                  onSpeechColorChange={setSpeechColorDraft}
+                  disabled={isAvatarActionsLocked}
                 />
                 {extraEditorContent ? <Box>{extraEditorContent}</Box> : null}
                 <Stack spacing={0.6}>
@@ -2458,9 +2589,7 @@ function CharacterManagerDialog({
                         {option.description}
                       </Typography>
                     </Stack>
-                    <Typography sx={{ color: 'rgba(231, 211, 158, 0.96)', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                      {option.cost} Сол
-                    </Typography>
+                    <SoulAmount amount={option.cost} iconSize={15} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
                   </Stack>
                 </Button>
               ))}
@@ -2536,10 +2665,11 @@ function CharacterManagerDialog({
           >
             {isGeneratingAiAvatar ? (
               <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
-            ) : hasAvatarDraft ? (
-              `Перегенерировать за ${selectedAiAvatarGenerationCost} Сол`
             ) : (
-              `Сгенерировать за ${selectedAiAvatarGenerationCost} Сол`
+              <Stack component="span" direction="row" spacing={0.65} alignItems="center">
+                <Box component="span">{hasAvatarDraft ? 'Перегенерировать за' : 'Сгенерировать за'}</Box>
+                <SoulAmount amount={selectedAiAvatarGenerationCost} iconSize={15} />
+              </Stack>
             )}
           </Button>
         </DialogActions>
@@ -2587,9 +2717,7 @@ function CharacterManagerDialog({
                         {option.description}
                       </Typography>
                     </Stack>
-                    <Typography sx={{ color: 'rgba(231, 211, 158, 0.96)', fontWeight: 700, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                      {option.cost} Сол
-                    </Typography>
+                    <SoulAmount amount={option.cost} iconSize={15} color="rgba(231, 211, 158, 0.96)" fontSize="0.8rem" fontWeight={700} />
                   </Stack>
                 </Button>
               ))}
@@ -2683,10 +2811,11 @@ function CharacterManagerDialog({
           >
             {isGeneratingEmotionPack ? (
               <CircularProgress size={16} sx={{ color: 'var(--morius-text-primary)' }} />
-            ) : readyEmotionCount > 0 ? (
-              `Обновить за ${selectedEmotionGenerationCost} Сол`
             ) : (
-              `Сгенерировать за ${selectedEmotionGenerationCost} Сол`
+              <Stack component="span" direction="row" spacing={0.65} alignItems="center">
+                <Box component="span">{readyEmotionCount > 0 ? 'Обновить за' : 'Сгенерировать за'}</Box>
+                <SoulAmount amount={selectedEmotionGenerationCost} iconSize={15} />
+              </Stack>
             )}
           </Button>
         </DialogActions>

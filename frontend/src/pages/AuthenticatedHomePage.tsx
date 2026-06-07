@@ -119,6 +119,7 @@ import { buildWorldFallbackArtwork } from '../utils/worldBackground'
 import { resolveApiResourceUrl } from '../services/httpClient'
 import { MobileCardItem, MobileCardSlider } from '../components/mobile/MobileCardSlider'
 import { getProfileBannerPreset } from '../constants/profileBanners'
+import { resolveProfileBannerImageUrl, withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 
 type AuthenticatedHomePageProps = {
   user: AuthUser
@@ -766,7 +767,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     void getShopCatalog({ token: authToken })
       .then((response) => {
         if (!ignore) {
-          setShopProfileBanners(response.profile_banners)
+          setShopProfileBanners(response.profile_banners.map(withKnownCosmeticImageUrl))
         }
       })
       .catch(() => {
@@ -1881,12 +1882,48 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
     : 50
   const selectedDashboardNewsImage =
     selectedDashboardNews?.image_url?.trim() || getDashboardNewsFallbackImage(selectedDashboardNews?.slot ?? 1)
+  const isCreatorMonthInitialLoading = isCreatorMonthLoading && creatorMonth === null
+  const renderCreatorMonthSkeletonCard = (place: number) => {
+    const isFirstPlace = place === 1
+    return (
+      <Box
+        key={`creator-month-skeleton-${place}`}
+        sx={{
+          width: '100%',
+          alignSelf: isFirstPlace ? 'start' : 'end',
+          transform: { xs: 'none', md: isFirstPlace ? 'translateY(-18px)' : 'translateY(12px)' },
+          borderRadius: '20px',
+          overflow: 'hidden',
+          border: isFirstPlace
+            ? 'var(--morius-border-width) solid color-mix(in srgb, var(--morius-accent) 40%, var(--morius-card-border))'
+            : `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
+          backgroundColor: APP_CARD_BACKGROUND,
+          boxShadow: isFirstPlace ? '0 26px 58px rgba(0,0,0,0.34)' : '0 18px 38px rgba(0,0,0,0.24)',
+        }}
+      >
+        <Box className="morius-skeleton-card morius-skeleton-card--flat" sx={{ height: { xs: 112, md: isFirstPlace ? 138 : 118 }, borderRadius: 0 }} />
+        <Stack spacing={1.1} sx={{ p: { xs: 1.35, md: 1.55 }, alignItems: 'center', textAlign: 'center', mt: -5 }}>
+          <Box className="morius-skeleton-card" sx={{ width: isFirstPlace ? 86 : 74, height: isFirstPlace ? 86 : 74, borderRadius: '50%' }} />
+          <Box className="morius-skeleton-card" sx={{ width: '46%', height: 18, borderRadius: '999px' }} />
+          <Box className="morius-skeleton-card" sx={{ width: '68%', height: 13, borderRadius: '999px' }} />
+          <Box sx={{ display: 'grid', gap: 0.55, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', width: '100%' }}>
+            {[0, 1, 2, 3].map((key) => (
+              <Box key={`creator-month-skeleton-${place}-${key}`} className="morius-skeleton-card" sx={{ height: 46, borderRadius: '12px' }} />
+            ))}
+          </Box>
+        </Stack>
+      </Box>
+    )
+  }
   const renderCreatorMonthCard = (slot: CreatorMonthSlot) => {
     const creator = slot.user
     const place = slot.slot
     const fallbackBanner = getProfileBannerPreset(creator?.profile_banner_id ?? 'none')
     const paidBanner = creator ? shopProfileBanners.find((item) => item.selection_id === creator.profile_banner_id) ?? null : null
-    const bannerSrc = creator?.profile_banner_image_url ?? paidBanner?.image_url ?? fallbackBanner.src
+    const bannerSrc = resolveProfileBannerImageUrl(
+      creator?.profile_banner_id ?? null,
+      creator?.profile_banner_image_url ?? paidBanner?.image_url ?? null,
+    ) ?? fallbackBanner.src
     const isFirstPlace = place === 1
     return (
       <ButtonBase
@@ -2110,7 +2147,7 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
       {
         key: 'shop',
         title: 'Магазин',
-        description: 'Пакеты солов и дополнительные возможности для длинных сессий и генерации.',
+        description: 'Пакеты валюты и дополнительные возможности для длинных сессий и генерации.',
         imageSrc: shopDashboardImage,
         iconMarkup: sidebarVectorAltIconMarkup,
         onClick: handleOpenTopUpDialog,
@@ -2793,7 +2830,9 @@ function AuthenticatedHomePage({ user, authToken, onNavigate, onUserUpdate, onLo
                 pt: { xs: 0, md: 2.2 },
               }}
             >
-              {[creatorMonthSlots[1], creatorMonthSlots[0], creatorMonthSlots[2]].map((slot) => renderCreatorMonthCard(slot))}
+              {isCreatorMonthInitialLoading
+                ? [2, 1, 3].map((place) => renderCreatorMonthSkeletonCard(place))
+                : [creatorMonthSlots[1], creatorMonthSlots[0], creatorMonthSlots[2]].map((slot) => renderCreatorMonthCard(slot))}
             </Box>
           </Box>
 

@@ -2,7 +2,7 @@ import logo from './brand/logo.svg'
 import backIcon from './icons/back.svg'
 import arrowBackIcon from './icons/arrowback.svg'
 import aiIcon from './icons/ai.svg'
-import coinIcon from './icons/coin.svg'
+import soulMoriusIcon from './icons/soul-moirus.svg'
 import communityAgeIcon from './icons/community-age.svg'
 import communityCommentsIcon from './icons/community-comments.svg'
 import communityCardsIcon from './icons/community-cards.svg'
@@ -23,7 +23,6 @@ import rerollIcon from './icons/reroll.svg'
 import sendIcon from './icons/send.svg'
 import settingsIcon from './icons/settings.svg'
 import imageGenIcon from './icons/image-gen.svg'
-import tabcoinIcon from './icons/tabcoin.svg'
 import dailyDiamondIcon from './icons/daily-diamond.svg'
 import themeIcon from './icons/theme.svg'
 import undoIcon from './icons/undo.svg'
@@ -58,7 +57,7 @@ export const icons = {
   cardsPlot: cardsPlotIcon,
   cardsRules: cardsRulesIcon,
   cardsWorld: cardsWorldIcon,
-  coin: coinIcon,
+  coin: soulMoriusIcon,
   communityAge: communityAgeIcon,
   communityAdd: communityAddIcon,
   communityCards: communityCardsIcon,
@@ -71,7 +70,7 @@ export const icons = {
   communityStarFilled: communityStarFilledIcon,
   communityStarOutline: communityStarOutlineIcon,
   dailyRewards: dailyDiamondIcon,
-  dailyRewardsCoin: tabcoinIcon,
+  dailyRewardsCoin: soulMoriusIcon,
   help: helpIcon,
   home: homeIcon,
   menu: menuIcon,
@@ -95,7 +94,7 @@ export const icons = {
   sidebarShop: sidebarShopIcon,
   sidebarVector: sidebarVectorIcon,
   sidebarVectorAlt: sidebarVectorAltIcon,
-  tabcoin: tabcoinIcon,
+  tabcoin: soulMoriusIcon,
   theme: themeIcon,
   trashCustom: communityEditIcon,
   undo: undoIcon,

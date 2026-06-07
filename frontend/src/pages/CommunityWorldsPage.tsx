@@ -23,6 +23,7 @@ import {
 import AppHeader from '../components/AppHeader'
 import AvatarCropDialog from '../components/AvatarCropDialog'
 import CharacterShowcaseCard from '../components/characters/CharacterShowcaseCard'
+import SoulAmount from '../components/currency/SoulAmount'
 import CommunityWorldCard from '../components/community/CommunityWorldCard'
 import {
   CommunityModerationCardFrame,
@@ -920,7 +921,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       setCommunityWorldsError('')
       try {
         const worlds = await listCommunityWorlds(authToken, {
-          limit: COMMUNITY_CARD_BATCH_SIZE,
+          limit: COMMUNITY_CARD_BATCH_SIZE + 1,
           offset,
           sort: worldSortMode,
           query: normalizedSearchQuery || undefined,
@@ -930,8 +931,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         if (requestId !== communityWorldsRequestVersionRef.current) {
           return
         }
-        setCommunityWorlds((previous) => (append ? mergeCommunityItemsById(previous, worlds) : worlds))
-        setHasMoreCommunityWorldsServer(worlds.length === COMMUNITY_CARD_BATCH_SIZE)
+        const visibleWorlds = worlds.slice(0, COMMUNITY_CARD_BATCH_SIZE)
+        setCommunityWorlds((previous) => (append ? mergeCommunityItemsById(previous, visibleWorlds) : visibleWorlds))
+        setHasMoreCommunityWorldsServer(worlds.length > COMMUNITY_CARD_BATCH_SIZE)
       } catch (error) {
         if (requestId !== communityWorldsRequestVersionRef.current) {
           return
@@ -975,7 +977,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       setCommunityWorldsError('')
       try {
         const characters = await listCommunityCharacters(authToken, {
-          limit: COMMUNITY_CARD_BATCH_SIZE,
+          limit: COMMUNITY_CARD_BATCH_SIZE + 1,
           offset,
           sort: characterSortMode,
           query: normalizedSearchQuery || undefined,
@@ -984,8 +986,9 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         if (requestId !== communityCharactersRequestVersionRef.current) {
           return
         }
-        setCommunityCharacters((previous) => (append ? mergeCommunityItemsById(previous, characters) : characters))
-        setHasMoreCommunityCharactersServer(characters.length === COMMUNITY_CARD_BATCH_SIZE)
+        const visibleCharacters = characters.slice(0, COMMUNITY_CARD_BATCH_SIZE)
+        setCommunityCharacters((previous) => (append ? mergeCommunityItemsById(previous, visibleCharacters) : visibleCharacters))
+        setHasMoreCommunityCharactersServer(characters.length > COMMUNITY_CARD_BATCH_SIZE)
       } catch (error) {
         if (requestId !== communityCharactersRequestVersionRef.current) {
           return
@@ -1029,7 +1032,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
       setCommunityWorldsError('')
       try {
         const templates = await listCommunityInstructionTemplates(authToken, {
-          limit: COMMUNITY_CARD_BATCH_SIZE,
+          limit: COMMUNITY_CARD_BATCH_SIZE + 1,
           offset,
           sort: instructionSortMode,
           query: normalizedSearchQuery || undefined,
@@ -1038,10 +1041,11 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
         if (requestId !== communityInstructionTemplatesRequestVersionRef.current) {
           return
         }
+        const visibleTemplates = templates.slice(0, COMMUNITY_CARD_BATCH_SIZE)
         setCommunityInstructionTemplates((previous) =>
-          append ? mergeCommunityItemsById(previous, templates) : templates,
+          append ? mergeCommunityItemsById(previous, visibleTemplates) : visibleTemplates,
         )
-        setHasMoreCommunityInstructionTemplatesServer(templates.length === COMMUNITY_CARD_BATCH_SIZE)
+        setHasMoreCommunityInstructionTemplatesServer(templates.length > COMMUNITY_CARD_BATCH_SIZE)
       } catch (error) {
         if (requestId !== communityInstructionTemplatesRequestVersionRef.current) {
           return
@@ -2089,7 +2093,7 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
     }
     const amount = Number.parseInt(encouragementAmount, 10)
     if (!Number.isFinite(amount) || amount < 5) {
-      setEncouragementError('Минимум 5 солов.')
+      setEncouragementError('Минимальная сумма — 5.')
       return
     }
     setIsEncouragementSubmitting(true)
@@ -3421,18 +3425,29 @@ function CommunityWorldsPage({ user, authToken, onNavigate, onUserUpdate, onLogo
           sx: {
             borderRadius: '18px',
             border: `var(--morius-border-width) solid ${APP_BORDER_COLOR}`,
-            backgroundColor: 'var(--morius-dialog-bg)',
+            backgroundColor: '#11161d',
             color: APP_TEXT_PRIMARY,
-            boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+            boxShadow: '0 28px 70px rgba(0,0,0,0.72)',
+            '& .MuiInputBase-root': {
+              borderRadius: '12px',
+              backgroundColor: '#171d25',
+              color: APP_TEXT_PRIMARY,
+            },
+            '& .MuiInputLabel-root': {
+              color: APP_TEXT_SECONDARY,
+            },
+            '& .MuiOutlinedInput-notchedOutline': {
+              borderColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+            },
           },
         }}
-        BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}
+        BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}
       >
         <DialogTitle sx={{ color: APP_TEXT_PRIMARY, fontWeight: 900 }}>Поддержать автора</DialogTitle>
         <DialogContent>
           <Stack spacing={1.1} sx={{ pt: 0.45 }}>
             <Typography sx={{ color: APP_TEXT_SECONDARY, fontSize: '0.92rem', lineHeight: 1.45 }}>
-              Переведите автору публикации солы со своего баланса. Минимум 5 солов.
+              Переведите автору публикации валюту со своего баланса. Минимум <SoulAmount amount={5} iconSize={13} color="inherit" fontSize="0.92rem" />.
             </Typography>
             <Typography sx={{ color: APP_TEXT_PRIMARY, fontWeight: 800 }}>
               {encouragementTarget?.title ?? ''}

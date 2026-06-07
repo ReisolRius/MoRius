@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import func, select, update as sa_update
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from sqlalchemy import func, or_, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -32,6 +32,7 @@ from app.services.story_characters import (
     normalize_story_character_health_status,
     normalize_story_character_inventory,
     normalize_story_character_race,
+    normalize_story_character_text_color,
 )
 from app.services.story_games import STORY_GAME_VISIBILITY_PUBLIC, refresh_story_game_public_card_snapshots
 from app.services.story_character_state_fields import (
@@ -131,15 +132,34 @@ def create_story_world_detail_type(
 
 @router.get("/api/story/world-card-templates", response_model=list[StoryWorldCardTemplateOut])
 def list_story_world_card_templates(
+    limit: int | None = Query(default=None, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    query: str = Query(default="", max_length=120),
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> list[StoryWorldCardTemplateOut]:
     user = get_current_user(db, authorization)
-    templates = db.scalars(
+    statement = (
         select(StoryWorldCardTemplate)
         .where(StoryWorldCardTemplate.user_id == int(user.id))
         .order_by(StoryWorldCardTemplate.updated_at.desc(), StoryWorldCardTemplate.id.desc())
-    ).all()
+    )
+    normalized_query = " ".join(str(query or "").split()).strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        statement = statement.where(
+            or_(
+                StoryWorldCardTemplate.title.ilike(pattern),
+                StoryWorldCardTemplate.content.ilike(pattern),
+                StoryWorldCardTemplate.detail_type.ilike(pattern),
+                StoryWorldCardTemplate.triggers.ilike(pattern),
+            )
+        )
+    if offset > 0:
+        statement = statement.offset(offset)
+    if limit is not None:
+        statement = statement.limit(limit)
+    templates = db.scalars(statement).all()
     return [story_world_card_template_to_out(template) for template in templates]
 
 
@@ -526,6 +546,15 @@ def create_story_world_card(
         if is_character_card and payload.character_id is not None
         else None
     )
+    normalized_name_color = normalize_story_character_text_color(payload.name_color) if is_character_card else ""
+    normalized_speech_color = normalize_story_character_text_color(payload.speech_color) if is_character_card else ""
+    if is_character_card and linked_character is not None:
+        normalized_name_color = normalized_name_color or normalize_story_character_text_color(
+            getattr(linked_character, "name_color", "")
+        )
+        normalized_speech_color = normalized_speech_color or normalize_story_character_text_color(
+            getattr(linked_character, "speech_color", "")
+        )
     normalized_memory_turns = normalize_story_world_card_memory_turns_for_storage(
         payload.memory_turns,
         kind=normalized_kind,
@@ -581,6 +610,8 @@ def create_story_world_card(
         inventory=normalized_inventory,
         health_status=normalized_health_status,
         triggers=serialize_story_world_card_triggers(normalized_triggers),
+        name_color=normalized_name_color,
+        speech_color=normalized_speech_color,
         kind=normalized_kind,
         detail_type=normalized_detail_type,
         avatar_url=normalized_avatar,
@@ -643,6 +674,8 @@ def update_story_world_card(
     normalized_clothing = normalize_story_character_clothing(payload.clothing) if is_character_card else ""
     normalized_inventory = normalize_story_character_inventory(payload.inventory) if is_character_card else ""
     normalized_health_status = normalize_story_character_health_status(payload.health_status) if is_character_card else ""
+    normalized_name_color = normalize_story_character_text_color(payload.name_color) if is_character_card else ""
+    normalized_speech_color = normalize_story_character_text_color(payload.speech_color) if is_character_card else ""
     normalized_detail_type = normalize_story_world_detail_type(payload.detail_type) if normalized_kind == STORY_WORLD_CARD_KIND_WORLD else ""
     if normalized_kind == STORY_WORLD_CARD_KIND_MAIN_HERO and _is_public_story_game(game):
         raise HTTPException(
@@ -673,6 +706,8 @@ def update_story_world_card(
     world_card.inventory = normalized_inventory
     world_card.health_status = normalized_health_status
     world_card.triggers = serialize_story_world_card_triggers(normalized_triggers)
+    world_card.name_color = normalized_name_color
+    world_card.speech_color = normalized_speech_color
     world_card.detail_type = normalized_detail_type
     if not is_character_card:
         world_card.character_id = None

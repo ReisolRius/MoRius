@@ -1,5 +1,6 @@
 import { Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography, type DialogProps } from '@mui/material'
 import useMobileDialogSheet from '../dialogs/useMobileDialogSheet'
+import SoulAmount from '../currency/SoulAmount'
 
 type PaymentSuccessDialogProps = {
   open: boolean
@@ -43,11 +44,11 @@ function PaymentSuccessDialog({ open, coins, referralBonusCoins = 0, onClose, tr
       </DialogTitle>
       <DialogContent sx={{ pt: 0.6 }}>
         <Typography sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
-          Начислено +{Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')} солов.
+          Начислено <SoulAmount amount={`+${Math.max(0, Math.trunc(coins)).toLocaleString('ru-RU')}`} iconSize={16} />.
         </Typography>
         {normalizedReferralBonusCoins > 0 ? (
           <Typography sx={{ color: 'var(--morius-accent)', lineHeight: 1.5, mt: 0.8, fontWeight: 700 }}>
-            Реферальный бонус: +{normalizedReferralBonusCoins.toLocaleString('ru-RU')} солов.
+            Реферальный бонус: <SoulAmount amount={`+${normalizedReferralBonusCoins.toLocaleString('ru-RU')}`} iconSize={16} />.
           </Typography>
         ) : null}
       </DialogContent>

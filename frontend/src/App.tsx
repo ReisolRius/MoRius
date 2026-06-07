@@ -90,10 +90,6 @@ function isLegalPath(pathname: string): boolean {
   return pathname === '/privacy-policy' || pathname === '/terms-of-service' || pathname === '/publication-rules'
 }
 
-function isStaticPublicPath(pathname: string): boolean {
-  return pathname === '/' || pathname === '/auth' || isLegalPath(pathname)
-}
-
 function parseAuthRouteMode(search: string): AuthRouteMode {
   const mode = new URLSearchParams(search).get('mode')
   if (mode === 'register' || mode === 'reset') {
@@ -306,6 +302,17 @@ function warmPageLoaders(loaders: PageLoader[]): () => void {
   }
 }
 
+function RouteTransitionFallback() {
+  const [isVisible, setIsVisible] = useState(false)
+
+  useEffect(() => {
+    const timerId = window.setTimeout(() => setIsVisible(true), 140)
+    return () => window.clearTimeout(timerId)
+  }, [])
+
+  return <FantasyRouteTransition active={isVisible} />
+}
+
 function App() {
   const { setCustomTheme, setStoryHistoryFontFamily, setStoryHistoryFontWeight, setTheme } = useMoriusThemeController()
   const [path, setPath] = useState(() => normalizePath(window.location.pathname))
@@ -313,25 +320,12 @@ function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(initialSession.user)
   const [isHydratingSession, setIsHydratingSession] = useState(Boolean(initialSession.token))
   const [pendingReferralCode, setPendingReferralCode] = useState(() => readPendingReferralCode())
-  const [isRouteTransitionVisible, setIsRouteTransitionVisible] = useState(false)
   const [shouldOpenAiAssistantAfterAuth, setShouldOpenAiAssistantAfterAuth] = useState(false)
   const [maintenanceSettings, setMaintenanceSettings] = useState<MaintenanceSettings | null>(null)
   const hasTrackedInitialRouteRef = useRef(false)
-  const routeTransitionTimerRef = useRef<number | null>(null)
   const isAuthenticated = Boolean(authToken && authUser)
   const currentUserRole = authUser?.role.trim().toLowerCase() ?? ''
   const canCurrentUserBypassMaintenance = currentUserRole === 'administrator' || currentUserRole === 'moderator'
-
-  const triggerRouteTransition = useCallback(() => {
-    if (routeTransitionTimerRef.current !== null) {
-      window.clearTimeout(routeTransitionTimerRef.current)
-    }
-    setIsRouteTransitionVisible(true)
-    routeTransitionTimerRef.current = window.setTimeout(() => {
-      setIsRouteTransitionVisible(false)
-      routeTransitionTimerRef.current = null
-    }, 560)
-  }, [])
 
   const applyResolvedThemeSettings = useCallback((settings: CurrentUserThemeSettings | null) => {
     if (!settings) {
@@ -368,9 +362,6 @@ function App() {
   useEffect(() => {
     const handlePopState = () => {
       const nextPath = normalizePath(window.location.pathname)
-      if (!isStaticPublicPath(nextPath)) {
-        triggerRouteTransition()
-      }
       setPath(nextPath)
     }
     window.addEventListener('popstate', handlePopState)
@@ -378,14 +369,6 @@ function App() {
       window.history.scrollRestoration = 'manual'
     }
     return () => window.removeEventListener('popstate', handlePopState)
-  }, [triggerRouteTransition])
-
-  useEffect(() => {
-    return () => {
-      if (routeTransitionTimerRef.current !== null) {
-        window.clearTimeout(routeTransitionTimerRef.current)
-      }
-    }
   }, [])
 
   useEffect(() => {
@@ -471,9 +454,6 @@ function App() {
   const navigate = useCallback((targetPath: string, options?: { replace?: boolean }) => {
     const normalizedTarget = normalizeNavigationTarget(targetPath)
     if (getCurrentNavigationHref() !== normalizedTarget.href) {
-      if (!isStaticPublicPath(normalizedTarget.pathname)) {
-        triggerRouteTransition()
-      }
       if (options?.replace) {
         window.history.replaceState({}, '', normalizedTarget.href)
       } else {
@@ -482,7 +462,7 @@ function App() {
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     setPath(normalizedTarget.pathname)
-  }, [triggerRouteTransition])
+  }, [])
 
   useEffect(() => {
     const referralCode = extractReferralCodeFromLocation(window.location)
@@ -688,19 +668,19 @@ function App() {
   const shouldShowMaintenancePage = Boolean(
     maintenanceSettings?.enabled && !canCurrentUserBypassMaintenance && !shouldAllowMaintenanceAuthBypass,
   )
-  const shouldShowRouteTransition = isRouteTransitionVisible && !isStaticPublicPath(path) && !shouldShowMaintenancePage
+  const routeTransitionFallback = <RouteTransitionFallback />
 
   let pageContent: ReactNode
 
   if (shouldShowMaintenancePage && maintenanceSettings) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <MaintenancePage settings={maintenanceSettings} />
       </Suspense>
     )
   } else if (shouldShowPrivacyPolicyPage) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <LegalDocumentPage
           title="Политика конфиденциальности"
           content={PRIVACY_POLICY_TEXT}
@@ -710,7 +690,7 @@ function App() {
     )
   } else if (shouldShowTermsPage) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <LegalDocumentPage
           title="Пользовательское соглашение"
           content={TERMS_OF_SERVICE_TEXT}
@@ -720,7 +700,7 @@ function App() {
     )
   } else if (shouldShowPublicationRulesPage) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <LegalDocumentPage
           title="Правила публикаций"
           content={PUBLICATION_RULES_TEXT}
@@ -730,7 +710,7 @@ function App() {
     )
   } else if (shouldShowAuthPage) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <AuthPage
           initialMode={parseAuthRouteMode(window.location.search)}
           onNavigate={navigate}
@@ -740,7 +720,7 @@ function App() {
     )
   } else if (shouldShowStoryGamePage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <StoryGamePage
           user={authUser}
           authToken={authToken!}
@@ -753,7 +733,7 @@ function App() {
     )
   } else if (shouldShowMyGamesPage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <MyGamesPage
           user={authUser}
           authToken={authToken!}
@@ -766,7 +746,7 @@ function App() {
     )
   } else if (shouldShowCommunityWorldsPage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <CommunityWorldsPage
           user={authUser}
           authToken={authToken!}
@@ -778,7 +758,7 @@ function App() {
     )
   } else if (shouldShowDashboardPage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <AuthenticatedHomePage
           user={authUser}
           authToken={authToken!}
@@ -790,7 +770,7 @@ function App() {
     )
   } else if (shouldShowWorldCreatePage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <WorldCreatePage
           user={authUser}
           authToken={authToken!}
@@ -802,7 +782,7 @@ function App() {
     )
   } else if (shouldShowShopPage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <ShopPage
           user={authUser}
           authToken={authToken!}
@@ -814,7 +794,7 @@ function App() {
     )
   } else if (shouldShowMyPublicationsPage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <MyPublicationsPage
           user={authUser}
           authToken={authToken!}
@@ -826,7 +806,7 @@ function App() {
     )
   } else if (shouldShowBugReportPage && authUser && adminBugReportId !== null) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <AdminBugReportPage
           authToken={authToken!}
           reportId={adminBugReportId}
@@ -836,7 +816,7 @@ function App() {
     )
   } else if (shouldShowProfilePage && authUser) {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <ProfilePage
           user={authUser}
           authToken={authToken!}
@@ -849,7 +829,7 @@ function App() {
     )
   } else {
     pageContent = (
-      <Suspense fallback={null}>
+      <Suspense fallback={routeTransitionFallback}>
         <PublicLandingPage
           isAuthenticated={isAuthenticated}
           pendingReferralCode={pendingReferralCode}
@@ -862,7 +842,6 @@ function App() {
 
   return (
     <>
-      <FantasyRouteTransition active={shouldShowRouteTransition} />
       {pageContent}
       {isAuthenticated && authUser && authToken && !shouldShowPrivacyPolicyPage && !shouldShowTermsPage && !shouldShowMaintenancePage ? (
         <AiAssistantPanel

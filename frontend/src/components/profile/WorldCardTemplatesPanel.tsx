@@ -38,12 +38,15 @@ import {
   STORY_WORLD_BANNER_ASPECT,
 } from '../../utils/storyWorldCards'
 import { prepareAvatarPayloadForRequest, readFileAsDataUrl } from '../../utils/avatar'
+import { useVisibilityTrigger } from '../../hooks/useVisibilityTrigger'
 
 const TEMPLATE_TITLE_MAX_LENGTH = 120
 const TEMPLATE_CONTENT_MAX_LENGTH = 8000
 const TEMPLATE_TRIGGER_INPUT_MAX_LENGTH = 600
 const DETAIL_TYPE_MAX_LENGTH = 120
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024
+const TEMPLATE_PAGE_SIZE = 12
+const TEMPLATE_REQUEST_SIZE = TEMPLATE_PAGE_SIZE + 1
 const filterWorldDetailTypeOptions = createFilterOptions<WorldDetailTypeOption>()
 
 type WorldDetailTypeOption = {
@@ -68,10 +71,32 @@ function formatMemoryLabel(memoryTurns: number | null): string {
   return `${memoryTurns} ход.`
 }
 
+function splitTemplatePage(items: StoryWorldCardTemplate[]) {
+  return {
+    items: items.slice(0, TEMPLATE_PAGE_SIZE),
+    hasMore: items.length > TEMPLATE_PAGE_SIZE,
+  }
+}
+
+function mergeTemplatesById(currentItems: StoryWorldCardTemplate[], nextItems: StoryWorldCardTemplate[]) {
+  const seenIds = new Set(currentItems.map((item) => item.id))
+  const mergedItems = [...currentItems]
+  nextItems.forEach((item) => {
+    if (seenIds.has(item.id)) {
+      return
+    }
+    seenIds.add(item.id)
+    mergedItems.push(item)
+  })
+  return mergedItems
+}
+
 function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCountChange }: WorldCardTemplatesPanelProps) {
   const [templates, setTemplates] = useState<StoryWorldCardTemplate[]>([])
   const [detailTypes, setDetailTypes] = useState<StoryWorldDetailType[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [hasMoreTemplates, setHasMoreTemplates] = useState(false)
   const [error, setError] = useState('')
 
   const [editorOpen, setEditorOpen] = useState(false)
@@ -93,23 +118,70 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
 
   const refreshData = useCallback(async () => {
     setIsLoading(true)
+    setIsLoadingMore(false)
     setError('')
     try {
+      const requestQuery = searchQuery.replace(/\s+/g, ' ').trim()
       const [loadedTemplates, loadedDetailTypes] = await Promise.all([
-        listStoryWorldCardTemplates({ token: authToken }),
+        listStoryWorldCardTemplates({
+          token: authToken,
+          limit: TEMPLATE_REQUEST_SIZE,
+          query: requestQuery || undefined,
+        }),
         listStoryWorldDetailTypes({ token: authToken }),
       ])
-      setTemplates(loadedTemplates)
+      const page = splitTemplatePage(loadedTemplates)
+      setTemplates(page.items)
+      setHasMoreTemplates(page.hasMore)
       setDetailTypes(loadedDetailTypes)
     } catch (requestError) {
       const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить карточки мира'
       setError(detail)
       setTemplates([])
+      setHasMoreTemplates(false)
       setDetailTypes([])
     } finally {
       setIsLoading(false)
     }
-  }, [authToken])
+  }, [authToken, searchQuery])
+
+  const loadMoreTemplates = useCallback(async () => {
+    if (isLoading || isLoadingMore || !hasMoreTemplates) {
+      return
+    }
+    setIsLoadingMore(true)
+    setError('')
+    try {
+      const requestQuery = searchQuery.replace(/\s+/g, ' ').trim()
+      const loadedTemplates = await listStoryWorldCardTemplates({
+        token: authToken,
+        limit: TEMPLATE_REQUEST_SIZE,
+        offset: templates.length,
+        query: requestQuery || undefined,
+      })
+      const page = splitTemplatePage(loadedTemplates)
+      setTemplates((previous) => mergeTemplatesById(previous, page.items))
+      setHasMoreTemplates(page.hasMore)
+    } catch (requestError) {
+      const detail = requestError instanceof Error ? requestError.message : 'Не удалось загрузить еще карточки мира'
+      setError(detail)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }, [authToken, hasMoreTemplates, isLoading, isLoadingMore, searchQuery, templates.length])
+
+  const { ref: loadMoreTemplatesRef, isVisible: isLoadMoreTemplatesVisible } = useVisibilityTrigger<HTMLDivElement>({
+    rootMargin: '140px 0px',
+    once: false,
+    disabled: isLoading || isLoadingMore || !hasMoreTemplates,
+  })
+
+  useEffect(() => {
+    if (!isLoadMoreTemplatesVisible) {
+      return
+    }
+    void loadMoreTemplates()
+  }, [isLoadMoreTemplatesVisible, loadMoreTemplates])
 
   useEffect(() => {
     void refreshData()
@@ -584,6 +656,12 @@ function WorldCardTemplatesPanel({ authToken, searchQuery = '', onTemplatesCount
             kind: 'world',
             items: worldDetailTemplates,
           })}
+          {isLoadingMore ? (
+            <Stack alignItems="center" sx={{ py: 0.7 }}>
+              <CircularProgress size={18} sx={{ color: 'var(--morius-accent)' }} />
+            </Stack>
+          ) : null}
+          {hasMoreTemplates ? <Box ref={loadMoreTemplatesRef} sx={{ height: 1, width: '100%' }} /> : null}
         </>
       )}
 

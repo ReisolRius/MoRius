@@ -1829,7 +1829,7 @@ function AppHeader({
                   const resolvedLabel = getSafeSidebarLabel(item)
 
                   return (
-                    <Tooltip key={item.key} title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
+                    <Tooltip key={item.key} disableInteractive title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
                       <Button
                         data-tour-id={`sidebar-item-${item.key}`}
                         disableRipple
@@ -1876,7 +1876,7 @@ function AppHeader({
                   const resolvedLabel = getSafeUtilityItemLabel(item.key, item.label)
 
                   return (
-                    <Tooltip key={item.key} title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
+                    <Tooltip key={item.key} disableInteractive title={isPageMenuOpen ? '' : resolvedLabel} placement="right" disableHoverListener={isPageMenuOpen}>
                       <Button
                         data-tour-id={`sidebar-utility-${item.key}`}
                         disableRipple

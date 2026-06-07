@@ -26,6 +26,7 @@ from app.services.story_characters import (
     normalize_story_character_note,
     normalize_story_character_race,
     normalize_story_character_source,
+    normalize_story_character_text_color,
     serialize_triggers,
     deserialize_triggers,
 )
@@ -87,6 +88,8 @@ def upsert_story_character_publication_copy_from_source(
             health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
             note=normalize_story_character_note(source_character.note),
             triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
+            name_color=normalize_story_character_text_color(getattr(source_character, "name_color", "")),
+            speech_color=normalize_story_character_text_color(getattr(source_character, "speech_color", "")),
             avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
             avatar_original_url=(
                 normalize_story_character_avatar_original_url(
@@ -129,6 +132,8 @@ def upsert_story_character_publication_copy_from_source(
     publication.health_status = normalize_story_character_health_status(getattr(source_character, "health_status", ""))
     publication.note = normalize_story_character_note(source_character.note)
     publication.triggers = serialize_triggers(deserialize_triggers(source_character.triggers))
+    publication.name_color = normalize_story_character_text_color(getattr(source_character, "name_color", ""))
+    publication.speech_color = normalize_story_character_text_color(getattr(source_character, "speech_color", ""))
     publication.avatar_url = normalize_story_character_avatar_url(source_character.avatar_url, db=db)
     publication.avatar_original_url = (
         normalize_story_character_avatar_original_url(
@@ -245,6 +250,7 @@ def upsert_story_game_publication_copy_from_source(
             context_limit_chars=normalized_source.context_limit_chars,
             response_max_tokens=normalized_source.response_max_tokens,
             response_max_tokens_enabled=normalized_source.response_max_tokens_enabled,
+            response_token_limit_enabled=normalized_source.response_token_limit_enabled,
             story_llm_model=normalized_source.story_llm_model,
             image_model=normalized_source.image_model,
             image_style_prompt=normalized_source.image_style_prompt,
@@ -319,6 +325,7 @@ def upsert_story_game_publication_copy_from_source(
     publication.context_limit_chars = normalized_source.context_limit_chars
     publication.response_max_tokens = normalized_source.response_max_tokens
     publication.response_max_tokens_enabled = normalized_source.response_max_tokens_enabled
+    publication.response_token_limit_enabled = normalized_source.response_token_limit_enabled
     publication.story_llm_model = normalized_source.story_llm_model
     publication.image_model = normalized_source.image_model
     publication.image_style_prompt = normalized_source.image_style_prompt

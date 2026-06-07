@@ -56,6 +56,7 @@ from app.services.story_characters import (
     normalize_story_character_health_status,
     normalize_story_character_inventory,
     normalize_story_character_race,
+    normalize_story_character_text_color,
 )
 from app.services.story_cards import (
     deserialize_story_plot_card_triggers,
@@ -486,6 +487,12 @@ def normalize_story_response_max_tokens(value: int | None) -> int:
 
 
 def normalize_story_response_max_tokens_enabled(value: bool | None) -> bool:
+    if value is None:
+        return False
+    return bool(value)
+
+
+def normalize_story_response_token_limit_enabled(value: bool | None) -> bool:
     if value is None:
         return False
     return bool(value)
@@ -1130,6 +1137,9 @@ def story_game_summary_to_out(
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
         ),
+        response_token_limit_enabled=normalize_story_response_token_limit_enabled(
+            getattr(game, "response_token_limit_enabled", None)
+        ),
         story_llm_model=normalized_story_model,
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
         image_style_prompt=normalize_story_image_style_prompt(getattr(game, "image_style_prompt", None)),
@@ -1274,6 +1284,9 @@ def story_game_summary_to_compact_out(
         response_max_tokens=normalize_story_response_max_tokens(getattr(game, "response_max_tokens", None)),
         response_max_tokens_enabled=normalize_story_response_max_tokens_enabled(
             getattr(game, "response_max_tokens_enabled", None)
+        ),
+        response_token_limit_enabled=normalize_story_response_token_limit_enabled(
+            getattr(game, "response_token_limit_enabled", None)
         ),
         story_llm_model=normalized_story_model,
         image_model=coerce_story_image_model(getattr(game, "image_model", None)),
@@ -1734,6 +1747,8 @@ def clone_story_world_cards_to_game(
                 inventory=normalize_story_character_inventory(getattr(card, "inventory", "")),
                 health_status=normalize_story_character_health_status(getattr(card, "health_status", "")),
                 triggers=card.triggers,
+                name_color=normalize_story_character_text_color(getattr(card, "name_color", "")),
+                speech_color=normalize_story_character_text_color(getattr(card, "speech_color", "")),
                 kind=card_kind,
                 detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
                 avatar_url=normalize_story_character_avatar_url(card.avatar_url, db=db),
@@ -1775,6 +1790,8 @@ def clone_story_world_cards_to_game(
                     fallback_title=card.title,
                 )
             ),
+            name_color=normalize_story_character_text_color(getattr(card, "name_color", "")),
+            speech_color=normalize_story_character_text_color(getattr(card, "speech_color", "")),
             kind=card_kind,
             detail_type=" ".join(str(getattr(card, "detail_type", "") or "").replace("\r\n", " ").split()).strip(),
             avatar_url=normalize_story_character_avatar_url(card.avatar_url, db=db),

@@ -17,11 +17,13 @@ import {
 } from '@mui/material'
 import AppHeader from '../components/AppHeader'
 import HeaderAccountActions from '../components/HeaderAccountActions'
+import SoulAmount from '../components/currency/SoulAmount'
 import ProgressiveImage from '../components/media/ProgressiveImage'
 import UserAvatar from '../components/profile/UserAvatar'
 import AvatarFrame from '../components/profile/AvatarFrame'
 import {
   createCoinTopUpPayment,
+  deleteShopCosmeticItem,
   createShopCosmeticItem,
   getShopCatalog,
   purchaseShopCosmeticItem,
@@ -33,6 +35,7 @@ import {
 } from '../services/authApi'
 import type { AuthUser } from '../types/auth'
 import { moriusThemeTokens } from '../theme'
+import { withKnownCosmeticImageUrl } from '../utils/cosmeticImageFallbacks'
 
 type ShopPageProps = {
   user: AuthUser
@@ -48,14 +51,31 @@ const HEADER_AVATAR_SIZE = moriusThemeTokens.layout.headerButtonSize
 const SHOP_DIALOG_PAPER_SX = {
   borderRadius: '18px',
   border: 'var(--morius-border-width) solid var(--morius-card-border)',
-  backgroundColor: 'var(--morius-dialog-bg)',
+  backgroundColor: '#11161d',
   color: 'var(--morius-text-primary)',
-  boxShadow: '0 26px 64px rgba(0,0,0,0.58)',
+  boxShadow: '0 28px 70px rgba(0,0,0,0.72)',
+  '& .MuiDialogTitle-root': {
+    color: 'var(--morius-title-text)',
+  },
+  '& .MuiDialogContent-root': {
+    color: 'var(--morius-text-secondary)',
+  },
+  '& .MuiInputBase-root': {
+    borderRadius: '12px',
+    backgroundColor: '#171d25',
+    color: 'var(--morius-text-primary)',
+  },
+  '& .MuiInputLabel-root': {
+    color: 'var(--morius-text-secondary)',
+  },
+  '& .MuiOutlinedInput-notchedOutline': {
+    borderColor: 'color-mix(in srgb, var(--morius-card-border) 78%, transparent)',
+  },
 }
 const DEFAULT_PLANS: CoinTopUpPlan[] = [
-  { id: 'standard', title: 'Путник', description: '400 солов', price_rub: 399, coins: 400 },
-  { id: 'pro', title: 'Искатель', description: '1300 солов', price_rub: 1190, coins: 1300 },
-  { id: 'mega', title: 'Архонт', description: '5400 солов', price_rub: 4490, coins: 5400 },
+  { id: 'standard', title: 'Путник', description: 'Один баланс для текста, изображений, рамок и баннеров.', price_rub: 399, coins: 400 },
+  { id: 'pro', title: 'Искатель', description: 'Больше запаса для длинных сессий и визуальных генераций.', price_rub: 1190, coins: 1300 },
+  { id: 'mega', title: 'Архонт', description: 'Большой запас для активных миров, артов и покупок.', price_rub: 4490, coins: 5400 },
 ]
 
 function isPrivilegedUser(user: AuthUser): boolean {
@@ -63,8 +83,12 @@ function isPrivilegedUser(user: AuthUser): boolean {
   return role === 'administrator'
 }
 
-function formatCoins(value: number): string {
-  return Math.max(0, Math.trunc(value)).toLocaleString('ru-RU')
+function normalizePlanDescription(description: string | null | undefined): string {
+  const trimmed = (description ?? '').trim()
+  if (!trimmed || /^\d[\d\s.,]*\s*сол(?:ов|а|ы)?$/i.test(trimmed)) {
+    return 'Один баланс для текста, изображений, рамок и баннеров.'
+  }
+  return trimmed.replace(/(^|[^А-Яа-яЁё])сол(?:ов|а|ы)?(?=$|[^А-Яа-яЁё])/gi, '$1валюты')
 }
 
 function formatPrice(value: number): string {
@@ -108,6 +132,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   const [editingIsActive, setEditingIsActive] = useState(true)
   const [editingError, setEditingError] = useState('')
   const [isEditingSaving, setIsEditingSaving] = useState(false)
+  const [deletingItemId, setDeletingItemId] = useState<number | null>(null)
   const [uploadKind, setUploadKind] = useState<CosmeticItemKind>('avatar_frame')
   const [uploadTitle, setUploadTitle] = useState('')
   const [uploadDescription, setUploadDescription] = useState('')
@@ -133,8 +158,8 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }, [loadCatalog])
 
   const plans = catalog?.plans.length ? catalog.plans : DEFAULT_PLANS
-  const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []), [catalog?.avatar_frames])
-  const paidBanners = useMemo(() => (catalog?.profile_banners ?? []), [catalog?.profile_banners])
+  const paidFrames = useMemo(() => (catalog?.avatar_frames ?? []).map(withKnownCosmeticImageUrl), [catalog?.avatar_frames])
+  const paidBanners = useMemo(() => (catalog?.profile_banners ?? []).map(withKnownCosmeticImageUrl), [catalog?.profile_banners])
   const ownedSelectionIds = useMemo(() => new Set(catalog?.owned_selection_ids ?? []), [catalog?.owned_selection_ids])
   const previewAvatarUser = useMemo(() => ({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null }), [user])
 
@@ -255,7 +280,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
   }
 
   const handleCloseEditCosmetic = () => {
-    if (isEditingSaving) {
+    if (isEditingSaving || deletingItemId !== null) {
       return
     }
     setEditingItem(null)
@@ -301,6 +326,47 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
     }
   }
 
+  const handleDeleteEditedCosmetic = async () => {
+    if (!editingItem || isEditingSaving || deletingItemId !== null) {
+      return
+    }
+    const item = editingItem
+    const confirmed = window.confirm(`Удалить «${item.title}» полностью? Покупки этого предмета будут удалены, а выбранное оформление у пользователей сбросится.`)
+    if (!confirmed) {
+      return
+    }
+
+    setDeletingItemId(item.id)
+    setEditingError('')
+    setError('')
+    try {
+      await deleteShopCosmeticItem({
+        token: authToken,
+        item_id: item.id,
+      })
+      const removeItem = (items: CosmeticItem[]) => items.filter((entry) => entry.id !== item.id)
+      setCatalog((previous) => previous
+        ? {
+            ...previous,
+            avatar_frames: removeItem(previous.avatar_frames),
+            profile_banners: removeItem(previous.profile_banners),
+          }
+        : previous)
+      setPurchaseConfirmItem((previous) => (previous?.id === item.id ? null : previous))
+      setPreviewTarget((previous) => (previous?.item.id === item.id ? null : previous))
+      if (item.kind === 'avatar_frame' && user.avatar_frame_id === item.selection_id) {
+        onUserUpdate({ ...user, avatar_frame_id: 'none', avatar_frame_image_url: null })
+      } else if (item.kind === 'profile_banner' && user.profile_banner_id === item.selection_id) {
+        onUserUpdate({ ...user, profile_banner_id: 'none', profile_banner_image_url: null })
+      }
+      setEditingItem(null)
+    } catch (requestError) {
+      setEditingError(requestError instanceof Error ? requestError.message : 'Не удалось удалить предмет')
+    } finally {
+      setDeletingItemId(null)
+    }
+  }
+
   const renderPlanCard = (plan: CoinTopUpPlan, index: number) => {
     const accents = ['#6B9BFF', '#5ADDC7', '#F2B356']
     const accent = accents[index % accents.length]
@@ -323,9 +389,9 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '2.15rem', fontWeight: 900, lineHeight: 1 }}>
             {formatPrice(plan.price_rub)}
           </Typography>
-          <Typography sx={{ color: accent, fontSize: '1.05rem', fontWeight: 900 }}>{formatCoins(plan.coins)} солов</Typography>
+          <SoulAmount amount={plan.coins} iconSize={18} color={accent} fontSize="1.05rem" />
           <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: '0.95rem', lineHeight: 1.45 }}>
-            {plan.description || 'Один баланс для текста, изображений, рамок и баннеров.'}
+            {normalizePlanDescription(plan.description)}
           </Typography>
           <Button
             onClick={() => void handleBuyPlan(plan)}
@@ -459,7 +525,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
             <Typography sx={{ color: 'var(--morius-accent)', fontSize: '0.98rem', fontWeight: 900 }}>
-              {formatCoins(item.price_coins)} солов
+              <SoulAmount amount={item.price_coins} iconSize={17} color="var(--morius-accent)" fontSize="0.98rem" />
             </Typography>
             <Button
               onClick={() => setPurchaseConfirmItem(item)}
@@ -530,7 +596,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               Магазин
             </Typography>
             <Typography sx={{ color: 'var(--morius-text-secondary)', fontSize: { xs: '0.98rem', md: '1.05rem' }, lineHeight: 1.45, maxWidth: 740 }}>
-              Пополните баланс солов и заберите платное оформление профиля: рамки аватарок и баннеры. Купленные предметы появляются в настройках профиля.
+              Пополните баланс и заберите платное оформление профиля: рамки аватарок и баннеры. Купленные предметы появляются в настройках профиля.
             </Typography>
           </Stack>
 
@@ -538,7 +604,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
 
           <Box>
             <Typography sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900, mb: 1.2 }}>
-              Пакеты солов
+              Пакеты валюты
             </Typography>
             <Box sx={{ display: 'grid', gap: 1.6, gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' } }}>
               {plans.map(renderPlanCard)}
@@ -614,7 +680,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </Stack>
       </Box>
 
-      <Dialog open={Boolean(previewTarget)} onClose={() => setPreviewTarget(null)} maxWidth="sm" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}>
+      <Dialog open={Boolean(previewTarget)} onClose={() => setPreviewTarget(null)} maxWidth="sm" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
         <DialogTitle>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
             <Typography component="span" sx={{ color: 'var(--morius-title-text)', fontSize: '1.35rem', fontWeight: 900 }}>
@@ -664,19 +730,28 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
             disabled={previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) || buyingItemId === previewTarget.item.id || !previewTarget.item.is_active}
             sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 22%, var(--morius-card-bg))' }}
           >
-            {previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) ? 'Уже куплено' : !previewTarget.item.is_active ? 'Снят с продажи' : `Купить за ${formatCoins(previewTarget.item.price_coins)}`}
+            {previewTarget.item.is_owned || ownedSelectionIds.has(previewTarget.item.selection_id) ? (
+              'Уже куплено'
+            ) : !previewTarget.item.is_active ? (
+              'Снят с продажи'
+            ) : (
+              <Stack component="span" direction="row" spacing={0.65} alignItems="center">
+                <Box component="span">Купить за</Box>
+                <SoulAmount amount={previewTarget.item.price_coins} iconSize={16} />
+              </Stack>
+            )}
           </Button>
           ) : null}
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(purchaseConfirmItem)} onClose={() => setPurchaseConfirmItem(null)} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}>
+      <Dialog open={Boolean(purchaseConfirmItem)} onClose={() => setPurchaseConfirmItem(null)} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
         <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
           Подтвердить покупку
         </DialogTitle>
         <DialogContent>
           <Typography sx={{ color: 'var(--morius-text-secondary)', lineHeight: 1.55 }}>
-            Купить «{purchaseConfirmItem?.title ?? ''}» за {formatCoins(purchaseConfirmItem?.price_coins ?? 0)} солов?
+            Купить «{purchaseConfirmItem?.title ?? ''}» за <SoulAmount amount={purchaseConfirmItem?.price_coins ?? 0} iconSize={16} />?
             Списание произойдет сразу после подтверждения.
           </Typography>
         </DialogContent>
@@ -705,7 +780,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </DialogActions>
       </Dialog>
 
-      <Dialog open={Boolean(editingItem)} onClose={handleCloseEditCosmetic} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(2,5,10,0.78)' } }}>
+      <Dialog open={Boolean(editingItem)} onClose={handleCloseEditCosmetic} maxWidth="xs" fullWidth PaperProps={{ sx: SHOP_DIALOG_PAPER_SX }} BackdropProps={{ sx: { backgroundColor: 'rgba(1,4,9,0.86)' } }}>
         <DialogTitle sx={{ color: 'var(--morius-title-text)', fontWeight: 900 }}>
           Редактировать предмет
         </DialogTitle>
@@ -715,7 +790,7 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
               {editingItem?.title ?? ''}
             </Typography>
             <TextField
-              label="Цена в солах"
+              label="Цена в валюте"
               value={editingPrice}
               onChange={(event) => setEditingPrice(event.target.value.replace(/\D/g, '').slice(0, 6))}
               fullWidth
@@ -735,15 +810,33 @@ function ShopPage({ user, authToken, onNavigate, onUserUpdate }: ShopPageProps) 
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2.4 }}>
           <Button
+            onClick={() => void handleDeleteEditedCosmetic()}
+            disabled={!editingItem || isEditingSaving || deletingItemId !== null}
+            sx={{
+              mr: 'auto',
+              borderRadius: '12px',
+              textTransform: 'none',
+              color: 'rgba(255,194,194,0.96)',
+              border: 'var(--morius-border-width) solid rgba(255,107,107,0.34)',
+              backgroundColor: 'rgba(255,107,107,0.08)',
+              '&:hover': {
+                backgroundColor: 'rgba(255,107,107,0.14)',
+                borderColor: 'rgba(255,107,107,0.52)',
+              },
+            }}
+          >
+            {editingItem && deletingItemId === editingItem.id ? 'Удаляем...' : 'Удалить полностью'}
+          </Button>
+          <Button
             onClick={handleCloseEditCosmetic}
-            disabled={isEditingSaving}
+            disabled={isEditingSaving || deletingItemId !== null}
             sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-text-secondary)' }}
           >
             Отмена
           </Button>
           <Button
             onClick={() => void handleSaveEditedCosmetic()}
-            disabled={!editingItem || isEditingSaving}
+            disabled={!editingItem || isEditingSaving || deletingItemId !== null}
             sx={{ borderRadius: '12px', textTransform: 'none', color: 'var(--morius-title-text)', backgroundColor: 'color-mix(in srgb, var(--morius-accent) 24%, var(--morius-card-bg))' }}
           >
             {isEditingSaving ? 'Сохраняем...' : 'Сохранить'}

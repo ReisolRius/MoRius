@@ -55,6 +55,7 @@ from app.services.story_characters import (
     normalize_story_character_note,
     normalize_story_character_race,
     normalize_story_character_source,
+    normalize_story_character_text_color,
     normalize_story_character_triggers,
     normalize_story_character_visibility,
     serialize_triggers,
@@ -330,6 +331,8 @@ def _build_story_community_character_summary(
         health_status=character_out.health_status,
         note=character_out.note,
         triggers=character_out.triggers,
+        name_color=character_out.name_color,
+        speech_color=character_out.speech_color,
         avatar_url=character_out.avatar_url,
         avatar_original_url=character_out.avatar_original_url,
         avatar_scale=character_out.avatar_scale,
@@ -368,6 +371,8 @@ def _create_story_character_publication_copy_from_source(
         health_status=normalize_story_character_health_status(getattr(source_character, "health_status", "")),
         note=normalize_story_character_note(source_character.note),
         triggers=serialize_triggers(deserialize_triggers(source_character.triggers)),
+        name_color=normalize_story_character_text_color(getattr(source_character, "name_color", "")),
+        speech_color=normalize_story_character_text_color(getattr(source_character, "speech_color", "")),
         avatar_url=normalize_story_character_avatar_url(source_character.avatar_url, db=db),
         avatar_original_url=(
             normalize_story_character_avatar_original_url(
@@ -438,11 +443,22 @@ def list_story_characters_route(
     limit: int | None = Query(default=None, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     query: str = Query(default="", max_length=200),
+    include_emotion_assets: bool = Query(default=True),
     db: Session = Depends(get_db),
 ) -> list[StoryCharacterOut]:
     user = get_current_user(db, authorization)
-    characters = list_story_characters(db, user.id, limit=limit, offset=offset, query=query)
-    return [story_character_to_out(character) for character in characters]
+    characters = list_story_characters(
+        db,
+        user.id,
+        limit=limit,
+        offset=offset,
+        query=query,
+        include_emotion_assets=include_emotion_assets,
+    )
+    return [
+        story_character_to_out(character, include_emotion_assets=include_emotion_assets)
+        for character in characters
+    ]
 
 
 @router.get("/api/story/character-races", response_model=list[StoryCharacterRaceOut])
@@ -522,6 +538,8 @@ def list_story_community_characters(
                 StoryCharacter.health_status,
                 StoryCharacter.note,
                 StoryCharacter.triggers,
+                StoryCharacter.name_color,
+                StoryCharacter.speech_color,
                 StoryCharacter.avatar_url,
                 StoryCharacter.avatar_original_url,
                 StoryCharacter.avatar_scale,
@@ -635,6 +653,8 @@ def list_story_community_characters(
                 health_status=character_out.health_status,
                 note=character_out.note,
                 triggers=character_out.triggers,
+                name_color=character_out.name_color,
+                speech_color=character_out.speech_color,
                 avatar_url=character_out.avatar_url,
                 avatar_original_url=character_out.avatar_original_url,
                 avatar_scale=character_out.avatar_scale,
@@ -852,6 +872,8 @@ def add_story_community_character_to_account(
                 health_status=normalize_story_character_health_status(getattr(character, "health_status", "")),
                 note=normalize_story_character_note(getattr(character, "note", "")),
                 triggers=serialize_triggers(deserialize_triggers(character.triggers)),
+                name_color=normalize_story_character_text_color(getattr(character, "name_color", "")),
+                speech_color=normalize_story_character_text_color(getattr(character, "speech_color", "")),
                 avatar_url=normalize_story_character_avatar_url(character.avatar_url, db=db),
                 avatar_original_url=(
                     normalize_story_character_avatar_original_url(
@@ -962,6 +984,8 @@ def create_story_character(
     normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
+    normalized_name_color = normalize_story_character_text_color(payload.name_color)
+    normalized_speech_color = normalize_story_character_text_color(payload.speech_color)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
@@ -984,6 +1008,8 @@ def create_story_character(
         health_status=normalized_health_status,
         note=normalized_note,
         triggers=serialize_triggers(normalized_triggers),
+        name_color=normalized_name_color,
+        speech_color=normalized_speech_color,
         avatar_url=avatar_url,
         avatar_original_url=avatar_original_url if avatar_url else None,
         avatar_scale=avatar_scale,
@@ -1036,6 +1062,8 @@ def update_story_character(
     normalized_health_status = normalize_story_character_health_status(payload.health_status)
     normalized_note = normalize_story_character_note(payload.note)
     normalized_triggers = normalize_story_character_triggers(payload.triggers, fallback_name=normalized_name)
+    normalized_name_color = normalize_story_character_text_color(payload.name_color)
+    normalized_speech_color = normalize_story_character_text_color(payload.speech_color)
     avatar_url = normalize_story_character_avatar_url(payload.avatar_url, db=db)
     avatar_original_url = normalize_story_character_avatar_original_url(payload.avatar_original_url, db=db)
     avatar_scale = normalize_story_avatar_scale(payload.avatar_scale)
@@ -1056,6 +1084,8 @@ def update_story_character(
     character.health_status = normalized_health_status
     character.note = normalized_note
     character.triggers = serialize_triggers(normalized_triggers)
+    character.name_color = normalized_name_color
+    character.speech_color = normalized_speech_color
     character.avatar_url = avatar_url
     character.avatar_original_url = avatar_original_url if avatar_url else None
     character.avatar_scale = avatar_scale

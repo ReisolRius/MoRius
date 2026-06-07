@@ -80,7 +80,7 @@ export function resolveApiResourceUrl(value: string | null | undefined): string 
   ) {
     return normalizedValue
   }
-  if (normalizedValue.startsWith('/api/media/')) {
+  if (normalizedValue.startsWith('/api/media/') || normalizedValue.startsWith('/shop-assets/')) {
     return buildApiUrl(normalizedValue)
   }
   return normalizedValue

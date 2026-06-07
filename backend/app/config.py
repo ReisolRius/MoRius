@@ -47,6 +47,10 @@ def _env(name: str, default: str = "") -> str:
     return default
 
 
+def _normalize_env_regex(value: str) -> str:
+    return value.strip().replace("\\\\", "\\")
+
+
 def _to_int(value: str | None, default: int, *, minimum: int = 0) -> int:
     if value is None or not value.strip():
         return max(default, minimum)
@@ -310,10 +314,12 @@ settings = Settings(
     jwt_algorithm=os.getenv("JWT_ALGORITHM", "HS256"),
     access_token_ttl_minutes=int(os.getenv("ACCESS_TOKEN_TTL_MINUTES", "10080")),
     cors_origins=_parse_origins(os.getenv("CORS_ORIGINS", "")),
-    cors_origin_regex=os.getenv(
-        "CORS_ORIGIN_REGEX",
-        r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://mo-rius(?:-[a-z0-9-]+)?\.vercel\.app$|^https://(?:www\.)?morius-ai\.ru$",
-    ).strip(),
+    cors_origin_regex=_normalize_env_regex(
+        os.getenv(
+            "CORS_ORIGIN_REGEX",
+            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://mo-rius(?:-[a-z0-9-]+)?\.vercel\.app$|^https://(?:www\.)?morius-ai\.ru$",
+        )
+    ),
     google_client_id=os.getenv("GOOGLE_CLIENT_ID", "").strip(),
     email_verification_code_ttl_minutes=int(os.getenv("EMAIL_VERIFICATION_CODE_TTL_MINUTES", "10")),
     email_verification_max_attempts=int(os.getenv("EMAIL_VERIFICATION_MAX_ATTEMPTS", "5")),
